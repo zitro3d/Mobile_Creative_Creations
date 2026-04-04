@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <title>RUBBER BAND HANDS</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #000;
+      overflow: hidden;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: block;
+    }
+
+    #video { display: none; }
+
+    /* ── Start screen ── */
+    #start-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      z-index: 20;
+    }
+
+    .logo-line {
+      font-family: 'Courier New', Courier, monospace;
+      font-weight: bold;
+      letter-spacing: 0.25em;
+      text-align: center;
+      line-height: 1.1;
+    }
+
+    .logo-top {
+      font-size: clamp(2rem, 8vw, 4rem);
+      color: #00FFFF;
+      text-shadow:
+        0 0 10px #00FFFF,
+        0 0 30px #00FFFF,
+        0 0 60px #00FFFF;
+    }
+
+    .logo-bottom {
+      font-size: clamp(1.2rem, 5vw, 2.5rem);
+      color: #FF00FF;
+      text-shadow:
+        0 0 10px #FF00FF,
+        0 0 30px #FF00FF,
+        0 0 60px #FF00FF;
+      margin-bottom: 0.3em;
+    }
+
+    .logo-sub {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: clamp(0.6rem, 2.5vw, 0.9rem);
+      color: #FFFF00;
+      letter-spacing: 0.4em;
+      text-shadow: 0 0 8px #FFFF00;
+      margin-bottom: 3em;
+    }
+
+    #start-btn {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: clamp(0.9rem, 3.5vw, 1.3rem);
+      color: #00FF66;
+      background: transparent;
+      border: 2px solid #00FF66;
+      padding: 0.8em 2.5em;
+      letter-spacing: 0.3em;
+      cursor: pointer;
+      text-shadow: 0 0 12px #00FF66;
+      box-shadow:
+        0 0 15px #00FF66,
+        0 0 40px rgba(0,255,102,0.2),
+        inset 0 0 15px rgba(0,255,102,0.05);
+      animation: blink 1.2s ease-in-out infinite;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.35; }
+    }
+
+    .instructions {
+      position: fixed;
+      bottom: 0;
+      left: 0; right: 0;
+      padding: 16px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: clamp(0.55rem, 2vw, 0.75rem);
+      color: #336655;
+      text-align: center;
+      letter-spacing: 0.15em;
+      line-height: 1.8;
+      z-index: 20;
+    }
+
+    /* ── HUD ── */
+    #hud {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.7rem;
+      color: #003322;
+      letter-spacing: 0.2em;
+      text-align: center;
+      pointer-events: none;
+      transition: color 0.4s;
+      z-index: 10;
+    }
+
+    #hud.active {
+      color: #00FF66;
+      text-shadow: 0 0 6px #00FF66;
+    }
+  </style>
+</head>
+<body>
+
+<video id="video" playsinline autoplay muted></video>
+<canvas id="canvas"></canvas>
+
+<div id="start-screen">
+  <div class="logo-line logo-top">RUBBER</div>
+  <div class="logo-line logo-bottom">BAND HANDS</div>
+  <div class="logo-sub">STRETCH · SNAP · PLUCK</div>
+  <button id="start-btn">► INSERT COIN</button>
+  <div class="instructions">
+    SPREAD FINGERS TO STRETCH · PINCH TO SNAP<br>
+    FLICK THUMB ACROSS A BAND TO PLUCK
+  </div>
+</div>
+
+<div id="hud">SHOW YOUR HAND</div>
+
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const FINGERTIP_INDICES = [4, 8, 12, 16, 20]; // thumb → pinky
+
+// All 10 unique pairs among 5 fingertips
+const BAND_PAIRS = [];
+for (let i = 0; i < 5; i++)
+  for (let j = i + 1; j < 5; j++)
+    BAND_PAIRS.push([i, j]);
+
+// Tempest-era neon palette
+const COLORS = [
+  '#00FFFF', // cyan
+  '#FF00FF', // magenta
+  '#FFFF00', // yellow
+  '#00FF66', // green
+  '#FF6600', // orange
+  '#FF0099', // hot pink
+  '#9900FF', // purple
+  '#00CCFF', // sky
+  '#FF3300', // red-orange
+  '#66FF00', // lime
+];
+
+const SNAP_DIST     = 60;   // px — fingers this close = band snaps
+const PLUCK_DIST    = 28;   // px — tip this close to band = pluck
+const SPRING_K      = 0.16;
+const SPRING_DAMP   = 0.86;
+const VIB_DECAY     = 0.935;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOM refs
+// ─────────────────────────────────────────────────────────────────────────────
+
+const canvas    = document.getElementById('canvas');
+const ctx       = canvas.getContext('2d');
+const video     = document.getElementById('video');
+const startScr  = document.getElementById('start-screen');
+const startBtn  = document.getElementById('start-btn');
+const hud       = document.getElementById('hud');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Canvas sizing
+// ─────────────────────────────────────────────────────────────────────────────
+
+function resize() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audio — Web Audio API, 8-bit chiptune style
+// ─────────────────────────────────────────────────────────────────────────────
+
+let audioCtx = null;
+
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playSnap(bandIdx) {
+  if (!audioCtx) return;
+  const t    = audioCtx.currentTime;
+  const base = 180 + bandIdx * 35;
+
+  const osc  = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(base * 3, t);
+  osc.frequency.exponentialRampToValueAtTime(base * 0.4, t + 0.1);
+
+  gain.gain.setValueAtTime(0.10, t);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+
+  osc.start(t);
+  osc.stop(t + 0.14);
+}
+
+function playTwang(bandIdx) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+
+  // Musical notes spread across bands
+  const notes = [261, 294, 330, 349, 392, 440, 494, 523, 587, 659];
+  const freq  = notes[bandIdx % notes.length];
+
+  // Sawtooth fundamental
+  const osc1  = audioCtx.createOscillator();
+  const gain1 = audioCtx.createGain();
+  osc1.connect(gain1);
+  gain1.connect(audioCtx.destination);
+  osc1.type = 'sawtooth';
+  osc1.frequency.setValueAtTime(freq, t);
+  gain1.gain.setValueAtTime(0.12, t);
+  gain1.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+  osc1.start(t);
+  osc1.stop(t + 0.55);
+
+  // Square octave shimmer
+  const osc2  = audioCtx.createOscillator();
+  const gain2 = audioCtx.createGain();
+  osc2.connect(gain2);
+  gain2.connect(audioCtx.destination);
+  osc2.type = 'square';
+  osc2.frequency.setValueAtTime(freq * 2, t);
+  gain2.gain.setValueAtTime(0.04, t);
+  gain2.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+  osc2.start(t);
+  osc2.stop(t + 0.3);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ElasticBand — physics + rendering for one band
+// ─────────────────────────────────────────────────────────────────────────────
+
+class ElasticBand {
+  constructor(idxA, idxB, colorIdx) {
+    this.a         = idxA;
+    this.b         = idxB;
+    this.colorIdx  = colorIdx;
+    this.color     = COLORS[colorIdx % COLORS.length];
+
+    // Spring control point (offset from midpoint in world space)
+    this.cx = 0;  this.cy = 0;
+    this.cvx = 0; this.cvy = 0;
+
+    // Guitar-string vibration
+    this.vibAmp   = 0;
+    this.vibFreq  = 5 + Math.random() * 7;  // oscillations / sec
+    this.vibTime  = 0;
+
+    // State
+    this.prevDist     = 999;
+    this.lastSnapMs   = 0;
+    this.lastPluckMs  = 0;
+  }
+
+  update(tips, dt) {
+    // Spring toward rest (cx=0, cy=0)
+    this.cvx += -SPRING_K  * this.cx;
+    this.cvy += -SPRING_K  * this.cy;
+    this.cvx *= SPRING_DAMP;
+    this.cvy *= SPRING_DAMP;
+    this.cx  += this.cvx;
+    this.cy  += this.cvy;
+
+    // Decay vibration
+    this.vibAmp  *= VIB_DECAY;
+    this.vibTime += dt;
+
+    const a = tips[this.a];
+    const b = tips[this.b];
+    if (!a || !b) return;
+
+    const dist = Math.hypot(b.x - a.x, b.y - a.y);
+    const now  = performance.now();
+
+    // Snap: fingers moved FROM far TO close
+    if (this.prevDist >= SNAP_DIST && dist < SNAP_DIST) {
+      if (now - this.lastSnapMs > 180) {
+        this._doSnap();
+        this.lastSnapMs = now;
+        playSnap(this.colorIdx);
+      }
+    }
+
+    this.prevDist = dist;
+  }
+
+  _doSnap() {
+    const mag   = 30 + Math.random() * 45;
+    const angle = (Math.random() - 0.5) * Math.PI * 1.5;
+    this.cvx += Math.cos(angle) * mag;
+    this.cvy += Math.sin(angle) * mag;
+    this.vibAmp = Math.max(this.vibAmp, 28 + Math.random() * 22);
+  }
+
+  pluck() {
+    const now = performance.now();
+    if (now - this.lastPluckMs < 140) return;
+    this.lastPluckMs = now;
+
+    const mag   = 18 + Math.random() * 28;
+    const angle = (Math.random() - 0.5) * Math.PI * 2;
+    this.cvx += Math.cos(angle) * mag;
+    this.cvy += Math.sin(angle) * mag;
+    this.vibAmp = Math.max(this.vibAmp, 38 + Math.random() * 28);
+
+    playTwang(this.colorIdx);
+  }
+
+  draw(tips) {
+    const a = tips[this.a];
+    const b = tips[this.b];
+    if (!a || !b) return;
+
+    const dx   = b.x - a.x;
+    const dy   = b.y - a.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 6) return;
+
+    // Perpendicular unit vector
+    const px = -dy / dist;
+    const py =  dx / dist;
+
+    // Bezier control point: midpoint + spring offset + vibration
+    const mx  = (a.x + b.x) / 2;
+    const my  = (a.y + b.y) / 2;
+    const vib = this.vibAmp * Math.sin(this.vibTime * this.vibFreq * Math.PI * 2);
+    const cpx = mx + this.cx + px * vib;
+    const cpy = my + this.cy + py * vib;
+
+    // Tension: 0 (slack) → 1 (fully stretched)
+    const tension = Math.min(1, Math.max(0, (dist - 40) / 260));
+
+    this._drawGlow(a.x, a.y, cpx, cpy, b.x, b.y, tension);
+  }
+
+  _drawGlow(ax, ay, cpx, cpy, bx, by, tension) {
+    const alpha = 0.35 + tension * 0.65;
+
+    ctx.lineCap  = 'round';
+    ctx.lineJoin = 'round';
+
+    // Halo layers (wide → narrow, transparent → opaque)
+    const layers = [
+      { w: 22, a: 0.03 },
+      { w: 14, a: 0.07 },
+      { w:  8, a: 0.14 },
+      { w:  4, a: 0.22 },
+    ];
+
+    for (const l of layers) {
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.quadraticCurveTo(cpx, cpy, bx, by);
+      ctx.strokeStyle  = this.color;
+      ctx.globalAlpha  = l.a * alpha;
+      ctx.lineWidth    = l.w;
+      ctx.stroke();
+    }
+
+    // Colored core
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.quadraticCurveTo(cpx, cpy, bx, by);
+    ctx.strokeStyle = this.color;
+    ctx.globalAlpha = 0.85 * alpha;
+    ctx.lineWidth   = 2 + tension * 1.5;
+    ctx.stroke();
+
+    // White-hot center highlight
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.quadraticCurveTo(cpx, cpy, bx, by);
+    ctx.strokeStyle = '#ffffff';
+    ctx.globalAlpha = 0.55 * alpha;
+    ctx.lineWidth   = 0.8 + tension * 0.6;
+    ctx.stroke();
+
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Geometry helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function pointToSegDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(px - ax, py - ay);
+  const t  = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Drawing utilities
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawBackground() {
+  ctx.fillStyle = 'rgba(0,0,0,0.88)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Subtle scanlines — pure Tempest CRT feel
+  ctx.fillStyle = '#ffffff';
+  ctx.globalAlpha = 0.025;
+  for (let y = 0; y < canvas.height; y += 4) {
+    ctx.fillRect(0, y, canvas.width, 1);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawTipDot(x, y, color) {
+  // Outer glow
+  const g = ctx.createRadialGradient(x, y, 0, x, y, 14);
+  g.addColorStop(0,   color + 'CC');
+  g.addColorStop(0.4, color + '55');
+  g.addColorStop(1,   color + '00');
+  ctx.beginPath();
+  ctx.arc(x, y, 14, 0, Math.PI * 2);
+  ctx.fillStyle  = g;
+  ctx.globalAlpha = 0.75;
+  ctx.fill();
+
+  // Bright dot
+  ctx.beginPath();
+  ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle   = '#ffffff';
+  ctx.globalAlpha = 0.9;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pluck detection state
+// ─────────────────────────────────────────────────────────────────────────────
+
+const pluckWasClose = new Map();
+
+function checkPlucks(tips, bands) {
+  for (let ti = 0; ti < tips.length; ti++) {
+    const tip = tips[ti];
+    if (!tip) continue;
+
+    for (let bi = 0; bi < bands.length; bi++) {
+      const band = bands[bi];
+      if (band.a === ti || band.b === ti) continue; // endpoint — not a pluck
+
+      const a = tips[band.a];
+      const b = tips[band.b];
+      if (!a || !b) continue;
+
+      const dist    = pointToSegDist(tip.x, tip.y, a.x, a.y, b.x, b.y);
+      const key     = (ti << 4) | bi;
+      const wasNear = pluckWasClose.get(key) || false;
+      const isNear  = dist < PLUCK_DIST;
+
+      if (isNear && !wasNear) band.pluck();
+      pluckWasClose.set(key, isNear);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────────────────────
+
+let fingertips = Array(5).fill(null); // [{x,y}] or null per finger
+let bands      = [];
+let running    = false;
+let lastTs     = 0;
+let handVisible = false;
+
+function initBands() {
+  bands = BAND_PAIRS.map(([a, b], i) => new ElasticBand(a, b, i));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MediaPipe Hands
+// ─────────────────────────────────────────────────────────────────────────────
+
+function initHandTracking() {
+  const hands = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  });
+
+  hands.setOptions({
+    maxNumHands:            1,
+    modelComplexity:        0,   // lite — better perf on mobile
+    minDetectionConfidence: 0.65,
+    minTrackingConfidence:  0.55,
+  });
+
+  hands.onResults(results => {
+    fingertips  = Array(5).fill(null);
+    handVisible = false;
+
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      handVisible = true;
+      const lm = results.multiHandLandmarks[0];
+      for (let i = 0; i < 5; i++) {
+        const pt = lm[FINGERTIP_INDICES[i]];
+        // Mirror X (front camera selfie flip)
+        fingertips[i] = {
+          x: (1 - pt.x) * canvas.width,
+          y:       pt.y  * canvas.height,
+        };
+      }
+    }
+  });
+
+  const cam = new Camera(video, {
+    onFrame: async () => { await hands.send({ image: video }); },
+    width:      640,
+    height:     480,
+    facingMode: 'user',
+  });
+
+  cam.start().catch(err => {
+    hud.textContent = 'CAMERA ERROR';
+    hud.classList.add('active');
+    console.error(err);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Render loop
+// ─────────────────────────────────────────────────────────────────────────────
+
+function loop(ts) {
+  if (!running) return;
+  requestAnimationFrame(loop);
+
+  const dt = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs = ts;
+
+  drawBackground();
+
+  if (handVisible) {
+    hud.textContent = '';
+    hud.classList.remove('active');
+
+    for (const band of bands) band.update(fingertips, dt);
+    checkPlucks(fingertips, bands);
+    for (const band of bands) band.draw(fingertips);
+
+    fingertips.forEach((tip, i) => {
+      if (tip) drawTipDot(tip.x, tip.y, COLORS[i * 2 % COLORS.length]);
+    });
+  } else {
+    hud.textContent = 'SHOW YOUR HAND';
+    hud.classList.add('active');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Boot
+// ─────────────────────────────────────────────────────────────────────────────
+
+startBtn.addEventListener('click', () => {
+  ensureAudio();
+  startScr.style.display = 'none';
+  initBands();
+  running = true;
+  lastTs  = performance.now();
+  requestAnimationFrame(loop);
+  initHandTracking();
+});
+</script>
+</body>
+</html>
