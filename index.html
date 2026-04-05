@@ -5,617 +5,869 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <title>RUBBER BAND HANDS</title>
+  <title>VECTOR ROCKET</title>
   <style>
-    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
-    html, body {
-      width: 100%; height: 100%;
-      background: #000;
-      overflow: hidden;
-      touch-action: none;
-      -webkit-user-select: none;
-      user-select: none;
-    }
-
-    #canvas {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      display: block;
-    }
-
-    #video { display: none; }
-
-    /* ── Start screen ── */
-    #start-screen {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      background: #000;
-      z-index: 20;
-    }
-
-    .logo-line {
-      font-family: 'Courier New', Courier, monospace;
-      font-weight: bold;
-      letter-spacing: 0.25em;
-      text-align: center;
-      line-height: 1.1;
-    }
-
-    .logo-top {
-      font-size: clamp(2rem, 8vw, 4rem);
-      color: #00FFFF;
-      text-shadow:
-        0 0 10px #00FFFF,
-        0 0 30px #00FFFF,
-        0 0 60px #00FFFF;
-    }
-
-    .logo-bottom {
-      font-size: clamp(1.2rem, 5vw, 2.5rem);
-      color: #FF00FF;
-      text-shadow:
-        0 0 10px #FF00FF,
-        0 0 30px #FF00FF,
-        0 0 60px #FF00FF;
-      margin-bottom: 0.3em;
-    }
-
-    .logo-sub {
-      font-family: 'Courier New', Courier, monospace;
-      font-size: clamp(0.6rem, 2.5vw, 0.9rem);
-      color: #FFFF00;
-      letter-spacing: 0.4em;
-      text-shadow: 0 0 8px #FFFF00;
-      margin-bottom: 3em;
-    }
-
-    #start-btn {
-      font-family: 'Courier New', Courier, monospace;
-      font-size: clamp(0.9rem, 3.5vw, 1.3rem);
-      color: #00FF66;
-      background: transparent;
-      border: 2px solid #00FF66;
-      padding: 0.8em 2.5em;
-      letter-spacing: 0.3em;
-      cursor: pointer;
-      text-shadow: 0 0 12px #00FF66;
-      box-shadow:
-        0 0 15px #00FF66,
-        0 0 40px rgba(0,255,102,0.2),
-        inset 0 0 15px rgba(0,255,102,0.05);
-      animation: blink 1.2s ease-in-out infinite;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.35; }
-    }
-
-    .instructions {
-      position: fixed;
-      bottom: 0;
-      left: 0; right: 0;
-      padding: 16px;
-      font-family: 'Courier New', Courier, monospace;
-      font-size: clamp(0.55rem, 2vw, 0.75rem);
-      color: #336655;
-      text-align: center;
-      letter-spacing: 0.15em;
-      line-height: 1.8;
-      z-index: 20;
-    }
-
-    /* ── HUD ── */
-    #hud {
-      position: fixed;
-      bottom: 18px;
-      left: 50%;
-      transform: translateX(-50%);
-      font-family: 'Courier New', Courier, monospace;
-      font-size: 0.7rem;
-      color: #003322;
-      letter-spacing: 0.2em;
-      text-align: center;
-      pointer-events: none;
-      transition: color 0.4s;
-      z-index: 10;
-    }
-
-    #hud.active {
-      color: #00FF66;
-      text-shadow: 0 0 6px #00FF66;
-    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{width:100%;height:100%;background:#000;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+    #c{position:fixed;top:0;left:0;width:100%;height:100%;display:block}
+    #v{display:none}
   </style>
 </head>
 <body>
-
-<video id="video" playsinline autoplay muted></video>
-<canvas id="canvas"></canvas>
-
-<div id="start-screen">
-  <div class="logo-line logo-top">RUBBER</div>
-  <div class="logo-line logo-bottom">BAND HANDS</div>
-  <div class="logo-sub">STRETCH · SNAP · PLUCK</div>
-  <button id="start-btn">► INSERT COIN</button>
-  <div class="instructions">
-    SPREAD FINGERS TO STRETCH · PINCH TO SNAP<br>
-    FLICK THUMB ACROSS A BAND TO PLUCK
-  </div>
-</div>
-
-<div id="hud">SHOW YOUR HAND</div>
-
-<!-- MediaPipe -->
+<video id="v" playsinline autoplay muted></video>
+<canvas id="c"></canvas>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-
 <script>
 'use strict';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
-const FINGERTIP_INDICES = [4, 8, 12, 16, 20]; // thumb → pinky
-
-// All 10 unique pairs among 5 fingertips
-const BAND_PAIRS = [];
-for (let i = 0; i < 5; i++)
-  for (let j = i + 1; j < 5; j++)
-    BAND_PAIRS.push([i, j]);
-
-// Tempest-era neon palette
-const COLORS = [
-  '#00FFFF', // cyan
-  '#FF00FF', // magenta
-  '#FFFF00', // yellow
-  '#00FF66', // green
-  '#FF6600', // orange
-  '#FF0099', // hot pink
-  '#9900FF', // purple
-  '#00CCFF', // sky
-  '#FF3300', // red-orange
-  '#66FF00', // lime
-];
-
-const SNAP_DIST     = 60;   // px — fingers this close = band snaps
-const PLUCK_DIST    = 28;   // px — tip this close to band = pluck
-const SPRING_K      = 0.16;
-const SPRING_DAMP   = 0.86;
-const VIB_DECAY     = 0.935;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DOM refs
-// ─────────────────────────────────────────────────────────────────────────────
-
-const canvas    = document.getElementById('canvas');
-const ctx       = canvas.getContext('2d');
-const video     = document.getElementById('video');
-const startScr  = document.getElementById('start-screen');
-const startBtn  = document.getElementById('start-btn');
-const hud       = document.getElementById('hud');
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Canvas sizing
-// ─────────────────────────────────────────────────────────────────────────────
-
-function resize() {
-  canvas.width  = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
+// ── Canvas & resize ───────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const video  = document.getElementById('v');
+function resize(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
 resize();
 window.addEventListener('resize', resize);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Audio — Web Audio API, 8-bit chiptune style
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Palette ───────────────────────────────────────────────────────────────
+const C = {
+  cyan:'#00FFFF', mag:'#FF00FF', yel:'#FFFF00', grn:'#00FF66',
+  ora:'#FF6600',  pnk:'#FF0099', pur:'#9900FF', sky:'#00CCFF',
+  red:'#FF3300',  lim:'#66FF00', wht:'#ffffff',  blu:'#3366FF'
+};
+const BEAM_COLS = [C.cyan,C.yel,C.ora,C.red,C.grn,C.pnk,C.sky,C.pur];
+const FINGER_COLS = [C.pnk, C.cyan, C.yel, C.grn, C.ora]; // thumb→pinky
 
-let audioCtx = null;
+// ── MediaPipe landmark indices ────────────────────────────────────────────
+const TIP_IDX = [4,8,12,16,20];
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],
+  [5,9],[9,13],[13,17],[0,17]
+];
+const BAND_PAIRS=[];
+for(let i=0;i<5;i++) for(let j=i+1;j<5;j++) BAND_PAIRS.push([i,j]);
 
-function ensureAudio() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-}
-
-function playSnap(bandIdx) {
-  if (!audioCtx) return;
-  const t    = audioCtx.currentTime;
-  const base = 180 + bandIdx * 35;
-
-  const osc  = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-
-  osc.type = 'square';
-  osc.frequency.setValueAtTime(base * 3, t);
-  osc.frequency.exponentialRampToValueAtTime(base * 0.4, t + 0.1);
-
-  gain.gain.setValueAtTime(0.10, t);
-  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
-
-  osc.start(t);
-  osc.stop(t + 0.14);
-}
-
-function playTwang(bandIdx) {
-  if (!audioCtx) return;
-  const t = audioCtx.currentTime;
-
-  // Musical notes spread across bands
-  const notes = [261, 294, 330, 349, 392, 440, 494, 523, 587, 659];
-  const freq  = notes[bandIdx % notes.length];
-
-  // Sawtooth fundamental
-  const osc1  = audioCtx.createOscillator();
-  const gain1 = audioCtx.createGain();
-  osc1.connect(gain1);
-  gain1.connect(audioCtx.destination);
-  osc1.type = 'sawtooth';
-  osc1.frequency.setValueAtTime(freq, t);
-  gain1.gain.setValueAtTime(0.12, t);
-  gain1.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
-  osc1.start(t);
-  osc1.stop(t + 0.55);
-
-  // Square octave shimmer
-  const osc2  = audioCtx.createOscillator();
-  const gain2 = audioCtx.createGain();
-  osc2.connect(gain2);
-  gain2.connect(audioCtx.destination);
-  osc2.type = 'square';
-  osc2.frequency.setValueAtTime(freq * 2, t);
-  gain2.gain.setValueAtTime(0.04, t);
-  gain2.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
-  osc2.start(t);
-  osc2.stop(t + 0.3);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ElasticBand — physics + rendering for one band
-// ─────────────────────────────────────────────────────────────────────────────
-
-class ElasticBand {
-  constructor(idxA, idxB, colorIdx) {
-    this.a         = idxA;
-    this.b         = idxB;
-    this.colorIdx  = colorIdx;
-    this.color     = COLORS[colorIdx % COLORS.length];
-
-    // Spring control point (offset from midpoint in world space)
-    this.cx = 0;  this.cy = 0;
-    this.cvx = 0; this.cvy = 0;
-
-    // Guitar-string vibration
-    this.vibAmp   = 0;
-    this.vibFreq  = 5 + Math.random() * 7;  // oscillations / sec
-    this.vibTime  = 0;
-
-    // State
-    this.prevDist     = 999;
-    this.lastSnapMs   = 0;
-    this.lastPluckMs  = 0;
+// ── Procedural grungy background ──────────────────────────────────────────
+let bgCanvas = null;
+function buildBg(){
+  const W=430, H=932;
+  const off = document.createElement('canvas');
+  off.width=W; off.height=H;
+  const oc = off.getContext('2d');
+  // Base dark fill
+  oc.fillStyle='#040408'; oc.fillRect(0,0,W,H);
+  // Grain noise
+  const id = oc.getImageData(0,0,W,H);
+  const d  = id.data;
+  for(let i=0;i<d.length;i+=4){
+    const n=(Math.random()*18)|0;
+    d[i]=n; d[i+1]=n; d[i+2]=n+3; d[i+3]=255;
   }
+  oc.putImageData(id,0,0);
+  // Stars
+  for(let i=0;i<220;i++){
+    oc.beginPath();
+    oc.arc(Math.random()*W, Math.random()*H, Math.random()*1.2+0.2, 0, Math.PI*2);
+    oc.fillStyle=`rgba(255,255,255,${0.2+Math.random()*0.7})`;
+    oc.fill();
+  }
+  // Radial vignette
+  const rv = oc.createRadialGradient(W/2,H/2,H*0.28,W/2,H/2,H*0.75);
+  rv.addColorStop(0,'rgba(0,0,0,0)'); rv.addColorStop(1,'rgba(0,0,0,0.82)');
+  oc.fillStyle=rv; oc.fillRect(0,0,W,H);
+  // Left edge grunge
+  const lg = oc.createLinearGradient(0,0,W*0.28,0);
+  lg.addColorStop(0,'rgba(0,0,0,0.78)'); lg.addColorStop(1,'rgba(0,0,0,0)');
+  oc.fillStyle=lg; oc.fillRect(0,0,W,H);
+  // Right edge grunge
+  const rg = oc.createLinearGradient(W,0,W*0.72,0);
+  rg.addColorStop(0,'rgba(0,0,0,0.78)'); rg.addColorStop(1,'rgba(0,0,0,0)');
+  oc.fillStyle=rg; oc.fillRect(0,0,W,H);
+  // Top grunge
+  const tg = oc.createLinearGradient(0,0,0,H*0.12);
+  tg.addColorStop(0,'rgba(0,0,0,0.65)'); tg.addColorStop(1,'rgba(0,0,0,0)');
+  oc.fillStyle=tg; oc.fillRect(0,0,W,H);
+  // Bottom grunge
+  const bg2 = oc.createLinearGradient(0,H,0,H*0.85);
+  bg2.addColorStop(0,'rgba(0,0,0,0.7)'); bg2.addColorStop(1,'rgba(0,0,0,0)');
+  oc.fillStyle=bg2; oc.fillRect(0,0,W,H);
+  bgCanvas = off;
+}
+buildBg();
+function drawBg(){
+  ctx.drawImage(bgCanvas, 0, 0, canvas.width, canvas.height);
+}
 
-  update(tips, dt) {
-    // Spring toward rest (cx=0, cy=0)
-    this.cvx += -SPRING_K  * this.cx;
-    this.cvy += -SPRING_K  * this.cy;
-    this.cvx *= SPRING_DAMP;
-    this.cvy *= SPRING_DAMP;
-    this.cx  += this.cvx;
-    this.cy  += this.cvy;
+// ── Audio ─────────────────────────────────────────────────────────────────
+let aCtx=null;
+function ensureAudio(){
+  if(!aCtx) aCtx=new(window.AudioContext||window.webkitAudioContext)();
+  if(aCtx.state==='suspended') aCtx.resume();
+}
+function mkDistortion(amount=80){
+  const ws=aCtx.createWaveShaper();
+  const n=256, curve=new Float32Array(n);
+  const k=amount;
+  for(let i=0;i<n;i++){
+    const x=i*2/n-1;
+    curve[i]=(3+k)*x*20*Math.PI/180/(Math.PI+k*Math.abs(x));
+  }
+  ws.curve=curve; ws.oversample='4x'; return ws;
+}
+function playSnap(){
+  if(!aCtx)return; const t=aCtx.currentTime;
+  const o=aCtx.createOscillator(),g=aCtx.createGain();
+  o.connect(g);g.connect(aCtx.destination);
+  o.type='square'; o.frequency.setValueAtTime(320,t); o.frequency.exponentialRampToValueAtTime(80,t+0.08);
+  g.gain.setValueAtTime(0.12,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.1);
+  o.start(t);o.stop(t+0.1);
+}
+function playTwang(idx){
+  if(!aCtx)return; const t=aCtx.currentTime;
+  const notes=[220,247,277,311,349,392,440,494,523,587];
+  const f=notes[idx%notes.length];
+  const o=aCtx.createOscillator(),dist=mkDistortion(60),g=aCtx.createGain();
+  o.connect(dist);dist.connect(g);g.connect(aCtx.destination);
+  o.type='sawtooth'; o.frequency.setValueAtTime(f,t);
+  o.frequency.setValueAtTime(f*1.05,t+0.02); o.frequency.exponentialRampToValueAtTime(f*0.96,t+0.4);
+  g.gain.setValueAtTime(0.15,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.5);
+  o.start(t);o.stop(t+0.5);
+}
+function playBlast(){
+  if(!aCtx)return; const t=aCtx.currentTime;
+  // Distorted power blast
+  const o1=aCtx.createOscillator(),o2=aCtx.createOscillator();
+  const dist=mkDistortion(120),g=aCtx.createGain();
+  o1.connect(dist);o2.connect(dist);dist.connect(g);g.connect(aCtx.destination);
+  o1.type='sawtooth'; o1.frequency.setValueAtTime(220,t); o1.frequency.exponentialRampToValueAtTime(110,t+0.2);
+  o2.type='square';   o2.frequency.setValueAtTime(330,t); o2.frequency.exponentialRampToValueAtTime(165,t+0.2);
+  g.gain.setValueAtTime(0.2,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.25);
+  o1.start(t);o1.stop(t+0.25);o2.start(t);o2.stop(t+0.25);
+}
+function playHit(){
+  if(!aCtx)return; const t=aCtx.currentTime;
+  // Noise crash
+  const bufSz=aCtx.sampleRate*0.35;
+  const buf=aCtx.createBuffer(1,bufSz,aCtx.sampleRate);
+  const data=buf.getChannelData(0);
+  for(let i=0;i<bufSz;i++) data[i]=(Math.random()*2-1)*Math.pow(1-i/bufSz,1.5);
+  const src=aCtx.createBufferSource(),filt=aCtx.createBiquadFilter(),g=aCtx.createGain();
+  filt.type='bandpass'; filt.frequency.value=600; filt.Q.value=0.8;
+  src.buffer=buf; src.connect(filt);filt.connect(g);g.connect(aCtx.destination);
+  g.gain.setValueAtTime(0.5,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.35);
+  src.start(t); src.stop(t+0.35);
+  // Pitch drop
+  const o=aCtx.createOscillator(),g2=aCtx.createGain();
+  o.connect(g2);g2.connect(aCtx.destination);
+  o.type='square'; o.frequency.setValueAtTime(800,t); o.frequency.exponentialRampToValueAtTime(60,t+0.2);
+  g2.gain.setValueAtTime(0.18,t); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.25);
+  o.start(t);o.stop(t+0.25);
+}
+function playStartChord(){
+  if(!aCtx)return; const t=aCtx.currentTime;
+  [220,277,330].forEach((f,i)=>{
+    const o=aCtx.createOscillator(),dist=mkDistortion(100),g=aCtx.createGain();
+    o.connect(dist);dist.connect(g);g.connect(aCtx.destination);
+    o.type='sawtooth'; o.frequency.value=f;
+    g.gain.setValueAtTime(0,t+i*0.02); g.gain.linearRampToValueAtTime(0.08,t+i*0.02+0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.5);
+    o.start(t+i*0.02); o.stop(t+0.6);
+  });
+}
 
-    // Decay vibration
-    this.vibAmp  *= VIB_DECAY;
-    this.vibTime += dt;
 
-    const a = tips[this.a];
-    const b = tips[this.b];
-    if (!a || !b) return;
-
-    const dist = Math.hypot(b.x - a.x, b.y - a.y);
-    const now  = performance.now();
-
-    // Snap: fingers moved FROM far TO close
-    if (this.prevDist >= SNAP_DIST && dist < SNAP_DIST) {
-      if (now - this.lastSnapMs > 180) {
-        this._doSnap();
-        this.lastSnapMs = now;
-        playSnap(this.colorIdx);
+// ── Rocket class ──────────────────────────────────────────────────────────
+class Rocket {
+  constructor(scale=1){
+    this.scale=scale;
+    this.reset(true);
+  }
+  reset(init=false){
+    const pad=60*this.scale;
+    this.x=pad+Math.random()*(canvas.width-pad*2);
+    this.y=init? pad+Math.random()*(canvas.height*0.6): -40;
+    const speed=(30+Math.random()*50)*this.scale;
+    const angle=Math.PI*0.3+Math.random()*Math.PI*0.4;
+    this.vx=Math.cos(angle)*speed*(Math.random()<0.5?1:-1);
+    this.vy=Math.sin(angle)*speed;
+    this.angle=Math.atan2(this.vy,this.vx)-Math.PI/2;
+    this.spinRate=(Math.random()-0.5)*0.4;
+    this.sz=32*this.scale;
+    this.alive=true;
+    this.explodeTimer=0;
+    this.particles=[];
+  }
+  get radius(){ return this.sz*0.7; }
+  update(dt){
+    if(!this.alive){
+      this.explodeTimer-=dt;
+      for(const p of this.particles){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; }
+      this.particles=this.particles.filter(p=>p.life>0);
+      if(this.explodeTimer<=0) this.reset();
+      return;
+    }
+    this.x+=this.vx*dt; this.y+=this.vy*dt;
+    this.angle=Math.atan2(this.vy,this.vx)-Math.PI/2;
+    const pad=this.sz*2;
+    if(this.x<pad){ this.vx=Math.abs(this.vx); }
+    if(this.x>canvas.width-pad){ this.vx=-Math.abs(this.vx); }
+    if(this.y<pad){ this.vy=Math.abs(this.vy); }
+    if(this.y>canvas.height+80){ this.reset(); }
+  }
+  explode(){
+    this.alive=false; this.explodeTimer=1.4;
+    // Starburst lines
+    for(let i=0;i<16;i++){
+      const a=(i/16)*Math.PI*2;
+      const spd=60+Math.random()*120;
+      const col=BEAM_COLS[i%BEAM_COLS.length];
+      this.particles.push({x:this.x,y:this.y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,life:0.8+Math.random()*0.5,col,type:'ray',len:30+Math.random()*50});
+    }
+    // Debris quads
+    for(let i=0;i<8;i++){
+      const a=Math.random()*Math.PI*2, spd=40+Math.random()*80;
+      const col=BEAM_COLS[Math.floor(Math.random()*BEAM_COLS.length)];
+      this.particles.push({x:this.x,y:this.y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,life:0.6+Math.random()*0.7,col,type:'debris',rot:Math.random()*Math.PI,sz:4+Math.random()*10});
+    }
+  }
+  drawRocket(x,y,angle,sz,alpha=1){
+    ctx.save();
+    ctx.translate(x,y); ctx.rotate(angle);
+    ctx.globalAlpha=alpha; ctx.lineCap='round'; ctx.lineJoin='round';
+    const s=sz;
+    // Body
+    ctx.beginPath();ctx.moveTo(0,-s);ctx.lineTo(-s*0.4,s*0.5);ctx.lineTo(s*0.4,s*0.5);ctx.closePath();
+    ctx.strokeStyle=C.red; ctx.lineWidth=1.5; ctx.shadowBlur=5; ctx.shadowColor=C.red; ctx.stroke();
+    // Left fin
+    ctx.beginPath();ctx.moveTo(-s*0.4,s*0.1);ctx.lineTo(-s*0.85,s*0.75);ctx.lineTo(-s*0.4,s*0.5);ctx.closePath();
+    ctx.strokeStyle=C.grn; ctx.shadowColor=C.grn; ctx.stroke();
+    // Right fin
+    ctx.beginPath();ctx.moveTo(s*0.4,s*0.1);ctx.lineTo(s*0.85,s*0.75);ctx.lineTo(s*0.4,s*0.5);ctx.closePath();
+    ctx.strokeStyle=C.grn; ctx.shadowColor=C.grn; ctx.stroke();
+    // Window diamond
+    ctx.beginPath();ctx.moveTo(0,-s*0.25);ctx.lineTo(-s*0.18,0);ctx.lineTo(0,s*0.22);ctx.lineTo(s*0.18,0);ctx.closePath();
+    ctx.strokeStyle=C.cyan; ctx.shadowColor=C.cyan; ctx.stroke();
+    // Body cross lines
+    ctx.beginPath();ctx.moveTo(-s*0.3,s*0.3);ctx.lineTo(s*0.3,s*0.3);
+    ctx.strokeStyle=C.red; ctx.lineWidth=1; ctx.shadowBlur=3; ctx.shadowColor=C.red; ctx.stroke();
+    ctx.beginPath();ctx.moveTo(-s*0.2,-s*0.1);ctx.lineTo(s*0.2,-s*0.1);ctx.stroke();
+    // Thruster flame
+    const flicker=0.6+0.4*Math.sin(Date.now()*0.015);
+    ctx.globalAlpha=alpha*flicker;
+    ctx.beginPath();ctx.moveTo(-s*0.25,s*0.5);ctx.lineTo(0,s*0.5+s*0.5*flicker);ctx.lineTo(s*0.25,s*0.5);
+    ctx.strokeStyle=C.ora; ctx.lineWidth=2; ctx.shadowColor=C.ora; ctx.shadowBlur=8; ctx.stroke();
+    // Trail
+    ctx.globalAlpha=alpha*0.4;
+    for(let i=1;i<=3;i++){
+      const tx=-this.vx/Math.hypot(this.vx,this.vy)*i*8;
+      const ty=-this.vy/Math.hypot(this.vx,this.vy)*i*8;
+      ctx.beginPath();ctx.moveTo(-s*0.12+tx,s*0.6+ty);ctx.lineTo(s*0.12+tx,s*0.6+ty);
+      ctx.strokeStyle=C.sky; ctx.lineWidth=1.5-i*0.3; ctx.shadowBlur=4; ctx.shadowColor=C.sky; ctx.stroke();
+    }
+    ctx.restore(); ctx.globalAlpha=1; ctx.shadowBlur=0;
+  }
+  draw(){
+    if(!this.alive){
+      // Draw explosion particles
+      for(const p of this.particles){
+        const a=Math.min(1,p.life/0.6);
+        ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle=p.col; ctx.shadowBlur=8; ctx.shadowColor=p.col;
+        if(p.type==='ray'){
+          const nx=p.vx/Math.hypot(p.vx,p.vy),ny=p.vy/Math.hypot(p.vx,p.vy);
+          ctx.lineWidth=1.5; ctx.beginPath();
+          ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+nx*p.len*a,p.y+ny*p.len*a); ctx.stroke();
+          // Double line
+          ctx.globalAlpha=a*0.4;
+          ctx.beginPath();ctx.moveTo(p.x+ny*3,p.y-nx*3);ctx.lineTo(p.x+nx*p.len*a*0.8+ny*3,p.y+ny*p.len*a*0.8-nx*3);ctx.stroke();
+        } else {
+          ctx.translate(p.x,p.y); ctx.rotate(p.rot+p.life);
+          const sz=p.sz*(0.5+a*0.5);
+          ctx.lineWidth=1.2;
+          ctx.beginPath();ctx.moveTo(-sz,-sz*0.5);ctx.lineTo(sz,-sz*0.5);ctx.lineTo(sz*0.5,sz);ctx.closePath();ctx.stroke();
+        }
+        ctx.restore();
       }
-    }
-
-    this.prevDist = dist;
-  }
-
-  _doSnap() {
-    const mag   = 30 + Math.random() * 45;
-    const angle = (Math.random() - 0.5) * Math.PI * 1.5;
-    this.cvx += Math.cos(angle) * mag;
-    this.cvy += Math.sin(angle) * mag;
-    this.vibAmp = Math.max(this.vibAmp, 28 + Math.random() * 22);
-  }
-
-  pluck() {
-    const now = performance.now();
-    if (now - this.lastPluckMs < 140) return;
-    this.lastPluckMs = now;
-
-    const mag   = 18 + Math.random() * 28;
-    const angle = (Math.random() - 0.5) * Math.PI * 2;
-    this.cvx += Math.cos(angle) * mag;
-    this.cvy += Math.sin(angle) * mag;
-    this.vibAmp = Math.max(this.vibAmp, 38 + Math.random() * 28);
-
-    playTwang(this.colorIdx);
-  }
-
-  draw(tips) {
-    const a = tips[this.a];
-    const b = tips[this.b];
-    if (!a || !b) return;
-
-    const dx   = b.x - a.x;
-    const dy   = b.y - a.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 6) return;
-
-    // Perpendicular unit vector
-    const px = -dy / dist;
-    const py =  dx / dist;
-
-    // Bezier control point: midpoint + spring offset + vibration
-    const mx  = (a.x + b.x) / 2;
-    const my  = (a.y + b.y) / 2;
-    const vib = this.vibAmp * Math.sin(this.vibTime * this.vibFreq * Math.PI * 2);
-    const cpx = mx + this.cx + px * vib;
-    const cpy = my + this.cy + py * vib;
-
-    // Tension: 0 (slack) → 1 (fully stretched)
-    const tension = Math.min(1, Math.max(0, (dist - 40) / 260));
-
-    this._drawGlow(a.x, a.y, cpx, cpy, b.x, b.y, tension);
-  }
-
-  _drawGlow(ax, ay, cpx, cpy, bx, by, tension) {
-    const alpha = 0.35 + tension * 0.65;
-
-    ctx.lineCap  = 'round';
-    ctx.lineJoin = 'round';
-
-    // Halo layers (wide → narrow, transparent → opaque)
-    const layers = [
-      { w: 22, a: 0.03 },
-      { w: 14, a: 0.07 },
-      { w:  8, a: 0.14 },
-      { w:  4, a: 0.22 },
-    ];
-
-    for (const l of layers) {
-      ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.quadraticCurveTo(cpx, cpy, bx, by);
-      ctx.strokeStyle  = this.color;
-      ctx.globalAlpha  = l.a * alpha;
-      ctx.lineWidth    = l.w;
-      ctx.stroke();
-    }
-
-    // Colored core
-    ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.quadraticCurveTo(cpx, cpy, bx, by);
-    ctx.strokeStyle = this.color;
-    ctx.globalAlpha = 0.85 * alpha;
-    ctx.lineWidth   = 2 + tension * 1.5;
-    ctx.stroke();
-
-    // White-hot center highlight
-    ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.quadraticCurveTo(cpx, cpy, bx, by);
-    ctx.strokeStyle = '#ffffff';
-    ctx.globalAlpha = 0.55 * alpha;
-    ctx.lineWidth   = 0.8 + tension * 0.6;
-    ctx.stroke();
-
-    ctx.globalAlpha = 1;
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Geometry helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function pointToSegDist(px, py, ax, ay, bx, by) {
-  const dx = bx - ax, dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return Math.hypot(px - ax, py - ay);
-  const t  = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Drawing utilities
-// ─────────────────────────────────────────────────────────────────────────────
-
-function drawBackground() {
-  ctx.fillStyle = 'rgba(0,0,0,0.88)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Subtle scanlines — pure Tempest CRT feel
-  ctx.fillStyle = '#ffffff';
-  ctx.globalAlpha = 0.025;
-  for (let y = 0; y < canvas.height; y += 4) {
-    ctx.fillRect(0, y, canvas.width, 1);
-  }
-  ctx.globalAlpha = 1;
-}
-
-function drawTipDot(x, y, color) {
-  // Outer glow
-  const g = ctx.createRadialGradient(x, y, 0, x, y, 14);
-  g.addColorStop(0,   color + 'CC');
-  g.addColorStop(0.4, color + '55');
-  g.addColorStop(1,   color + '00');
-  ctx.beginPath();
-  ctx.arc(x, y, 14, 0, Math.PI * 2);
-  ctx.fillStyle  = g;
-  ctx.globalAlpha = 0.75;
-  ctx.fill();
-
-  // Bright dot
-  ctx.beginPath();
-  ctx.arc(x, y, 3.5, 0, Math.PI * 2);
-  ctx.fillStyle   = '#ffffff';
-  ctx.globalAlpha = 0.9;
-  ctx.fill();
-  ctx.globalAlpha = 1;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Pluck detection state
-// ─────────────────────────────────────────────────────────────────────────────
-
-const pluckWasClose = new Map();
-
-function checkPlucks(tips, bands) {
-  for (let ti = 0; ti < tips.length; ti++) {
-    const tip = tips[ti];
-    if (!tip) continue;
-
-    for (let bi = 0; bi < bands.length; bi++) {
-      const band = bands[bi];
-      if (band.a === ti || band.b === ti) continue; // endpoint — not a pluck
-
-      const a = tips[band.a];
-      const b = tips[band.b];
-      if (!a || !b) continue;
-
-      const dist    = pointToSegDist(tip.x, tip.y, a.x, a.y, b.x, b.y);
-      const key     = (ti << 4) | bi;
-      const wasNear = pluckWasClose.get(key) || false;
-      const isNear  = dist < PLUCK_DIST;
-
-      if (isNear && !wasNear) band.pluck();
-      pluckWasClose.set(key, isNear);
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// State
-// ─────────────────────────────────────────────────────────────────────────────
-
-let fingertips = Array(5).fill(null); // [{x,y}] or null per finger
-let bands      = [];
-let running    = false;
-let lastTs     = 0;
-let handVisible = false;
-
-function initBands() {
-  bands = BAND_PAIRS.map(([a, b], i) => new ElasticBand(a, b, i));
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MediaPipe Hands
-// ─────────────────────────────────────────────────────────────────────────────
-
-function initHandTracking() {
-  const hands = new Hands({
-    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
-  });
-
-  hands.setOptions({
-    maxNumHands:            1,
-    modelComplexity:        0,   // lite — better perf on mobile
-    minDetectionConfidence: 0.65,
-    minTrackingConfidence:  0.55,
-  });
-
-  hands.onResults(results => {
-    fingertips  = Array(5).fill(null);
-    handVisible = false;
-
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-      handVisible = true;
-      const lm = results.multiHandLandmarks[0];
-      for (let i = 0; i < 5; i++) {
-        const pt = lm[FINGERTIP_INDICES[i]];
-        // Mirror X (front camera selfie flip)
-        fingertips[i] = {
-          x: (1 - pt.x) * canvas.width,
-          y:       pt.y  * canvas.height,
-        };
+      // Center glow
+      if(this.explodeTimer>0.8){
+        const a=(this.explodeTimer-0.8)/0.6;
+        const grd=ctx.createRadialGradient(this.x,this.y,0,this.x,this.y,80*a);
+        grd.addColorStop(0,`rgba(255,200,50,${a*0.7})`);
+        grd.addColorStop(1,'rgba(255,100,0,0)');
+        ctx.fillStyle=grd; ctx.fillRect(this.x-100,this.y-100,200,200);
       }
+      return;
     }
-  });
-
-  const cam = new Camera(video, {
-    onFrame: async () => { await hands.send({ image: video }); },
-    width:      640,
-    height:     480,
-    facingMode: 'user',
-  });
-
-  cam.start().catch(err => {
-    hud.textContent = 'CAMERA ERROR';
-    hud.classList.add('active');
-    console.error(err);
-  });
+    this.drawRocket(this.x,this.y,this.angle,this.sz);
+  }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Render loop
-// ─────────────────────────────────────────────────────────────────────────────
 
-function loop(ts) {
-  if (!running) return;
-  requestAnimationFrame(loop);
+// ── Beam class ────────────────────────────────────────────────────────────
+class Beam {
+  constructor(ox,oy,angle,color){
+    this.ox=ox; this.oy=oy;
+    this.x=ox; this.y=oy;
+    this.vx=Math.cos(angle)*700; this.vy=Math.sin(angle)*700;
+    this.color=color; this.life=0.9; this.maxLife=0.9;
+  }
+  update(dt){ this.x+=this.vx*dt; this.y+=this.vy*dt; this.life-=dt; }
+  get alive(){ return this.life>0&&this.x>-50&&this.x<canvas.width+50&&this.y>-50&&this.y<canvas.height+50; }
+  draw(offset=0){
+    const a=this.life/this.maxLife;
+    const nx=-this.vy/700, ny=this.vx/700;
+    ctx.save();
+    ctx.globalAlpha=a*0.9; ctx.strokeStyle=this.color;
+    ctx.lineWidth=1.8; ctx.lineCap='round';
+    ctx.shadowBlur=8; ctx.shadowColor=this.color;
+    ctx.beginPath();
+    ctx.moveTo(this.ox+nx*offset, this.oy+ny*offset);
+    ctx.lineTo(this.x+nx*offset,  this.y+ny*offset);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
 
-  const dt = Math.min((ts - lastTs) / 1000, 0.05);
-  lastTs = ts;
+// ── ElasticBand class ─────────────────────────────────────────────────────
+class Band {
+  constructor(a,b,ci){
+    this.a=a; this.b=b; this.ci=ci; this.color=BEAM_COLS[ci%BEAM_COLS.length];
+    this.cx=0;this.cy=0;this.cvx=0;this.cvy=0;
+    this.vAmp=0; this.vFreq=5+Math.random()*7; this.vTime=0;
+    this.prevDist=999; this.lastSnapMs=0; this.lastPluckMs=0;
+  }
+  update(tips,dt){
+    this.cvx+=-0.16*this.cx; this.cvy+=-0.16*this.cy;
+    this.cvx*=0.86; this.cvy*=0.86;
+    this.cx+=this.cvx; this.cy+=this.cvy;
+    this.vAmp*=0.935; this.vTime+=dt;
+    const a=tips[this.a],b=tips[this.b]; if(!a||!b)return;
+    const dist=Math.hypot(b.x-a.x,b.y-a.y), now=performance.now();
+    if(this.prevDist>=55&&dist<55&&now-this.lastSnapMs>180){
+      const mag=30+Math.random()*40, ang=(Math.random()-0.5)*Math.PI*1.5;
+      this.cvx+=Math.cos(ang)*mag; this.cvy+=Math.sin(ang)*mag;
+      this.vAmp=Math.max(this.vAmp,25+Math.random()*20);
+      this.lastSnapMs=now; playSnap();
+    }
+    this.prevDist=dist;
+  }
+  pluck(){
+    const now=performance.now(); if(now-this.lastPluckMs<140)return;
+    this.lastPluckMs=now;
+    const mag=18+Math.random()*25,ang=(Math.random()-0.5)*Math.PI*2;
+    this.cvx+=Math.cos(ang)*mag; this.cvy+=Math.sin(ang)*mag;
+    this.vAmp=Math.max(this.vAmp,35+Math.random()*28);
+    playTwang(this.ci);
+  }
+  draw(tips){
+    const a=tips[this.a],b=tips[this.b]; if(!a||!b)return;
+    const dx=b.x-a.x,dy=b.y-a.y,dist=Math.hypot(dx,dy); if(dist<6)return;
+    const px=-dy/dist,py=dx/dist;
+    const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+    const vib=this.vAmp*Math.sin(this.vTime*this.vFreq*Math.PI*2);
+    const cpx=mx+this.cx+px*vib,cpy=my+this.cy+py*vib;
+    const tension=Math.min(1,Math.max(0,(dist-40)/260));
+    const alpha=0.3+tension*0.7;
+    ctx.lineCap='round';
+    for(const [w,al] of [[20,0.03],[12,0.07],[7,0.14],[4,0.22]]){
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
+      ctx.strokeStyle=this.color;ctx.globalAlpha=al*alpha;ctx.lineWidth=w;ctx.stroke();
+    }
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
+    ctx.strokeStyle=this.color;ctx.globalAlpha=0.85*alpha;ctx.lineWidth=2+tension*1.5;ctx.stroke();
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
+    ctx.strokeStyle=C.wht;ctx.globalAlpha=0.5*alpha;ctx.lineWidth=0.8;ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+}
 
-  drawBackground();
+// ── Pluck detection ───────────────────────────────────────────────────────
+const pluckState=new Map();
+function ptSegDist(px,py,ax,ay,bx,by){
+  const dx=bx-ax,dy=by-ay,lenSq=dx*dx+dy*dy;
+  if(lenSq===0)return Math.hypot(px-ax,py-ay);
+  const t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/lenSq));
+  return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));
+}
+function checkPlucks(tips,bands){
+  for(let ti=0;ti<tips.length;ti++){
+    const tip=tips[ti]; if(!tip)continue;
+    for(let bi=0;bi<bands.length;bi++){
+      const band=bands[bi];
+      if(band.a===ti||band.b===ti)continue;
+      const a=tips[band.a],b=tips[band.b]; if(!a||!b)continue;
+      const d=ptSegDist(tip.x,tip.y,a.x,a.y,b.x,b.y);
+      const key=(ti<<4)|bi, was=pluckState.get(key)||false, is=d<28;
+      if(is&&!was) band.pluck();
+      pluckState.set(key,is);
+    }
+  }
+}
 
-  if (handVisible) {
-    hud.textContent = '';
-    hud.classList.remove('active');
+// ── Hand wireframe overlay ────────────────────────────────────────────────
+function fingerOf(i){ if(i<=4)return 0;if(i<=8)return 1;if(i<=12)return 2;if(i<=16)return 3;return 4; }
+function drawHandOverlay(lms){
+  // Bone connections
+  for(const [a,b] of HAND_CONNECTIONS){
+    const pa=lms[a],pb=lms[b];
+    const fi=fingerOf(Math.max(a,b));
+    const col=fi<5?FINGER_COLS[fi]:C.pur;
+    const dx=pb.x-pa.x,dy=pb.y-pa.y,len=Math.hypot(dx,dy); if(len<2)continue;
+    const px=-dy/len*3,py=dx/len*3;
+    ctx.save();
+    ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.shadowBlur=4; ctx.shadowColor=col; ctx.globalAlpha=0.85;
+    // Draw quad sides
+    ctx.beginPath();
+    ctx.moveTo(pa.x+px,pa.y+py); ctx.lineTo(pb.x+px,pb.y+py);
+    ctx.moveTo(pa.x-px,pa.y-py); ctx.lineTo(pb.x-px,pb.y-py);
+    ctx.moveTo(pa.x+px,pa.y+py); ctx.lineTo(pa.x-px,pa.y-py);
+    ctx.moveTo(pb.x+px,pb.y+py); ctx.lineTo(pb.x-px,pb.y-py);
+    // Diagonal inside quad
+    ctx.moveTo(pa.x+px,pa.y+py); ctx.lineTo(pb.x-px,pb.y-py);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // Joint nodes
+  for(let i=0;i<21;i++){
+    const p=lms[i], isTip=TIP_IDX.includes(i);
+    const fi=fingerOf(i), col=fi<5?FINGER_COLS[fi]:C.pur;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(p.x,p.y,isTip?4:2.5,0,Math.PI*2);
+    ctx.strokeStyle=col; ctx.lineWidth=1.2; ctx.shadowBlur=4; ctx.shadowColor=col;
+    ctx.globalAlpha=0.9; ctx.stroke();
+    ctx.restore();
+  }
+  ctx.globalAlpha=1; ctx.shadowBlur=0;
+}
 
-    for (const band of bands) band.update(fingertips, dt);
-    checkPlucks(fingertips, bands);
-    for (const band of bands) band.draw(fingertips);
+// ── Fist illustration (start screen) ─────────────────────────────────────
+function drawFist(cx,cy,scale,time){
+  const s=scale;
+  function poly(pts,col,lw=1.5){
+    ctx.save(); ctx.beginPath();
+    ctx.moveTo(pts[0][0],pts[0][1]);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+    ctx.closePath();
+    ctx.strokeStyle=col; ctx.lineWidth=lw; ctx.shadowBlur=5; ctx.shadowColor=col;
+    ctx.globalAlpha=0.9; ctx.stroke(); ctx.restore();
+  }
+  function line(x1,y1,x2,y2,col,lw=1.2){
+    ctx.save(); ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+    ctx.strokeStyle=col; ctx.lineWidth=lw; ctx.shadowBlur=4; ctx.shadowColor=col;
+    ctx.globalAlpha=0.8; ctx.stroke(); ctx.restore();
+  }
+  function hexagon(hx,hy,r,col,rot=0){
+    const pts=[];
+    for(let i=0;i<6;i++){
+      const a=rot+i*Math.PI/3;
+      pts.push([hx+Math.cos(a)*r, hy+Math.sin(a)*r]);
+    }
+    poly(pts,col);
+    // Inner pentagon for detail
+    const pts2=[];
+    for(let i=0;i<5;i++){
+      const a=rot+i*Math.PI*2/5+0.3;
+      pts2.push([hx+Math.cos(a)*r*0.55, hy+Math.sin(a)*r*0.55]);
+    }
+    poly(pts2,col,0.8);
+  }
+  // Palm body trapezoid
+  const palmW=s*0.82, palmH=s*0.55;
+  const palmT=[
+    [cx-palmW*0.4, cy-s*0.05],
+    [cx+palmW*0.4, cy-s*0.05],
+    [cx+palmW*0.5, cy+palmH*0.5],
+    [cx-palmW*0.5, cy+palmH*0.5],
+  ];
+  poly(palmT,C.ora);
+  // Palm diagonals
+  line(palmT[0][0],palmT[0][1],palmT[3][0],palmT[3][1],C.red,1);
+  line(palmT[1][0],palmT[1][1],palmT[2][0],palmT[2][1],C.red,1);
+  line(cx-palmW*0.25,cy,cx+palmW*0.25,cy,C.ora,0.8);
+  line(cx-palmW*0.15,cy-s*0.05,cx+palmW*0.4,cy+palmH*0.5,C.pnk,0.7);
+  line(cx+palmW*0.15,cy-s*0.05,cx-palmW*0.4,cy+palmH*0.5,C.pnk,0.7);
+  // 4 knuckle hexagons across top
+  const knuckleR=s*0.12;
+  const kx=[-s*0.28,-s*0.09,s*0.09,s*0.27];
+  const kColors=[C.mag,C.pnk,C.blu,C.blu];
+  const kRots=[0.3,-0.2,0.15,-0.25];
+  for(let i=0;i<4;i++){
+    const bob=Math.sin(time*2+i*0.8)*3;
+    hexagon(cx+kx[i], cy-s*0.22+bob, knuckleR*(0.95+i*0.02), kColors[i], kRots[i]);
+    // Connect knuckle to palm
+    line(cx+kx[i],cy-s*0.1+bob, cx+kx[i]*0.85,cy-s*0.05,kColors[i],0.9);
+  }
+  // Cross lines between knuckles
+  for(let i=0;i<3;i++){
+    line(cx+kx[i],cy-s*0.22, cx+kx[i+1],cy-s*0.22, i<2?C.mag:C.blu, 0.8);
+  }
+  // Thumb polygon (left side)
+  const thumbPts=[
+    [cx-palmW*0.5,   cy-s*0.03],
+    [cx-palmW*0.65,  cy-s*0.2],
+    [cx-palmW*0.72,  cy-s*0.35],
+    [cx-palmW*0.62,  cy-s*0.44],
+    [cx-palmW*0.48,  cy-s*0.35],
+    [cx-palmW*0.42,  cy-s*0.12],
+  ];
+  poly(thumbPts,C.pnk);
+  line(thumbPts[0][0],thumbPts[0][1],thumbPts[3][0],thumbPts[3][1],C.mag,0.8);
+  line(thumbPts[1][0],thumbPts[1][1],thumbPts[4][0],thumbPts[4][1],C.mag,0.8);
+  // Finger stubs below knuckles
+  for(let i=0;i<4;i++){
+    const fx=cx+kx[i]; const fy=cy+s*0.05;
+    const fw=knuckleR*0.7;
+    const fPts=[[fx-fw,fy],[fx+fw,fy],[fx+fw*0.8,cy+palmH*0.45],[fx-fw*0.8,cy+palmH*0.45]];
+    poly(fPts,kColors[i],1);
+    line(fx-fw*0.3,fy+palmH*0.1,fx+fw*0.3,fy+palmH*0.1,kColors[i],0.7);
+  }
+  ctx.globalAlpha=1; ctx.shadowBlur=0;
+}
 
-    fingertips.forEach((tip, i) => {
-      if (tip) drawTipDot(tip.x, tip.y, COLORS[i * 2 % COLORS.length]);
-    });
+
+// ── Arched title ──────────────────────────────────────────────────────────
+function drawArchTitle(cx,cy,text,fontSize,radius){
+  ctx.save();
+  ctx.font=`bold ${fontSize}px 'Courier New',monospace`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const chars=text.split('');
+  // Measure total arc span
+  let totalW=0;
+  const widths=chars.map(ch=>{ const w=ctx.measureText(ch).width; totalW+=w; return w; });
+  const arcCenter={x:cx, y:cy+radius};
+  let angle=-Math.PI/2-totalW/(2*radius);
+  for(let i=0;i<chars.length;i++){
+    const ch=chars[i], cw=widths[i];
+    const a=angle+cw/(2*radius);
+    const px=arcCenter.x+radius*Math.cos(a);
+    const py=arcCenter.y+radius*Math.sin(a);
+    ctx.save();
+    ctx.translate(px,py); ctx.rotate(a+Math.PI/2);
+    // Outer glow stroke
+    ctx.shadowBlur=18; ctx.shadowColor='#FF4400';
+    ctx.strokeStyle='#FF4400'; ctx.lineWidth=4;
+    ctx.strokeText(ch,0,0);
+    // Cyan fill
+    const grad=ctx.createLinearGradient(0,-fontSize/2,0,fontSize/2);
+    grad.addColorStop(0,'#00FFFF'); grad.addColorStop(1,'#0066FF');
+    ctx.fillStyle=grad; ctx.shadowBlur=8; ctx.shadowColor='#00CCFF';
+    ctx.fillText(ch,0,0);
+    ctx.restore();
+    angle+=cw/radius;
+  }
+  ctx.restore();
+}
+
+function drawLightning(x1,y1,x2,y2,col,segs=5){
+  ctx.save();
+  const pts=[[x1,y1]];
+  for(let i=1;i<segs;i++){
+    const t=i/segs;
+    const mx=x1+(x2-x1)*t+(Math.random()-0.5)*20;
+    const my=y1+(y2-y1)*t+(Math.random()-0.5)*20;
+    pts.push([mx,my]);
+  }
+  pts.push([x2,y2]);
+  ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+  ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.shadowBlur=10; ctx.shadowColor=col;
+  ctx.globalAlpha=0.85; ctx.stroke();
+  ctx.restore();
+}
+
+function draw4Star(x,y,r,col){
+  ctx.save();
+  ctx.beginPath();
+  for(let i=0;i<8;i++){
+    const a=i*Math.PI/4-Math.PI/4;
+    const radius=i%2===0?r:r*0.2;
+    i===0?ctx.moveTo(x+Math.cos(a)*radius,y+Math.sin(a)*radius):ctx.lineTo(x+Math.cos(a)*radius,y+Math.sin(a)*radius);
+  }
+  ctx.closePath();
+  ctx.fillStyle=col; ctx.shadowBlur=8; ctx.shadowColor=col; ctx.globalAlpha=0.7; ctx.fill();
+  ctx.restore();
+}
+
+// ── Start screen ──────────────────────────────────────────────────────────
+let startRockets=null;
+function initStartRockets(){
+  startRockets=[new Rocket(0.6),new Rocket(0.5),new Rocket(0.45)];
+  startRockets[0].x=canvas.width*0.75; startRockets[0].y=canvas.height*0.32;
+  startRockets[1].x=canvas.width*0.82; startRockets[1].y=canvas.height*0.55;
+  startRockets[2].x=canvas.width*0.7;  startRockets[2].y=canvas.height*0.72;
+}
+
+function drawStartScreen(time){
+  drawBg();
+  const cw=canvas.width, ch=canvas.height;
+  const cx=cw/2;
+
+  // Floating start screen rockets
+  if(!startRockets) initStartRockets();
+  for(const r of startRockets){ r.update(1/60); r.draw(); }
+
+  // 4-pointed star bottom right
+  draw4Star(cw-30,ch-30,12,C.wht);
+
+  // Fist in upper-center
+  const fistScale=Math.min(cw,ch)*0.18;
+  const fistY=ch*0.42;
+  drawFist(cx,fistY,fistScale,time);
+
+  // Beams shooting downward from fist center
+  const beamOriginY=fistY+fistScale*0.25;
+  const beamTargetY=ch*0.84;
+  for(let i=0;i<BEAM_COLS.length;i++){
+    const off=(i-BEAM_COLS.length/2)*2.5;
+    ctx.save();
+    ctx.globalAlpha=0.55+0.1*Math.sin(time*3+i);
+    ctx.strokeStyle=BEAM_COLS[i]; ctx.lineWidth=1.5;
+    ctx.shadowBlur=6; ctx.shadowColor=BEAM_COLS[i];
+    ctx.beginPath(); ctx.moveTo(cx+off,beamOriginY); ctx.lineTo(cx+off,beamTargetY); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Large target rocket at bottom being hit
+  const bigR=new Rocket(1.4);
+  bigR.x=cx; bigR.y=beamTargetY; bigR.angle=0; bigR.vx=1; bigR.vy=0; bigR.alive=true;
+  // Draw starburst around it
+  for(let i=0;i<12;i++){
+    const a=(i/12)*Math.PI*2+time*0.5;
+    const rLen=30+20*Math.sin(time*4+i);
+    ctx.save();
+    ctx.globalAlpha=0.4+0.3*Math.sin(time*3+i);
+    ctx.strokeStyle=BEAM_COLS[i%BEAM_COLS.length]; ctx.lineWidth=1.2; ctx.shadowBlur=6;
+    ctx.shadowColor=BEAM_COLS[i%BEAM_COLS.length];
+    ctx.beginPath();
+    ctx.moveTo(cx,beamTargetY); ctx.lineTo(cx+Math.cos(a)*rLen,beamTargetY+Math.sin(a)*rLen);
+    ctx.stroke(); ctx.restore();
+  }
+  bigR.drawRocket(cx,beamTargetY,0,bigR.sz);
+
+  // Impact glow
+  const impGrad=ctx.createRadialGradient(cx,beamTargetY,0,cx,beamTargetY,50+10*Math.sin(time*4));
+  impGrad.addColorStop(0,`rgba(255,200,50,${0.35+0.15*Math.sin(time*4)})`);
+  impGrad.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=impGrad; ctx.fillRect(cx-80,beamTargetY-80,160,160);
+
+  // Title
+  const titleY=ch*0.09;
+  const fontSize=Math.min(cw*0.085,38);
+  const arcR=cw*0.7;
+  drawArchTitle(cx,titleY,'VECTOR ROCKET',fontSize,arcR);
+
+  // Lightning bolts flanking title
+  if(Math.floor(time*4)%3!==0){
+    drawLightning(cx-arcR*0.58,titleY-fontSize*0.4, cx-arcR*0.38,titleY+fontSize*0.8, C.yel);
+    drawLightning(cx+arcR*0.38,titleY-fontSize*0.4, cx+arcR*0.58,titleY+fontSize*0.8, C.yel);
+  }
+
+  // "by Zai"
+  ctx.save();
+  ctx.font=`${Math.floor(cw*0.03)}px 'Courier New',monospace`;
+  ctx.fillStyle=C.grn; ctx.textAlign='center'; ctx.shadowBlur=6; ctx.shadowColor=C.grn;
+  ctx.globalAlpha=0.8;
+  ctx.fillText('by Zai', cx, ch*0.17);
+  ctx.restore();
+
+  // INSERT COIN blinking
+  if(Math.floor(time*2)%2===0){
+    ctx.save();
+    ctx.font=`bold ${Math.floor(cw*0.055)}px 'Courier New',monospace`;
+    ctx.fillStyle=C.yel; ctx.textAlign='center';
+    ctx.shadowBlur=14; ctx.shadowColor=C.yel;
+    ctx.fillText('► INSERT COIN ◄', cx, ch*0.92);
+    ctx.restore();
+  }
+
+  // Tip text
+  ctx.save();
+  ctx.font=`${Math.floor(cw*0.025)}px 'Courier New',monospace`;
+  ctx.fillStyle='#334433'; ctx.textAlign='center'; ctx.globalAlpha=0.7;
+  ctx.fillText('SPREAD · SNAP · MAKE FIST TO BLAST', cx, ch*0.96);
+  ctx.restore();
+
+  ctx.globalAlpha=1; ctx.shadowBlur=0;
+}
+
+
+// ── Web blast detection ───────────────────────────────────────────────────
+let wasOpen=false, blastCooldown=0;
+const OPEN_TH=120, CLOSE_TH=62;
+
+function getCenter(tips){
+  let sx=0,sy=0,n=0;
+  for(const t of tips)if(t){sx+=t.x;sy+=t.y;n++;}
+  return n?{x:sx/n,y:sy/n}:null;
+}
+function checkWebBlast(tips,beams){
+  const c=getCenter(tips); if(!c)return;
+  let total=0,n=0;
+  for(const t of tips)if(t){total+=Math.hypot(t.x-c.x,t.y-c.y);n++;}
+  const avg=n?total/n:0;
+  const isOpen=avg>OPEN_TH, isClosed=avg<CLOSE_TH;
+  if(wasOpen&&isClosed&&blastCooldown<=0){
+    fireBlast(c,tips,beams); blastCooldown=1.0;
+  }
+  if(isOpen) wasOpen=true;
+  if(isClosed) wasOpen=false;
+}
+function fireBlast(center,tips,beams){
+  playBlast();
+  // Beams in direction of each fingertip
+  for(let i=0;i<tips.length;i++){
+    const t=tips[i]; if(!t)continue;
+    const dx=t.x-center.x, dy=t.y-center.y, len=Math.hypot(dx,dy)||1;
+    const angle=Math.atan2(dy,dx);
+    // Bundle of 2 beams per direction
+    for(let o=-1;o<=1;o+=2){
+      beams.push(new Beam(center.x,center.y,angle,BEAM_COLS[i*2%BEAM_COLS.length]));
+    }
+  }
+  // Extra diagonal beams
+  for(let i=0;i<4;i++){
+    const angle=(i/4)*Math.PI*2+Math.PI/8;
+    beams.push(new Beam(center.x,center.y,angle,BEAM_COLS[(i+4)%BEAM_COLS.length]));
+  }
+}
+
+// ── HUD ───────────────────────────────────────────────────────────────────
+function drawHUD(score, handVisible, chargeState){
+  ctx.save();
+  ctx.font=`bold ${Math.floor(canvas.width*0.048)}px 'Courier New',monospace`;
+  ctx.fillStyle=C.yel; ctx.shadowBlur=8; ctx.shadowColor=C.yel; ctx.globalAlpha=0.9;
+  ctx.fillText(`SCORE: ${String(score).padStart(5,'0')}`, 14, 38);
+  ctx.font=`${Math.floor(canvas.width*0.028)}px 'Courier New',monospace`;
+  if(!handVisible){
+    ctx.fillStyle='#334433'; ctx.shadowBlur=0; ctx.globalAlpha=0.6;
+    ctx.fillText('SHOW YOUR HAND',14,64);
+  } else if(chargeState==='charged'){
+    ctx.fillStyle=C.grn; ctx.shadowColor=C.grn; ctx.shadowBlur=6; ctx.globalAlpha=1;
+    ctx.fillText('◉ CHARGED — MAKE A FIST!',14,64);
   } else {
-    hud.textContent = 'SHOW YOUR HAND';
-    hud.classList.add('active');
+    ctx.fillStyle='#223322'; ctx.shadowBlur=0; ctx.globalAlpha=0.5;
+    ctx.fillText('○ SPREAD FINGERS TO CHARGE',14,64);
   }
+  ctx.restore();
+  ctx.globalAlpha=1; ctx.shadowBlur=0;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Boot
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Game state ────────────────────────────────────────────────────────────
+let state='start';
+let fingertips=Array(5).fill(null);
+let allLandmarks=null;
+let handVisible=false;
+let bands=[], beams=[], rockets=[];
+let score=0, lastTs=0, running=false;
 
-startBtn.addEventListener('click', () => {
-  ensureAudio();
-  startScr.style.display = 'none';
-  initBands();
-  running = true;
-  lastTs  = performance.now();
+function initGame(){
+  bands=BAND_PAIRS.map(([a,b],i)=>new Band(a,b,i));
+  beams=[];
+  rockets=[new Rocket(1),new Rocket(0.8),new Rocket(0.9)];
+  score=0; wasOpen=false; blastCooldown=0;
+  playStartChord();
+}
+
+// ── MediaPipe ─────────────────────────────────────────────────────────────
+function initTracking(){
+  const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+  hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.65,minTrackingConfidence:0.55});
+  hands.onResults(res=>{
+    fingertips=Array(5).fill(null); allLandmarks=null; handVisible=false;
+    if(res.multiHandLandmarks&&res.multiHandLandmarks.length>0){
+      handVisible=true;
+      const lm=res.multiHandLandmarks[0];
+      allLandmarks=lm.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
+      for(let i=0;i<5;i++){
+        const p=lm[TIP_IDX[i]];
+        fingertips[i]={x:(1-p.x)*canvas.width,y:p.y*canvas.height};
+      }
+    }
+  });
+  const cam=new Camera(video,{
+    onFrame:async()=>{await hands.send({image:video});},
+    width:640,height:480,facingMode:'user'
+  });
+  cam.start().catch(e=>console.error(e));
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────
+function loop(ts){
+  if(!running)return;
   requestAnimationFrame(loop);
-  initHandTracking();
-});
+  const dt=Math.min((ts-lastTs)/1000,0.05); lastTs=ts;
+  const time=ts/1000;
+
+  if(state==='start'){
+    drawStartScreen(time);
+    return;
+  }
+
+  // ── Playing ──────────────────────────────────────────────────────────
+  drawBg();
+  blastCooldown-=dt;
+
+  // Hand overlay + bands
+  if(handVisible){
+    if(allLandmarks) drawHandOverlay(allLandmarks);
+    for(const b of bands) b.update(fingertips,dt);
+    checkPlucks(fingertips,bands);
+    checkWebBlast(fingertips,beams);
+    for(const b of bands) b.draw(fingertips);
+  }
+
+  // Beams
+  for(const b of beams) b.update(dt);
+  // Draw beams as bundles
+  const liveBeams=beams.filter(b=>b.alive);
+  for(let i=0;i<liveBeams.length;i++) liveBeams[i].draw((i%3-1)*3);
+  beams=liveBeams;
+
+  // Rockets
+  for(const r of rockets){ r.update(dt); r.draw(); }
+
+  // Collision
+  for(const beam of beams){
+    for(const rocket of rockets){
+      if(!rocket.alive)continue;
+      if(Math.hypot(beam.x-rocket.x,beam.y-rocket.y)<rocket.radius+6){
+        rocket.explode(); score+=100; playHit();
+        beams=beams.filter(b=>b!==beam);
+        break;
+      }
+    }
+  }
+
+  // Charge state for HUD
+  const c=getCenter(fingertips);
+  let chargeState='none';
+  if(c){
+    let total=0,n=0;
+    for(const t of fingertips)if(t){total+=Math.hypot(t.x-c.x,t.y-c.y);n++;}
+    const avg=n?total/n:0;
+    chargeState=avg>OPEN_TH?'charged':'none';
+  }
+
+  drawHUD(score,handVisible,chargeState);
+  ctx.globalAlpha=1; ctx.shadowBlur=0;
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+function startGame(){
+  if(state!=='start')return;
+  ensureAudio();
+  state='playing';
+  initGame();
+  initTracking();
+}
+canvas.addEventListener('click',startGame);
+canvas.addEventListener('touchstart',e=>{e.preventDefault();startGame();},{passive:false});
+
+running=true; lastTs=performance.now();
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
