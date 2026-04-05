@@ -58,42 +58,6 @@ const HAND_LM=[
   [0.68,0.69],[0.71,0.53],[0.73,0.41],[0.75,0.32],
 ];
 
-// ── Closed fist geometry (normalized vertices + triangular faces) ─
-const FIST_VERTS=[
-  // Row 0: 4 knuckle peaks
-  [0.28,0.04],[0.42,0.00],[0.56,0.03],[0.68,0.09],
-  // Row 1: finger shoulders / inter-knuckle valleys
-  [0.18,0.18],[0.32,0.14],[0.46,0.13],[0.60,0.15],[0.76,0.20],
-  // Row 2: knuckle-palm transition
-  [0.14,0.35],[0.28,0.30],[0.44,0.29],[0.60,0.31],[0.78,0.35],
-  // Row 3: mid palm
-  [0.10,0.52],[0.30,0.48],[0.52,0.47],[0.72,0.50],[0.82,0.54],
-  // Row 4: wrist
-  [0.14,0.72],[0.38,0.70],[0.58,0.70],[0.76,0.73],
-  // Thumb (left protrusion, verts 22-25)
-  [0.00,0.22],[0.06,0.14],[0.06,0.32],[0.04,0.50],
-];
-// [v1, v2, v3, fingerColorIdx] — FINGER_COLS: 0=pink,1=cyan,2=yel,3=grn,4=ora
-const FIST_FACES=[
-  // Thumb — pink
-  [22,23,4,0],[22,4,9,0],[22,9,24,0],[24,9,14,0],[24,25,14,0],
-  // Index top — pink
-  [0,4,5,0],[4,5,10,0],
-  // Index-middle — cyan
-  [0,1,5,1],[1,5,6,1],[5,6,10,1],[6,10,11,1],
-  // Middle-ring — yellow
-  [1,2,6,2],[2,6,7,2],[6,7,11,2],[7,11,12,2],
-  // Ring — green
-  [2,3,7,3],[3,7,8,3],[7,8,12,3],
-  // Pinky — orange
-  [8,12,13,4],
-  // Mid palm
-  [9,10,14,0],[10,14,15,0],[10,11,15,1],[11,15,16,1],
-  [11,12,16,2],[12,16,17,2],[12,13,17,3],[13,17,18,4],
-  // Wrist
-  [14,15,19,0],[15,19,20,1],[15,16,20,1],
-  [16,20,21,2],[16,17,21,2],[17,21,22,3],[17,18,22,4],
-];
 
 // ── Game constants ────────────────────────────────────────────────
 const SNAP_ARM=110;   // px: stretch beyond this to arm slingshot
@@ -650,97 +614,76 @@ function drawStaticHand(cx,cy,handW,handH){
   ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
-// ── Wireframe fist (start screen) ─────────────────────────────────
-function drawPolyFist(cx,cy,w,h){
-  // Map normalized [0,1] → screen coords
-  const p=(x,y)=>[cx-w*0.5+x*w, cy-h*0.5+y*h];
+// ── Open hand illustration (start screen) ─────────────────────────
+function drawPolyHand(cx,cy,w,h){
+  const pts=HAND_LM.map(lm=>({x:cx-w*0.5+lm[0]*w,y:cy-h*0.5+lm[1]*h}));
 
-  // ── 4 knuckle peaks (top bumps) ────────────────────────────────
-  const kn=[p(0.33,0.09),p(0.47,0.05),p(0.60,0.08),p(0.71,0.14)];
-  // Valleys between / beside knuckles
-  const kv=[p(0.22,0.20),p(0.40,0.17),p(0.54,0.17),p(0.66,0.19),p(0.78,0.25)];
-
-  // ── OUTER SILHOUETTE ────────────────────────────────────────────
-  // Thumb tip → left edge → wrist → right edge → knuckle row → back
-  const outline=[
-    p(0.06,0.24),  // thumb tip top
-    p(0.00,0.36),  // thumb tip
-    p(0.02,0.50),  // thumb body
-    p(0.08,0.63),  // thumb base
-    p(0.14,0.78),  // lower-left
-    p(0.22,0.86),  // wrist left
-    p(0.64,0.86),  // wrist right
-    p(0.80,0.76),  // lower-right
-    p(0.84,0.58),  // right edge mid
-    p(0.82,0.38),  // right shoulder
-    kv[4],          // right of pinky
-    kn[3],          // pinky peak
-    kv[3],          // ring-pinky valley
-    kn[2],          // ring peak
-    kv[2],          // middle-ring valley
-    kn[1],          // middle peak
-    kv[1],          // index-middle valley
-    kn[0],          // index peak
-    kv[0],          // left of index
-    p(0.14,0.28),  // upper-left
-  ];
-
-  // Draw main outline (cyan glow)
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(outline[0][0],outline[0][1]);
-  for(let i=1;i<outline.length;i++) ctx.lineTo(outline[i][0],outline[i][1]);
-  ctx.closePath();
-  ctx.strokeStyle='#00CCFF';ctx.lineWidth=1.8;ctx.shadowBlur=10;ctx.shadowColor='#00CCFF';ctx.globalAlpha=0.75;
-  ctx.stroke();ctx.restore();
-
-  // ── KNUCKLE ARCS — each finger colored ─────────────────────────
-  const kCols=[C.pnk,C.cyan,C.yel,C.grn];
-  for(let i=0;i<4;i++){
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(kv[i][0],kv[i][1]);
-    ctx.lineTo(kn[i][0],kn[i][1]);
-    ctx.lineTo(kv[i+1][0],kv[i+1][1]);
-    ctx.strokeStyle=kCols[i];ctx.lineWidth=2.5;ctx.shadowBlur=10;ctx.shadowColor=kCols[i];ctx.globalAlpha=0.92;
-    ctx.stroke();ctx.restore();
+  // Bone half-width based on landmark index (tapers toward tips)
+  function boneHW(a,b){
+    const hi=Math.max(a,b);
+    if(hi<=4) return hi<=2?5.5:hi<=3?4:3;      // thumb
+    if(hi<=8) return hi<=6?5:hi<=7?3.8:2.8;     // index
+    if(hi<=12) return hi<=10?5.2:hi<=11?4:3;    // middle
+    if(hi<=16) return hi<=14?4.8:hi<=15?3.5:2.5;// ring
+    return hi<=18?4:hi<=19?3:2.2;               // pinky
   }
 
-  // ── INTERNAL ANATOMY LINES ──────────────────────────────────────
-  // Knuckle row horizontal
-  ctx.save();
-  ctx.beginPath();ctx.moveTo(...p(0.20,0.32));ctx.lineTo(...p(0.80,0.34));
-  ctx.strokeStyle=C.yel;ctx.lineWidth=1;ctx.shadowBlur=4;ctx.shadowColor=C.yel;ctx.globalAlpha=0.5;ctx.stroke();ctx.restore();
-
-  // Finger separation verticals (3 lines between 4 fingers)
-  [[0.40,1],[0.54,2],[0.66,3]].forEach(([x,ci])=>{
+  // Draw each bone as a tapered quad with inner diagonal facet
+  for(const[a,b]of HAND_CONNECTIONS){
+    const pa=pts[a],pb=pts[b];
+    const dx=pb.x-pa.x,dy=pb.y-pa.y,len=Math.hypot(dx,dy);if(len<2)continue;
+    const nx=-dy/len,ny=dx/len;
+    const hwA=boneHW(a,b),hwB=hwA*0.75; // taper
+    const fi=fingerOf(Math.max(a,b)),col=FINGER_COLS[Math.min(fi,4)];
+    // 4 corners of tapered bone quad
+    const tl={x:pa.x+nx*hwA,y:pa.y+ny*hwA};
+    const tr={x:pa.x-nx*hwA,y:pa.y-ny*hwA};
+    const bl={x:pb.x+nx*hwB,y:pb.y+ny*hwB};
+    const br={x:pb.x-nx*hwB,y:pb.y-ny*hwB};
     ctx.save();
-    ctx.beginPath();ctx.moveTo(...p(x,0.17));ctx.lineTo(...p(x,0.32));
-    ctx.strokeStyle=FINGER_COLS[ci];ctx.lineWidth=1;ctx.shadowBlur=3;ctx.shadowColor=FINGER_COLS[ci];ctx.globalAlpha=0.55;ctx.stroke();ctx.restore();
-  });
+    ctx.strokeStyle=col;ctx.shadowBlur=7;ctx.shadowColor=col;ctx.globalAlpha=0.90;
+    // Outer quad edges
+    ctx.lineWidth=1.4;
+    ctx.beginPath();
+    ctx.moveTo(tl.x,tl.y);ctx.lineTo(bl.x,bl.y); // left edge
+    ctx.moveTo(tr.x,tr.y);ctx.lineTo(br.x,br.y); // right edge
+    ctx.moveTo(tl.x,tl.y);ctx.lineTo(tr.x,tr.y); // top cap
+    ctx.moveTo(bl.x,bl.y);ctx.lineTo(br.x,br.y); // bottom cap
+    ctx.stroke();
+    // Inner diagonal facet
+    ctx.lineWidth=0.8;ctx.globalAlpha=0.38;ctx.shadowBlur=0;
+    ctx.beginPath();
+    ctx.moveTo(tl.x,tl.y);ctx.lineTo(br.x,br.y);
+    ctx.stroke();
+    ctx.restore();
+  }
 
-  // Thumb diagonal separation
-  ctx.save();
-  ctx.beginPath();ctx.moveTo(...p(0.16,0.27));ctx.lineTo(...p(0.09,0.62));
-  ctx.strokeStyle=C.pnk;ctx.lineWidth=1.2;ctx.shadowBlur=5;ctx.shadowColor=C.pnk;ctx.globalAlpha=0.65;ctx.stroke();ctx.restore();
-
-  // Wrist line
-  ctx.save();
-  ctx.beginPath();ctx.moveTo(...p(0.22,0.74));ctx.lineTo(...p(0.64,0.74));
-  ctx.strokeStyle=C.ora;ctx.lineWidth=1;ctx.shadowBlur=3;ctx.shadowColor=C.ora;ctx.globalAlpha=0.5;ctx.stroke();ctx.restore();
-
-  // Palm diagonal facets (subtle wireframe feel)
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(...p(0.20,0.32));ctx.lineTo(...p(0.80,0.74));  // main diagonal
-  ctx.moveTo(...p(0.80,0.34));ctx.lineTo(...p(0.22,0.74));  // cross diagonal
-  ctx.strokeStyle=C.sky;ctx.lineWidth=0.7;ctx.shadowBlur=0;ctx.globalAlpha=0.22;ctx.stroke();ctx.restore();
-
-  // ── KNUCKLE GLOW DOTS ──────────────────────────────────────────
-  for(let i=0;i<4;i++){
+  // Joint rings at every landmark
+  for(let i=0;i<21;i++){
+    const pt=pts[i],fi=fingerOf(i),col=FINGER_COLS[Math.min(fi,4)];
+    const isTip=TIP_IDX.includes(i);
+    const isMCP=[1,5,9,13,17].includes(i);
+    const r=isTip?5:isMCP?4:2.8;
     ctx.save();
-    ctx.beginPath();ctx.arc(kn[i][0],kn[i][1],4,0,Math.PI*2);
-    ctx.fillStyle=kCols[i];ctx.shadowBlur=14;ctx.shadowColor=kCols[i];ctx.globalAlpha=1;ctx.fill();
+    ctx.beginPath();ctx.arc(pt.x,pt.y,r,0,Math.PI*2);
+    ctx.strokeStyle=col;ctx.lineWidth=1.6;
+    ctx.shadowBlur=isTip?16:8;ctx.shadowColor=col;ctx.globalAlpha=0.95;ctx.stroke();
+    // Filled center dot on tips
+    if(isTip){
+      ctx.beginPath();ctx.arc(pt.x,pt.y,r*0.42,0,Math.PI*2);
+      ctx.fillStyle=col;ctx.globalAlpha=0.75;ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Energy rays extending from fingertips
+  for(let i=0;i<5;i++){
+    const tip=pts[TIP_IDX[i]],dip=pts[TIP_DIP[i]];
+    const col=FINGER_COLS[i];
+    const dx=tip.x-dip.x,dy=tip.y-dip.y,len=Math.hypot(dx,dy)||1;
+    ctx.save();
+    ctx.strokeStyle=col;ctx.lineWidth=0.9;ctx.shadowBlur=8;ctx.shadowColor=col;ctx.globalAlpha=0.50;
+    ctx.beginPath();ctx.moveTo(tip.x,tip.y);ctx.lineTo(tip.x+dx/len*36,tip.y+dy/len*36);ctx.stroke();
     ctx.restore();
   }
   ctx.globalAlpha=1;ctx.shadowBlur=0;
@@ -835,7 +778,7 @@ function drawStartScreen(time){
   // Poly fist (closed)
   const fistScale=Math.min(cw,ch)*0.20;
   const fistY=ch*0.42;
-  drawPolyFist(cx,fistY,fistScale*1.5,fistScale*1.7);
+  drawPolyHand(cx,fistY,fistScale*1.5,fistScale*1.7);
   // Beams from fist knuckles (top of fist)
   const beamOriginY=fistY-fistScale*0.22;
   const beamTargetY=ch*0.70;
