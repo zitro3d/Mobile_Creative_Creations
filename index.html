@@ -57,6 +57,15 @@ const HAND_LM=[
   [0.59,0.63],[0.61,0.43],[0.62,0.28],[0.63,0.15],
   [0.68,0.69],[0.71,0.53],[0.73,0.41],[0.75,0.32],
 ];
+// Z-depth per landmark: 0=farthest back (wrist), 0.65=closest (fingertips)
+const HAND_Z=[
+  0.00,                          // 0: wrist
+  0.15,0.25,0.38,0.55,          // 1-4: thumb
+  0.20,0.32,0.46,0.65,          // 5-8: index
+  0.18,0.30,0.44,0.62,          // 9-12: middle
+  0.16,0.28,0.42,0.60,          // 13-16: ring
+  0.14,0.25,0.38,0.55,          // 17-20: pinky
+];
 
 
 // ── Game constants ────────────────────────────────────────────────
@@ -249,7 +258,16 @@ class Rocket{
     this.sz=cfg.sz;this.points=cfg.points;
     this.alive=true;this.explodeTimer=0;this.particles=[];
     this.killed=false;this._escaped=false;this.flashTimer=0;
+    this.zOffset=Math.random()*Math.PI*2;
+    this.z=0.3+0.7*Math.random();
+    this._drawSz=this.sz;this._drawAlpha=1;
     this.reset(true);
+  }
+  updateZ(time){
+    const period=8+(this.zOffset%4);
+    this.z=0.18+0.82*(0.5+0.5*Math.sin(time*(Math.PI*2/period)+this.zOffset));
+    this._drawSz=this.sz*(0.35+0.65*this.z);
+    this._drawAlpha=0.30+0.70*this.z;
   }
   reset(init=false){
     const cw=canvas.width,ch=canvas.height,pad=this.sz*2;
@@ -317,12 +335,16 @@ class Rocket{
     ctx.save();
     ctx.translate(x,y);ctx.rotate(angle);
     ctx.globalAlpha=alpha;ctx.lineCap='round';ctx.lineJoin='round';
+    // Depth foreshortening: compress vertically when far (nose-on view)
+    const zCompress=0.28+0.72*this.z;
+    ctx.scale(1,zCompress);
     const s=sz;
     const bcol=this.flashTimer>0?'#FFFFFF':this.getBodyColor();
     const fcol=this.getFinColor();
+    const glowSz=4+this.z*16;
     // Body
     ctx.beginPath();ctx.moveTo(0,-s);ctx.lineTo(-s*0.4,s*0.5);ctx.lineTo(s*0.4,s*0.5);ctx.closePath();
-    ctx.strokeStyle=bcol;ctx.lineWidth=1.5;ctx.shadowBlur=5;ctx.shadowColor=bcol;ctx.stroke();
+    ctx.strokeStyle=bcol;ctx.lineWidth=1.5;ctx.shadowBlur=glowSz;ctx.shadowColor=bcol;ctx.stroke();
     // Fins
     ctx.beginPath();ctx.moveTo(-s*0.4,s*0.1);ctx.lineTo(-s*0.85,s*0.75);ctx.lineTo(-s*0.4,s*0.5);ctx.closePath();
     ctx.strokeStyle=fcol;ctx.shadowColor=fcol;ctx.stroke();
@@ -384,7 +406,7 @@ class Rocket{
       }
       return;
     }
-    this.drawRocket(this.x,this.y,Math.atan2(this.vy,this.vx)-Math.PI/2,this.sz);
+    this.drawRocket(this.x,this.y,Math.atan2(this.vy,this.vx)-Math.PI/2,this._drawSz??this.sz,this._drawAlpha??1);
   }
 }
 
@@ -614,72 +636,92 @@ function drawStaticHand(cx,cy,handW,handH){
   ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
-// ── Open hand illustration (start screen) ─────────────────────────
-function drawPolyHand(cx,cy,w,h){
-  const pts=HAND_LM.map(lm=>({x:cx-w*0.5+lm[0]*w,y:cy-h*0.5+lm[1]*h}));
+// ── 3D Open hand illustration (start screen) ──────────────────────
+function drawPolyHand(cx,cy,w,h,time=0){
+  // Slow Y-axis rotation sway: ±13° over ~12s
+  const yAngle=Math.sin(time*0.52)*0.22;
+  const cosA=Math.cos(yAngle),sinA=Math.sin(yAngle);
+  const focal=2.8; // perspective strength — higher = flatter
 
-  // Bone half-width based on landmark index (tapers toward tips)
+  // Project each landmark through Y-rotation + perspective divide
+  const pts=HAND_LM.map((lm,i)=>{
+    const lx=lm[0]-0.5;           // center x
+    const lz=HAND_Z[i]-0.3;       // center z
+    const rx=lx*cosA-lz*sinA;     // Y-axis rotation
+    const rz=lx*sinA+lz*cosA;
+    const scale=focal/(focal+rz); // perspective
+    return{
+      x:cx+rx*w*scale,
+      y:(cy-h*0.5)+lm[1]*h*scale,
+      z:rz,scale
+    };
+  });
+
+  // Bone half-width (pre-perspective; scaled per point during draw)
   function boneHW(a,b){
     const hi=Math.max(a,b);
-    if(hi<=4) return hi<=2?5.5:hi<=3?4:3;      // thumb
-    if(hi<=8) return hi<=6?5:hi<=7?3.8:2.8;     // index
-    if(hi<=12) return hi<=10?5.2:hi<=11?4:3;    // middle
-    if(hi<=16) return hi<=14?4.8:hi<=15?3.5:2.5;// ring
-    return hi<=18?4:hi<=19?3:2.2;               // pinky
+    if(hi<=4) return hi<=2?5.5:hi<=3?4.2:3.2;
+    if(hi<=8) return hi<=6?5.2:hi<=7?4:2.9;
+    if(hi<=12) return hi<=10?5.4:hi<=11?4.2:3.1;
+    if(hi<=16) return hi<=14?5:hi<=15?3.8:2.7;
+    return hi<=18?4.2:hi<=19?3.1:2.3;
   }
 
-  // Draw each bone as a tapered quad with inner diagonal facet
-  for(const[a,b]of HAND_CONNECTIONS){
+  // Depth-sort bones (far first so near renders on top)
+  const sortedBones=[...HAND_CONNECTIONS].sort((ba,bb)=>{
+    return((pts[ba[0]].z+pts[ba[1]].z)*0.5)-((pts[bb[0]].z+pts[bb[1]].z)*0.5);
+  });
+
+  for(const[a,b]of sortedBones){
     const pa=pts[a],pb=pts[b];
+    const avgScale=(pa.scale+pb.scale)*0.5;
     const dx=pb.x-pa.x,dy=pb.y-pa.y,len=Math.hypot(dx,dy);if(len<2)continue;
     const nx=-dy/len,ny=dx/len;
-    const hwA=boneHW(a,b),hwB=hwA*0.75; // taper
+    // Each end uses its own perspective scale for natural taper
+    const hwA=boneHW(a,b)*pa.scale, hwB=boneHW(a,b)*pb.scale;
     const fi=fingerOf(Math.max(a,b)),col=FINGER_COLS[Math.min(fi,4)];
-    // 4 corners of tapered bone quad
+    // Closer bones are brighter
+    const depthAlpha=0.50+0.45*Math.max(0,Math.min(1,(avgScale-0.85)*6));
     const tl={x:pa.x+nx*hwA,y:pa.y+ny*hwA};
     const tr={x:pa.x-nx*hwA,y:pa.y-ny*hwA};
     const bl={x:pb.x+nx*hwB,y:pb.y+ny*hwB};
     const br={x:pb.x-nx*hwB,y:pb.y-ny*hwB};
     ctx.save();
-    ctx.strokeStyle=col;ctx.shadowBlur=7;ctx.shadowColor=col;ctx.globalAlpha=0.90;
-    // Outer quad edges
-    ctx.lineWidth=1.4;
+    ctx.strokeStyle=col;ctx.shadowBlur=7*avgScale;ctx.shadowColor=col;ctx.globalAlpha=depthAlpha;
+    ctx.lineWidth=1.4*avgScale;
     ctx.beginPath();
-    ctx.moveTo(tl.x,tl.y);ctx.lineTo(bl.x,bl.y); // left edge
-    ctx.moveTo(tr.x,tr.y);ctx.lineTo(br.x,br.y); // right edge
-    ctx.moveTo(tl.x,tl.y);ctx.lineTo(tr.x,tr.y); // top cap
-    ctx.moveTo(bl.x,bl.y);ctx.lineTo(br.x,br.y); // bottom cap
+    ctx.moveTo(tl.x,tl.y);ctx.lineTo(bl.x,bl.y);
+    ctx.moveTo(tr.x,tr.y);ctx.lineTo(br.x,br.y);
+    ctx.moveTo(tl.x,tl.y);ctx.lineTo(tr.x,tr.y);
+    ctx.moveTo(bl.x,bl.y);ctx.lineTo(br.x,br.y);
     ctx.stroke();
     // Inner diagonal facet
-    ctx.lineWidth=0.8;ctx.globalAlpha=0.38;ctx.shadowBlur=0;
-    ctx.beginPath();
-    ctx.moveTo(tl.x,tl.y);ctx.lineTo(br.x,br.y);
-    ctx.stroke();
+    ctx.lineWidth=0.75;ctx.globalAlpha=depthAlpha*0.35;ctx.shadowBlur=0;
+    ctx.beginPath();ctx.moveTo(tl.x,tl.y);ctx.lineTo(br.x,br.y);ctx.stroke();
     ctx.restore();
   }
 
-  // Joint rings at every landmark
-  for(let i=0;i<21;i++){
+  // Depth-sorted joint rings
+  const sortedLM=[...Array(21).keys()].sort((a,b)=>pts[a].z-pts[b].z);
+  for(const i of sortedLM){
     const pt=pts[i],fi=fingerOf(i),col=FINGER_COLS[Math.min(fi,4)];
-    const isTip=TIP_IDX.includes(i);
-    const isMCP=[1,5,9,13,17].includes(i);
-    const r=isTip?5:isMCP?4:2.8;
+    const isTip=TIP_IDX.includes(i),isMCP=[1,5,9,13,17].includes(i);
+    const r=(isTip?5:isMCP?4:2.8)*pt.scale;
+    const depthAlpha=0.55+0.40*Math.max(0,Math.min(1,(pt.scale-0.85)*6));
     ctx.save();
     ctx.beginPath();ctx.arc(pt.x,pt.y,r,0,Math.PI*2);
-    ctx.strokeStyle=col;ctx.lineWidth=1.6;
-    ctx.shadowBlur=isTip?16:8;ctx.shadowColor=col;ctx.globalAlpha=0.95;ctx.stroke();
-    // Filled center dot on tips
+    ctx.strokeStyle=col;ctx.lineWidth=1.6*pt.scale;
+    ctx.shadowBlur=(isTip?16:8)*pt.scale;ctx.shadowColor=col;ctx.globalAlpha=depthAlpha;ctx.stroke();
     if(isTip){
       ctx.beginPath();ctx.arc(pt.x,pt.y,r*0.42,0,Math.PI*2);
-      ctx.fillStyle=col;ctx.globalAlpha=0.75;ctx.fill();
+      ctx.fillStyle=col;ctx.globalAlpha=depthAlpha*0.75;ctx.fill();
     }
     ctx.restore();
   }
 
-  // Energy rays extending from fingertips
+  // Energy rays from fingertips
   for(let i=0;i<5;i++){
-    const tip=pts[TIP_IDX[i]],dip=pts[TIP_DIP[i]];
-    const col=FINGER_COLS[i];
+    const tip=pts[TIP_IDX[i]],dip=pts[TIP_DIP[i]],col=FINGER_COLS[i];
     const dx=tip.x-dip.x,dy=tip.y-dip.y,len=Math.hypot(dx,dy)||1;
     ctx.save();
     ctx.strokeStyle=col;ctx.lineWidth=0.9;ctx.shadowBlur=8;ctx.shadowColor=col;ctx.globalAlpha=0.50;
@@ -773,12 +815,12 @@ function drawStartScreen(time){
   drawBg();
   const cw=canvas.width,ch=canvas.height,cx=cw/2;
   if(!startRockets) initStartRockets();
-  for(const r of startRockets){r.update(1/60,null);r.draw();}
+  for(const r of startRockets){r.updateZ(time);r.update(1/60,null);r.draw();}
   draw4Star(cw-30,ch-30,12,C.wht);
   // Poly fist (closed)
   const fistScale=Math.min(cw,ch)*0.20;
   const fistY=ch*0.42;
-  drawPolyHand(cx,fistY,fistScale*1.5,fistScale*1.7);
+  drawPolyHand(cx,fistY,fistScale*1.5,fistScale*1.7,time);
   // Beams from fist knuckles (top of fist)
   const beamOriginY=fistY-fistScale*0.22;
   const beamTargetY=ch*0.70;
@@ -1137,7 +1179,9 @@ function loop(ts){
   for(let i=0;i<lb.length;i++) lb[i].draw((i%3-1)*3);
   beams=lb;
 
-  // Rockets
+  // Rockets — update z-depth, depth-sort (far first), then draw
+  for(const r of rockets) r.updateZ(time);
+  rockets.sort((a,b)=>a.z-b.z);
   for(const r of rockets){r.update(dt,handCenter);r.draw();}
 
   // Shot → rocket collisions
