@@ -520,7 +520,16 @@ class Band{
     this.vAmp=0;this.vFreq=1.8+Math.random()*1.4;this.vTime=0;
     this.prevDist=999;this.lastSnapMs=0;this.lastPluckMs=0;
     this.snapArmed=false;this.peakDist=0;this.lastShotMs=0;
+    this.armedAt=0; // timestamp when arm was first triggered
     this._pendingShot=null;
+  }
+  _fire(mx,my){
+    this.snapArmed=false;this.lastShotMs=performance.now();this.armedAt=0;
+    this._pendingShot={x:mx,y:my,peakDist:this.peakDist,col:this.color,bandIdx:this.ci};
+    this.peakDist=0;
+    const mag=18+Math.random()*12,ang=(Math.random()-0.5)*Math.PI;
+    this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
+    this.vAmp=Math.max(this.vAmp,14+Math.random()*10);
   }
   update(tips,dt){
     this.cvx+=-0.16*this.cx;this.cvy+=-0.16*this.cy;
@@ -538,18 +547,17 @@ class Band{
     }
     // Slingshot arm
     if(dist>SNAP_ARM){
+      if(!this.snapArmed) this.armedAt=now; // record when we first armed
       this.snapArmed=true;
       this.peakDist=Math.max(this.peakDist,dist);
     }
-    // Slingshot fire
-    if(this.snapArmed&&dist<SNAP_FIRE&&now-this.lastShotMs>450){
-      this.snapArmed=false;this.lastShotMs=now;
-      const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-      this._pendingShot={x:mx,y:my,peakDist:this.peakDist,col:this.color,bandIdx:this.ci};
-      this.peakDist=0;
-      const mag=18+Math.random()*12,ang=(Math.random()-0.5)*Math.PI;
-      this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
-      this.vAmp=Math.max(this.vAmp,14+Math.random()*10);
+    const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+    // Fire: snap back below threshold OR held armed for 700ms (auto-fire)
+    const heldLong=this.snapArmed&&this.armedAt>0&&(now-this.armedAt)>700;
+    if(this.snapArmed&&now-this.lastShotMs>450){
+      if(dist<SNAP_FIRE||heldLong){
+        this._fire(mx,my);
+      }
     }
     if(!this.snapArmed) this.peakDist=0;
     this.prevDist=dist;
