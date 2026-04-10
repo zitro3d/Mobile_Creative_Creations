@@ -552,11 +552,11 @@ class Band{
       this.peakDist=Math.max(this.peakDist,dist);
     }
     const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-    // Fire: snap back below SNAP_FIRE, OR release from arm threshold, OR auto-fire
-    const heldMin=this.snapArmed&&this.armedAt>0&&(now-this.armedAt)>150;
-    const heldLong=this.snapArmed&&this.armedAt>0&&(now-this.armedAt)>500;
-    if(this.snapArmed&&now-this.lastShotMs>400){
-      if(dist<SNAP_FIRE||(dist<SNAP_ARM&&heldMin)||heldLong){
+    // Require 300ms armed before any fire to prevent accidental trigger when hand appears
+    const readyToFire=this.snapArmed&&this.armedAt>0&&(now-this.armedAt)>300;
+    const heldLong=this.snapArmed&&this.armedAt>0&&(now-this.armedAt)>700;
+    if(readyToFire&&now-this.lastShotMs>500){
+      if(dist<SNAP_FIRE||heldLong){
         this._fire(mx,my);
       }
     }
@@ -1157,6 +1157,7 @@ let bands=[],beams=[],rockets=[],shots=[];
 let score=0,lives=3,combo=1,waveNum=1;
 let waveKillsNeeded=0,waveState='active',waveTimer=0;
 let lastTs=0,running=false,trackingStarted=false;
+let globalShotCooldown=0; // prevents mass-fire when multiple bands arm at once
 const WAVE_BONUS=500;
 
 function spawnWave(wave){
@@ -1174,7 +1175,7 @@ function initGame(){
   beams=[];shots=[];comboPops.length=0;hitFlashes=[];muzzleFlashes=[];
   score=0;lives=3;combo=1;waveNum=1;
   wasPinched=false;pinchCooldown=0;blastCharges=3;
-  shakeAmt=0;waveState='active';waveTimer=0;
+  shakeAmt=0;globalShotCooldown=0;waveState='active';waveTimer=0;
   waveAnncText='';waveAnncSub='';waveAnncTimer=0;
   blitzTimer=BLITZ_TIME;tutorialDone=false;tutorialAlpha=1;
   spawnWave(1);
@@ -1183,7 +1184,7 @@ function initGame(){
 
 // ── MediaPipe ─────────────────────────────────────────────────────
 let _smoothTips=Array(5).fill(null); // EMA-smoothed fingertip positions
-const EMA=0.55; // smoothing factor (lower=smoother/laggier, higher=snappier)
+const EMA=0.45; // smoothing factor (lower=smoother/laggier, higher=snappier)
 function initTracking(){
   const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
   hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.65,minTrackingConfidence:0.55});
@@ -1246,18 +1247,20 @@ function loop(ts){
   }
 
   // Bands — update, slingshot, draw
+  globalShotCooldown=Math.max(0,globalShotCooldown-dt);
   if(handVisible){
-    // Hand overlay removed — bands and slingshot handle all gameplay feedback
     for(const b of bands){
       b.update(fingertips,dt);
-      if(b._pendingShot){
+      // Global cooldown: only 1 shot fires per ~500ms to prevent mass-fire overload
+      if(b._pendingShot&&globalShotCooldown<=0){
         const{x,y,peakDist,col}=b._pendingShot;
         b._pendingShot=null;
+        globalShotCooldown=0.5;
         if(handCenter){
           let dx=x-handCenter.x,dy=y-handCenter.y,len=Math.hypot(dx,dy);
           // Fallback: if midpoint ≈ handCenter (symmetric stretch), aim straight up
           if(len<18){dx=0;dy=-1;}else{dx/=len;dy/=len;}
-          // Soft aim assist: snap toward nearest alive rocket within ±35°
+          // Aim assist: snap toward nearest alive rocket within ±35°
           let bestRocket=null,bestDot=-1;
           for(const r of rockets){
             if(!r.alive)continue;
@@ -1265,7 +1268,7 @@ function loop(ts){
             const dot=dx*(rdx/rlen)+dy*(rdy/rlen);
             if(dot>Math.cos(35*Math.PI/180)&&dot>bestDot){bestDot=dot;bestRocket=r;}
           }
-          // If no rocket in cone, just aim at closest rocket above hand
+          // If no rocket in cone, aim at closest rocket above hand
           if(!bestRocket){
             let nearest=null,nearDist=Infinity;
             for(const r of rockets){
@@ -1277,7 +1280,6 @@ function loop(ts){
           }
           if(bestRocket){
             const rdx=bestRocket.x-x,rdy=bestRocket.y-y,rlen=Math.hypot(rdx,rdy)||1;
-            // Blend 60% toward rocket, keep 40% raw
             dx=dx*0.40+(rdx/rlen)*0.60;dy=dy*0.40+(rdy/rlen)*0.60;
             const nl=Math.hypot(dx,dy)||1;dx/=nl;dy/=nl;
           }
@@ -1287,6 +1289,8 @@ function loop(ts){
           tutorialDone=true;
           playSlingShot(peakDist);haptic(30);
         }
+      } else if(b._pendingShot){
+        b._pendingShot=null; // discard excess shots from other bands this frame
       }
     }
     checkPlucks(fingertips,bands);
