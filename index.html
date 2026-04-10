@@ -513,15 +513,16 @@ class Beam{
 }
 
 // ── ElasticBand class ─────────────────────────────────────────────
-// Mechanic: fingers TOGETHER (<65px) = lock-on aiming
-//           fingers SPREAD APART (>90px from locked) = FIRE
+// Mechanic: fingers TOGETHER (<70px) = lock-on aiming
+//           fingers SPREAD APART (cross 70px outward) = FIRE
+//           must have been locked for 150ms+ before spread fires
 class Band{
   constructor(a,b,ci){
     this.a=a;this.b=b;this.ci=ci;this.color=BEAM_COLS[ci%BEAM_COLS.length];
     this.cx=0;this.cy=0;this.cvx=0;this.cvy=0;
     this.vAmp=0;this.vFreq=1.8+Math.random()*1.4;this.vTime=0;
     this.prevDist=999;this.lastPluckMs=0;this.lastShotMs=0;
-    this.locked=false;  // fingers together = aiming
+    this.locked=false;this.lockedSince=0;
     this._pendingShot=null;
   }
   _fire(mx,my,spread){
@@ -539,13 +540,19 @@ class Band{
     const a=tips[this.a],b=tips[this.b];if(!a||!b)return;
     const dist=Math.hypot(b.x-a.x,b.y-a.y),now=performance.now();
     const wasLocked=this.locked;
-    // Lock: fingers close together
-    this.locked=(dist<SNAP_FIRE);
-    // FIRE: fingers were locked (together), now spread apart
-    if(wasLocked && dist>=SNAP_ARM && now-this.lastShotMs>400){
-      const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-      this._fire(mx,my,dist);
+    const nowLocked=(dist<SNAP_FIRE); // SNAP_FIRE=75 is the lock/unlock threshold
+    // Track when we entered locked state
+    if(nowLocked&&!wasLocked) this.lockedSince=now;
+    // FIRE: just crossed out of locked, AND was locked for 150ms+ (intentional pinch)
+    if(!nowLocked&&wasLocked&&this.lockedSince>0){
+      const lockDur=now-this.lockedSince;
+      if(lockDur>150&&now-this.lastShotMs>400){
+        const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+        this._fire(mx,my,dist);
+      }
+      this.lockedSince=0;
     }
+    this.locked=nowLocked;
     this.prevDist=dist;
   }
   pluck(){
@@ -1168,7 +1175,7 @@ function initGame(){
 
 // ── MediaPipe ─────────────────────────────────────────────────────
 let _smoothTips=Array(5).fill(null); // EMA-smoothed fingertip positions
-const EMA=0.45; // smoothing factor (lower=smoother/laggier, higher=snappier)
+const EMA=0.55; // smoothing factor — higher = snappier fire detection
 function initTracking(){
   const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
   hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.65,minTrackingConfidence:0.55});
@@ -1228,6 +1235,17 @@ function loop(ts){
   const vt=fingertips.filter(t=>t);
   if(vt.length>=2){
     handCenter={x:vt.reduce((s,t)=>s+t.x,0)/vt.length,y:vt.reduce((s,t)=>s+t.y,0)/vt.length};
+  }
+
+  // Hand bones wireframe (drawn under bands)
+  if(handVisible&&allLandmarks){
+    for(const[a,b] of HAND_CONNECTIONS){
+      const pa=allLandmarks[a],pb=allLandmarks[b];
+      const fi=fingerOf(Math.max(a,b)),col=FINGER_COLS[Math.min(fi,4)];
+      ctx.save();ctx.strokeStyle=col;ctx.lineWidth=1.2;ctx.globalAlpha=0.55;ctx.shadowBlur=0;
+      ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();ctx.restore();
+    }
+    drawHandOverlay(allLandmarks);
   }
 
   // Bands — update, slingshot, draw
