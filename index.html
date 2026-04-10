@@ -513,20 +513,20 @@ class Beam{
 }
 
 // ── ElasticBand class ─────────────────────────────────────────────
+// Mechanic: fingers TOGETHER (<65px) = lock-on aiming
+//           fingers SPREAD APART (>90px from locked) = FIRE
 class Band{
   constructor(a,b,ci){
     this.a=a;this.b=b;this.ci=ci;this.color=BEAM_COLS[ci%BEAM_COLS.length];
     this.cx=0;this.cy=0;this.cvx=0;this.cvy=0;
     this.vAmp=0;this.vFreq=1.8+Math.random()*1.4;this.vTime=0;
-    this.prevDist=999;this.lastSnapMs=0;this.lastPluckMs=0;
-    this.snapArmed=false;this.peakDist=0;this.lastShotMs=0;
-    this.armedAt=0; // timestamp when arm was first triggered
+    this.prevDist=999;this.lastPluckMs=0;this.lastShotMs=0;
+    this.locked=false;  // fingers together = aiming
     this._pendingShot=null;
   }
-  _fire(mx,my){
-    this.snapArmed=false;this.lastShotMs=performance.now();this.armedAt=0;
-    this._pendingShot={x:mx,y:my,peakDist:this.peakDist,col:this.color,bandIdx:this.ci};
-    this.peakDist=0;
+  _fire(mx,my,spread){
+    this.lastShotMs=performance.now();
+    this._pendingShot={x:mx,y:my,peakDist:spread,col:this.color,bandIdx:this.ci};
     const mag=18+Math.random()*12,ang=(Math.random()-0.5)*Math.PI;
     this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
     this.vAmp=Math.max(this.vAmp,14+Math.random()*10);
@@ -538,29 +538,14 @@ class Band{
     this.vAmp*=0.90;this.vTime+=dt;
     const a=tips[this.a],b=tips[this.b];if(!a||!b)return;
     const dist=Math.hypot(b.x-a.x,b.y-a.y),now=performance.now();
-    // Finger-touch snap
-    if(this.prevDist>=55&&dist<55&&now-this.lastSnapMs>180){
-      const mag=8+Math.random()*8,ang=(Math.random()-0.5)*Math.PI*1.5;
-      this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
-      this.vAmp=Math.max(this.vAmp,6+Math.random()*6);
-      this.lastSnapMs=now;
+    const wasLocked=this.locked;
+    // Lock: fingers close together
+    this.locked=(dist<SNAP_FIRE);
+    // FIRE: fingers were locked (together), now spread apart
+    if(wasLocked && dist>=SNAP_ARM && now-this.lastShotMs>400){
+      const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+      this._fire(mx,my,dist);
     }
-    // Slingshot arm
-    if(dist>SNAP_ARM){
-      if(!this.snapArmed) this.armedAt=now; // record when we first armed
-      this.snapArmed=true;
-      this.peakDist=Math.max(this.peakDist,dist);
-    }
-    const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-    // Require 300ms armed before any fire to prevent accidental trigger when hand appears
-    const readyToFire=this.snapArmed&&this.armedAt>0&&(now-this.armedAt)>300;
-    const heldLong=this.snapArmed&&this.armedAt>0&&(now-this.armedAt)>700;
-    if(readyToFire&&now-this.lastShotMs>500){
-      if(dist<SNAP_FIRE||heldLong){
-        this._fire(mx,my);
-      }
-    }
-    if(!this.snapArmed) this.peakDist=0;
     this.prevDist=dist;
   }
   pluck(){
@@ -578,24 +563,23 @@ class Band{
     const vib=this.vAmp*Math.sin(this.vTime*this.vFreq*Math.PI*2);
     const cpx=mx+this.cx+px*vib,cpy=my+this.cy+py*vib;
     const tension=Math.min(1,Math.max(0,(dist-40)/260));
-    const charge=Math.min(1,Math.max(0,(dist-SNAP_ARM*0.7)/(SNAP_ARM*0.85)));
     const alpha=0.55+tension*0.45;
-    const armed=this.snapArmed;
+    const locked=this.locked;
     ctx.lineCap='round';
-    // Main band — thicker + brighter when armed
+    // Main band — bright when locked (aiming)
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
     ctx.strokeStyle=this.color;
-    ctx.globalAlpha=armed?1.0:alpha;
-    ctx.lineWidth=armed?(2.2+tension*0.6):(0.9+tension*0.4);
+    ctx.globalAlpha=locked?1.0:alpha;
+    ctx.lineWidth=locked?2.0:(0.9+tension*0.4);
     ctx.shadowBlur=0;ctx.stroke();
-    // White specular — brighter when armed
+    // White specular
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
     ctx.strokeStyle=C.wht;
-    ctx.globalAlpha=armed?0.65:(0.30+charge*0.25)*alpha;
-    ctx.lineWidth=armed?1.1:0.6;ctx.shadowBlur=0;ctx.stroke();
-    // Armed pulse dot at midpoint — shows exactly where the shot will come from
-    if(armed){
-      const pulse=0.55+0.45*Math.sin(Date.now()*0.012);
+    ctx.globalAlpha=locked?0.55:(0.20+tension*0.15)*alpha;
+    ctx.lineWidth=locked?0.9:0.5;ctx.shadowBlur=0;ctx.stroke();
+    // Locked pulse dot at midpoint
+    if(locked){
+      const pulse=0.55+0.45*Math.sin(Date.now()*0.014);
       ctx.beginPath();ctx.arc(mx,my,5*pulse,0,Math.PI*2);
       ctx.fillStyle=this.color;ctx.globalAlpha=0.9;ctx.fill();
       ctx.beginPath();ctx.arc(mx,my,2.5,0,Math.PI*2);
@@ -945,7 +929,7 @@ function drawStartScreen(time){
   ctx.fillStyle=C.cyan;ctx.shadowBlur=0;ctx.fillText('HOW TO PLAY',cx,instrY);
   ctx.font=`${bodySz}px 'Courier New',monospace`;
   ctx.fillStyle=C.sky;ctx.shadowBlur=0;
-  ctx.fillText('STRETCH + SNAP BAND  ›  FIRE SHOT',cx,instrY+lh);
+  ctx.fillText('PINCH FINGERS TOGETHER  ›  AIM + LOCK ON',cx,instrY+lh);
   ctx.fillText('FLICK OTHER FINGER  ›  PLUCK BAND',cx,instrY+lh*2);
   ctx.fillText('PINCH THUMB+INDEX  ›  EMERGENCY BLAST (x3)',cx,instrY+lh*3);
   ctx.restore();
@@ -1297,21 +1281,18 @@ function loop(ts){
     checkPinchBlast(fingertips,beams);
     for(const b of bands) b.draw(fingertips);
 
-    // Lock-on: find the rocket each armed band is targeting, draw crosshair on it
+    // Lock-on: when fingers are TOGETHER (locked), show crosshair on nearest rocket
     for(const b of bands){
-      if(!b.snapArmed||!handCenter) continue;
+      if(!b.locked) continue;
       const tips2=[fingertips[b.a],fingertips[b.b]];
       if(!tips2[0]||!tips2[1]) continue;
       const mx=(tips2[0].x+tips2[1].x)/2,my=(tips2[0].y+tips2[1].y)/2;
-      let sdx=mx-handCenter.x,sdy=my-handCenter.y,slen=Math.hypot(sdx,sdy)||1;
-      sdx/=slen;sdy/=slen;
-      // Apply same aim assist logic to find locked target
-      let tgt=null,bestDot=-1;
+      // Find nearest alive rocket above the finger midpoint
+      let tgt=null,nearDist=Infinity;
       for(const r of rockets){
         if(!r.alive) continue;
-        const rdx=r.x-mx,rdy=r.y-my,rlen=Math.hypot(rdx,rdy)||1;
-        const dot=sdx*(rdx/rlen)+sdy*(rdy/rlen);
-        if(dot>Math.cos(25*Math.PI/180)&&dot>bestDot){bestDot=dot;tgt=r;}
+        const d=Math.hypot(r.x-mx,r.y-my);
+        if(d<nearDist){nearDist=d;tgt=r;}
       }
       if(tgt){
         const pulse=0.5+0.5*Math.sin(Date.now()*0.014);
@@ -1460,7 +1441,7 @@ function loop(ts){
     ctx.save();ctx.globalAlpha=tutorialAlpha*0.88;
     ctx.font=`bold ${Math.floor(cw*0.042)}px 'Courier New',monospace`;
     ctx.textAlign='center';ctx.fillStyle=C.cyan;ctx.shadowBlur=0;
-    ctx.fillText('STRETCH A BAND → RELEASE TO SHOOT',cw/2,ch*0.88);
+    ctx.fillText('PINCH TOGETHER TO AIM  ·  SPREAD APART TO FIRE',cw/2,ch*0.88);
     ctx.restore();
     if(tutorialAlpha===0) tutorialDone=true;
   }
