@@ -16,7 +16,6 @@
 <body>
 <video id="v" playsinline autoplay muted></video>
 <canvas id="c"></canvas>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 <script>
 'use strict';
@@ -1176,10 +1175,10 @@ function initGame(){
 // ── MediaPipe ─────────────────────────────────────────────────────
 let _smoothTips=Array(5).fill(null);
 const EMA=0.55;
-let _lastHandTs=0; // tracks last time hand result arrived (for stale detection)
+let _lastHandTs=0;
 function initTracking(){
   const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-  hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.5,minTrackingConfidence:0.45});
+  hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.5,minTrackingConfidence:0.4});
   hands.onResults(res=>{
     try{
       _lastHandTs=performance.now();
@@ -1202,23 +1201,34 @@ function initTracking(){
       } else {
         _smoothTips=Array(5).fill(null);
       }
-    }catch(e){console.warn('hand result error',e);}
+    }catch(e){console.warn('hand result',e);}
   });
-  // Throttle to ~8fps — MediaPipe inference is heavy on iOS; running at
-  // full 30fps camera rate blocks the main thread and freezes the game
-  let _sendPending=false;
-  const cam=new Camera(video,{
-    onFrame:async()=>{
-      if(_sendPending) return; // skip if previous inference still running
-      const now=performance.now();
-      if(now-_lastHandTs<120) return; // hard cap: 8fps max
-      _sendPending=true;
-      try{ await hands.send({image:video}); }catch(e){console.warn('send err',e);}
-      finally{ _sendPending=false; }
-    },
-    width:320,height:240,facingMode:'user'
-  });
-  cam.start().catch(e=>console.error(e));
+
+  // Use getUserMedia directly — Camera utility calls hands.send() every video frame
+  // (up to 30fps) which blocks the main thread. We control the rate ourselves.
+  navigator.mediaDevices.getUserMedia({
+    video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:15,max:20}}
+  }).then(stream=>{
+    video.srcObject=stream;
+    video.onloadeddata=()=>{
+      // Downscale to 160x120 before inference — 4× fewer pixels, noticeably faster WASM
+      const mpCv=document.createElement('canvas');
+      mpCv.width=160;mpCv.height=120;
+      const mpCtx=mpCv.getContext('2d');
+      let _busy=false;
+      // 6fps inference — completely independent of 60fps render loop
+      setInterval(async()=>{
+        if(_busy||state!=='playing'||video.readyState<2) return;
+        _busy=true;
+        try{
+          mpCtx.drawImage(video,0,0,160,120);
+          await hands.send({image:mpCv});
+        }catch(e){console.warn('send',e);}
+        finally{_busy=false;}
+      },167);
+    };
+    video.play().catch(e=>console.error(e));
+  }).catch(e=>console.error('cam',e));
 }
 
 // ── Render loop ───────────────────────────────────────────────────
@@ -1254,13 +1264,16 @@ function loop(ts){
 
   // Hand bones wireframe (drawn under bands)
   if(handVisible&&allLandmarks&&allLandmarks.length===21){
+    // Draw all bones in one save block — avoids 48 save/restore calls per frame
+    ctx.save();ctx.lineWidth=1.0;ctx.globalAlpha=0.5;ctx.shadowBlur=0;ctx.lineCap='round';
     for(const[a,b] of HAND_CONNECTIONS){
       const pa=allLandmarks[a],pb=allLandmarks[b];
       if(!pa||!pb) continue;
-      const fi=fingerOf(Math.max(a,b)),col=FINGER_COLS[Math.min(fi,4)];
-      ctx.save();ctx.strokeStyle=col;ctx.lineWidth=1.2;ctx.globalAlpha=0.55;ctx.shadowBlur=0;
-      ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();ctx.restore();
+      const fi=fingerOf(Math.max(a,b));
+      ctx.strokeStyle=FINGER_COLS[Math.min(fi,4)];
+      ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();
     }
+    ctx.restore();
     drawHandOverlay(allLandmarks);
   }
 
