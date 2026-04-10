@@ -71,8 +71,8 @@ const HAND_Z=[
 
 
 // ── Game constants ────────────────────────────────────────────────
-const SNAP_ARM=110;   // px: stretch beyond this to arm slingshot
-const SNAP_FIRE=62;   // px: snap below this to fire
+const SNAP_ARM=90;    // px: stretch beyond this to arm slingshot
+const SNAP_FIRE=55;   // px: snap below this to fire
 const PINCH_TH=45;    // px: thumb+index pinch for blast
 
 // ── Rocket type definitions ───────────────────────────────────────
@@ -260,6 +260,7 @@ let tutorialDone=false,tutorialAlpha=1;
 
 // ── Hit flash pool ────────────────────────────────────────────────
 let hitFlashes=[]; // {x,y,r,life,maxLife,col}
+let muzzleFlashes=[]; // {x,y,life,maxLife,col} — burst at shot origin
 
 
 // ── Rocket class ──────────────────────────────────────────────────
@@ -570,27 +571,26 @@ class Band{
     const tension=Math.min(1,Math.max(0,(dist-40)/260));
     const charge=Math.min(1,Math.max(0,(dist-SNAP_ARM*0.7)/(SNAP_ARM*0.85)));
     const alpha=0.55+tension*0.45;
+    const armed=this.snapArmed;
     ctx.lineCap='round';
-    // Main band — thin, zero glow
+    // Main band — thicker + brighter when armed
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
-    ctx.strokeStyle=this.color;ctx.globalAlpha=alpha;ctx.lineWidth=0.9+tension*0.4;ctx.shadowBlur=0;ctx.stroke();
-    // White specular
+    ctx.strokeStyle=this.color;
+    ctx.globalAlpha=armed?1.0:alpha;
+    ctx.lineWidth=armed?(2.2+tension*0.6):(0.9+tension*0.4);
+    ctx.shadowBlur=0;ctx.stroke();
+    // White specular — brighter when armed
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
-    ctx.strokeStyle=C.wht;ctx.globalAlpha=(0.30+charge*0.25)*alpha;ctx.lineWidth=0.6;ctx.shadowBlur=0;ctx.stroke();
-    // Charge indicator — slightly bolder, no glow
-    if(charge>0.65){
-      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
-      ctx.strokeStyle=this.color;ctx.globalAlpha=0.50*(charge-0.65)/0.35;ctx.lineWidth=2.2;ctx.shadowBlur=0;ctx.stroke();
-    }
-    // Trajectory preview when armed — dotted line showing shot direction
-    if(this.snapArmed&&handCenter){
-      const sdx=mx-handCenter.x,sdy=my-handCenter.y,slen=Math.hypot(sdx,sdy)||1;
-      const ndx=sdx/slen,ndy=sdy/slen;
-      ctx.save();ctx.setLineDash([5,9]);ctx.lineWidth=0.8;
-      ctx.strokeStyle=this.color;ctx.globalAlpha=0.35+charge*0.35;ctx.shadowBlur=0;
-      ctx.beginPath();ctx.moveTo(mx,my);
-      ctx.lineTo(mx+ndx*canvas.height*0.55,my+ndy*canvas.height*0.55);
-      ctx.stroke();ctx.setLineDash([]);ctx.restore();
+    ctx.strokeStyle=C.wht;
+    ctx.globalAlpha=armed?0.65:(0.30+charge*0.25)*alpha;
+    ctx.lineWidth=armed?1.1:0.6;ctx.shadowBlur=0;ctx.stroke();
+    // Armed pulse dot at midpoint — shows exactly where the shot will come from
+    if(armed){
+      const pulse=0.55+0.45*Math.sin(Date.now()*0.012);
+      ctx.beginPath();ctx.arc(mx,my,5*pulse,0,Math.PI*2);
+      ctx.fillStyle=this.color;ctx.globalAlpha=0.9;ctx.fill();
+      ctx.beginPath();ctx.arc(mx,my,2.5,0,Math.PI*2);
+      ctx.fillStyle=C.wht;ctx.globalAlpha=0.95;ctx.fill();
     }
     ctx.globalAlpha=1;ctx.shadowBlur=0;
   }
@@ -1162,7 +1162,7 @@ function spawnWave(wave){
 
 function initGame(){
   bands=BAND_PAIRS.map(([a,b],i)=>new Band(a,b,i));
-  beams=[];shots=[];comboPops.length=0;hitFlashes=[];
+  beams=[];shots=[];comboPops.length=0;hitFlashes=[];muzzleFlashes=[];
   score=0;lives=3;combo=1;waveNum=1;
   wasPinched=false;pinchCooldown=0;blastCharges=3;
   shakeAmt=0;waveState='active';waveTimer=0;
@@ -1263,7 +1263,8 @@ function loop(ts){
           }
           const speed=480+Math.min(peakDist,280)*1.7;
           shots.push(new Shot(x,y,dx,dy,col,speed));
-          tutorialDone=true; // hide tutorial on first shot
+          muzzleFlashes.push({x,y,life:0.22,maxLife:0.22,col});
+          tutorialDone=true;
           playSlingShot(peakDist);haptic(30);
         }
       }
@@ -1271,6 +1272,41 @@ function loop(ts){
     checkPlucks(fingertips,bands);
     checkPinchBlast(fingertips,beams);
     for(const b of bands) b.draw(fingertips);
+
+    // Lock-on: find the rocket each armed band is targeting, draw crosshair on it
+    for(const b of bands){
+      if(!b.snapArmed||!handCenter) continue;
+      const tips2=[fingertips[b.a],fingertips[b.b]];
+      if(!tips2[0]||!tips2[1]) continue;
+      const mx=(tips2[0].x+tips2[1].x)/2,my=(tips2[0].y+tips2[1].y)/2;
+      let sdx=mx-handCenter.x,sdy=my-handCenter.y,slen=Math.hypot(sdx,sdy)||1;
+      sdx/=slen;sdy/=slen;
+      // Apply same aim assist logic to find locked target
+      let tgt=null,bestDot=-1;
+      for(const r of rockets){
+        if(!r.alive) continue;
+        const rdx=r.x-mx,rdy=r.y-my,rlen=Math.hypot(rdx,rdy)||1;
+        const dot=sdx*(rdx/rlen)+sdy*(rdy/rlen);
+        if(dot>Math.cos(25*Math.PI/180)&&dot>bestDot){bestDot=dot;tgt=r;}
+      }
+      if(tgt){
+        const pulse=0.5+0.5*Math.sin(Date.now()*0.014);
+        const cr=tgt._drawSz??tgt.sz;
+        // Crosshair ring around target
+        ctx.save();
+        ctx.strokeStyle=b.color;ctx.lineWidth=1.5;ctx.globalAlpha=0.55+0.35*pulse;
+        ctx.beginPath();ctx.arc(tgt.x,tgt.y,cr*1.5+6*pulse,0,Math.PI*2);ctx.stroke();
+        // Four crosshair ticks
+        const tk=cr*0.45+3;
+        [[0,-1],[0,1],[-1,0],[1,0]].forEach(([ox,oy])=>{
+          ctx.beginPath();
+          ctx.moveTo(tgt.x+ox*(cr*1.5+tk+3*pulse),tgt.y+oy*(cr*1.5+tk+3*pulse));
+          ctx.lineTo(tgt.x+ox*(cr*1.5+3*pulse),tgt.y+oy*(cr*1.5+3*pulse));
+          ctx.stroke();
+        });
+        ctx.restore();
+      }
+    }
   }
 
   // Threat indicators (behind rockets)
@@ -1361,6 +1397,25 @@ function loop(ts){
   if(gameMode==='blitz'){
     blitzTimer-=dt;
     if(blitzTimer<=0){saveHiScore();state='gameover';ctx.restore();return;}
+  }
+
+  // Muzzle flashes — star burst at shot origin
+  muzzleFlashes=muzzleFlashes.filter(f=>f.life>0);
+  for(const f of muzzleFlashes){
+    f.life-=dt;
+    const a=f.life/f.maxLife;
+    const spikes=6,r1=18*a,r2=8*a;
+    ctx.save();ctx.globalAlpha=a*0.9;ctx.strokeStyle=f.col;ctx.lineWidth=1.5;
+    ctx.translate(f.x,f.y);
+    ctx.beginPath();
+    for(let i=0;i<spikes*2;i++){
+      const ang=(i/spikes)*Math.PI,r=i%2===0?r1:r2;
+      i===0?ctx.moveTo(Math.cos(ang)*r,Math.sin(ang)*r):ctx.lineTo(Math.cos(ang)*r,Math.sin(ang)*r);
+    }
+    ctx.closePath();ctx.stroke();
+    ctx.globalAlpha=a*0.6;ctx.fillStyle=C.wht;
+    ctx.beginPath();ctx.arc(0,0,4*a,0,Math.PI*2);ctx.fill();
+    ctx.restore();
   }
 
   // Hit flashes
