@@ -1174,38 +1174,49 @@ function initGame(){
 }
 
 // ── MediaPipe ─────────────────────────────────────────────────────
-let _smoothTips=Array(5).fill(null); // EMA-smoothed fingertip positions
-const EMA=0.55; // smoothing factor — higher = snappier fire detection
+let _smoothTips=Array(5).fill(null);
+const EMA=0.55;
+let _lastHandTs=0; // tracks last time hand result arrived (for stale detection)
 function initTracking(){
   const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-  hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.65,minTrackingConfidence:0.55});
+  hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.5,minTrackingConfidence:0.45});
   hands.onResults(res=>{
-    fingertips=Array(5).fill(null);allLandmarks=null;handVisible=false;
-    if(res.multiHandLandmarks&&res.multiHandLandmarks.length>0){
-      handVisible=true;
-      const lm=res.multiHandLandmarks[0];
-      allLandmarks=lm.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
-      for(let i=0;i<5;i++){
-        const p=lm[TIP_IDX[i]];
-        const raw={x:(1-p.x)*canvas.width,y:p.y*canvas.height};
-        const prev=_smoothTips[i];
-        if(!prev){_smoothTips[i]=raw;}
-        else{
-          // EMA smooth; skip if jitter < 8px (deadzone)
-          const d=Math.hypot(raw.x-prev.x,raw.y-prev.y);
-          if(d>8){
-            _smoothTips[i]={x:prev.x+EMA*(raw.x-prev.x),y:prev.y+EMA*(raw.y-prev.y)};
+    try{
+      _lastHandTs=performance.now();
+      fingertips=Array(5).fill(null);allLandmarks=null;handVisible=false;
+      if(res.multiHandLandmarks&&res.multiHandLandmarks.length>0){
+        handVisible=true;
+        const lm=res.multiHandLandmarks[0];
+        allLandmarks=lm.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
+        for(let i=0;i<5;i++){
+          const p=lm[TIP_IDX[i]];
+          const raw={x:(1-p.x)*canvas.width,y:p.y*canvas.height};
+          const prev=_smoothTips[i];
+          if(!prev){_smoothTips[i]=raw;}
+          else{
+            const d=Math.hypot(raw.x-prev.x,raw.y-prev.y);
+            if(d>6) _smoothTips[i]={x:prev.x+EMA*(raw.x-prev.x),y:prev.y+EMA*(raw.y-prev.y)};
           }
+          fingertips[i]=_smoothTips[i];
         }
-        fingertips[i]=_smoothTips[i];
+      } else {
+        _smoothTips=Array(5).fill(null);
       }
-    } else {
-      _smoothTips=Array(5).fill(null);
-    }
+    }catch(e){console.warn('hand result error',e);}
   });
+  // Throttle to ~8fps — MediaPipe inference is heavy on iOS; running at
+  // full 30fps camera rate blocks the main thread and freezes the game
+  let _sendPending=false;
   const cam=new Camera(video,{
-    onFrame:async()=>{await hands.send({image:video});},
-    width:640,height:480,facingMode:'user'
+    onFrame:async()=>{
+      if(_sendPending) return; // skip if previous inference still running
+      const now=performance.now();
+      if(now-_lastHandTs<120) return; // hard cap: 8fps max
+      _sendPending=true;
+      try{ await hands.send({image:video}); }catch(e){console.warn('send err',e);}
+      finally{ _sendPending=false; }
+    },
+    width:320,height:240,facingMode:'user'
   });
   cam.start().catch(e=>console.error(e));
 }
@@ -1214,9 +1225,13 @@ function initTracking(){
 function loop(ts){
   if(!running) return;
   requestAnimationFrame(loop);
+  try{
   const dt=Math.min((ts-lastTs)/1000,0.05);lastTs=ts;
   const time=ts/1000;
-
+  // Clear stale hand state if MediaPipe hasn't reported in 800ms
+  if(handVisible&&(ts-_lastHandTs)>800){
+    handVisible=false;fingertips=Array(5).fill(null);allLandmarks=null;_smoothTips=Array(5).fill(null);
+  }
   if(state==='start'){drawStartScreen(time);return;}
   if(state==='gameover'){drawGameOver(time);return;}
 
@@ -1238,9 +1253,10 @@ function loop(ts){
   }
 
   // Hand bones wireframe (drawn under bands)
-  if(handVisible&&allLandmarks){
+  if(handVisible&&allLandmarks&&allLandmarks.length===21){
     for(const[a,b] of HAND_CONNECTIONS){
       const pa=allLandmarks[a],pb=allLandmarks[b];
+      if(!pa||!pb) continue;
       const fi=fingerOf(Math.max(a,b)),col=FINGER_COLS[Math.min(fi,4)];
       ctx.save();ctx.strokeStyle=col;ctx.lineWidth=1.2;ctx.globalAlpha=0.55;ctx.shadowBlur=0;
       ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();ctx.restore();
@@ -1470,6 +1486,7 @@ function loop(ts){
 
   ctx.restore();
   ctx.globalAlpha=1;ctx.shadowBlur=0;
+  }catch(e){console.error('loop err',e);ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;}
 }
 
 // ── Boot ──────────────────────────────────────────────────────────
