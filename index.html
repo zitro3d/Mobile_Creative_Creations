@@ -16,8 +16,7 @@
 <body>
 <video id="v" playsinline autoplay muted></video>
 <canvas id="c"></canvas>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
 <script>
 'use strict';
 
@@ -1110,26 +1109,61 @@ function initGame(){
 }
 
 // ── MediaPipe ─────────────────────────────────────────────────────
-function initTracking(){
-  const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-  hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.65,minTrackingConfidence:0.55});
-  hands.onResults(res=>{
-    fingertips=Array(5).fill(null);allLandmarks=null;handVisible=false;
-    if(res.multiHandLandmarks&&res.multiHandLandmarks.length>0){
-      handVisible=true;
-      const lm=res.multiHandLandmarks[0];
-      allLandmarks=lm.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
-      for(let i=0;i<5;i++){
-        const p=lm[TIP_IDX[i]];
-        fingertips[i]={x:(1-p.x)*canvas.width,y:p.y*canvas.height};
-      }
+async function initTracking(){
+  try{
+    const{HandLandmarker,FilesetResolver}=window;
+    if(!HandLandmarker||!FilesetResolver){console.error('tasks-vision not loaded');return;}
+    const vision=await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm'
+    );
+    // Try GPU first, fall back to CPU
+    let hl;
+    try{
+      hl=await HandLandmarker.createFromOptions(vision,{
+        baseOptions:{
+          modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+          delegate:'GPU'
+        },
+        runningMode:'VIDEO',numHands:1
+      });
+    }catch(gpuErr){
+      console.warn('GPU unavailable, using CPU',gpuErr);
+      hl=await HandLandmarker.createFromOptions(vision,{
+        baseOptions:{
+          modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+          delegate:'CPU'
+        },
+        runningMode:'VIDEO',numHands:1
+      });
     }
-  });
-  const cam=new Camera(video,{
-    onFrame:async()=>{await hands.send({image:video});},
-    width:640,height:480,facingMode:'user'
-  });
-  cam.start().catch(e=>console.error(e));
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:30,max:30}}
+    });
+    video.srcObject=stream;
+    await video.play();
+    // Process frames at ~15fps, synced to video decoder
+    let lastTs2=0;
+    function processFrame(now){
+      video.requestVideoFrameCallback(processFrame);
+      if(video.readyState<2) return;
+      if(now-lastTs2<66) return; // 15fps cap
+      lastTs2=now;
+      try{
+        const r=hl.detectForVideo(video,now);
+        fingertips=Array(5).fill(null);allLandmarks=null;handVisible=false;
+        const lms=r.landmarks&&r.landmarks[0];
+        if(lms&&lms.length===21){
+          handVisible=true;
+          allLandmarks=lms.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
+          for(let i=0;i<5;i++){
+            const p=lms[TIP_IDX[i]];
+            fingertips[i]={x:(1-p.x)*canvas.width,y:p.y*canvas.height};
+          }
+        }
+      }catch(e){console.warn('detect',e);}
+    }
+    video.requestVideoFrameCallback(processFrame);
+  }catch(e){console.error('initTracking',e);}
 }
 
 // ── Render loop ───────────────────────────────────────────────────
