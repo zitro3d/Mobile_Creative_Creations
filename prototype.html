@@ -43,20 +43,15 @@
       z-index: 2;
       pointer-events: none;
       text-transform: uppercase;
-      transition: opacity 0.4s;
     }
   </style>
 </head>
 <body>
 
-<!-- Visible camera feed -->
 <video id="cam" autoplay playsinline muted></video>
-<!-- Drawing surface — transparent background, sits above video -->
 <canvas id="overlay"></canvas>
-<!-- User guidance -->
 <div id="hint">RAISE YOUR HANDS</div>
 
-<!-- MediaPipe from CDN -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
@@ -79,27 +74,28 @@ resize();
 window.addEventListener('resize', resize);
 
 // ─────────────────────────────────────────────────────────────────
-// Hand landmark constants
+// Constants
 // ─────────────────────────────────────────────────────────────────
-const TIP_IDX = [4, 8, 12, 16, 20]; // thumb → pinky fingertip indices
+const TIP_IDX = [4, 8, 12, 16, 20];
 
 const HAND_CONNECTIONS = [
-  [0,1],[1,2],[2,3],[3,4],           // thumb
-  [0,5],[5,6],[6,7],[7,8],           // index
-  [0,9],[9,10],[10,11],[11,12],      // middle
-  [0,13],[13,14],[14,15],[15,16],    // ring
-  [0,17],[17,18],[18,19],[19,20],    // pinky
-  [5,9],[9,13],[13,17],[0,17]        // palm knuckle arch
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],
+  [5,9],[9,13],[13,17],[0,17]
 ];
 
-// EMA smoothing factor (higher = more responsive, less smooth)
-const EMA = 0.30;
+// Higher = more responsive to fast movement, less smoothing of jitter
+const EMA = 0.42;
 
-// String colours — one per finger pair (thumb=pink … pinky=cyan)
 const STRING_COLS = ['#FF6EB4', '#4FC3F7', '#CE93D8', '#FFF176', '#80DEEA'];
 
+const PLUCK_RADIUS = 18; // px
+
 // ─────────────────────────────────────────────────────────────────
-// Audio  (Web Audio API — lazy init, requires user gesture on iOS)
+// Audio
 // ─────────────────────────────────────────────────────────────────
 let aCtx = null;
 
@@ -118,7 +114,6 @@ function mkDistortion(amount = 80) {
   ws.curve = curve; ws.oversample = '4x'; return ws;
 }
 
-// Pluck sound — pitch varies per string (low at thumb, high at pinky)
 function playTwang(idx) {
   if (!aCtx) return;
   const t = aCtx.currentTime;
@@ -128,61 +123,90 @@ function playTwang(idx) {
   o.connect(dist); dist.connect(g); g.connect(aCtx.destination);
   o.type = 'sawtooth';
   o.frequency.setValueAtTime(f, t);
-  o.frequency.setValueAtTime(f * 1.04, t + 0.02);
-  o.frequency.exponentialRampToValueAtTime(f * 0.95, t + 0.45);
-  g.gain.setValueAtTime(0.07, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
-  o.start(t); o.stop(t + 0.5);
+  o.frequency.setValueAtTime(f * 1.05, t + 0.015);
+  o.frequency.exponentialRampToValueAtTime(f * 0.94, t + 0.5);
+  g.gain.setValueAtTime(0.09, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+  o.start(t); o.stop(t + 0.55);
 }
 
 // ─────────────────────────────────────────────────────────────────
-// ElasticString — physics + rendering for one cross-hand string
+// Pluck particles — expanding ring flash at contact point
+// ─────────────────────────────────────────────────────────────────
+const pluckParticles = [];
+
+function spawnPluck(x, y, color) {
+  pluckParticles.push({ x, y, color, r: 0, life: 1.0 });
+}
+
+function updateDrawParticles(dt) {
+  for (let i = pluckParticles.length - 1; i >= 0; i--) {
+    const p = pluckParticles[i];
+    p.life -= dt * 3.5;
+    if (p.life <= 0) { pluckParticles.splice(i, 1); continue; }
+    p.r = (1 - p.life) * 55;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.strokeStyle  = p.color;
+    ctx.globalAlpha  = p.life * 0.75;
+    ctx.lineWidth    = 2.5 * p.life;
+    ctx.shadowColor  = p.color;
+    ctx.shadowBlur   = 14;
+    ctx.stroke();
+    // Small inner dot flash
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4 * p.life, 0, Math.PI * 2);
+    ctx.fillStyle   = '#ffffff';
+    ctx.globalAlpha = p.life * 0.9;
+    ctx.shadowBlur  = 8;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ElasticString
 // ─────────────────────────────────────────────────────────────────
 class ElasticString {
   constructor(idx) {
     this.idx   = idx;
     this.color = STRING_COLS[idx];
-
-    // Control-point offset from midpoint (spring physics state)
     this.cx = 0; this.cy = 0;
     this.cvx = 0; this.cvy = 0;
-
-    // Vibration state
     this.vAmp  = 0;
-    this.vFreq = 1.8 + Math.random() * 1.4; // unique freq per string
+    this.vFreq = 1.8 + Math.random() * 1.4;
     this.vTime = 0;
-
     this.lastPluckMs = 0;
   }
 
-  // Call when a finger crosses this string — returns true if pluck registered
-  pluck() {
+  // cx/cy = canvas contact point for particle spawn
+  pluck(cx, cy) {
     const now = performance.now();
-    if (now - this.lastPluckMs < 150) return false; // cooldown
+    if (now - this.lastPluckMs < 150) return false;
     this.lastPluckMs = now;
-    const mag = 9 + Math.random() * 9;
+    const mag = 11 + Math.random() * 11;
     const ang = (Math.random() - 0.5) * Math.PI * 2;
     this.cvx += Math.cos(ang) * mag;
     this.cvy += Math.sin(ang) * mag;
-    this.vAmp = Math.max(this.vAmp, 14 + Math.random() * 10);
+    // Bigger, more satisfying vibration burst
+    this.vAmp = Math.max(this.vAmp, 20 + Math.random() * 14);
+    spawnPluck(cx, cy, this.color);
     return true;
   }
 
-  // dt in seconds
   update(a, b, dt) {
-    // Spring: pull control-point offset back toward zero
-    this.cvx += -0.16 * this.cx;
-    this.cvy += -0.16 * this.cy;
-    // Damping
+    // Snappier spring (0.18 vs 0.16)
+    this.cvx += -0.18 * this.cx;
+    this.cvy += -0.18 * this.cy;
     this.cvx *= 0.86;
     this.cvy *= 0.86;
-    // Integrate
-    this.cx += this.cvx;
-    this.cy += this.cvy;
-    // Vibration amplitude decay
-    this.vAmp *= 0.92;
+    this.cx  += this.cvx;
+    this.cy  += this.cvy;
+    // Slower amplitude decay — rings out longer
+    this.vAmp  *= 0.91;
     this.vTime += dt;
-    // Gravity sag — control point drifts downward proportional to stretch
+    // Gravity sag
     if (a && b) {
       const dist = Math.hypot(b.x - a.x, b.y - a.y);
       this.cvy += Math.min(dist * 0.07, 25) * 0.035;
@@ -195,43 +219,42 @@ class ElasticString {
     const dist = Math.hypot(dx, dy);
     if (dist < 8) return;
 
-    // Perpendicular unit vector for vibration offset
     const px = -dy / dist, py = dx / dist;
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
 
-    // Bézier control point = midpoint + spring offset + vibration
     const vib = this.vAmp * Math.sin(this.vTime * this.vFreq * Math.PI * 2);
     const cpx = mx + this.cx + px * vib;
     const cpy = my + this.cy + py * vib;
 
-    // Tension: 0 (slack) → 1 (fully stretched)
     const tension = Math.min(1, Math.max(0, (dist - 60) / 280));
-    const alpha   = 0.55 + tension * 0.45;
-    const lineW   = 1.8  + tension * 2.2;
-    const glow    = 6    + tension * 22;
+    const vibNorm = Math.min(1, this.vAmp / 22);
+
+    const alpha = 0.60 + tension * 0.40;
+    const lineW = 2.0  + tension * 2.0 + vibNorm * 1.2;
+    // Glow intensifies with both stretch and active vibration
+    const glow  = 8    + tension * 20  + vibNorm * 18;
 
     ctx.save();
     ctx.lineCap = 'round';
 
-    // Coloured glow core
     ctx.shadowColor = this.color;
     ctx.shadowBlur  = glow;
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.quadraticCurveTo(cpx, cpy, b.x, b.y);
-    ctx.strokeStyle  = this.color;
-    ctx.globalAlpha  = alpha;
-    ctx.lineWidth    = lineW;
+    ctx.strokeStyle = this.color;
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth   = lineW;
     ctx.stroke();
 
-    // White specular highlight along the string
-    ctx.shadowBlur   = 0;
+    // Specular highlight
+    ctx.shadowBlur  = 0;
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.quadraticCurveTo(cpx, cpy, b.x, b.y);
-    ctx.strokeStyle  = '#ffffff';
-    ctx.globalAlpha  = (0.12 + tension * 0.18) * alpha;
-    ctx.lineWidth    = lineW * 0.30;
+    ctx.strokeStyle = '#ffffff';
+    ctx.globalAlpha = (0.14 + tension * 0.20 + vibNorm * 0.12) * alpha;
+    ctx.lineWidth   = lineW * 0.28;
     ctx.stroke();
 
     ctx.restore();
@@ -239,29 +262,17 @@ class ElasticString {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Hand state management
+// Hand state
 // ─────────────────────────────────────────────────────────────────
 function makeHand() {
-  return {
-    visible : false,
-    tips    : Array(5).fill(null), // smoothed fingertip positions
-    lm      : null,                // all 21 landmark positions
-    _smooth : Array(5).fill(null)  // EMA accumulators
-  };
+  return { visible: false, tips: Array(5).fill(null), lm: null, _smooth: Array(5).fill(null) };
 }
-
 const leftHand  = makeHand();
 const rightHand = makeHand();
 
-// Convert MediaPipe landmarks to canvas-space, apply EMA smoothing
 function processLandmarks(hand, lm) {
   hand.visible = true;
-  // All 21 landmarks — used for skeleton drawing
-  hand.lm = lm.map(p => ({
-    x: (1 - p.x) * canvas.width,  // flip x to match mirrored video
-    y: p.y * canvas.height
-  }));
-  // Smooth fingertips with EMA
+  hand.lm = lm.map(p => ({ x: (1 - p.x) * canvas.width, y: p.y * canvas.height }));
   for (let i = 0; i < 5; i++) {
     const p   = lm[TIP_IDX[i]];
     const raw = { x: (1 - p.x) * canvas.width, y: p.y * canvas.height };
@@ -269,31 +280,30 @@ function processLandmarks(hand, lm) {
     if (!prev) {
       hand._smooth[i] = raw;
     } else {
-      const d = Math.hypot(raw.x - prev.x, raw.y - prev.y);
-      // Only apply EMA when movement is real (> 6px), ignore tiny jitter
-      if (d > 6) hand._smooth[i] = {
-        x: prev.x + EMA * (raw.x - prev.x),
-        y: prev.y + EMA * (raw.y - prev.y)
-      };
+      // Lower threshold (4px) catches finer movements
+      if (Math.hypot(raw.x - prev.x, raw.y - prev.y) > 4) {
+        hand._smooth[i] = {
+          x: prev.x + EMA * (raw.x - prev.x),
+          y: prev.y + EMA * (raw.y - prev.y)
+        };
+      }
     }
     hand.tips[i] = hand._smooth[i];
   }
 }
 
 function resetHand(hand) {
-  hand.visible = false;
-  hand.lm      = null;
-  hand.tips    = Array(5).fill(null);
-  hand._smooth = Array(5).fill(null);
+  hand.visible = false; hand.lm = null;
+  hand.tips = Array(5).fill(null); hand._smooth = Array(5).fill(null);
 }
 
 // ─────────────────────────────────────────────────────────────────
-// 5 elastic strings — one connecting each matching finger pair
+// Elastic strings
 // ─────────────────────────────────────────────────────────────────
 const strings = Array.from({ length: 5 }, (_, i) => new ElasticString(i));
 
 // ─────────────────────────────────────────────────────────────────
-// Pluck detection — point-to-segment distance
+// Pluck detection
 // ─────────────────────────────────────────────────────────────────
 function ptSegDist(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay;
@@ -303,22 +313,26 @@ function ptSegDist(px, py, ax, ay, bx, by) {
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
-const PLUCK_RADIUS = 15; // px — how close a fingertip must be to pluck
+// Closest point on segment — returned as {x, y} for particle spawn
+function closestPtOnSeg(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return { x: ax, y: ay };
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+  return { x: ax + t * dx, y: ay + t * dy };
+}
 
 function checkPlucks() {
-  // All 10 fingertips as potential pluckers
   const allTips = [...leftHand.tips, ...rightHand.tips].filter(Boolean);
-
   for (let si = 0; si < 5; si++) {
-    const a = leftHand.tips[si];
-    const b = rightHand.tips[si];
+    const a = leftHand.tips[si], b = rightHand.tips[si];
     if (!a || !b) continue;
-
     const str = strings[si];
     for (const tip of allTips) {
-      if (tip === a || tip === b) continue; // skip the string's own anchors
+      if (tip === a || tip === b) continue;
       if (ptSegDist(tip.x, tip.y, a.x, a.y, b.x, b.y) < PLUCK_RADIUS) {
-        if (str.pluck()) {
+        const contact = closestPtOnSeg(tip.x, tip.y, a.x, a.y, b.x, b.y);
+        if (str.pluck(contact.x, contact.y)) {
           ensureAudio();
           playTwang(si);
         }
@@ -328,16 +342,25 @@ function checkPlucks() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Hand skeleton renderer
+// Bottom vignette — darkens lower half so strings glow against skin
+// ─────────────────────────────────────────────────────────────────
+function drawVignette() {
+  const grad = ctx.createLinearGradient(0, canvas.height * 0.50, 0, canvas.height);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.50)');
+  ctx.fillStyle   = grad;
+  ctx.globalAlpha = 1;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Skeleton renderer
 // ─────────────────────────────────────────────────────────────────
 function drawSkeleton(hand) {
   if (!hand.visible || !hand.lm) return;
   const lm = hand.lm;
-
   ctx.save();
-
-  // Bone connections — thin white lines
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
   ctx.lineWidth   = 1;
   ctx.shadowBlur  = 0;
   for (const [a, b] of HAND_CONNECTIONS) {
@@ -347,25 +370,22 @@ function drawSkeleton(hand) {
     ctx.lineTo(lm[b].x, lm[b].y);
     ctx.stroke();
   }
-
-  // Fingertip dots — coloured, glowing
   for (let i = 0; i < 5; i++) {
     const tip = hand.tips[i];
     if (!tip) continue;
     ctx.beginPath();
-    ctx.arc(tip.x, tip.y, 5, 0, Math.PI * 2);
+    ctx.arc(tip.x, tip.y, 5.5, 0, Math.PI * 2);
     ctx.fillStyle   = STRING_COLS[i];
-    ctx.globalAlpha = 0.92;
+    ctx.globalAlpha = 0.95;
     ctx.shadowColor = STRING_COLS[i];
-    ctx.shadowBlur  = 14;
+    ctx.shadowBlur  = 16;
     ctx.fill();
   }
-
   ctx.restore();
 }
 
 // ─────────────────────────────────────────────────────────────────
-// MediaPipe Hands — 2-hand tracking, throttled to ~8fps
+// MediaPipe — 2 hands, ~8fps cap
 // ─────────────────────────────────────────────────────────────────
 let _lastHandTs = 0;
 
@@ -373,26 +393,18 @@ function initTracking() {
   const mpHands = new Hands({
     locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
   });
-
   mpHands.setOptions({
-    maxNumHands          : 2,
-    modelComplexity      : 0,   // lite model — faster, good enough for 5 landmarks
+    maxNumHands            : 2,
+    modelComplexity        : 0,
     minDetectionConfidence : 0.55,
     minTrackingConfidence  : 0.50
   });
-
   mpHands.onResults(res => {
     try {
       _lastHandTs = performance.now();
-      resetHand(leftHand);
-      resetHand(rightHand);
-
+      resetHand(leftHand); resetHand(rightHand);
       if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
         res.multiHandLandmarks.forEach((lm, i) => {
-          // MediaPipe labels hands from the camera's POV (un-mirrored).
-          // Since we mirror the video for selfie view and flip x with (1-p.x):
-          //   MP 'Left'  = camera-left  = screen-right after flip = user's RIGHT hand
-          //   MP 'Right' = camera-right = screen-left  after flip = user's LEFT hand
           const mpLabel = res.multiHandedness[i].label;
           const hand    = mpLabel === 'Left' ? rightHand : leftHand;
           processLandmarks(hand, lm);
@@ -401,13 +413,12 @@ function initTracking() {
     } catch (e) { console.warn('MP result error', e); }
   });
 
-  // Throttled frame sender — cap at ~8fps to keep main thread free on mobile
   let _sendPending = false;
   const cam = new Camera(camEl, {
     onFrame: async () => {
       if (_sendPending) return;
       const now = performance.now();
-      if (now - _lastHandTs < 120) return; // hard 8fps cap
+      if (now - _lastHandTs < 120) return;
       _sendPending = true;
       try   { await mpHands.send({ image: camEl }); }
       catch (e) { console.warn('send err', e); }
@@ -415,15 +426,14 @@ function initTracking() {
     },
     width: 640, height: 480, facingMode: 'user'
   });
-
   cam.start().catch(e => {
     hintEl.textContent = 'CAMERA ACCESS REQUIRED';
-    console.error('Camera start failed:', e);
+    console.error(e);
   });
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Render loop  (60fps — tracking updates arrive at ~8fps)
+// Render loop
 // ─────────────────────────────────────────────────────────────────
 let lastTs = 0;
 
@@ -432,45 +442,35 @@ function loop(ts) {
   const dt = Math.min((ts - lastTs) / 1000, 0.05);
   lastTs = ts;
 
-  // Transparent clear — camera feed visible beneath
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Stale-hand timeout: if MediaPipe goes silent for 1s, clear tracking
+  // Stale hand timeout
   if (_lastHandTs > 0 && ts - _lastHandTs > 1000) {
-    resetHand(leftHand);
-    resetHand(rightHand);
+    resetHand(leftHand); resetHand(rightHand);
   }
 
   const lv = leftHand.visible, rv = rightHand.visible;
 
-  // Update hint message
-  if (lv && rv)        hintEl.textContent = '';
-  else if (lv || rv)   hintEl.textContent = 'SHOW BOTH HANDS';
-  else                  hintEl.textContent = 'RAISE YOUR HANDS';
+  if (lv && rv)       hintEl.textContent = '';
+  else if (lv || rv)  hintEl.textContent = 'SHOW BOTH HANDS';
+  else                hintEl.textContent = 'RAISE YOUR HANDS';
+
+  // Subtle vignette to separate strings from camera background
+  drawVignette();
 
   if (lv && rv) {
-    // Pluck detection before physics update (uses current positions)
     checkPlucks();
-
-    // Physics update
-    for (let i = 0; i < 5; i++) {
-      strings[i].update(leftHand.tips[i], rightHand.tips[i], dt);
-    }
-
-    // Draw strings under the skeleton
-    for (let i = 0; i < 5; i++) {
-      strings[i].draw(leftHand.tips[i], rightHand.tips[i]);
-    }
+    for (let i = 0; i < 5; i++) strings[i].update(leftHand.tips[i], rightHand.tips[i], dt);
+    for (let i = 0; i < 5; i++) strings[i].draw(leftHand.tips[i], rightHand.tips[i]);
   } else {
-    // Gently decay string physics when hands disappear
     for (const s of strings) {
-      s.cx  *= 0.9; s.cy  *= 0.9;
+      s.cx *= 0.9; s.cy *= 0.9;
       s.cvx *= 0.8; s.cvy *= 0.8;
       s.vAmp *= 0.9;
     }
   }
 
-  // Skeleton drawn on top of strings
+  updateDrawParticles(dt);
   drawSkeleton(leftHand);
   drawSkeleton(rightHand);
 }
@@ -478,8 +478,6 @@ function loop(ts) {
 // ─────────────────────────────────────────────────────────────────
 // Bootstrap
 // ─────────────────────────────────────────────────────────────────
-
-// Audio context requires a user gesture on iOS — unlock on first interaction
 document.addEventListener('click',      ensureAudio, { once: true });
 document.addEventListener('touchstart', ensureAudio, { once: true, passive: true });
 
