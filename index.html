@@ -9,8 +9,8 @@
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{width:100%;height:100%;background:#000;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
-    #c{position:fixed;top:0;left:0;width:100%;height:100%;display:block}
-    #v{display:none}
+    #c{position:fixed;top:0;left:0;width:100%;height:100%;display:block;z-index:1}
+    #v,video,canvas:not(#c){display:none!important;position:fixed!important;left:-9999px!important;top:-9999px!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;z-index:-1!important}
   </style>
 </head>
 <body>
@@ -72,7 +72,7 @@ const HAND_Z=[
 
 // ── Game constants ────────────────────────────────────────────────
 const SNAP_ARM=90;    // px: stretch beyond this to arm slingshot
-const SNAP_FIRE=55;   // px: snap below this to fire
+const SNAP_FIRE=75;   // px: snap below this to fire (raised for EMA reliability)
 const PINCH_TH=45;    // px: thumb+index pinch for blast
 
 // ── Rocket type definitions ───────────────────────────────────────
@@ -552,10 +552,11 @@ class Band{
       this.peakDist=Math.max(this.peakDist,dist);
     }
     const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-    // Fire: snap back below threshold OR held armed for 700ms (auto-fire)
-    const heldLong=this.snapArmed&&this.armedAt>0&&(now-this.armedAt)>700;
-    if(this.snapArmed&&now-this.lastShotMs>450){
-      if(dist<SNAP_FIRE||heldLong){
+    // Fire: snap back below SNAP_FIRE, OR release from arm threshold, OR auto-fire
+    const heldMin=this.snapArmed&&this.armedAt>0&&(now-this.armedAt)>150;
+    const heldLong=this.snapArmed&&this.armedAt>0&&(now-this.armedAt)>500;
+    if(this.snapArmed&&now-this.lastShotMs>400){
+      if(dist<SNAP_FIRE||(dist<SNAP_ARM&&heldMin)||heldLong){
         this._fire(mx,my);
       }
     }
@@ -1182,7 +1183,7 @@ function initGame(){
 
 // ── MediaPipe ─────────────────────────────────────────────────────
 let _smoothTips=Array(5).fill(null); // EMA-smoothed fingertip positions
-const EMA=0.38; // smoothing factor (lower=smoother/laggier, higher=snappier)
+const EMA=0.55; // smoothing factor (lower=smoother/laggier, higher=snappier)
 function initTracking(){
   const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
   hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.65,minTrackingConfidence:0.55});
@@ -1253,20 +1254,31 @@ function loop(ts){
         const{x,y,peakDist,col}=b._pendingShot;
         b._pendingShot=null;
         if(handCenter){
-          let dx=x-handCenter.x,dy=y-handCenter.y,len=Math.hypot(dx,dy)||1;
-          dx/=len;dy/=len;
-          // Soft aim assist: snap toward nearest alive rocket within ±22°
+          let dx=x-handCenter.x,dy=y-handCenter.y,len=Math.hypot(dx,dy);
+          // Fallback: if midpoint ≈ handCenter (symmetric stretch), aim straight up
+          if(len<18){dx=0;dy=-1;}else{dx/=len;dy/=len;}
+          // Soft aim assist: snap toward nearest alive rocket within ±35°
           let bestRocket=null,bestDot=-1;
           for(const r of rockets){
             if(!r.alive)continue;
             const rdx=r.x-x,rdy=r.y-y,rlen=Math.hypot(rdx,rdy)||1;
             const dot=dx*(rdx/rlen)+dy*(rdy/rlen);
-            if(dot>Math.cos(22*Math.PI/180)&&dot>bestDot){bestDot=dot;bestRocket=r;}
+            if(dot>Math.cos(35*Math.PI/180)&&dot>bestDot){bestDot=dot;bestRocket=r;}
+          }
+          // If no rocket in cone, just aim at closest rocket above hand
+          if(!bestRocket){
+            let nearest=null,nearDist=Infinity;
+            for(const r of rockets){
+              if(!r.alive||r.y>y)continue;
+              const d=Math.hypot(r.x-x,r.y-y);
+              if(d<nearDist){nearDist=d;nearest=r;}
+            }
+            bestRocket=nearest;
           }
           if(bestRocket){
             const rdx=bestRocket.x-x,rdy=bestRocket.y-y,rlen=Math.hypot(rdx,rdy)||1;
-            // Blend 55% toward rocket, keep 45% raw — subtle not magnetic
-            dx=dx*0.45+(rdx/rlen)*0.55;dy=dy*0.45+(rdy/rlen)*0.55;
+            // Blend 60% toward rocket, keep 40% raw
+            dx=dx*0.40+(rdx/rlen)*0.60;dy=dy*0.40+(rdy/rlen)*0.60;
             const nl=Math.hypot(dx,dy)||1;dx/=nl;dy/=nl;
           }
           const speed=480+Math.min(peakDist,280)*1.7;
