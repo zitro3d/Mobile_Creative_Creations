@@ -1174,19 +1174,38 @@ function initGame(){
 
 // ── MediaPipe ─────────────────────────────────────────────────────
 let _smoothTips=Array(5).fill(null);
-const EMA=0.55;
+const EMA=0.6;
 let _lastHandTs=0;
+// Interpolation state — store two consecutive landmark sets + timestamps
+let _lmA=null,_lmB=null,_lmAts=0,_lmBts=0;
+// Returns predicted landmark positions for RIGHT NOW (smooth 60fps)
+// by extrapolating from the last two MediaPipe results
+function getDisplayLM(){
+  if(!_lmB) return allLandmarks;
+  if(!_lmA) return _lmB;
+  const now=performance.now(),dt=_lmBts-_lmAts;
+  if(dt<10) return _lmB;
+  const t=Math.min(1.5,(now-_lmBts)/dt); // extrapolate up to 1.5x interval
+  return _lmB.map((b,i)=>({x:b.x+t*(b.x-_lmA[i].x),y:b.y+t*(b.y-_lmA[i].y)}));
+}
+
 function initTracking(){
   const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
   hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.5,minTrackingConfidence:0.4});
   hands.onResults(res=>{
     try{
-      _lastHandTs=performance.now();
+      const now=performance.now();
+      _lastHandTs=now;
       fingertips=Array(5).fill(null);allLandmarks=null;handVisible=false;
       if(res.multiHandLandmarks&&res.multiHandLandmarks.length>0){
         handVisible=true;
         const lm=res.multiHandLandmarks[0];
-        allLandmarks=lm.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
+        const newLM=lm.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
+        // Roll interpolation buffer: A=previous, B=current
+        _lmA=_lmB; _lmAts=_lmBts;
+        _lmB=newLM; _lmBts=now;
+        allLandmarks=newLM;
+        // EMA-smooth fingertips for gesture detection
         for(let i=0;i<5;i++){
           const p=lm[TIP_IDX[i]];
           const raw={x:(1-p.x)*canvas.width,y:p.y*canvas.height};
@@ -1194,38 +1213,34 @@ function initTracking(){
           if(!prev){_smoothTips[i]=raw;}
           else{
             const d=Math.hypot(raw.x-prev.x,raw.y-prev.y);
-            if(d>6) _smoothTips[i]={x:prev.x+EMA*(raw.x-prev.x),y:prev.y+EMA*(raw.y-prev.y)};
+            if(d>4) _smoothTips[i]={x:prev.x+EMA*(raw.x-prev.x),y:prev.y+EMA*(raw.y-prev.y)};
           }
           fingertips[i]=_smoothTips[i];
         }
       } else {
         _smoothTips=Array(5).fill(null);
+        _lmA=null;_lmB=null;
       }
     }catch(e){console.warn('hand result',e);}
   });
 
-  // Use getUserMedia directly — Camera utility calls hands.send() every video frame
-  // (up to 30fps) which blocks the main thread. We control the rate ourselves.
   navigator.mediaDevices.getUserMedia({
     video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:15,max:20}}
   }).then(stream=>{
     video.srcObject=stream;
     video.onloadeddata=()=>{
-      // Downscale to 160x120 before inference — 4× fewer pixels, noticeably faster WASM
       const mpCv=document.createElement('canvas');
       mpCv.width=160;mpCv.height=120;
       const mpCtx=mpCv.getContext('2d');
       let _busy=false;
-      // 6fps inference — completely independent of 60fps render loop
+      // 8fps inference — independent of render loop
       setInterval(async()=>{
         if(_busy||state!=='playing'||video.readyState<2) return;
         _busy=true;
-        try{
-          mpCtx.drawImage(video,0,0,160,120);
-          await hands.send({image:mpCv});
-        }catch(e){console.warn('send',e);}
+        try{mpCtx.drawImage(video,0,0,160,120);await hands.send({image:mpCv});}
+        catch(e){console.warn('send',e);}
         finally{_busy=false;}
-      },167);
+      },125);
     };
     video.play().catch(e=>console.error(e));
   }).catch(e=>console.error('cam',e));
@@ -1262,19 +1277,23 @@ function loop(ts){
     handCenter={x:vt.reduce((s,t)=>s+t.x,0)/vt.length,y:vt.reduce((s,t)=>s+t.y,0)/vt.length};
   }
 
+  // Interpolated display landmarks — smooth 60fps visual even at 8fps inference
+  const dispLM=handVisible?getDisplayLM():null;
+  // Display fingertips (for band.draw visual) — from interpolated landmarks
+  const dispTips=dispLM?TIP_IDX.map(i=>dispLM[i]):fingertips;
+
   // Hand bones wireframe (drawn under bands)
-  if(handVisible&&allLandmarks&&allLandmarks.length===21){
-    // Draw all bones in one save block — avoids 48 save/restore calls per frame
+  if(dispLM&&dispLM.length===21){
     ctx.save();ctx.lineWidth=1.0;ctx.globalAlpha=0.5;ctx.shadowBlur=0;ctx.lineCap='round';
     for(const[a,b] of HAND_CONNECTIONS){
-      const pa=allLandmarks[a],pb=allLandmarks[b];
+      const pa=dispLM[a],pb=dispLM[b];
       if(!pa||!pb) continue;
       const fi=fingerOf(Math.max(a,b));
       ctx.strokeStyle=FINGER_COLS[Math.min(fi,4)];
       ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();
     }
     ctx.restore();
-    drawHandOverlay(allLandmarks);
+    drawHandOverlay(dispLM);
   }
 
   // Bands — update, slingshot, draw
@@ -1326,12 +1345,13 @@ function loop(ts){
     }
     checkPlucks(fingertips,bands);
     checkPinchBlast(fingertips,beams);
-    for(const b of bands) b.draw(fingertips);
+    // Draw bands using interpolated display tips for smooth 60fps visuals
+    for(const b of bands) b.draw(dispTips);
 
     // Lock-on: when fingers are TOGETHER (locked), show crosshair on nearest rocket
     for(const b of bands){
       if(!b.locked) continue;
-      const tips2=[fingertips[b.a],fingertips[b.b]];
+      const tips2=[dispTips[b.a],dispTips[b.b]];
       if(!tips2[0]||!tips2[1]) continue;
       const mx=(tips2[0].x+tips2[1].x)/2,my=(tips2[0].y+tips2[1].y)/2;
       // Find nearest alive rocket above the finger midpoint
