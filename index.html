@@ -250,6 +250,17 @@ function haptic(p){if(navigator.vibrate)navigator.vibrate(p);}
 let hiScore=parseInt(localStorage.getItem('vr_hi')||'0');
 function saveHiScore(){if(score>hiScore){hiScore=score;localStorage.setItem('vr_hi',String(score));}}
 
+// ── Game modes ────────────────────────────────────────────────────
+let gameMode='classic'; // 'classic' | 'blitz'
+const BLITZ_TIME=60;
+let blitzTimer=BLITZ_TIME;
+
+// ── Tutorial ──────────────────────────────────────────────────────
+let tutorialDone=false,tutorialAlpha=1;
+
+// ── Hit flash pool ────────────────────────────────────────────────
+let hitFlashes=[]; // {x,y,r,life,maxLife,col}
+
 
 // ── Rocket class ──────────────────────────────────────────────────
 class Rocket{
@@ -570,6 +581,16 @@ class Band{
     if(charge>0.65){
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
       ctx.strokeStyle=this.color;ctx.globalAlpha=0.50*(charge-0.65)/0.35;ctx.lineWidth=2.2;ctx.shadowBlur=0;ctx.stroke();
+    }
+    // Trajectory preview when armed — dotted line showing shot direction
+    if(this.snapArmed&&handCenter){
+      const sdx=mx-handCenter.x,sdy=my-handCenter.y,slen=Math.hypot(sdx,sdy)||1;
+      const ndx=sdx/slen,ndy=sdy/slen;
+      ctx.save();ctx.setLineDash([5,9]);ctx.lineWidth=0.8;
+      ctx.strokeStyle=this.color;ctx.globalAlpha=0.35+charge*0.35;ctx.shadowBlur=0;
+      ctx.beginPath();ctx.moveTo(mx,my);
+      ctx.lineTo(mx+ndx*canvas.height*0.55,my+ndy*canvas.height*0.55);
+      ctx.stroke();ctx.setLineDash([]);ctx.restore();
     }
     ctx.globalAlpha=1;ctx.shadowBlur=0;
   }
@@ -892,14 +913,21 @@ function drawStartScreen(time){
     ctx.fillText(`HI: ${String(hiScore).padStart(6,'0')}`,cw-12,28);
     ctx.restore();
   }
-  // TAP TO PLAY
-  if(Math.floor(time*2)%2===0){
+  // Mode select buttons
+  const btnY=ch*0.895,btnH=ch*0.065,btnW=cw*0.42,gap=cw*0.04;
+  const lbx=cx-gap/2-btnW,rbx=cx+gap/2;
+  function modeBtn(x,y,w,h,label,sub,col){
     ctx.save();
-    ctx.font=`bold ${Math.floor(cw*0.052)}px 'Courier New',monospace`;
-    ctx.fillStyle=C.cyan;ctx.textAlign='center';ctx.shadowBlur=0;
-    ctx.fillText('► TAP TO PLAY ◄',cx,ch*0.925);
+    ctx.strokeStyle=col;ctx.lineWidth=1.2;ctx.globalAlpha=0.85;
+    ctx.strokeRect(x,y,w,h);
+    ctx.font=`bold ${Math.floor(w*0.135)}px 'Courier New',monospace`;
+    ctx.fillStyle=col;ctx.textAlign='center';ctx.fillText(label,x+w/2,y+h*0.52);
+    ctx.font=`${Math.floor(w*0.075)}px 'Courier New',monospace`;
+    ctx.fillStyle=C.wht;ctx.globalAlpha=0.6;ctx.fillText(sub,x+w/2,y+h*0.84);
     ctx.restore();
   }
+  modeBtn(lbx,btnY,btnW,btnH,'CLASSIC','WAVES',C.cyan);
+  modeBtn(rbx,btnY,btnW,btnH,'BLITZ','60 SEC',C.ora);
   // HOW TO PLAY
   ctx.save();
   ctx.textAlign='center';
@@ -948,9 +976,24 @@ function drawGameOver(time){
   if(Math.floor(time*2)%2===0){
     ctx.font=`bold ${Math.floor(cw*0.052)}px 'Courier New',monospace`;
     ctx.fillStyle=C.grn;ctx.shadowBlur=0;
-    ctx.fillText('► PLAY AGAIN ◄',cx,ch*0.78);
+    ctx.fillText('► TAP TO PLAY AGAIN ◄',cx,ch*0.76);
   }
+  // Share button
+  ctx.font=`bold ${Math.floor(cw*0.042)}px 'Courier New',monospace`;
+  ctx.strokeStyle=C.yel;ctx.lineWidth=1.2;ctx.globalAlpha=0.8;
+  const sbw=cw*0.58,sbh=ch*0.055,sbx=cx-sbw/2,sby=ch*0.84;
+  ctx.strokeRect(sbx,sby,sbw,sbh);
+  ctx.fillStyle=C.yel;ctx.globalAlpha=0.9;
+  ctx.fillText('⬆ SHARE SCORE',cx,sby+sbh*0.68);
   ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;
+}
+// Share action — wired to game over tap
+function tryShare(){
+  if(state!=='gameover') return;
+  const modeLabel=gameMode==='blitz'?'60s BLITZ':'WAVE '+waveNum;
+  const txt=`I scored ${score} in Vector Rocket (${modeLabel})! Can you beat me? 🚀\nhttps://zitro3d.github.io/Mobile_Creative_Creations/`;
+  if(navigator.share){navigator.share({title:'Vector Rocket',text:txt}).catch(()=>{});}
+  else{navigator.clipboard.writeText(txt).then(()=>alert('Score copied to clipboard!')).catch(()=>{});}
 }
 
 // ── Threat indicators ─────────────────────────────────────────────
@@ -1039,6 +1082,18 @@ function drawHUD(){
   ctx.fillStyle=blastCharges>0?C.yel:'#334433';
   ctx.shadowBlur=0;
   ctx.fillText(blStr,cw-12,94);
+  // Blitz countdown
+  if(gameMode==='blitz'){
+    const secs=Math.ceil(Math.max(0,blitzTimer));
+    const urgentCol=secs<=10?C.red:secs<=20?C.ora:C.cyan;
+    ctx.textAlign='center';
+    ctx.font=`bold ${Math.floor(cw*0.11)}px 'Courier New',monospace`;
+    ctx.fillStyle=urgentCol;ctx.globalAlpha=secs<=10?(0.7+0.3*Math.sin(Date.now()*0.01)):0.75;
+    ctx.fillText(String(secs).padStart(2,'0'),cw/2,canvas.height-22);
+    ctx.globalAlpha=0.9;
+    ctx.font=`${Math.floor(cw*0.028)}px 'Courier New',monospace`;
+    ctx.fillStyle=C.wht;ctx.fillText('BLITZ',cw/2,canvas.height-52);
+  }
   ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
@@ -1107,16 +1162,19 @@ function spawnWave(wave){
 
 function initGame(){
   bands=BAND_PAIRS.map(([a,b],i)=>new Band(a,b,i));
-  beams=[];shots=[];comboPops.length=0;
+  beams=[];shots=[];comboPops.length=0;hitFlashes=[];
   score=0;lives=3;combo=1;waveNum=1;
   wasPinched=false;pinchCooldown=0;blastCharges=3;
   shakeAmt=0;waveState='active';waveTimer=0;
   waveAnncText='';waveAnncSub='';waveAnncTimer=0;
+  blitzTimer=BLITZ_TIME;tutorialDone=false;tutorialAlpha=1;
   spawnWave(1);
   playStartChord();
 }
 
 // ── MediaPipe ─────────────────────────────────────────────────────
+let _smoothTips=Array(5).fill(null); // EMA-smoothed fingertip positions
+const EMA=0.38; // smoothing factor (lower=smoother/laggier, higher=snappier)
 function initTracking(){
   const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
   hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.65,minTrackingConfidence:0.55});
@@ -1128,8 +1186,20 @@ function initTracking(){
       allLandmarks=lm.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
       for(let i=0;i<5;i++){
         const p=lm[TIP_IDX[i]];
-        fingertips[i]={x:(1-p.x)*canvas.width,y:p.y*canvas.height};
+        const raw={x:(1-p.x)*canvas.width,y:p.y*canvas.height};
+        const prev=_smoothTips[i];
+        if(!prev){_smoothTips[i]=raw;}
+        else{
+          // EMA smooth; skip if jitter < 8px (deadzone)
+          const d=Math.hypot(raw.x-prev.x,raw.y-prev.y);
+          if(d>8){
+            _smoothTips[i]={x:prev.x+EMA*(raw.x-prev.x),y:prev.y+EMA*(raw.y-prev.y)};
+          }
+        }
+        fingertips[i]=_smoothTips[i];
       }
+    } else {
+      _smoothTips=Array(5).fill(null);
     }
   });
   const cam=new Camera(video,{
@@ -1175,9 +1245,25 @@ function loop(ts){
         const{x,y,peakDist,col}=b._pendingShot;
         b._pendingShot=null;
         if(handCenter){
-          const dx=x-handCenter.x,dy=y-handCenter.y,len=Math.hypot(dx,dy)||1;
+          let dx=x-handCenter.x,dy=y-handCenter.y,len=Math.hypot(dx,dy)||1;
+          dx/=len;dy/=len;
+          // Soft aim assist: snap toward nearest alive rocket within ±22°
+          let bestRocket=null,bestDot=-1;
+          for(const r of rockets){
+            if(!r.alive)continue;
+            const rdx=r.x-x,rdy=r.y-y,rlen=Math.hypot(rdx,rdy)||1;
+            const dot=dx*(rdx/rlen)+dy*(rdy/rlen);
+            if(dot>Math.cos(22*Math.PI/180)&&dot>bestDot){bestDot=dot;bestRocket=r;}
+          }
+          if(bestRocket){
+            const rdx=bestRocket.x-x,rdy=bestRocket.y-y,rlen=Math.hypot(rdx,rdy)||1;
+            // Blend 55% toward rocket, keep 45% raw — subtle not magnetic
+            dx=dx*0.45+(rdx/rlen)*0.55;dy=dy*0.45+(rdy/rlen)*0.55;
+            const nl=Math.hypot(dx,dy)||1;dx/=nl;dy/=nl;
+          }
           const speed=480+Math.min(peakDist,280)*1.7;
-          shots.push(new Shot(x,y,dx/len,dy/len,col,speed));
+          shots.push(new Shot(x,y,dx,dy,col,speed));
+          tutorialDone=true; // hide tutorial on first shot
           playSlingShot(peakDist);haptic(30);
         }
       }
@@ -1216,7 +1302,8 @@ function loop(ts){
         if(rocket.damage()){
           score+=rocket.points*Math.min(combo,8);
           comboPops.push({x:rocket.x,y:rocket.y,text:`x${Math.min(combo,8)}`,life:1.1,maxLife:1.1});
-          combo++;triggerShake(8);haptic(40);playHit();waveKillsNeeded--;
+          hitFlashes.push({x:rocket.x,y:rocket.y,r:rocket.sz*2.2,life:0.45,maxLife:0.45,col:rocket.getBodyColor()});
+          combo++;triggerShake(10);haptic(40);playHit();waveKillsNeeded--;
         }
         break;
       }
@@ -1233,7 +1320,8 @@ function loop(ts){
         if(rocket.damage()){
           score+=rocket.points*Math.min(combo,8);
           comboPops.push({x:rocket.x,y:rocket.y,text:`x${Math.min(combo,8)}`,life:1.1,maxLife:1.1});
-          combo++;triggerShake(8);haptic(40);playHit();waveKillsNeeded--;
+          hitFlashes.push({x:rocket.x,y:rocket.y,r:rocket.sz*2.2,life:0.45,maxLife:0.45,col:rocket.getBodyColor()});
+          combo++;triggerShake(10);haptic(40);playHit();waveKillsNeeded--;
         }
         break;
       }
@@ -1269,6 +1357,35 @@ function loop(ts){
   }
   if(waveAnncTimer>0) waveAnncTimer-=dt;
 
+  // Blitz countdown
+  if(gameMode==='blitz'){
+    blitzTimer-=dt;
+    if(blitzTimer<=0){saveHiScore();state='gameover';ctx.restore();return;}
+  }
+
+  // Hit flashes
+  hitFlashes=hitFlashes.filter(f=>f.life>0);
+  for(const f of hitFlashes){
+    f.life-=dt;
+    const a=f.life/f.maxLife;
+    ctx.save();ctx.globalAlpha=a*0.85;
+    ctx.beginPath();ctx.arc(f.x,f.y,f.r*(1.8-a*0.8),0,Math.PI*2);
+    ctx.strokeStyle=f.col;ctx.lineWidth=2;ctx.stroke();
+    ctx.restore();
+  }
+
+  // Tutorial overlay
+  if(!tutorialDone&&tutorialAlpha>0){
+    tutorialAlpha=Math.max(0,tutorialAlpha-dt*0.4);
+    const cw=canvas.width,ch=canvas.height;
+    ctx.save();ctx.globalAlpha=tutorialAlpha*0.88;
+    ctx.font=`bold ${Math.floor(cw*0.042)}px 'Courier New',monospace`;
+    ctx.textAlign='center';ctx.fillStyle=C.cyan;ctx.shadowBlur=0;
+    ctx.fillText('STRETCH A BAND → RELEASE TO SHOOT',cw/2,ch*0.88);
+    ctx.restore();
+    if(tutorialAlpha===0) tutorialDone=true;
+  }
+
   drawComboPops(dt);
   drawWaveAnnouncer();
   drawHUD();
@@ -1278,8 +1395,9 @@ function loop(ts){
 }
 
 // ── Boot ──────────────────────────────────────────────────────────
-function startGame(){
+function startGame(mode='classic'){
   ensureAudio();
+  gameMode=mode;
   if(state==='gameover'){
     state='playing';initGame();
     if(!trackingStarted){initTracking();trackingStarted=true;}
@@ -1289,8 +1407,18 @@ function startGame(){
   state='playing';initGame();
   if(!trackingStarted){initTracking();trackingStarted=true;}
 }
-canvas.addEventListener('click',startGame);
-canvas.addEventListener('touchstart',e=>{e.preventDefault();startGame();},{passive:false});
+// Touch/click — left/right = classic/blitz on start; share zone on gameover
+function handleTap(cx,cy){
+  if(state==='start'){startGame(cx<canvas.width/2?'classic':'blitz');}
+  else if(state==='gameover'){
+    const ch=canvas.height,cw=canvas.width;
+    const sby=ch*0.84,sbh=ch*0.055,sbx=cw/2-cw*0.29;
+    if(cy>=sby&&cy<=sby+sbh&&cx>=sbx&&cx<=sbx+cw*0.58){tryShare();}
+    else startGame();
+  } else startGame();
+}
+canvas.addEventListener('click',e=>handleTap(e.clientX,e.clientY));
+canvas.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches[0];handleTap(t.clientX,t.clientY);},{passive:false});
 
 running=true;lastTs=performance.now();
 requestAnimationFrame(loop);
