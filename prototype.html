@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Hand Strings — Prototype</title>
+  <title>Anti-Gravity Hand Strings</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
@@ -16,41 +16,9 @@
       -webkit-user-select: none;
       user-select: none;
     }
-    /* Live camera feed — mirrored for natural selfie view */
-    #cam {
-      position: fixed; top: 0; left: 0;
-      width: 100%; height: 100%;
-      object-fit: cover;
-      transform: scaleX(-1);
-      z-index: 0;
-    }
-    /* Transparent canvas drawn on top of video */
-    #overlay {
-      position: fixed; top: 0; left: 0;
-      width: 100%; height: 100%;
-      z-index: 1;
-      pointer-events: none;
-    }
-    /* Hint text at bottom */
-    #hint {
-      position: fixed;
-      bottom: 28px; left: 50%;
-      transform: translateX(-50%);
-      color: rgba(255, 255, 255, 0.60);
-      font: 500 13px/1 'Courier New', monospace;
-      letter-spacing: 3px;
-      text-align: center;
-      z-index: 2;
-      pointer-events: none;
-      text-transform: uppercase;
-    }
   </style>
 </head>
 <body>
-
-<video id="cam" autoplay playsinline muted></video>
-<canvas id="overlay"></canvas>
-<div id="hint">RAISE YOUR HANDS</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
@@ -58,196 +26,274 @@
 <script>
 'use strict';
 
-// ─────────────────────────────────────────────────────────────────
-// Canvas & resize
-// ─────────────────────────────────────────────────────────────────
-const canvas  = document.getElementById('overlay');
-const ctx     = canvas.getContext('2d');
-const camEl   = document.getElementById('cam');
-const hintEl  = document.getElementById('hint');
+// ═══════════════════════════════════════════════════════════════════
+//  HandStrings — embeddable anti-gravity hand-tracking module
+//
+//  Usage (standalone):
+//    new HandStrings().start();
+//
+//  Usage (embedded in a container):
+//    const hs = new HandStrings({
+//      container : document.getElementById('my-div'),
+//      onPluck   : (fingerIndex, x, y) => console.log('plucked', fingerIndex),
+//    });
+//    hs.start();
+//    // later: hs.stop() / hs.destroy()
+// ═══════════════════════════════════════════════════════════════════
+class HandStrings {
 
-function resize() {
-  canvas.width  = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener('resize', resize);
+  // ── Config defaults ──────────────────────────────────────────────
+  static DEFAULTS = {
+    container : null,           // DOM element — null = document.body
+    onPluck   : null,           // fn(fingerIndex, x, y)
+    colors    : ['#FF6EB4', '#4FC3F7', '#CE93D8', '#FFF176', '#80DEEA'],
+    gravity   : -0.028,         // negative = anti-gravity (strings float UP)
+    springK   : 0.18,           // spring stiffness
+    damping   : 0.86,           // velocity damping per frame
+    ampDecay  : 0.91,           // vibration ring-out rate
+    pluckRadius: 18,            // px — finger proximity to trigger pluck
+    mpFps     : 120,            // ms between MediaPipe sends (~8fps)
+  };
 
-// ─────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────
-const TIP_IDX = [4, 8, 12, 16, 20];
+  // ── MediaPipe landmark indices ───────────────────────────────────
+  static TIP_IDX = [4, 8, 12, 16, 20];
+  static CONNECTIONS = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [0,9],[9,10],[10,11],[11,12],
+    [0,13],[13,14],[14,15],[15,16],
+    [0,17],[17,18],[18,19],[19,20],
+    [5,9],[9,13],[13,17],[0,17]
+  ];
 
-const HAND_CONNECTIONS = [
-  [0,1],[1,2],[2,3],[3,4],
-  [0,5],[5,6],[6,7],[7,8],
-  [0,9],[9,10],[10,11],[11,12],
-  [0,13],[13,14],[14,15],[15,16],
-  [0,17],[17,18],[18,19],[19,20],
-  [5,9],[9,13],[13,17],[0,17]
-];
+  constructor(opts = {}) {
+    this.cfg = { ...HandStrings.DEFAULTS, ...opts };
+    this._running   = false;
+    this._rafId     = null;
+    this._lastTs    = 0;
+    this._lastHandTs = 0;
+    this._sendPending = false;
 
-// Higher = more responsive to fast movement, less smoothing of jitter
-const EMA = 0.42;
+    // Audio
+    this._aCtx = null;
 
-const STRING_COLS = ['#FF6EB4', '#4FC3F7', '#CE93D8', '#FFF176', '#80DEEA'];
+    // Hands
+    this._left  = this._makeHand();
+    this._right = this._makeHand();
 
-const PLUCK_RADIUS = 18; // px
+    // Physics objects
+    this._strings = Array.from({ length: 5 }, (_, i) => this._makeString(i));
+    this._particles = [];
 
-// ─────────────────────────────────────────────────────────────────
-// Audio
-// ─────────────────────────────────────────────────────────────────
-let aCtx = null;
-
-function ensureAudio() {
-  if (!aCtx) aCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (aCtx.state === 'suspended') aCtx.resume();
-}
-
-function mkDistortion(amount = 80) {
-  const ws = aCtx.createWaveShaper();
-  const n = 256, curve = new Float32Array(n), k = amount;
-  for (let i = 0; i < n; i++) {
-    const x = i * 2 / n - 1;
-    curve[i] = (3 + k) * x * 20 * Math.PI / 180 / (Math.PI + k * Math.abs(x));
-  }
-  ws.curve = curve; ws.oversample = '4x'; return ws;
-}
-
-function playTwang(idx) {
-  if (!aCtx) return;
-  const t = aCtx.currentTime;
-  const notes = [110, 131, 147, 175, 220]; // A2 C3 D3 F3 A3
-  const f = notes[idx % notes.length];
-  const o = aCtx.createOscillator(), dist = mkDistortion(55), g = aCtx.createGain();
-  o.connect(dist); dist.connect(g); g.connect(aCtx.destination);
-  o.type = 'sawtooth';
-  o.frequency.setValueAtTime(f, t);
-  o.frequency.setValueAtTime(f * 1.05, t + 0.015);
-  o.frequency.exponentialRampToValueAtTime(f * 0.94, t + 0.5);
-  g.gain.setValueAtTime(0.09, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
-  o.start(t); o.stop(t + 0.55);
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Pluck particles — expanding ring flash at contact point
-// ─────────────────────────────────────────────────────────────────
-const pluckParticles = [];
-
-function spawnPluck(x, y, color) {
-  pluckParticles.push({ x, y, color, r: 0, life: 1.0 });
-}
-
-function updateDrawParticles(dt) {
-  for (let i = pluckParticles.length - 1; i >= 0; i--) {
-    const p = pluckParticles[i];
-    p.life -= dt * 3.5;
-    if (p.life <= 0) { pluckParticles.splice(i, 1); continue; }
-    p.r = (1 - p.life) * 55;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-    ctx.strokeStyle  = p.color;
-    ctx.globalAlpha  = p.life * 0.75;
-    ctx.lineWidth    = 2.5 * p.life;
-    ctx.shadowColor  = p.color;
-    ctx.shadowBlur   = 14;
-    ctx.stroke();
-    // Small inner dot flash
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 4 * p.life, 0, Math.PI * 2);
-    ctx.fillStyle   = '#ffffff';
-    ctx.globalAlpha = p.life * 0.9;
-    ctx.shadowBlur  = 8;
-    ctx.fill();
-    ctx.restore();
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────
-// ElasticString
-// ─────────────────────────────────────────────────────────────────
-class ElasticString {
-  constructor(idx) {
-    this.idx   = idx;
-    this.color = STRING_COLS[idx];
-    this.cx = 0; this.cy = 0;
-    this.cvx = 0; this.cvy = 0;
-    this.vAmp  = 0;
-    this.vFreq = 1.8 + Math.random() * 1.4;
-    this.vTime = 0;
-    this.lastPluckMs = 0;
+    // Build DOM
+    this._buildDOM();
   }
 
-  // cx/cy = canvas contact point for particle spawn
-  pluck(cx, cy) {
+  // ── Public API ───────────────────────────────────────────────────
+
+  start() {
+    if (this._running) return this;
+    this._running = true;
+    this._initTracking();
+    this._rafId = requestAnimationFrame(ts => this._loop(ts));
+    // Unlock audio on first touch/click
+    const unlock = () => this._ensureAudio();
+    document.addEventListener('click',      unlock, { once: true });
+    document.addEventListener('touchstart', unlock, { once: true, passive: true });
+    return this;
+  }
+
+  stop() {
+    this._running = false;
+    if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+    return this;
+  }
+
+  destroy() {
+    this.stop();
+    this._video.remove();
+    this._canvas.remove();
+    this._hint.remove();
+    if (this._aCtx) { this._aCtx.close(); this._aCtx = null; }
+  }
+
+  // ── DOM construction ─────────────────────────────────────────────
+
+  _buildDOM() {
+    const root = this.cfg.container || document.body;
+
+    // Camera video — managed by MediaPipe Camera utility
+    this._video = document.createElement('video');
+    Object.assign(this._video, { autoplay: true, playsInline: true, muted: true });
+    this._video.setAttribute('playsinline', '');
+    Object.assign(this._video.style, {
+      position: 'absolute', inset: '0',
+      width: '100%', height: '100%',
+      objectFit: 'cover',
+      transform: 'scaleX(-1)',  // mirror for selfie view
+      zIndex: '0',
+    });
+
+    // Canvas overlay
+    this._canvas = document.createElement('canvas');
+    Object.assign(this._canvas.style, {
+      position: 'absolute', inset: '0',
+      width: '100%', height: '100%',
+      zIndex: '1',
+      pointerEvents: 'none',
+    });
+    this._ctx = this._canvas.getContext('2d');
+
+    // Hint text
+    this._hint = document.createElement('div');
+    Object.assign(this._hint.style, {
+      position: 'absolute',
+      bottom: '28px', left: '50%',
+      transform: 'translateX(-50%)',
+      color: 'rgba(255,255,255,0.55)',
+      font: "500 13px/1 'Courier New', monospace",
+      letterSpacing: '3px',
+      textAlign: 'center',
+      zIndex: '2',
+      pointerEvents: 'none',
+      textTransform: 'uppercase',
+    });
+    this._hint.textContent = 'RAISE YOUR HANDS';
+
+    // Container needs relative/absolute positioning to anchor children
+    if (getComputedStyle(root).position === 'static') root.style.position = 'relative';
+    root.append(this._video, this._canvas, this._hint);
+
+    // Resize handler
+    this._onResize = () => {
+      this._canvas.width  = this._canvas.offsetWidth;
+      this._canvas.height = this._canvas.offsetHeight;
+    };
+    new ResizeObserver(this._onResize).observe(root);
+    this._onResize();
+  }
+
+  // ── Audio ────────────────────────────────────────────────────────
+
+  _ensureAudio() {
+    if (!this._aCtx) this._aCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (this._aCtx.state === 'suspended') this._aCtx.resume();
+  }
+
+  _mkDistortion(amount = 55) {
+    const ws = this._aCtx.createWaveShaper();
+    const n = 256, curve = new Float32Array(n), k = amount;
+    for (let i = 0; i < n; i++) {
+      const x = i * 2 / n - 1;
+      curve[i] = (3 + k) * x * 20 * Math.PI / 180 / (Math.PI + k * Math.abs(x));
+    }
+    ws.curve = curve; ws.oversample = '4x'; return ws;
+  }
+
+  _playTwang(idx) {
+    if (!this._aCtx) return;
+    const t = this._aCtx.currentTime;
+    const notes = [110, 131, 147, 175, 220]; // A2 C3 D3 F3 A3
+    const f = notes[idx % notes.length];
+    const o = this._aCtx.createOscillator();
+    const dist = this._mkDistortion();
+    const g = this._aCtx.createGain();
+    o.connect(dist); dist.connect(g); g.connect(this._aCtx.destination);
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f, t);
+    o.frequency.setValueAtTime(f * 1.05, t + 0.015);
+    o.frequency.exponentialRampToValueAtTime(f * 0.94, t + 0.5);
+    g.gain.setValueAtTime(0.09, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+    o.start(t); o.stop(t + 0.55);
+  }
+
+  // ── String physics object ────────────────────────────────────────
+
+  _makeString(idx) {
+    return {
+      idx,
+      color     : this.cfg.colors[idx],
+      cx: 0, cy: 0, cvx: 0, cvy: 0,
+      vAmp  : 0,
+      // Unique oscillation frequency per string for natural variation
+      vFreq : 1.8 + Math.random() * 1.4,
+      vTime : Math.random() * 10,    // stagger start phases
+      lastPluckMs: 0,
+    };
+  }
+
+  _pluckString(s, cx, cy) {
     const now = performance.now();
-    if (now - this.lastPluckMs < 150) return false;
-    this.lastPluckMs = now;
+    if (now - s.lastPluckMs < 150) return false;
+    s.lastPluckMs = now;
     const mag = 11 + Math.random() * 11;
     const ang = (Math.random() - 0.5) * Math.PI * 2;
-    this.cvx += Math.cos(ang) * mag;
-    this.cvy += Math.sin(ang) * mag;
-    // Bigger, more satisfying vibration burst
-    this.vAmp = Math.max(this.vAmp, 20 + Math.random() * 14);
-    spawnPluck(cx, cy, this.color);
+    s.cvx += Math.cos(ang) * mag;
+    s.cvy += Math.sin(ang) * mag;
+    s.vAmp = Math.max(s.vAmp, 20 + Math.random() * 14);
+    this._spawnParticle(cx, cy, s.color);
+    if (this.cfg.onPluck) this.cfg.onPluck(s.idx, cx, cy);
     return true;
   }
 
-  update(a, b, dt) {
-    // Snappier spring (0.18 vs 0.16)
-    this.cvx += -0.18 * this.cx;
-    this.cvy += -0.18 * this.cy;
-    this.cvx *= 0.86;
-    this.cvy *= 0.86;
-    this.cx  += this.cvx;
-    this.cy  += this.cvy;
-    // Slower amplitude decay — rings out longer
-    this.vAmp  *= 0.91;
-    this.vTime += dt;
-    // Gravity sag
+  _updateString(s, a, b, dt) {
+    // Spring: pull control-point offset back toward zero
+    s.cvx += -this.cfg.springK * s.cx;
+    s.cvy += -this.cfg.springK * s.cy;
+    s.cvx *= this.cfg.damping;
+    s.cvy *= this.cfg.damping;
+    s.cx  += s.cvx;
+    s.cy  += s.cvy;
+    // Vibration decay
+    s.vAmp  *= this.cfg.ampDecay;
+    s.vTime += dt;
+    // Anti-gravity: strings float upward proportional to stretch
     if (a && b) {
       const dist = Math.hypot(b.x - a.x, b.y - a.y);
-      this.cvy += Math.min(dist * 0.07, 25) * 0.035;
+      // Negative = upward drift (anti-gravity buoyancy)
+      s.cvy += Math.min(dist * 0.07, 25) * this.cfg.gravity;
     }
   }
 
-  draw(a, b) {
+  _drawString(s, a, b) {
     if (!a || !b) return;
     const dx = b.x - a.x, dy = b.y - a.y;
     const dist = Math.hypot(dx, dy);
     if (dist < 8) return;
 
+    const ctx = this._ctx;
     const px = -dy / dist, py = dx / dist;
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
 
-    const vib = this.vAmp * Math.sin(this.vTime * this.vFreq * Math.PI * 2);
-    const cpx = mx + this.cx + px * vib;
-    const cpy = my + this.cy + py * vib;
+    // Base idle oscillation — strings are always subtly alive
+    const idle = 2.8 * Math.sin(s.vTime * s.vFreq * 0.5 * Math.PI * 2);
+    const vib  = idle + s.vAmp * Math.sin(s.vTime * s.vFreq * Math.PI * 2);
 
-    const tension = Math.min(1, Math.max(0, (dist - 60) / 280));
-    const vibNorm = Math.min(1, this.vAmp / 22);
+    const cpx = mx + s.cx + px * vib;
+    const cpy = my + s.cy + py * vib;
 
-    const alpha = 0.60 + tension * 0.40;
-    const lineW = 2.0  + tension * 2.0 + vibNorm * 1.2;
-    // Glow intensifies with both stretch and active vibration
-    const glow  = 8    + tension * 20  + vibNorm * 18;
+    const tension  = Math.min(1, Math.max(0, (dist - 60) / 280));
+    const vibNorm  = Math.min(1, s.vAmp / 22);
+    const alpha    = 0.60 + tension * 0.40;
+    const lineW    = 2.0  + tension * 2.0  + vibNorm * 1.2;
+    const glow     = 8    + tension * 20   + vibNorm * 20;
 
     ctx.save();
     ctx.lineCap = 'round';
 
-    ctx.shadowColor = this.color;
+    // Outer glow pass
+    ctx.shadowColor = s.color;
     ctx.shadowBlur  = glow;
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.quadraticCurveTo(cpx, cpy, b.x, b.y);
-    ctx.strokeStyle = this.color;
+    ctx.strokeStyle = s.color;
     ctx.globalAlpha = alpha;
     ctx.lineWidth   = lineW;
     ctx.stroke();
 
-    // Specular highlight
+    // White specular
     ctx.shadowBlur  = 0;
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
@@ -259,230 +305,249 @@ class ElasticString {
 
     ctx.restore();
   }
-}
 
-// ─────────────────────────────────────────────────────────────────
-// Hand state
-// ─────────────────────────────────────────────────────────────────
-function makeHand() {
-  return { visible: false, tips: Array(5).fill(null), lm: null, _smooth: Array(5).fill(null) };
-}
-const leftHand  = makeHand();
-const rightHand = makeHand();
+  // ── Pluck particles ──────────────────────────────────────────────
 
-function processLandmarks(hand, lm) {
-  hand.visible = true;
-  hand.lm = lm.map(p => ({ x: (1 - p.x) * canvas.width, y: p.y * canvas.height }));
-  for (let i = 0; i < 5; i++) {
-    const p   = lm[TIP_IDX[i]];
-    const raw = { x: (1 - p.x) * canvas.width, y: p.y * canvas.height };
-    const prev = hand._smooth[i];
-    if (!prev) {
-      hand._smooth[i] = raw;
-    } else {
-      // Lower threshold (4px) catches finer movements
-      if (Math.hypot(raw.x - prev.x, raw.y - prev.y) > 4) {
+  _spawnParticle(x, y, color) {
+    this._particles.push({ x, y, color, r: 0, life: 1.0 });
+  }
+
+  _updateDrawParticles(dt) {
+    const ctx = this._ctx;
+    for (let i = this._particles.length - 1; i >= 0; i--) {
+      const p = this._particles[i];
+      p.life -= dt * 3.5;
+      if (p.life <= 0) { this._particles.splice(i, 1); continue; }
+      p.r = (1 - p.life) * 55;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.strokeStyle = p.color;
+      ctx.globalAlpha = p.life * 0.75;
+      ctx.lineWidth   = 2.5 * p.life;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur  = 14;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4 * p.life, 0, Math.PI * 2);
+      ctx.fillStyle   = '#ffffff';
+      ctx.globalAlpha = p.life * 0.9;
+      ctx.shadowBlur  = 8;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // ── Hand state ───────────────────────────────────────────────────
+
+  _makeHand() {
+    return { visible: false, tips: Array(5).fill(null), lm: null, _smooth: Array(5).fill(null) };
+  }
+
+  _processLandmarks(hand, lm) {
+    const W = this._canvas.width, H = this._canvas.height;
+    hand.visible = true;
+    hand.lm = lm.map(p => ({ x: (1 - p.x) * W, y: p.y * H }));
+    for (let i = 0; i < 5; i++) {
+      const p   = lm[HandStrings.TIP_IDX[i]];
+      const raw = { x: (1 - p.x) * W, y: p.y * H };
+      const prev = hand._smooth[i];
+      if (!prev) { hand._smooth[i] = raw; }
+      else if (Math.hypot(raw.x - prev.x, raw.y - prev.y) > 4) {
         hand._smooth[i] = {
-          x: prev.x + EMA * (raw.x - prev.x),
-          y: prev.y + EMA * (raw.y - prev.y)
+          x: prev.x + 0.42 * (raw.x - prev.x),
+          y: prev.y + 0.42 * (raw.y - prev.y),
         };
       }
+      hand.tips[i] = hand._smooth[i];
     }
-    hand.tips[i] = hand._smooth[i];
   }
-}
 
-function resetHand(hand) {
-  hand.visible = false; hand.lm = null;
-  hand.tips = Array(5).fill(null); hand._smooth = Array(5).fill(null);
-}
+  _resetHand(hand) {
+    hand.visible = false; hand.lm = null;
+    hand.tips = Array(5).fill(null); hand._smooth = Array(5).fill(null);
+  }
 
-// ─────────────────────────────────────────────────────────────────
-// Elastic strings
-// ─────────────────────────────────────────────────────────────────
-const strings = Array.from({ length: 5 }, (_, i) => new ElasticString(i));
+  // ── Pluck detection ──────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────
-// Pluck detection
-// ─────────────────────────────────────────────────────────────────
-function ptSegDist(px, py, ax, ay, bx, by) {
-  const dx = bx - ax, dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return Math.hypot(px - ax, py - ay);
-  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-}
+  _ptSegDist(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.hypot(px - ax, py - ay);
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  }
 
-// Closest point on segment — returned as {x, y} for particle spawn
-function closestPtOnSeg(px, py, ax, ay, bx, by) {
-  const dx = bx - ax, dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return { x: ax, y: ay };
-  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
-  return { x: ax + t * dx, y: ay + t * dy };
-}
+  _closestPt(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return { x: ax, y: ay };
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+    return { x: ax + t * dx, y: ay + t * dy };
+  }
 
-function checkPlucks() {
-  const allTips = [...leftHand.tips, ...rightHand.tips].filter(Boolean);
-  for (let si = 0; si < 5; si++) {
-    const a = leftHand.tips[si], b = rightHand.tips[si];
-    if (!a || !b) continue;
-    const str = strings[si];
-    for (const tip of allTips) {
-      if (tip === a || tip === b) continue;
-      if (ptSegDist(tip.x, tip.y, a.x, a.y, b.x, b.y) < PLUCK_RADIUS) {
-        const contact = closestPtOnSeg(tip.x, tip.y, a.x, a.y, b.x, b.y);
-        if (str.pluck(contact.x, contact.y)) {
-          ensureAudio();
-          playTwang(si);
+  _checkPlucks() {
+    const allTips = [...this._left.tips, ...this._right.tips].filter(Boolean);
+    for (let si = 0; si < 5; si++) {
+      const a = this._left.tips[si], b = this._right.tips[si];
+      if (!a || !b) continue;
+      const s = this._strings[si];
+      for (const tip of allTips) {
+        if (tip === a || tip === b) continue;
+        if (this._ptSegDist(tip.x, tip.y, a.x, a.y, b.x, b.y) < this.cfg.pluckRadius) {
+          const cp = this._closestPt(tip.x, tip.y, a.x, a.y, b.x, b.y);
+          if (this._pluckString(s, cp.x, cp.y)) {
+            this._ensureAudio();
+            this._playTwang(si);
+          }
         }
       }
     }
   }
-}
 
-// ─────────────────────────────────────────────────────────────────
-// Bottom vignette — darkens lower half so strings glow against skin
-// ─────────────────────────────────────────────────────────────────
-function drawVignette() {
-  const grad = ctx.createLinearGradient(0, canvas.height * 0.50, 0, canvas.height);
-  grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.50)');
-  ctx.fillStyle   = grad;
-  ctx.globalAlpha = 1;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-}
+  // ── Skeleton renderer ────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────
-// Skeleton renderer
-// ─────────────────────────────────────────────────────────────────
-function drawSkeleton(hand) {
-  if (!hand.visible || !hand.lm) return;
-  const lm = hand.lm;
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-  ctx.lineWidth   = 1;
-  ctx.shadowBlur  = 0;
-  for (const [a, b] of HAND_CONNECTIONS) {
-    if (!lm[a] || !lm[b]) continue;
-    ctx.beginPath();
-    ctx.moveTo(lm[a].x, lm[a].y);
-    ctx.lineTo(lm[b].x, lm[b].y);
-    ctx.stroke();
-  }
-  for (let i = 0; i < 5; i++) {
-    const tip = hand.tips[i];
-    if (!tip) continue;
-    ctx.beginPath();
-    ctx.arc(tip.x, tip.y, 5.5, 0, Math.PI * 2);
-    ctx.fillStyle   = STRING_COLS[i];
-    ctx.globalAlpha = 0.95;
-    ctx.shadowColor = STRING_COLS[i];
-    ctx.shadowBlur  = 16;
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-// ─────────────────────────────────────────────────────────────────
-// MediaPipe — 2 hands, ~8fps cap
-// ─────────────────────────────────────────────────────────────────
-let _lastHandTs = 0;
-
-function initTracking() {
-  const mpHands = new Hands({
-    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
-  });
-  mpHands.setOptions({
-    maxNumHands            : 2,
-    modelComplexity        : 0,
-    minDetectionConfidence : 0.55,
-    minTrackingConfidence  : 0.50
-  });
-  mpHands.onResults(res => {
-    try {
-      _lastHandTs = performance.now();
-      resetHand(leftHand); resetHand(rightHand);
-      if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
-        res.multiHandLandmarks.forEach((lm, i) => {
-          const mpLabel = res.multiHandedness[i].label;
-          const hand    = mpLabel === 'Left' ? rightHand : leftHand;
-          processLandmarks(hand, lm);
-        });
-      }
-    } catch (e) { console.warn('MP result error', e); }
-  });
-
-  let _sendPending = false;
-  const cam = new Camera(camEl, {
-    onFrame: async () => {
-      if (_sendPending) return;
-      const now = performance.now();
-      if (now - _lastHandTs < 120) return;
-      _sendPending = true;
-      try   { await mpHands.send({ image: camEl }); }
-      catch (e) { console.warn('send err', e); }
-      finally { _sendPending = false; }
-    },
-    width: 640, height: 480, facingMode: 'user'
-  });
-  cam.start().catch(e => {
-    hintEl.textContent = 'CAMERA ACCESS REQUIRED';
-    console.error(e);
-  });
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Render loop
-// ─────────────────────────────────────────────────────────────────
-let lastTs = 0;
-
-function loop(ts) {
-  requestAnimationFrame(loop);
-  const dt = Math.min((ts - lastTs) / 1000, 0.05);
-  lastTs = ts;
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Stale hand timeout
-  if (_lastHandTs > 0 && ts - _lastHandTs > 1000) {
-    resetHand(leftHand); resetHand(rightHand);
-  }
-
-  const lv = leftHand.visible, rv = rightHand.visible;
-
-  if (lv && rv)       hintEl.textContent = '';
-  else if (lv || rv)  hintEl.textContent = 'SHOW BOTH HANDS';
-  else                hintEl.textContent = 'RAISE YOUR HANDS';
-
-  // Subtle vignette to separate strings from camera background
-  drawVignette();
-
-  if (lv && rv) {
-    checkPlucks();
-    for (let i = 0; i < 5; i++) strings[i].update(leftHand.tips[i], rightHand.tips[i], dt);
-    for (let i = 0; i < 5; i++) strings[i].draw(leftHand.tips[i], rightHand.tips[i]);
-  } else {
-    for (const s of strings) {
-      s.cx *= 0.9; s.cy *= 0.9;
-      s.cvx *= 0.8; s.cvy *= 0.8;
-      s.vAmp *= 0.9;
+  _drawSkeleton(hand) {
+    if (!hand.visible || !hand.lm) return;
+    const ctx = this._ctx, lm = hand.lm;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.20)';
+    ctx.lineWidth   = 1;
+    ctx.shadowBlur  = 0;
+    for (const [a, b] of HandStrings.CONNECTIONS) {
+      if (!lm[a] || !lm[b]) continue;
+      ctx.beginPath();
+      ctx.moveTo(lm[a].x, lm[a].y);
+      ctx.lineTo(lm[b].x, lm[b].y);
+      ctx.stroke();
     }
+    for (let i = 0; i < 5; i++) {
+      const tip = hand.tips[i];
+      if (!tip) continue;
+      ctx.beginPath();
+      ctx.arc(tip.x, tip.y, 5.5, 0, Math.PI * 2);
+      ctx.fillStyle   = this.cfg.colors[i];
+      ctx.globalAlpha = 0.95;
+      ctx.shadowColor = this.cfg.colors[i];
+      ctx.shadowBlur  = 16;
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
-  updateDrawParticles(dt);
-  drawSkeleton(leftHand);
-  drawSkeleton(rightHand);
+  // ── Vignette ─────────────────────────────────────────────────────
+
+  _drawVignette() {
+    const ctx = this._ctx, W = this._canvas.width, H = this._canvas.height;
+    // Darker lower zone — hands are here, strings need contrast
+    const bot = ctx.createLinearGradient(0, H * 0.45, 0, H);
+    bot.addColorStop(0, 'rgba(0,0,0,0)');
+    bot.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = bot; ctx.globalAlpha = 1;
+    ctx.fillRect(0, 0, W, H);
+    // Subtle edge vignette — draws focus to center
+    const edge = ctx.createRadialGradient(W/2, H/2, H * 0.35, W/2, H/2, H * 0.85);
+    edge.addColorStop(0, 'rgba(0,0,0,0)');
+    edge.addColorStop(1, 'rgba(0,0,0,0.35)');
+    ctx.fillStyle = edge;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // ── MediaPipe init ───────────────────────────────────────────────
+
+  _initTracking() {
+    const mpHands = new Hands({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+    });
+    mpHands.setOptions({
+      maxNumHands            : 2,
+      modelComplexity        : 0,
+      minDetectionConfidence : 0.55,
+      minTrackingConfidence  : 0.50,
+    });
+    mpHands.onResults(res => {
+      try {
+        this._lastHandTs = performance.now();
+        this._resetHand(this._left);
+        this._resetHand(this._right);
+        if (res.multiHandLandmarks?.length > 0) {
+          res.multiHandLandmarks.forEach((lm, i) => {
+            // MP 'Left' (camera POV) = user's right hand after mirror flip
+            const hand = res.multiHandedness[i].label === 'Left'
+              ? this._right : this._left;
+            this._processLandmarks(hand, lm);
+          });
+        }
+      } catch (e) { console.warn('MP result error', e); }
+    });
+
+    const cam = new Camera(this._video, {
+      onFrame: async () => {
+        if (!this._running || this._sendPending) return;
+        const now = performance.now();
+        if (now - this._lastHandTs < this.cfg.mpFps) return;
+        this._sendPending = true;
+        try   { await mpHands.send({ image: this._video }); }
+        catch (e) { console.warn('send err', e); }
+        finally { this._sendPending = false; }
+      },
+      width: 640, height: 480, facingMode: 'user',
+    });
+    cam.start().catch(e => {
+      this._hint.textContent = 'CAMERA ACCESS REQUIRED';
+      console.error(e);
+    });
+  }
+
+  // ── Render loop ──────────────────────────────────────────────────
+
+  _loop(ts) {
+    if (!this._running) return;
+    this._rafId = requestAnimationFrame(t => this._loop(t));
+
+    const dt = Math.min((ts - this._lastTs) / 1000, 0.05);
+    this._lastTs = ts;
+
+    const ctx = this._ctx;
+    ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
+
+    // Stale hand timeout (1 second silence from MediaPipe)
+    if (this._lastHandTs > 0 && ts - this._lastHandTs > 1000) {
+      this._resetHand(this._left);
+      this._resetHand(this._right);
+    }
+
+    const lv = this._left.visible, rv = this._right.visible;
+
+    this._hint.textContent = (lv && rv) ? '' : (lv || rv) ? 'SHOW BOTH HANDS' : 'RAISE YOUR HANDS';
+
+    this._drawVignette();
+
+    if (lv && rv) {
+      this._checkPlucks();
+      for (let i = 0; i < 5; i++) this._updateString(this._strings[i], this._left.tips[i], this._right.tips[i], dt);
+      for (let i = 0; i < 5; i++) this._drawString(this._strings[i], this._left.tips[i], this._right.tips[i]);
+    } else {
+      // Gently decay physics when hands out of frame
+      for (const s of this._strings) {
+        s.cx *= 0.9; s.cy *= 0.9;
+        s.cvx *= 0.8; s.cvy *= 0.8;
+        s.vAmp *= 0.9;
+        s.vTime += dt; // keep time ticking so idle oscillation continues
+      }
+    }
+
+    this._updateDrawParticles(dt);
+    this._drawSkeleton(this._left);
+    this._drawSkeleton(this._right);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Bootstrap
+// Auto-start when used as a standalone page
 // ─────────────────────────────────────────────────────────────────
-document.addEventListener('click',      ensureAudio, { once: true });
-document.addEventListener('touchstart', ensureAudio, { once: true, passive: true });
-
-initTracking();
-requestAnimationFrame(loop);
+window.HandStrings = HandStrings;
+new HandStrings().start();
 </script>
 </body>
 </html>
