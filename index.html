@@ -95,9 +95,9 @@ const FIST_FACES=[
 ];
 
 // ── Game constants ────────────────────────────────────────────────
-const SNAP_ARM=110;   // px: stretch beyond this to arm slingshot
-const SNAP_FIRE=62;   // px: snap below this to fire
+const SNAP_FIRE=60;   // px: fingers closer than this = locked/aiming
 const PINCH_TH=45;    // px: thumb+index pinch for blast
+const EMA=0.6;        // smoothing factor for fingertip positions
 
 // ── Rocket type definitions ───────────────────────────────────────
 const ROCKET_TYPES={
@@ -493,7 +493,7 @@ class Band{
     this.cx=0;this.cy=0;this.cvx=0;this.cvy=0;
     this.vAmp=0;this.vFreq=5+Math.random()*7;this.vTime=0;
     this.prevDist=999;this.lastSnapMs=0;this.lastPluckMs=0;
-    this.snapArmed=false;this.peakDist=0;this.lastShotMs=0;
+    this.locked=false;this.lockedSince=0;this.lastShotMs=0;
     this._pendingShot=null;
   }
   update(tips,dt){
@@ -503,29 +503,32 @@ class Band{
     this.vAmp*=0.935;this.vTime+=dt;
     const a=tips[this.a],b=tips[this.b];if(!a||!b)return;
     const dist=Math.hypot(b.x-a.x,b.y-a.y),now=performance.now();
-    // Finger-touch snap
-    if(this.prevDist>=55&&dist<55&&now-this.lastSnapMs>180){
-      const mag=30+Math.random()*40,ang=(Math.random()-0.5)*Math.PI*1.5;
-      this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
-      this.vAmp=Math.max(this.vAmp,25+Math.random()*20);
-      this.lastSnapMs=now;playSnap();
+    const wasLocked=this.locked;
+    const nowLocked=(dist<SNAP_FIRE);
+    // Fingers came together: lock on and snap vibration
+    if(nowLocked&&!wasLocked){
+      this.lockedSince=now;
+      if(now-this.lastSnapMs>180){
+        const mag=30+Math.random()*40,ang=(Math.random()-0.5)*Math.PI*1.5;
+        this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
+        this.vAmp=Math.max(this.vAmp,25+Math.random()*20);
+        this.lastSnapMs=now;playSnap();
+      }
     }
-    // Slingshot arm
-    if(dist>SNAP_ARM){
-      this.snapArmed=true;
-      this.peakDist=Math.max(this.peakDist,dist);
+    // Fingers spread apart after being locked → FIRE
+    if(!nowLocked&&wasLocked&&this.lockedSince>0){
+      const lockDur=now-this.lockedSince;
+      if(lockDur>200&&now-this.lastShotMs>600){
+        const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+        this._pendingShot={x:mx,y:my,peakDist:dist,col:this.color,bandIdx:this.ci};
+        this.lastShotMs=now;
+        const mag=55+Math.random()*35,ang=(Math.random()-0.5)*Math.PI;
+        this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
+        this.vAmp=Math.max(this.vAmp,50+Math.random()*30);
+      }
+      this.lockedSince=0;
     }
-    // Slingshot fire
-    if(this.snapArmed&&dist<SNAP_FIRE&&now-this.lastShotMs>450){
-      this.snapArmed=false;this.lastShotMs=now;
-      const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-      this._pendingShot={x:mx,y:my,peakDist:this.peakDist,col:this.color,bandIdx:this.ci};
-      this.peakDist=0;
-      const mag=55+Math.random()*35,ang=(Math.random()-0.5)*Math.PI;
-      this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
-      this.vAmp=Math.max(this.vAmp,50+Math.random()*30);
-    }
-    if(!this.snapArmed) this.peakDist=0;
+    this.locked=nowLocked;
     this.prevDist=dist;
   }
   pluck(){
@@ -544,7 +547,7 @@ class Band{
     const vib=this.vAmp*Math.sin(this.vTime*this.vFreq*Math.PI*2);
     const cpx=mx+this.cx+px*vib,cpy=my+this.cy+py*vib;
     const tension=Math.min(1,Math.max(0,(dist-40)/260));
-    const charge=Math.min(1,Math.max(0,(dist-SNAP_ARM*0.7)/(SNAP_ARM*0.85)));
+    const charge=this.locked?Math.min(1,(performance.now()-this.lockedSince)/400):0;
     const alpha=0.3+tension*0.7;
     const wm=1+charge*0.55;
     ctx.lineCap='round';
@@ -1081,6 +1084,9 @@ function fireBlast(center,tips,beams){
 let state='start';
 let fingertips=Array(5).fill(null);
 let allLandmarks=null,handVisible=false;
+let _smoothTips=Array(5).fill(null);
+let _lastHandTs=0;
+let _lmA=null,_lmB=null,_lmAts=0,_lmBts=0;
 let bands=[],beams=[],rockets=[],shots=[];
 let score=0,lives=3,combo=1,waveNum=1;
 let waveKillsNeeded=0,waveState='active',waveTimer=0;
@@ -1106,6 +1112,16 @@ function initGame(){
   waveAnncText='';waveAnncSub='';waveAnncTimer=0;
   spawnWave(1);
   playStartChord();
+}
+
+// ── Hand interpolation (60fps visual from 15fps detection) ────────
+function getDisplayLM(){
+  if(!_lmB) return allLandmarks;
+  if(!_lmA) return _lmB;
+  const now=performance.now(),dt=_lmBts-_lmAts;
+  if(dt<10) return _lmB;
+  const t=Math.min(1.5,(now-_lmBts)/dt);
+  return _lmB.map((b,i)=>({x:b.x+t*(b.x-_lmA[i].x),y:b.y+t*(b.y-_lmA[i].y)}));
 }
 
 // ── MediaPipe ─────────────────────────────────────────────────────
@@ -1145,20 +1161,32 @@ async function initTracking(){
     let lastTs2=0;
     function processFrame(now){
       video.requestVideoFrameCallback(processFrame);
-      if(video.readyState<2) return;
-      if(now-lastTs2<66) return; // 15fps cap
+      if(state!=='playing'||video.readyState<2) return;
+      if(now-lastTs2<66) return; // ~15fps cap
       lastTs2=now;
       try{
         const r=hl.detectForVideo(video,now);
+        _lastHandTs=now;
         fingertips=Array(5).fill(null);allLandmarks=null;handVisible=false;
         const lms=r.landmarks&&r.landmarks[0];
         if(lms&&lms.length===21){
           handVisible=true;
-          allLandmarks=lms.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
+          const newLM=lms.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
+          _lmA=_lmB;_lmAts=_lmBts;
+          _lmB=newLM;_lmBts=now;
+          allLandmarks=newLM;
           for(let i=0;i<5;i++){
-            const p=lms[TIP_IDX[i]];
-            fingertips[i]={x:(1-p.x)*canvas.width,y:p.y*canvas.height};
+            const raw={x:(1-lms[TIP_IDX[i]].x)*canvas.width,y:lms[TIP_IDX[i]].y*canvas.height};
+            const prev=_smoothTips[i];
+            if(!prev){_smoothTips[i]=raw;}
+            else{
+              const d=Math.hypot(raw.x-prev.x,raw.y-prev.y);
+              if(d>4) _smoothTips[i]={x:prev.x+EMA*(raw.x-prev.x),y:prev.y+EMA*(raw.y-prev.y)};
+            }
+            fingertips[i]=_smoothTips[i];
           }
+        } else {
+          _smoothTips=Array(5).fill(null);_lmA=null;_lmB=null;
         }
       }catch(e){console.warn('detect',e);}
     }
@@ -1193,25 +1221,33 @@ function loop(ts){
     handCenter={x:vt.reduce((s,t)=>s+t.x,0)/vt.length,y:vt.reduce((s,t)=>s+t.y,0)/vt.length};
   }
 
+  // Stale hand: clear if no detection for 800ms
+  if(handVisible&&(ts-_lastHandTs)>800){
+    handVisible=false;fingertips=Array(5).fill(null);allLandmarks=null;
+    _smoothTips=Array(5).fill(null);_lmA=null;_lmB=null;
+  }
+
   // Bands — update, slingshot, draw
   if(handVisible){
-    if(allLandmarks) drawHandOverlay(allLandmarks);
+    const dispLM=getDisplayLM();
+    const dispTips=dispLM?TIP_IDX.map(i=>dispLM[i]):fingertips;
+    if(dispLM) drawHandOverlay(dispLM);
     for(const b of bands){
-      b.update(fingertips,dt);
+      b.update(fingertips,dt); // raw EMA tips for gesture accuracy
       if(b._pendingShot){
         const{x,y,peakDist,col}=b._pendingShot;
         b._pendingShot=null;
         if(handCenter){
           const dx=x-handCenter.x,dy=y-handCenter.y,len=Math.hypot(dx,dy)||1;
-          const speed=480+Math.min(peakDist,280)*1.7;
+          const speed=580+Math.min(peakDist,280)*1.2;
           shots.push(new Shot(x,y,dx/len,dy/len,col,speed));
           playSlingShot(peakDist);haptic(30);
         }
       }
     }
-    checkPlucks(fingertips,bands);
+    checkPlucks(dispTips,bands);
     checkPinchBlast(fingertips,beams);
-    for(const b of bands) b.draw(fingertips);
+    for(const b of bands) b.draw(dispTips); // interpolated tips for smooth visual
   }
 
   // Threat indicators (behind rockets)
