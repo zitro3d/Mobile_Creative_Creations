@@ -488,12 +488,13 @@ class Beam{
 
 // ── ElasticBand class ─────────────────────────────────────────────
 class Band{
-  constructor(a,b,ci){
+  constructor(a,b,ci,canShoot=false){
     this.a=a;this.b=b;this.ci=ci;this.color=BEAM_COLS[ci%BEAM_COLS.length];
     this.cx=0;this.cy=0;this.cvx=0;this.cvy=0;
     this.vAmp=0;this.vFreq=5+Math.random()*7;this.vTime=0;
     this.prevDist=999;this.lastSnapMs=0;this.lastPluckMs=0;
     this.locked=false;this.lockedSince=0;this.lastShotMs=0;
+    this.canShoot=canShoot;
     this._pendingShot=null;
   }
   update(tips,dt){
@@ -504,7 +505,8 @@ class Band{
     const a=tips[this.a],b=tips[this.b];if(!a||!b)return;
     const dist=Math.hypot(b.x-a.x,b.y-a.y),now=performance.now();
     const wasLocked=this.locked;
-    const nowLocked=(dist<SNAP_FIRE);
+    const effectiveSnap=SNAP_FIRE*(_palmScale/120);
+    const nowLocked=(dist<effectiveSnap);
     // Fingers came together: lock on and snap vibration
     if(nowLocked&&!wasLocked){
       this.lockedSince=now;
@@ -518,7 +520,7 @@ class Band{
     // Fingers spread apart after being locked → FIRE
     if(!nowLocked&&wasLocked&&this.lockedSince>0){
       const lockDur=now-this.lockedSince;
-      if(lockDur>200&&now-this.lastShotMs>600){
+      if(this.canShoot&&lockDur>200&&now-this.lastShotMs>600){
         const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
         this._pendingShot={x:mx,y:my,peakDist:dist,col:this.color,bandIdx:this.ci};
         this.lastShotMs=now;
@@ -550,19 +552,20 @@ class Band{
     const charge=this.locked?Math.min(1,(performance.now()-this.lockedSince)/400):0;
     const alpha=0.3+tension*0.7;
     const wm=1+charge*0.55;
+    const dim=this.canShoot?1:0.35; // non-shoot bands are dim decorations
     ctx.lineCap='round';
     for(const[w,al]of[[20,0.03],[12,0.07],[7,0.14],[4,0.22]]){
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
-      ctx.strokeStyle=this.color;ctx.globalAlpha=al*alpha*(1+charge*0.6);ctx.lineWidth=w*wm;ctx.shadowBlur=0;ctx.stroke();
+      ctx.strokeStyle=this.color;ctx.globalAlpha=al*alpha*(1+charge*0.6)*dim;ctx.lineWidth=w*wm;ctx.shadowBlur=0;ctx.stroke();
     }
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
-    ctx.strokeStyle=this.color;ctx.globalAlpha=0.85*alpha;
+    ctx.strokeStyle=this.color;ctx.globalAlpha=0.85*alpha*dim;
     ctx.lineWidth=(2+tension*1.5)*wm;ctx.shadowBlur=8+charge*22;ctx.shadowColor=this.color;ctx.stroke();
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
-    ctx.strokeStyle=C.wht;ctx.globalAlpha=(0.5+charge*0.5)*alpha;ctx.lineWidth=0.8;ctx.shadowBlur=0;ctx.stroke();
+    ctx.strokeStyle=C.wht;ctx.globalAlpha=(0.5+charge*0.5)*alpha*dim;ctx.lineWidth=0.8;ctx.shadowBlur=0;ctx.stroke();
     if(charge>0.65){
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
-      ctx.strokeStyle='#FFFFFF';ctx.globalAlpha=0.3*(charge-0.65)/0.35;ctx.lineWidth=5;
+      ctx.strokeStyle='#FFFFFF';ctx.globalAlpha=0.3*(charge-0.65)/0.35*dim;ctx.lineWidth=5;
       ctx.shadowBlur=22;ctx.shadowColor='#FFFFFF';ctx.stroke();
     }
     ctx.globalAlpha=1;ctx.shadowBlur=0;
@@ -593,23 +596,67 @@ function checkPlucks(tips,bands){
   }
 }
 
-// ── Hand overlay — fingertip triangles ────────────────────────────
+// ── Hand overlay — targeting reticle + lock arc ───────────────────
 function fingerOf(i){if(i<=4)return 0;if(i<=8)return 1;if(i<=12)return 2;if(i<=16)return 3;return 4;}
-function drawHandOverlay(lms){
-  for(let i=0;i<5;i++){
-    const tip=lms[TIP_IDX[i]],dip=lms[TIP_DIP[i]];
-    const col=FINGER_COLS[i];
-    const dx=tip.x-dip.x,dy=tip.y-dip.y,len=Math.hypot(dx,dy)||1;
-    const nx=dx/len,ny=dy/len,px=-ny,py=nx,sz=11;
-    const ax=tip.x+nx*sz,ay=tip.y+ny*sz;
-    const bx=tip.x+px*sz*0.6,by=tip.y+py*sz*0.6;
-    const cx2=tip.x-px*sz*0.6,cy2=tip.y-py*sz*0.6;
+function drawHandOverlay(lms,dispTips,bands){
+  if(!lms||!dispTips) return;
+  // Palm center crosshair (landmark 9 = middle knuckle)
+  const palm=lms[9];
+  if(palm){
     ctx.save();
-    ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.lineTo(cx2,cy2);ctx.closePath();
-    ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.shadowBlur=6;ctx.shadowColor=col;ctx.globalAlpha=0.92;ctx.stroke();
-    ctx.beginPath();ctx.arc(tip.x,tip.y,3,0,Math.PI*2);
-    ctx.fillStyle=col;ctx.globalAlpha=0.9;ctx.fill();
+    ctx.strokeStyle=C.cyan;ctx.lineWidth=1;ctx.globalAlpha=0.38;ctx.shadowBlur=0;
+    const sz=14;
+    ctx.beginPath();
+    ctx.moveTo(palm.x-sz,palm.y);ctx.lineTo(palm.x+sz,palm.y);
+    ctx.moveTo(palm.x,palm.y-sz);ctx.lineTo(palm.x,palm.y+sz);
+    ctx.stroke();
+    ctx.beginPath();ctx.arc(palm.x,palm.y,sz*0.55,0,Math.PI*2);
+    ctx.globalAlpha=0.15;ctx.stroke();
     ctx.restore();
+  }
+  // Shoot band (thumb-index) lock/charge indicator
+  const shootBand=bands.find(b=>b.canShoot);
+  if(shootBand&&dispTips[0]&&dispTips[1]){
+    const mx=(dispTips[0].x+dispTips[1].x)/2,my=(dispTips[0].y+dispTips[1].y)/2;
+    if(shootBand.locked){
+      const charge=Math.min(1,(performance.now()-shootBand.lockedSince)/200);
+      ctx.save();
+      // Charging arc — fills clockwise over 200ms
+      ctx.strokeStyle=C.yel;ctx.lineWidth=3;ctx.globalAlpha=0.5+charge*0.5;
+      ctx.shadowBlur=8+charge*14;ctx.shadowColor=C.yel;
+      ctx.beginPath();ctx.arc(mx,my,16,-Math.PI/2,-Math.PI/2+charge*Math.PI*2);ctx.stroke();
+      // Center dot
+      ctx.beginPath();ctx.arc(mx,my,4,0,Math.PI*2);
+      ctx.fillStyle=C.yel;ctx.globalAlpha=0.9;ctx.shadowBlur=6;ctx.fill();
+      // Targeting line + rocket ring when fully charged
+      if(charge>0.8&&rockets.length){
+        let nearest=null,nd=Infinity;
+        for(const r of rockets){
+          if(!r.alive||r.explodeTimer>0) continue;
+          const d=Math.hypot(r.x-mx,r.y-my);
+          if(d<nd){nd=d;nearest=r;}
+        }
+        if(nearest){
+          ctx.strokeStyle=C.yel;ctx.lineWidth=1;ctx.globalAlpha=0.35;ctx.shadowBlur=0;
+          ctx.setLineDash([6,6]);
+          ctx.beginPath();ctx.moveTo(mx,my);ctx.lineTo(nearest.x,nearest.y);ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.strokeStyle=C.red;ctx.lineWidth=1.5;ctx.globalAlpha=0.7;
+          ctx.shadowBlur=8;ctx.shadowColor=C.red;
+          ctx.beginPath();ctx.arc(nearest.x,nearest.y,nearest.radius+10,0,Math.PI*2);ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+    // Thumb + index fingertip dots — larger, cleaner than triangles
+    for(let i=0;i<2;i++){
+      const t=dispTips[i];if(!t)continue;
+      ctx.save();
+      ctx.beginPath();ctx.arc(t.x,t.y,shootBand.locked?7:5,0,Math.PI*2);
+      ctx.strokeStyle=FINGER_COLS[i];ctx.lineWidth=2;ctx.globalAlpha=0.9;
+      ctx.shadowBlur=shootBand.locked?14:6;ctx.shadowColor=FINGER_COLS[i];ctx.stroke();
+      ctx.restore();
+    }
   }
   ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
@@ -1010,12 +1057,22 @@ function drawHUD(){
   if(!handVisible){
     ctx.fillStyle='#334433';ctx.shadowBlur=0;ctx.globalAlpha=0.5;
     ctx.fillText('SHOW YOUR HAND',14,yOff);
-  } else if(fingertips[0]&&fingertips[1]){
-    const pd=Math.hypot(fingertips[1].x-fingertips[0].x,fingertips[1].y-fingertips[0].y);
-    if(pd<PINCH_TH&&blastCharges>0){
-      ctx.fillStyle=C.red;ctx.shadowColor=C.red;ctx.shadowBlur=8;ctx.globalAlpha=1;ctx.fillText('◉ FIRING!',14,yOff);
-    } else if(pd<90&&blastCharges>0){
-      ctx.fillStyle=C.yel;ctx.shadowColor=C.yel;ctx.shadowBlur=6;ctx.globalAlpha=1;ctx.fillText('◎ ALMOST...',14,yOff);
+  } else {
+    const shootBand=bands.find(b=>b.canShoot);
+    if(shootBand){
+      if(shootBand.locked){
+        const charge=Math.min(1,(performance.now()-shootBand.lockedSince)/200);
+        if(charge>=1){
+          ctx.fillStyle=C.red;ctx.shadowColor=C.red;ctx.shadowBlur=8;ctx.globalAlpha=1;
+          ctx.fillText('▶ SPREAD TO FIRE',14,yOff);
+        } else {
+          ctx.fillStyle=C.yel;ctx.shadowColor=C.yel;ctx.shadowBlur=6;ctx.globalAlpha=1;
+          ctx.fillText('◎ LOCKING...',14,yOff);
+        }
+      } else {
+        ctx.fillStyle='#335533';ctx.shadowBlur=0;ctx.globalAlpha=0.6;
+        ctx.fillText('PINCH TO AIM',14,yOff);
+      }
     }
   }
   // Right side
@@ -1087,6 +1144,8 @@ let allLandmarks=null,handVisible=false;
 let _smoothTips=Array(5).fill(null);
 let _lastHandTs=0;
 let _lmA=null,_lmB=null,_lmAts=0,_lmBts=0;
+let _palmScale=120; // px: palm size, EMA smoothed — used to normalize pinch threshold
+let bursts=[];      // fire burst rings
 let bands=[],beams=[],rockets=[],shots=[];
 let score=0,lives=3,combo=1,waveNum=1;
 let waveKillsNeeded=0,waveState='active',waveTimer=0;
@@ -1104,7 +1163,10 @@ function spawnWave(wave){
 }
 
 function initGame(){
-  bands=BAND_PAIRS.map(([a,b],i)=>new Band(a,b,i));
+  // 4 adjacent bands: thumb-index (shoots), others pluck-only
+  const ADJ=[[0,1,0,true],[1,2,1,false],[2,3,2,false],[3,4,3,false]];
+  bands=ADJ.map(([a,b,ci,shoot])=>new Band(a,b,ci,shoot));
+  bursts=[];
   beams=[];shots=[];comboPops.length=0;
   score=0;lives=3;combo=1;waveNum=1;
   wasPinched=false;pinchCooldown=0;blastCharges=3;
@@ -1175,6 +1237,9 @@ async function initTracking(){
           _lmA=_lmB;_lmAts=_lmBts;
           _lmB=newLM;_lmBts=now;
           allLandmarks=newLM;
+          // Palm size: wrist(0) → mid-knuckle(9), EMA smoothed
+          const ps=Math.hypot(newLM[9].x-newLM[0].x,newLM[9].y-newLM[0].y);
+          _palmScale=ps*0.15+_palmScale*0.85;
           for(let i=0;i<5;i++){
             const raw={x:(1-lms[TIP_IDX[i]].x)*canvas.width,y:lms[TIP_IDX[i]].y*canvas.height};
             const prev=_smoothTips[i];
@@ -1231,7 +1296,23 @@ function loop(ts){
   if(handVisible){
     const dispLM=getDisplayLM();
     const dispTips=dispLM?TIP_IDX.map(i=>dispLM[i]):fingertips;
-    if(dispLM) drawHandOverlay(dispLM);
+    // Thin hand skeleton
+    if(dispLM&&dispLM.length===21){
+      ctx.save();
+      ctx.lineWidth=1.2;ctx.globalAlpha=0.25;ctx.lineCap='round';ctx.shadowBlur=0;
+      for(const[a,b] of HAND_CONNECTIONS){
+        const pa=dispLM[a],pb=dispLM[b];if(!pa||!pb)continue;
+        ctx.strokeStyle=FINGER_COLS[fingerOf(Math.max(a,b))];
+        ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();
+      }
+      for(let i=0;i<21;i++){
+        const p=dispLM[i],r=TIP_IDX.includes(i)?3.5:2;
+        ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);
+        ctx.fillStyle=FINGER_COLS[fingerOf(i)];ctx.globalAlpha=0.38;ctx.fill();
+      }
+      ctx.restore();
+    }
+    if(dispLM) drawHandOverlay(dispLM,dispTips,bands);
     for(const b of bands){
       b.update(fingertips,dt); // raw EMA tips for gesture accuracy
       if(b._pendingShot){
@@ -1241,6 +1322,7 @@ function loop(ts){
           const dx=x-handCenter.x,dy=y-handCenter.y,len=Math.hypot(dx,dy)||1;
           const speed=580+Math.min(peakDist,280)*1.2;
           shots.push(new Shot(x,y,dx/len,dy/len,col,speed));
+          bursts.push({x,y,life:1,col});
           playSlingShot(peakDist);haptic(30);
         }
       }
@@ -1248,6 +1330,16 @@ function loop(ts){
     checkPlucks(dispTips,bands);
     checkPinchBlast(fingertips,beams);
     for(const b of bands) b.draw(dispTips); // interpolated tips for smooth visual
+  }
+  // Fire burst rings
+  for(let i=bursts.length-1;i>=0;i--){
+    const b=bursts[i];b.life-=dt*4;
+    if(b.life<=0){bursts.splice(i,1);continue;}
+    ctx.save();
+    ctx.globalAlpha=b.life*0.9;ctx.shadowBlur=20*b.life;ctx.shadowColor=b.col;
+    ctx.strokeStyle=b.col;ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(b.x,b.y,(1-b.life)*50,0,Math.PI*2);ctx.stroke();
+    ctx.restore();
   }
 
   // Threat indicators (behind rockets)
