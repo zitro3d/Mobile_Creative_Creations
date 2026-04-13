@@ -820,48 +820,24 @@ function drawPolyFist(cx,cy,w,h){
   ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
-// ── Banner title ──────────────────────────────────────────────────
-function drawBannerTitle(cx,cy){
+// ── Mode button (CLASSIC / BLITZ) ─────────────────────────────────
+function drawModeBtn(x,y,w,h,c1,c2,label){
   ctx.save();
-  const cw=canvas.width;
-  const boxW=cw*0.4,boxH=cw*0.115,gap=cw*0.018;
-  const totalW=boxW*2+gap;
-  const lx=cx-totalW/2,rx=cx+gap/2;
-  const fs=Math.min(boxW*0.38,boxH*0.6);
-  ctx.font=`bold ${Math.floor(fs)}px 'Courier New',monospace`;
+  // Dark fill
+  ctx.fillStyle='rgba(0,0,0,0.55)';
+  ctx.beginPath();ctx.roundRect(x,y,w,h,10);ctx.fill();
+  // Glowing border
+  const grad=ctx.createLinearGradient(x,y,x+w,y+h);
+  grad.addColorStop(0,c1);grad.addColorStop(1,c2);
+  ctx.strokeStyle=grad;ctx.lineWidth=2.5;ctx.shadowBlur=18;ctx.shadowColor=c1;
+  ctx.beginPath();ctx.roundRect(x,y,w,h,10);ctx.stroke();
+  // Label
+  const tg=ctx.createLinearGradient(x,y,x+w,y+h);
+  tg.addColorStop(0,c1);tg.addColorStop(1,c2);
+  ctx.fillStyle=tg;ctx.shadowBlur=12;ctx.shadowColor=c1;
   ctx.textAlign='center';ctx.textBaseline='middle';
-
-  // Draws a scroll-tab hex shape: top corners chamfered
-  function scrollPath(x,y,w,h,ins){
-    const cut=(h-ins*2)*0.32;
-    ctx.beginPath();
-    ctx.moveTo(x+ins+cut, y+ins);
-    ctx.lineTo(x+w-ins-cut, y+ins);
-    ctx.lineTo(x+w-ins, y+ins+cut);
-    ctx.lineTo(x+w-ins, y+h-ins);
-    ctx.lineTo(x+ins, y+h-ins);
-    ctx.lineTo(x+ins, y+ins+cut);
-    ctx.closePath();
-  }
-
-  function drawTab(x,y,w,h,c1,c2,label,yOff){
-    const grad=ctx.createLinearGradient(x,y,x+w,y+h);
-    grad.addColorStop(0,c1);grad.addColorStop(1,c2);
-    // Outer glow stroke
-    ctx.shadowBlur=20;ctx.shadowColor=c1;ctx.strokeStyle=grad;ctx.lineWidth=2.8;
-    scrollPath(x,y+yOff,w,h,0);ctx.stroke();
-    // Inner inset stroke
-    ctx.shadowBlur=8;ctx.lineWidth=1.2;
-    scrollPath(x,y+yOff,w,h,4);ctx.stroke();
-    // Text
-    const tg=ctx.createLinearGradient(x,y+yOff,x+w,y+yOff+h);
-    tg.addColorStop(0,c1);tg.addColorStop(1,c2);
-    ctx.fillStyle=tg;ctx.shadowBlur=14;ctx.shadowColor=c1;
-    ctx.fillText(label,x+w/2,y+yOff+h/2);
-  }
-
-  drawTab(lx,cy,boxW,boxH,'#FF2200','#AAFF00','VECTOR',6);
-  drawTab(rx,cy,boxW,boxH,'#00FFFF','#0044FF','ROCKET',0);
+  ctx.font=`bold ${Math.min(Math.floor(w*0.26),20)}px 'Courier New',monospace`;
+  ctx.fillText(label,x+w/2,y+h/2);
   ctx.restore();
 }
 
@@ -895,90 +871,78 @@ function draw4Star(x,y,r,col){
 // ── Start screen ──────────────────────────────────────────────────
 let startRockets=null;
 function initStartRockets(){
-  startRockets=[new Rocket('scout',0.55),new Rocket('cruiser',0.45),new Rocket('scout',0.50)];
-  startRockets[0].x=canvas.width*0.82;startRockets[0].y=canvas.height*0.28;  // right
-  startRockets[1].x=canvas.width*0.86;startRockets[1].y=canvas.height*0.50;  // right
-  startRockets[2].x=canvas.width*0.16;startRockets[2].y=canvas.height*0.38;  // LEFT
+  startRockets=[
+    new Rocket('scout',0.55),new Rocket('cruiser',0.40),new Rocket('scout',0.48),
+    new Rocket('scout',0.62),new Rocket('cruiser',0.35)
+  ];
+  const cw=canvas.width,ch=canvas.height;
+  startRockets[0].x=cw*0.80;startRockets[0].y=ch*0.52;
+  startRockets[1].x=cw*0.88;startRockets[1].y=ch*0.68;
+  startRockets[2].x=cw*0.18;startRockets[2].y=ch*0.58;
+  startRockets[3].x=cw*0.70;startRockets[3].y=ch*0.40;
+  startRockets[4].x=cw*0.22;startRockets[4].y=ch*0.74;
 }
 function drawStartScreen(time){
   drawBg();
   const cw=canvas.width,ch=canvas.height,cx=cw/2;
+  const sz=(f,mx)=>Math.min(Math.floor(cw*f),mx);
+
+  // Ambient rockets
   if(!startRockets) initStartRockets();
   for(const r of startRockets){r.update(1/60,null);r.draw();}
-  draw4Star(cw-30,ch-30,12,C.wht);
-  // Poly fist (closed)
-  const fistScale=Math.min(cw,ch)*0.20;
-  const fistY=ch*0.42;
-  drawPolyFist(cx,fistY,fistScale*1.5,fistScale*1.7);
-  // Beams from fist knuckles (top of fist)
-  const beamOriginY=fistY-fistScale*0.22;
-  const beamTargetY=ch*0.70;
-  for(let i=0;i<BEAM_COLS.length;i++){
-    const off=(i-BEAM_COLS.length/2)*2.8;
-    ctx.save();
-    ctx.globalAlpha=0.55+0.1*Math.sin(time*3+i);
-    ctx.strokeStyle=BEAM_COLS[i];ctx.lineWidth=1.5;ctx.shadowBlur=6;ctx.shadowColor=BEAM_COLS[i];
-    ctx.beginPath();ctx.moveTo(cx+off,beamOriginY);ctx.lineTo(cx+off,beamTargetY);ctx.stroke();
-    ctx.restore();
-  }
-  // Big target rocket with large starburst
-  const bigR=new Rocket('dreadnought',1.0);
-  bigR.x=cx;bigR.y=beamTargetY;bigR.vx=1;bigR.vy=0;bigR.alive=true;
-  for(let i=0;i<16;i++){
-    const a=(i/16)*Math.PI*2+time*0.5,rLen=48+30*Math.sin(time*4+i);
-    ctx.save();
-    ctx.globalAlpha=0.45+0.3*Math.sin(time*3+i);
-    ctx.strokeStyle=BEAM_COLS[i%BEAM_COLS.length];ctx.lineWidth=1.4;ctx.shadowBlur=7;ctx.shadowColor=BEAM_COLS[i%BEAM_COLS.length];
-    ctx.beginPath();ctx.moveTo(cx,beamTargetY);ctx.lineTo(cx+Math.cos(a)*rLen,beamTargetY+Math.sin(a)*rLen);ctx.stroke();ctx.restore();
-  }
-  // Debris fragments orbiting the explosion
-  for(let i=0;i<4;i++){
-    const da=(i/4)*Math.PI*2+time*0.85,dr=60+i*16;
-    const fx=cx+Math.cos(da)*dr,fy=beamTargetY+Math.sin(da)*dr;
-    ctx.save();ctx.translate(fx,fy);ctx.rotate(time*1.3+i);
-    ctx.strokeStyle=BEAM_COLS[i*2];ctx.lineWidth=1.1;ctx.shadowBlur=5;ctx.shadowColor=BEAM_COLS[i*2];ctx.globalAlpha=0.65;
-    ctx.beginPath();ctx.moveTo(-5,-3);ctx.lineTo(5,-3);ctx.lineTo(3,5);ctx.closePath();ctx.stroke();
-    ctx.restore();
-  }
-  bigR.drawRocket(cx,beamTargetY,0,bigR.sz);
-  const impGrad=ctx.createRadialGradient(cx,beamTargetY,0,cx,beamTargetY,70+14*Math.sin(time*4));
-  impGrad.addColorStop(0,`rgba(255,200,50,${0.4+0.15*Math.sin(time*4)})`);impGrad.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=impGrad;ctx.fillRect(cx-100,beamTargetY-100,200,200);
-  // Title
-  const titleY=ch*0.03;
-  drawBannerTitle(cx,titleY);
-  if(Math.floor(time*4)%3!==0){
-    drawLightning(cx-cw*0.44,titleY+cw*0.04,cx-cw*0.22,titleY+cw*0.13,'#FF2200');
-    drawLightning(cx+cw*0.22,titleY+cw*0.04,cx+cw*0.44,titleY+cw*0.13,'#00FFFF');
-  }
-  // Hi score top-right
+
+  // Hi score — top right, unobstructed
   if(hiScore>0){
     ctx.save();
-    ctx.font=`${Math.min(Math.floor(cw*0.03),13)}px 'Courier New',monospace`;
+    ctx.font=`${sz(0.034,14)}px 'Courier New',monospace`;
     ctx.fillStyle=C.yel;ctx.textAlign='right';ctx.shadowBlur=6;ctx.shadowColor=C.yel;
-    ctx.fillText(`HI: ${String(hiScore).padStart(6,'0')}`,cw-12,28);
+    ctx.fillText(`HI: ${String(hiScore).padStart(6,'0')}`,cw-12,26);
     ctx.restore();
   }
-  // TAP TO PLAY
-  if(Math.floor(time*2)%2===0){
-    ctx.save();
-    ctx.font=`bold ${Math.min(Math.floor(cw*0.052),22)}px 'Courier New',monospace`;
-    ctx.fillStyle=C.yel;ctx.textAlign='center';ctx.shadowBlur=14;ctx.shadowColor=C.yel;
-    ctx.fillText('► TAP TO PLAY ◄',cx,ch*0.925);
-    ctx.restore();
-  }
-  // HOW TO PLAY
+
+  // VECTOR ROCKET — large gradient text, no box
   ctx.save();
   ctx.textAlign='center';
-  const hdrSz=Math.min(Math.floor(cw*0.032),14),bodySz=Math.min(Math.floor(cw*0.026),12),lh=Math.min(cw*0.042,18),instrY=ch*0.87;
-  ctx.font=`bold ${hdrSz}px 'Courier New',monospace`;
-  ctx.fillStyle='#00FFCC';ctx.shadowBlur=6;ctx.shadowColor='#00FFCC';ctx.fillText('HOW TO PLAY',cx,instrY);
-  ctx.font=`${bodySz}px 'Courier New',monospace`;
-  ctx.fillStyle='#00CCAA';ctx.shadowBlur=4;ctx.shadowColor='#00CCAA';
-  ctx.fillText('STRETCH + SNAP BAND  ›  FIRE SHOT',cx,instrY+lh);
-  ctx.fillText('FLICK OTHER FINGER  ›  PLUCK BAND',cx,instrY+lh*2);
-  ctx.fillText('PINCH THUMB+INDEX  ›  EMERGENCY BLAST (x3)',cx,instrY+lh*3);
+  const titleSz=sz(0.115,50);
+  ctx.font=`bold ${titleSz}px 'Courier New',monospace`;
+  const tg=ctx.createLinearGradient(cx-cw*0.4,0,cx+cw*0.4,0);
+  tg.addColorStop(0,C.cyan);tg.addColorStop(0.5,C.wht);tg.addColorStop(1,C.mag);
+  ctx.fillStyle=tg;ctx.shadowBlur=24;ctx.shadowColor=C.cyan;
+  ctx.fillText('VECTOR',cx,ch*0.11);
+  ctx.shadowColor=C.mag;
+  ctx.fillText('ROCKET',cx,ch*0.11+titleSz*1.15);
   ctx.restore();
+
+  // HOW TO PLAY — directly under title
+  ctx.save();
+  ctx.textAlign='center';
+  const hdrSz=sz(0.034,14),bodySz=sz(0.028,12),lh=sz(0.048,20);
+  const instrY=ch*0.11+titleSz*1.15+lh*1.8;
+  ctx.font=`bold ${hdrSz}px 'Courier New',monospace`;
+  ctx.fillStyle='#00FFCC';ctx.shadowBlur=6;ctx.shadowColor='#00FFCC';
+  ctx.fillText('— HOW TO PLAY —',cx,instrY);
+  ctx.font=`${bodySz}px 'Courier New',monospace`;
+  ctx.fillStyle='#00CCAA';ctx.shadowBlur=3;ctx.shadowColor='#00CCAA';
+  ctx.fillText('CURL INDEX FINGER  ›  LOCK ON',cx,instrY+lh*1.4);
+  ctx.fillText('FLICK OUT  ›  FIRE SHOT',cx,instrY+lh*2.5);
+  ctx.fillText('PINCH THUMB+INDEX  ›  BLAST (x3)',cx,instrY+lh*3.6);
+  ctx.restore();
+
+  // Mode buttons — CLASSIC (left) and BLITZ (right) at bottom
+  const btnW=cw*0.38,btnH=Math.min(Math.floor(ch*0.068),54),btnY=ch*0.82;
+  const classicX=cx-btnW-cw*0.03;
+  const blitzX=cx+cw*0.03;
+  drawModeBtn(classicX,btnY,btnW,btnH,C.cyan,C.sky,'CLASSIC');
+  drawModeBtn(blitzX,btnY,btnW,btnH,C.yel,C.ora,'\u26A1 BLITZ');
+  _blitzBtnRect={x:blitzX,y:btnY,w:btnW,h:btnH};
+
+  // Subtle prompt below buttons
+  ctx.save();
+  ctx.font=`${sz(0.026,11)}px 'Courier New',monospace`;
+  ctx.fillStyle='#223322';ctx.textAlign='center';ctx.globalAlpha=0.55;
+  ctx.fillText('TAP CLASSIC TO START  ·  BLITZ = 60s SURVIVAL',cx,btnY+btnH+sz(0.04,17));
+  ctx.restore();
+
   ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
@@ -1098,6 +1062,18 @@ function drawHUD(){
       }
     }
   }
+  // BLITZ countdown — top center
+  if(gameMode==='blitz'){
+    const tc=blitzTimeLeft<=10?C.red:blitzTimeLeft<=20?C.ora:C.yel;
+    ctx.save();
+    ctx.textAlign='center';
+    ctx.font=`bold ${sz(0.065,28)}px 'Courier New',monospace`;
+    ctx.fillStyle=tc;ctx.shadowColor=tc;
+    ctx.shadowBlur=blitzTimeLeft<=10?(Math.sin(Date.now()/120)*8+10):8;
+    ctx.globalAlpha=0.95;
+    ctx.fillText(`${Math.ceil(blitzTimeLeft)}s`,cw/2,38);
+    ctx.restore();
+  }
   // Right side
   ctx.textAlign='right';
   ctx.font=`bold ${sz(0.04,17)}px 'Courier New',monospace`;
@@ -1159,6 +1135,9 @@ function fireBlast(center,tips,beams){
 
 // ── Game state ────────────────────────────────────────────────────
 let state='start';
+let gameMode='classic'; // 'classic' | 'blitz'
+let blitzTimeLeft=0;
+let _blitzBtnRect=null; // set during drawStartScreen, used by tap handler
 let fingertips=Array(5).fill(null);
 let allLandmarks=null,handVisible=false;
 let _smoothTips=Array(5).fill(null);
@@ -1193,6 +1172,7 @@ function initGame(){
   wasPinched=false;pinchCooldown=0;blastCharges=3;
   shakeAmt=0;waveState='active';waveTimer=0;
   waveAnncText='';waveAnncSub='';waveAnncTimer=0;
+  blitzTimeLeft=gameMode==='blitz'?60:0;
   spawnWave(1);
   playStartChord();
 }
@@ -1446,6 +1426,12 @@ function loop(ts){
   }
   if(waveAnncTimer>0) waveAnncTimer-=dt;
 
+  // BLITZ countdown — end game when time expires
+  if(gameMode==='blitz'){
+    blitzTimeLeft-=dt;
+    if(blitzTimeLeft<=0){blitzTimeLeft=0;saveHiScore();state='gameover';ctx.restore();return;}
+  }
+
   drawComboPops(dt);
   drawWaveAnnouncer();
   drawHUD();
@@ -1455,19 +1441,35 @@ function loop(ts){
 }
 
 // ── Boot ──────────────────────────────────────────────────────────
-function startGame(){
+function handleTap(clientX,clientY){
   ensureAudio();
   if(state==='gameover'){
+    gameMode='classic';
     state='playing';initGame();
     if(!trackingStarted){initTracking();trackingStarted=true;}
     return;
   }
   if(state!=='start') return;
+  // Determine mode: tap BLITZ button = blitz, everything else = classic
+  gameMode='classic';
+  if(_blitzBtnRect){
+    const rect=canvas.getBoundingClientRect();
+    const scaleX=canvas.width/rect.width,scaleY=canvas.height/rect.height;
+    const cx=(clientX-rect.left)*scaleX,cy=(clientY-rect.top)*scaleY;
+    if(cx>=_blitzBtnRect.x&&cx<=_blitzBtnRect.x+_blitzBtnRect.w&&
+       cy>=_blitzBtnRect.y&&cy<=_blitzBtnRect.y+_blitzBtnRect.h){
+      gameMode='blitz';
+    }
+  }
   state='playing';initGame();
   if(!trackingStarted){initTracking();trackingStarted=true;}
 }
-canvas.addEventListener('click',startGame);
-canvas.addEventListener('touchstart',e=>{e.preventDefault();startGame();},{passive:false});
+canvas.addEventListener('click',e=>handleTap(e.clientX,e.clientY));
+canvas.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  const t=e.changedTouches[0];
+  handleTap(t.clientX,t.clientY);
+},{passive:false});
 
 running=true;lastTs=performance.now();
 requestAnimationFrame(loop);
