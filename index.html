@@ -494,7 +494,7 @@ class Band{
     this.vAmp=0;this.vFreq=5+Math.random()*7;this.vTime=0;
     this.prevDist=999;this.lastSnapMs=0;this.lastPluckMs=0;
     this.locked=false;this.lockedSince=0;this.lastShotMs=0;
-    this.canShoot=canShoot;
+    this.canShoot=canShoot;this._prevCurl=999;
     this._pendingShot=null;
   }
   update(tips,dt){
@@ -505,31 +505,56 @@ class Band{
     const a=tips[this.a],b=tips[this.b];if(!a||!b)return;
     const dist=Math.hypot(b.x-a.x,b.y-a.y),now=performance.now();
     const wasLocked=this.locked;
-    const effectiveSnap=SNAP_FIRE*(_palmScale/120);
-    const nowLocked=(dist<effectiveSnap);
-    // Fingers came together: lock on and snap vibration
-    if(nowLocked&&!wasLocked){
-      this.lockedSince=now;
-      if(now-this.lastSnapMs>180){
-        const mag=30+Math.random()*40,ang=(Math.random()-0.5)*Math.PI*1.5;
-        this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
-        this.vAmp=Math.max(this.vAmp,25+Math.random()*20);
-        this.lastSnapMs=now;playSnap();
+    let nowLocked;
+
+    if(this.canShoot){
+      // ── Curl detection: index tip(8)→knuckle(5), small = curled/locked ──
+      const curlThresh=_palmScale*0.55;
+      nowLocked=(_indexCurl<curlThresh);
+      // Velocity: positive = index extending outward (the "flick")
+      const curlVel=_indexCurl-this._prevCurl;
+      this._prevCurl=_indexCurl;
+
+      if(nowLocked&&!wasLocked){
+        this.lockedSince=now;
+        if(now-this.lastSnapMs>180){
+          const mag=30+Math.random()*40,ang=(Math.random()-0.5)*Math.PI*1.5;
+          this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
+          this.vAmp=Math.max(this.vAmp,25+Math.random()*20);
+          this.lastSnapMs=now;playSnap();
+        }
       }
-    }
-    // Fingers spread apart after being locked → FIRE
-    if(!nowLocked&&wasLocked&&this.lockedSince>0){
-      const lockDur=now-this.lockedSince;
-      if(this.canShoot&&lockDur>200&&now-this.lastShotMs>600){
-        const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-        this._pendingShot={x:mx,y:my,peakDist:dist,col:this.color,bandIdx:this.ci};
-        this.lastShotMs=now;
-        const mag=55+Math.random()*35,ang=(Math.random()-0.5)*Math.PI;
-        this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
-        this.vAmp=Math.max(this.vAmp,50+Math.random()*30);
+      if(wasLocked&&this.lockedSince>0){
+        const lockDur=now-this.lockedSince;
+        // Fire: fast flick (velocity) OR slow deliberate release
+        const isFlick=curlVel>_palmScale*0.12&&lockDur>80;
+        const holdFire=!nowLocked&&lockDur>200;
+        if((isFlick||holdFire)&&now-this.lastShotMs>600){
+          const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+          this._pendingShot={x:mx,y:my,peakDist:dist,col:this.color,bandIdx:this.ci};
+          this.lastShotMs=now;
+          const mag=55+Math.random()*35,ang=(Math.random()-0.5)*Math.PI;
+          this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
+          this.vAmp=Math.max(this.vAmp,50+Math.random()*30);
+        }
+        if(!nowLocked) this.lockedSince=0;
       }
-      this.lockedSince=0;
+    } else {
+      // ── Pluck bands: original tip-to-tip distance ──
+      const effectiveSnap=SNAP_FIRE*(_palmScale/120);
+      nowLocked=(dist<effectiveSnap);
+      if(nowLocked&&!wasLocked){
+        this.lockedSince=now;
+        if(now-this.lastSnapMs>180){
+          const mag=30+Math.random()*40,ang=(Math.random()-0.5)*Math.PI*1.5;
+          this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
+          this.vAmp=Math.max(this.vAmp,25+Math.random()*20);
+          this.lastSnapMs=now;playSnap();
+        }
+      }
+      if(!nowLocked) this.lockedSince=0;
     }
+
     this.locked=nowLocked;
     this.prevDist=dist;
   }
@@ -1062,14 +1087,14 @@ function drawHUD(){
         const charge=Math.min(1,(performance.now()-shootBand.lockedSince)/200);
         if(charge>=1){
           ctx.fillStyle=C.red;ctx.shadowColor=C.red;ctx.shadowBlur=8;ctx.globalAlpha=1;
-          ctx.fillText('▶ SPREAD TO FIRE',14,yOff);
+          ctx.fillText('▶ FLICK TO FIRE',14,yOff);
         } else {
           ctx.fillStyle=C.yel;ctx.shadowColor=C.yel;ctx.shadowBlur=6;ctx.globalAlpha=1;
-          ctx.fillText('◎ LOCKING...',14,yOff);
+          ctx.fillText('◎ LOCKED ON',14,yOff);
         }
       } else {
         ctx.fillStyle='#335533';ctx.shadowBlur=0;ctx.globalAlpha=0.6;
-        ctx.fillText('PINCH TO AIM',14,yOff);
+        ctx.fillText('CURL INDEX TO AIM',14,yOff);
       }
     }
   }
@@ -1140,6 +1165,7 @@ let _smoothTips=Array(5).fill(null);
 let _lastHandTs=0;
 let _lmA=null,_lmB=null,_lmAts=0,_lmBts=0;
 let _palmScale=120; // px: palm size, EMA smoothed — used to normalize pinch threshold
+let _indexCurl=999; // px: index tip→knuckle distance, low = curled/locked
 let bursts=[];      // fire burst rings
 let bands=[],beams=[],rockets=[],shots=[];
 let score=0,lives=3,combo=1,waveNum=1;
@@ -1235,6 +1261,9 @@ async function initTracking(){
           // Palm size: wrist(0) → mid-knuckle(9), EMA smoothed
           const ps=Math.hypot(newLM[9].x-newLM[0].x,newLM[9].y-newLM[0].y);
           _palmScale=ps*0.15+_palmScale*0.85;
+          // Index curl: tip(8) → knuckle(5), small = curled, EMA smoothed
+          const ic=Math.hypot(newLM[8].x-newLM[5].x,newLM[8].y-newLM[5].y);
+          _indexCurl=ic*0.5+_indexCurl*0.5;
           for(let i=0;i<5;i++){
             const raw={x:(1-lms[TIP_IDX[i]].x)*canvas.width,y:lms[TIP_IDX[i]].y*canvas.height};
             const prev=_smoothTips[i];
@@ -1284,7 +1313,7 @@ function loop(ts){
   // Stale hand: clear if no detection for 800ms
   if(handVisible&&(ts-_lastHandTs)>800){
     handVisible=false;fingertips=Array(5).fill(null);allLandmarks=null;
-    _smoothTips=Array(5).fill(null);_lmA=null;_lmB=null;
+    _smoothTips=Array(5).fill(null);_lmA=null;_lmB=null;_indexCurl=999;
   }
 
   // Bands — update, slingshot, draw
