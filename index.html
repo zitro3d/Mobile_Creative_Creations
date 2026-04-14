@@ -1230,23 +1230,26 @@ function getDisplayLM(){
 
 // ── MediaPipe ─────────────────────────────────────────────────────
 async function initTracking(){
+  // Step 1 — Camera: must happen first so iOS gesture context is still active
   try{
-    // ⚠ getUserMedia MUST be first — iOS Safari expires the user gesture
-    // context after any async await, so camera must be requested immediately.
     const stream=await navigator.mediaDevices.getUserMedia({
       video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:30,max:30}}
     });
     video.srcObject=stream;
-    await video.play();
+    // Don't await play() — on iOS the autoplay attribute can cause an AbortError
+    // that kills the entire function. Calling without await lets the video play
+    // regardless and we continue to MediaPipe setup.
+    video.play().catch(()=>{});
+  }catch(e){console.error('camera error',e);return;}
 
-    // Now load MediaPipe (can take a few seconds — camera is already running)
+  // Step 2 — MediaPipe: loads in background while video is already running
+  let hl=null;
+  try{
     const{HandLandmarker,FilesetResolver}=window;
     if(!HandLandmarker||!FilesetResolver){console.error('tasks-vision not loaded');return;}
     const vision=await FilesetResolver.forVisionTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm'
     );
-    // Try GPU first, fall back to CPU
-    let hl;
     try{
       hl=await HandLandmarker.createFromOptions(vision,{
         baseOptions:{
@@ -1265,47 +1268,50 @@ async function initTracking(){
         runningMode:'VIDEO',numHands:1
       });
     }
-    // Process frames at ~15fps, synced to video decoder
-    let lastTs2=0;
-    function processFrame(now){
-      video.requestVideoFrameCallback(processFrame);
-      if(state!=='playing'||video.readyState<2) return;
-      if(now-lastTs2<66) return; // ~15fps cap
-      lastTs2=now;
-      try{
-        const r=hl.detectForVideo(video,now);
-        _lastHandTs=now;
-        fingertips=Array(5).fill(null);allLandmarks=null;handVisible=false;
-        const lms=r.landmarks&&r.landmarks[0];
-        if(lms&&lms.length===21){
-          handVisible=true;
-          const newLM=lms.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
-          _lmA=_lmB;_lmAts=_lmBts;
-          _lmB=newLM;_lmBts=now;
-          allLandmarks=newLM;
-          // Palm size: wrist(0) → mid-knuckle(9), EMA smoothed
-          const ps=Math.hypot(newLM[9].x-newLM[0].x,newLM[9].y-newLM[0].y);
-          _palmScale=ps*0.15+_palmScale*0.85;
-          // Index curl: tip(8) → knuckle(5), small = curled, EMA smoothed
-          const ic=Math.hypot(newLM[8].x-newLM[5].x,newLM[8].y-newLM[5].y);
-          _indexCurl=ic*0.5+_indexCurl*0.5;
-          for(let i=0;i<5;i++){
-            const raw={x:(1-lms[TIP_IDX[i]].x)*canvas.width,y:lms[TIP_IDX[i]].y*canvas.height};
-            const prev=_smoothTips[i];
-            if(!prev){_smoothTips[i]=raw;}
-            else{
-              const d=Math.hypot(raw.x-prev.x,raw.y-prev.y);
-              if(d>4) _smoothTips[i]={x:prev.x+EMA*(raw.x-prev.x),y:prev.y+EMA*(raw.y-prev.y)};
-            }
-            fingertips[i]=_smoothTips[i];
+  }catch(e){console.error('mediapipe error',e);return;}
+
+  // Step 3 — Frame loop: rVFC primary, rAF fallback for older browsers
+  let lastTs2=0;
+  function scheduleNext(){
+    if('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(processFrame);
+    else requestAnimationFrame(processFrame);
+  }
+  function processFrame(now){
+    scheduleNext();
+    if(!hl||state!=='playing'||video.readyState<2) return;
+    if(now-lastTs2<66) return; // ~15fps cap
+    lastTs2=now;
+    try{
+      const r=hl.detectForVideo(video,now);
+      _lastHandTs=now;
+      fingertips=Array(5).fill(null);allLandmarks=null;handVisible=false;
+      const lms=r.landmarks&&r.landmarks[0];
+      if(lms&&lms.length===21){
+        handVisible=true;
+        const newLM=lms.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
+        _lmA=_lmB;_lmAts=_lmBts;
+        _lmB=newLM;_lmBts=now;
+        allLandmarks=newLM;
+        const ps=Math.hypot(newLM[9].x-newLM[0].x,newLM[9].y-newLM[0].y);
+        _palmScale=ps*0.15+_palmScale*0.85;
+        const ic=Math.hypot(newLM[8].x-newLM[5].x,newLM[8].y-newLM[5].y);
+        _indexCurl=ic*0.5+_indexCurl*0.5;
+        for(let i=0;i<5;i++){
+          const raw={x:(1-lms[TIP_IDX[i]].x)*canvas.width,y:lms[TIP_IDX[i]].y*canvas.height};
+          const prev=_smoothTips[i];
+          if(!prev){_smoothTips[i]=raw;}
+          else{
+            const d=Math.hypot(raw.x-prev.x,raw.y-prev.y);
+            if(d>4) _smoothTips[i]={x:prev.x+EMA*(raw.x-prev.x),y:prev.y+EMA*(raw.y-prev.y)};
           }
-        } else {
-          _smoothTips=Array(5).fill(null);_lmA=null;_lmB=null;
+          fingertips[i]=_smoothTips[i];
         }
-      }catch(e){console.warn('detect',e);}
-    }
-    video.requestVideoFrameCallback(processFrame);
-  }catch(e){console.error('initTracking',e);}
+      } else {
+        _smoothTips=Array(5).fill(null);_lmA=null;_lmB=null;
+      }
+    }catch(e){console.warn('detect',e);}
+  }
+  scheduleNext();
 }
 
 // ── Render loop ───────────────────────────────────────────────────
