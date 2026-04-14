@@ -16,13 +16,17 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
     }
   }
   </script>
 
   <script type="module">
   import * as THREE from 'three';
+  import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
+  import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
+  import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
   // ─────────────────────────────────────────────────────────────────
   //  TUNABLE CONSTANTS — adjust these to change look & feel
@@ -55,6 +59,19 @@
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setClearColor(0x00000a, 1); // near-black with the faintest blue tint
   document.body.appendChild(renderer.domElement);
+
+  // ─────────────────────────────────────────────────────────────────
+  //  POST-PROCESSING — UnrealBloomPass for star/nebula glow
+  // ─────────────────────────────────────────────────────────────────
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    1.5,   // strength
+    0.4,   // radius
+    0.0    // threshold — glow everything (stars are already dim by vertex colour)
+  );
+  composer.addPass(bloomPass);
 
   // ─────────────────────────────────────────────────────────────────
   //  SCENE & CAMERA
@@ -162,13 +179,13 @@
     return new THREE.CanvasTexture(cvs);
   }
 
-  // Palette — deep purple, teal, indigo, midnight blue
+  // Palette — Electric Blue (#00f2ff) and Deep Magenta (#ff00ff)
   const nebTextures = [
-    makeNebulaTexture( 85,   0, 160), // deep purple
-    makeNebulaTexture(  0, 140, 140), // teal
-    makeNebulaTexture( 20,   0, 180), // indigo-blue
-    makeNebulaTexture(110,   0, 110), // magenta-purple
-    makeNebulaTexture(  0,  90, 140), // dark teal-blue
+    makeNebulaTexture(  0, 242, 255), // electric blue
+    makeNebulaTexture(255,   0, 255), // deep magenta
+    makeNebulaTexture(  0, 200, 255), // lighter electric blue
+    makeNebulaTexture(220,   0, 255), // magenta-violet
+    makeNebulaTexture(  0, 242, 200), // electric teal
   ];
 
   // Spawn all nebula sprites
@@ -176,7 +193,7 @@
 
   for (let i = 0; i < NEBULA_COUNT; i++) {
     const mat = new THREE.SpriteMaterial({
-      map:       nebTextures[i % nebTextures.length],
+      map:       nebTextures[Math.floor(Math.random() * nebTextures.length)],
       transparent: true,
       depthWrite:  false,                   // don't block stars behind them
       blending:    THREE.AdditiveBlending,  // colours glow, add to scene
@@ -209,15 +226,14 @@
     return t * t * (3 - 2 * t);
   }
 
-  // Recycle a single nebula to a new random deep position.
+  // Recycle a single nebula to the far end of the tunnel.
   function recycleNebula(neb) {
     neb.position.x = (Math.random() - 0.5) * 320;
     neb.position.y = (Math.random() - 0.5) * 200;
-    // Reset to world Z = -NEBULA_DEPTH (convert to local space)
-    neb.position.z = -NEBULA_DEPTH - universe.position.z;
+    neb.position.z = -NEBULA_DEPTH;
     const s = 100 + Math.random() * 250;
     neb.scale.set(s, s, 1);
-    neb.material.opacity = 0; // start invisible until fade-in
+    neb.material.opacity = 0;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -227,10 +243,15 @@
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
+    bloomPass.resolution.set(window.innerWidth, window.innerHeight);
   });
 
   // ─────────────────────────────────────────────────────────────────
   //  ANIMATION LOOP
+  //  Stars and nebulas move directly in local space each frame.
+  //  universe.position stays at 0 always — no precision reset needed.
+  //  distAhead = -localZ (positive = in front of camera).
   // ─────────────────────────────────────────────────────────────────
   let prevTime = performance.now();
 
@@ -241,84 +262,54 @@
     const dt  = Math.min((now - prevTime) / 1000, 0.05); // cap at 50 ms
     prevTime  = now;
 
-    // ── 1. Fly the universe forward at constant speed ─────────────
-    // Speed will be driven by game logic (throttle / events) later.
-    // Advancing universe.position.z is the same as the camera moving
-    // forward — the single group transform moves everything at once.
-    universe.position.z += SPEED * dt;
+    const travel = SPEED * dt; // units to move toward camera this frame
 
-    // ── 3. Precision safety reset ─────────────────────────────────
-    // After flying ~3 000 units the floats get large. We reset the
-    // group back to zero and shift all children to compensate, keeping
-    // numbers small and precision crisp indefinitely.
-    if (universe.position.z > 3000) {
-      const offset = universe.position.z;
-      universe.position.z = 0;
-
-      // Shift every star backwards by offset (in local space)
-      for (let i = 0; i < STAR_COUNT; i++) {
-        starAttr.setZ(i, starAttr.getZ(i) - offset);
-      }
-      starAttr.needsUpdate = true;
-
-      // Shift every nebula
-      for (const neb of nebulas) {
-        neb.position.z -= offset;
-      }
-    }
-
-    // ── 4. Recycle stars + update per-star brightness fade ────────
-    // world-Z = universe.position.z + local-Z
-    // Stars past the camera (worldZ > 5) recycle to the far end.
-    // Brightness is a smoothstep from 0 (far) to 1 (near), so distant
-    // stars are pitch-black — completely invisible until they close in.
+    // ── Stars: advance local Z, recycle when past camera ─────────
     for (let i = 0; i < STAR_COUNT; i++) {
-      const worldZ    = universe.position.z + starAttr.getZ(i);
-      const distAhead = -worldZ; // positive = in front of camera
+      let lz = starAttr.getZ(i) + travel;
 
-      if (worldZ > 5) {
-        // Recycle: new random X/Y, push back to world -STAR_DEPTH,
-        // and assign a fresh random intrinsic brightness for variety
+      if (lz > 5) {
+        // Recycle to far end of tunnel with fresh random values
+        lz = -STAR_DEPTH;
         starAttr.setX(i, (Math.random() - 0.5) * STAR_SPREAD_X * 2);
         starAttr.setY(i, (Math.random() - 0.5) * STAR_SPREAD_Y * 2);
-        starAttr.setZ(i, -STAR_DEPTH - universe.position.z);
         starBrightness[i] = 0.2 + Math.random() * 0.8;
         starCol[i * 3] = starCol[i * 3 + 1] = starCol[i * 3 + 2] = 0;
       } else {
-        // Distance fade × per-star random brightness → unique opacity per star
+        // Brightness fade: invisible far away, full brightness up close
+        const distAhead = -lz; // positive = in front of camera
         const fade = smoothstep(STAR_FADE_FAR, STAR_FADE_NEAR, distAhead);
         const b    = fade * starBrightness[i];
         starCol[i * 3] = starCol[i * 3 + 1] = starCol[i * 3 + 2] = b;
       }
+
+      starAttr.setZ(i, lz);
     }
     starAttr.needsUpdate    = true;
     starColAttr.needsUpdate = true;
 
-    // ── 5. Nebula fade in / out ───────────────────────────────────
-    // distAhead = how far the nebula is in front of the camera.
-    //   > NEBULA_DEPTH  → invisible (too far)
-    //   1200 → 1800     → fade in  (approaching from the deep)
-    //   200  → 1200     → full opacity
-    //   0    → 200      → fade out (so close it would fill the screen)
-    //   < 0             → recycle (passed the camera)
+    // ── Nebulas: advance local Z, fade in/out, recycle ───────────
+    //   distAhead = -localZ (positive = in front of camera)
+    //   1200 → 1800  fade in from deep space
+    //   200  → 1200  full opacity band
+    //   0    → 200   fade out as it rushes past
+    //   < 0          recycle to far end
     for (const neb of nebulas) {
-      const worldZ    = universe.position.z + neb.position.z;
-      const distAhead = -worldZ; // positive = in front
+      neb.position.z += travel;
+
+      const distAhead = -neb.position.z;
 
       if (distAhead < 0) {
         recycleNebula(neb);
         continue;
       }
 
-      // Far fade: invisible at 1800+, fully visible at 1200
       const farFade   = smoothstep(1800, 1200, distAhead);
-      // Close fade: invisible at 0, fully visible at 200
       const closeFade = smoothstep(0, 200, distAhead);
-
       neb.material.opacity = NEBULA_MAX_OP * farFade * closeFade;
     }
 
-    renderer.render(scene, camera);
+    composer.render();
   }
 
   animate();
