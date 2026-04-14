@@ -946,6 +946,46 @@ function drawStartScreen(time){
   ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
+// ── Camera permission screen ──────────────────────────────────────
+function drawCameraScreen(time){
+  drawBg();
+  const cw=canvas.width,ch=canvas.height,cx=cw/2;
+  const sz=(f,mx)=>Math.min(Math.floor(cw*f),mx);
+  // Icon — animated camera outline
+  const icy=ch*0.30,icr=cw*0.12;
+  ctx.save();
+  ctx.strokeStyle=C.cyan;ctx.lineWidth=2.5;ctx.shadowBlur=16;ctx.shadowColor=C.cyan;ctx.globalAlpha=0.9;
+  // Camera body
+  ctx.beginPath();ctx.roundRect(cx-icr,icy-icr*0.65,icr*2,icr*1.3,icr*0.18);ctx.stroke();
+  // Lens
+  ctx.beginPath();ctx.arc(cx,icy,icr*0.42,0,Math.PI*2);ctx.stroke();
+  // Viewfinder notch
+  ctx.beginPath();ctx.moveTo(cx-icr*0.22,icy-icr*0.65);ctx.lineTo(cx-icr*0.1,icy-icr*0.9);
+  ctx.lineTo(cx+icr*0.1,icy-icr*0.9);ctx.lineTo(cx+icr*0.22,icy-icr*0.65);ctx.stroke();
+  // Pulse ring
+  const pulse=0.6+0.4*Math.sin(time*3);
+  ctx.globalAlpha=pulse*0.4;ctx.lineWidth=1.2;
+  ctx.beginPath();ctx.arc(cx,icy,icr*0.6+pulse*8,0,Math.PI*2);ctx.stroke();
+  ctx.restore();
+  // Heading
+  ctx.save();ctx.textAlign='center';
+  ctx.font=`bold ${sz(0.065,28)}px 'Courier New',monospace`;
+  ctx.fillStyle=C.wht;ctx.shadowBlur=12;ctx.shadowColor=C.cyan;
+  ctx.fillText('CAMERA REQUIRED',cx,ch*0.52);
+  // Body text
+  ctx.font=`${sz(0.03,13)}px 'Courier New',monospace`;
+  ctx.fillStyle='#88BBAA';ctx.shadowBlur=0;ctx.globalAlpha=0.8;
+  ctx.fillText('Hand tracking uses your front camera.',cx,ch*0.60);
+  ctx.fillText('Your video never leaves your device.',cx,ch*0.65);
+  // TAP button
+  if(Math.floor(time*2)%2===0){
+    ctx.font=`bold ${sz(0.062,26)}px 'Courier New',monospace`;
+    ctx.fillStyle=C.grn;ctx.shadowBlur=14;ctx.shadowColor=C.grn;ctx.globalAlpha=1;
+    ctx.fillText('TAP TO ALLOW \u25BA',cx,ch*0.78);
+  }
+  ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;
+}
+
 // ── Game over screen ──────────────────────────────────────────────
 function drawGameOver(time){
   drawBg();
@@ -1136,6 +1176,7 @@ function fireBlast(center,tips,beams){
 // ── Game state ────────────────────────────────────────────────────
 let state='start';
 let gameMode='classic'; // 'classic' | 'blitz'
+let _pendingMode='classic'; // mode chosen on start screen, applied after camera grant
 let blitzTimeLeft=0;
 let _blitzBtnRect=null; // set during drawStartScreen, used by tap handler
 let fingertips=Array(5).fill(null);
@@ -1271,6 +1312,7 @@ function loop(ts){
   const time=ts/1000;
 
   if(state==='start'){drawStartScreen(time);return;}
+  if(state==='camera'){drawCameraScreen(time);return;}
   if(state==='gameover'){drawGameOver(time);return;}
 
   // ── Playing ──────────────────────────────────────────────────
@@ -1449,20 +1491,32 @@ function handleTap(clientX,clientY){
     if(!trackingStarted){initTracking();trackingStarted=true;}
     return;
   }
+  // Camera permission step — user taps to allow, then game starts
+  if(state==='camera'){
+    gameMode=_pendingMode;
+    state='playing';initGame();
+    if(!trackingStarted){initTracking();trackingStarted=true;}
+    return;
+  }
   if(state!=='start') return;
   // Determine mode: tap BLITZ button = blitz, everything else = classic
-  gameMode='classic';
+  _pendingMode='classic';
   if(_blitzBtnRect){
     const rect=canvas.getBoundingClientRect();
     const scaleX=canvas.width/rect.width,scaleY=canvas.height/rect.height;
     const cx=(clientX-rect.left)*scaleX,cy=(clientY-rect.top)*scaleY;
     if(cx>=_blitzBtnRect.x&&cx<=_blitzBtnRect.x+_blitzBtnRect.w&&
        cy>=_blitzBtnRect.y&&cy<=_blitzBtnRect.y+_blitzBtnRect.h){
-      gameMode='blitz';
+      _pendingMode='blitz';
     }
   }
-  state='playing';initGame();
-  if(!trackingStarted){initTracking();trackingStarted=true;}
+  // If camera already granted, skip the permission screen
+  if(trackingStarted){
+    gameMode=_pendingMode;
+    state='playing';initGame();
+  } else {
+    state='camera'; // show camera permission screen
+  }
 }
 canvas.addEventListener('click',e=>handleTap(e.clientX,e.clientY));
 canvas.addEventListener('touchstart',e=>{
