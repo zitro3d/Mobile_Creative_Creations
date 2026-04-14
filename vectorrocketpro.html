@@ -108,11 +108,16 @@
   // Stars far away start black (invisible); brighten as they approach.
   const starCol = new Float32Array(STAR_COUNT * 3);
 
+  // Per-star intrinsic brightness: random value so stars twinkle at
+  // different intensities — some barely visible, some blazing white.
+  const starBrightness = new Float32Array(STAR_COUNT);
+
   for (let i = 0; i < STAR_COUNT; i++) {
     starPos[i * 3]     = (Math.random() - 0.5) * STAR_SPREAD_X * 2;
     starPos[i * 3 + 1] = (Math.random() - 0.5) * STAR_SPREAD_Y * 2;
     starPos[i * 3 + 2] = -(Math.random() * STAR_DEPTH);
-    // Colour starts at 0 (black); updated each frame by distance
+    // Random max brightness: faint (0.2) to blazing (1.0)
+    starBrightness[i]  = 0.2 + Math.random() * 0.8;
     starCol[i * 3] = starCol[i * 3 + 1] = starCol[i * 3 + 2] = 0;
   }
 
@@ -292,15 +297,17 @@
       const distAhead = -worldZ; // positive = in front of camera
 
       if (worldZ > 5) {
-        // Recycle: random new X/Y, push back to world -STAR_DEPTH
+        // Recycle: new random X/Y, push back to world -STAR_DEPTH,
+        // and assign a fresh random intrinsic brightness for variety
         starAttr.setX(i, (Math.random() - 0.5) * STAR_SPREAD_X * 2);
         starAttr.setY(i, (Math.random() - 0.5) * STAR_SPREAD_Y * 2);
         starAttr.setZ(i, -STAR_DEPTH - universe.position.z);
-        // Start invisible so it fades in naturally
+        starBrightness[i] = 0.2 + Math.random() * 0.8;
         starCol[i * 3] = starCol[i * 3 + 1] = starCol[i * 3 + 2] = 0;
       } else {
-        // Brightness: 0 at STAR_FADE_FAR, 1 at STAR_FADE_NEAR
-        const b = smoothstep(STAR_FADE_FAR, STAR_FADE_NEAR, distAhead);
+        // Distance fade × per-star random brightness → unique opacity per star
+        const fade = smoothstep(STAR_FADE_FAR, STAR_FADE_NEAR, distAhead);
+        const b    = fade * starBrightness[i];
         starCol[i * 3] = starCol[i * 3 + 1] = starCol[i * 3 + 2] = b;
       }
     }
