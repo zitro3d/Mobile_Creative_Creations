@@ -38,13 +38,11 @@
   const NEBULA_DEPTH  = 1800;   // max depth at which nebulas spawn
   const NEBULA_MAX_OP = 0.12;   // peak opacity — keep low for subtle atmosphere
 
-  const BASE_SPEED    = 80;     // cruising speed — halved from original 160
-  const WARP_SPEED    = 260;    // max warp speed — halved from original 520
-  const WARP_PERIOD   = 6.0;    // seconds for one full warp oscillation
+  // Constant cruising speed — no oscillation.
+  // Change SPEED here (or via game logic later) to control travel rate.
+  const SPEED         = 80;     // units / second
 
-  const BASE_FOV      = 72;     // normal field of view (degrees)
-  const WARP_FOV      = 96;     // FOV at max warp — "tunnel vision" effect
-  const FOV_SMOOTH    = 4.5;    // how fast FOV lerps (higher = snappier)
+  const BASE_FOV      = 72;     // fixed field of view — warp effect added later
 
   // ─────────────────────────────────────────────────────────────────
   //  RENDERER
@@ -234,9 +232,7 @@
   // ─────────────────────────────────────────────────────────────────
   //  ANIMATION LOOP
   // ─────────────────────────────────────────────────────────────────
-  let prevTime  = performance.now();
-  let warpClock = 0;        // drives the FOV sine wave
-  let currentFOV = BASE_FOV;
+  let prevTime = performance.now();
 
   function animate() {
     requestAnimationFrame(animate);
@@ -245,27 +241,11 @@
     const dt  = Math.min((now - prevTime) / 1000, 0.05); // cap at 50 ms
     prevTime  = now;
 
-    // ── 1. FOV warp pulse ─────────────────────────────────────────
-    // A slow sine wave oscillates between 0 and 1, representing
-    // ship speed. Higher speed → wider FOV → "tunnel vision" warp.
-    // In the full game this value will come from ship throttle input.
-    warpClock += dt;
-    const warpT = (Math.sin((warpClock / WARP_PERIOD) * Math.PI * 2) + 1) * 0.5;
-
-    const speed     = BASE_SPEED + (WARP_SPEED - BASE_SPEED) * warpT;
-    const targetFOV = BASE_FOV   + (WARP_FOV   - BASE_FOV)   * warpT;
-
-    // Lerp toward target FOV — smooth, no jarring snaps
-    currentFOV += (targetFOV - currentFOV) * Math.min(1.0, FOV_SMOOTH * dt);
-    if (Math.abs(camera.fov - currentFOV) > 0.05) {
-      camera.fov = currentFOV;
-      camera.updateProjectionMatrix(); // only called when FOV actually changes
-    }
-
-    // ── 2. Fly the universe forward ───────────────────────────────
+    // ── 1. Fly the universe forward at constant speed ─────────────
+    // Speed will be driven by game logic (throttle / events) later.
     // Advancing universe.position.z is the same as the camera moving
     // forward — the single group transform moves everything at once.
-    universe.position.z += speed * dt;
+    universe.position.z += SPEED * dt;
 
     // ── 3. Precision safety reset ─────────────────────────────────
     // After flying ~3 000 units the floats get large. We reset the
