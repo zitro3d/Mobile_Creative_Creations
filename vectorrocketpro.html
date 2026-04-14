@@ -44,7 +44,8 @@
 
   // Constant cruising speed — no oscillation.
   // Change SPEED here (or via game logic later) to control travel rate.
-  const SPEED         = 80;     // units / second
+  const SPEED              = 80;   // star travel speed, units / second
+  const NEBULA_SPEED_FACTOR = 0.28; // nebulas move at 28% of star speed → parallax depth
 
   const BASE_FOV      = 72;     // fixed field of view — warp effect added later
 
@@ -226,16 +227,6 @@
     return t * t * (3 - 2 * t);
   }
 
-  // Recycle a single nebula to the far end of the tunnel.
-  function recycleNebula(neb) {
-    neb.position.x = (Math.random() - 0.5) * 320;
-    neb.position.y = (Math.random() - 0.5) * 200;
-    neb.position.z = -NEBULA_DEPTH;
-    const s = 100 + Math.random() * 250;
-    neb.scale.set(s, s, 1);
-    neb.material.opacity = 0;
-  }
-
   // ─────────────────────────────────────────────────────────────────
   //  RESIZE
   // ─────────────────────────────────────────────────────────────────
@@ -262,22 +253,26 @@
     const dt  = Math.min((now - prevTime) / 1000, 0.05); // cap at 50 ms
     prevTime  = now;
 
-    const travel = SPEED * dt; // units to move toward camera this frame
+    const starTravel   = SPEED * dt;
+    const nebulaTravel = SPEED * NEBULA_SPEED_FACTOR * dt; // nebulas drift slower → parallax
 
-    // ── Stars: advance local Z, recycle when past camera ─────────
+    // ── Stars: individual Z-wrap ──────────────────────────────────
+    //  Each star advances independently. When it passes z > 50
+    //  (behind the camera) it wraps to -STAR_DEPTH with new random
+    //  X/Y so the pattern never repeats.
     for (let i = 0; i < STAR_COUNT; i++) {
-      let lz = starAttr.getZ(i) + travel;
+      let lz = starAttr.getZ(i) + starTravel;
 
-      if (lz > 5) {
-        // Recycle to far end of tunnel with fresh random values
+      if (lz > 50) {
+        // Individual reset — fresh position, never a group pop
         lz = -STAR_DEPTH;
         starAttr.setX(i, (Math.random() - 0.5) * STAR_SPREAD_X * 2);
         starAttr.setY(i, (Math.random() - 0.5) * STAR_SPREAD_Y * 2);
         starBrightness[i] = 0.2 + Math.random() * 0.8;
         starCol[i * 3] = starCol[i * 3 + 1] = starCol[i * 3 + 2] = 0;
       } else {
-        // Brightness fade: invisible far away, full brightness up close
-        const distAhead = -lz; // positive = in front of camera
+        // Distance-based brightness fade — stars emerge from the dark
+        const distAhead = -lz;
         const fade = smoothstep(STAR_FADE_FAR, STAR_FADE_NEAR, distAhead);
         const b    = fade * starBrightness[i];
         starCol[i * 3] = starCol[i * 3 + 1] = starCol[i * 3 + 2] = b;
@@ -288,25 +283,35 @@
     starAttr.needsUpdate    = true;
     starColAttr.needsUpdate = true;
 
-    // ── Nebulas: advance local Z, fade in/out, recycle ───────────
-    //   distAhead = -localZ (positive = in front of camera)
-    //   1200 → 1800  fade in from deep space
-    //   200  → 1200  full opacity band
-    //   0    → 200   fade out as it rushes past
-    //   < 0          recycle to far end
+    // ── Nebulas: individual Z-wrap, parallax speed, smooth opacity ─
+    //  Nebulas travel at NEBULA_SPEED_FACTOR × star speed, so they
+    //  appear massive and far behind the star layer — pure parallax.
+    //
+    //  Opacity formula:
+    //    closeFade  = Math.min(1, |z| / 200)
+    //      → 0 at camera (z=0), ramps to 1 by z=-200, prevents popping
+    //    farFade    = smoothstep fade-in from the deep horizon
+    //      → 0 at spawn (-NEBULA_DEPTH), 1 once inside the visible band
+    //    combined   = NEBULA_MAX_OP × closeFade × farFade
     for (const neb of nebulas) {
-      neb.position.z += travel;
+      neb.position.z += nebulaTravel;
 
-      const distAhead = -neb.position.z;
-
-      if (distAhead < 0) {
-        recycleNebula(neb);
+      if (neb.position.z > 50) {
+        // Individual reset with randomised X/Y — no pattern repeat
+        neb.position.x = (Math.random() - 0.5) * 320;
+        neb.position.y = (Math.random() - 0.5) * 200;
+        neb.position.z = -NEBULA_DEPTH;
+        const s = 100 + Math.random() * 250;
+        neb.scale.set(s, s, 1);
+        neb.material.opacity = 0;
         continue;
       }
 
-      const farFade   = smoothstep(1800, 1200, distAhead);
-      const closeFade = smoothstep(0, 200, distAhead);
-      neb.material.opacity = NEBULA_MAX_OP * farFade * closeFade;
+      // Close fade: prevents pop as the sprite rushes past the lens
+      const closeFade = Math.min(1, Math.abs(neb.position.z) / 200);
+      // Far fade: smooth emergence from the deep horizon
+      const farFade   = smoothstep(NEBULA_DEPTH, NEBULA_DEPTH * 0.65, -neb.position.z);
+      neb.material.opacity = NEBULA_MAX_OP * closeFade * farFade;
     }
 
     composer.render();
