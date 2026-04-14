@@ -129,33 +129,217 @@ function buildBg(){
   const off=document.createElement('canvas');
   off.width=W;off.height=H;
   const oc=off.getContext('2d');
-  oc.fillStyle='#040408';oc.fillRect(0,0,W,H);
-  const id=oc.getImageData(0,0,W,H);const d=id.data;
-  for(let i=0;i<d.length;i+=4){const n=(Math.random()*18)|0;d[i]=n;d[i+1]=n;d[i+2]=n+3;d[i+3]=255;}
-  oc.putImageData(id,0,0);
-  for(let i=0;i<220;i++){
-    oc.beginPath();oc.arc(Math.random()*W,Math.random()*H,Math.random()*1.2+0.2,0,Math.PI*2);
-    oc.fillStyle=`rgba(255,255,255,${0.2+Math.random()*0.7})`;oc.fill();
+
+  // Deep space base
+  oc.fillStyle='#020510';oc.fillRect(0,0,W,H);
+
+  // Nebula cloud layers — large radial color blobs
+  const nebulas=[
+    {x:W*0.25,y:H*0.35,rx:W*0.7,ry:H*0.4,col:'rgba(15,35,110,0.55)'},
+    {x:W*0.72,y:H*0.28,rx:W*0.6,ry:H*0.35,col:'rgba(70,8,90,0.45)'},
+    {x:W*0.50,y:H*0.62,rx:W*0.5,ry:H*0.38,col:'rgba(8,55,120,0.4)'},
+    {x:W*0.15,y:H*0.75,rx:W*0.45,ry:H*0.3,col:'rgba(50,0,70,0.3)'},
+    {x:W*0.85,y:H*0.65,rx:W*0.4,ry:H*0.28,col:'rgba(0,35,80,0.35)'},
+    {x:W*0.5, y:H*0.18,rx:W*0.55,ry:H*0.22,col:'rgba(20,20,80,0.35)'},
+  ];
+  for(const n of nebulas){
+    const grd=oc.createRadialGradient(n.x,n.y,0,n.x,n.y,Math.max(n.rx,n.ry));
+    grd.addColorStop(0,n.col);grd.addColorStop(1,'rgba(0,0,0,0)');
+    oc.fillStyle=grd;oc.fillRect(0,0,W,H);
   }
-  const rv=oc.createRadialGradient(W/2,H/2,H*0.28,W/2,H/2,H*0.75);
-  rv.addColorStop(0,'rgba(0,0,0,0)');rv.addColorStop(1,'rgba(0,0,0,0.82)');
-  oc.fillStyle=rv;oc.fillRect(0,0,W,H);
-  const lg=oc.createLinearGradient(0,0,W*0.28,0);
-  lg.addColorStop(0,'rgba(0,0,0,0.78)');lg.addColorStop(1,'rgba(0,0,0,0)');
-  oc.fillStyle=lg;oc.fillRect(0,0,W,H);
-  const rg=oc.createLinearGradient(W,0,W*0.72,0);
-  rg.addColorStop(0,'rgba(0,0,0,0.78)');rg.addColorStop(1,'rgba(0,0,0,0)');
-  oc.fillStyle=rg;oc.fillRect(0,0,W,H);
-  const tg=oc.createLinearGradient(0,0,0,H*0.12);
-  tg.addColorStop(0,'rgba(0,0,0,0.65)');tg.addColorStop(1,'rgba(0,0,0,0)');
-  oc.fillStyle=tg;oc.fillRect(0,0,W,H);
-  const bg2=oc.createLinearGradient(0,H,0,H*0.85);
-  bg2.addColorStop(0,'rgba(0,0,0,0.7)');bg2.addColorStop(1,'rgba(0,0,0,0)');
-  oc.fillStyle=bg2;oc.fillRect(0,0,W,H);
+
+  // Fine pixel noise for depth texture
+  const id=oc.getImageData(0,0,W,H);const d=id.data;
+  for(let i=0;i<d.length;i+=4){
+    const n=(Math.random()*8)|0;
+    d[i]+=n;d[i+1]+=n;d[i+2]+=n+4;
+  }
+  oc.putImageData(id,0,0);
+
+  // Tiny distant stars — lots, very faint
+  for(let i=0;i<350;i++){
+    const a=0.12+Math.random()*0.45;
+    oc.beginPath();oc.arc(Math.random()*W,Math.random()*H,Math.random()*0.6+0.1,0,Math.PI*2);
+    oc.fillStyle=`rgba(190,210,255,${a})`;oc.fill();
+  }
+  // Medium stars
+  for(let i=0;i<90;i++){
+    oc.beginPath();oc.arc(Math.random()*W,Math.random()*H,Math.random()*1.0+0.4,0,Math.PI*2);
+    oc.fillStyle=`rgba(220,235,255,${0.35+Math.random()*0.55})`;oc.fill();
+  }
+  // Bright foreground stars with soft glow halos
+  for(let i=0;i<30;i++){
+    const sx=Math.random()*W,sy=Math.random()*H,sr=Math.random()*1.5+0.8;
+    const halo=oc.createRadialGradient(sx,sy,0,sx,sy,sr*5);
+    halo.addColorStop(0,'rgba(180,220,255,0.75)');halo.addColorStop(1,'rgba(0,0,0,0)');
+    oc.fillStyle=halo;oc.fillRect(sx-sr*5,sy-sr*5,sr*10,sr*10);
+    oc.beginPath();oc.arc(sx,sy,sr,0,Math.PI*2);
+    oc.fillStyle='rgba(255,255,255,0.95)';oc.fill();
+  }
   bgCanvas=off;
 }
 buildBg();
 function drawBg(){ctx.drawImage(bgCanvas,0,0,canvas.width,canvas.height);}
+
+// ── Cockpit overlay ───────────────────────────────────────────────
+// Draws a dark structural frame around the main viewport.
+// Adjust the margin constants to change how much frame is visible.
+function drawCockpitOverlay(){
+  const cw=canvas.width,ch=canvas.height;
+  const t=performance.now()*0.001; // for pulsing lights
+
+  // Viewport bounds (where space shows through)
+  const vL=cw*0.13, vR=cw*0.87, vT=ch*0.09, vB=ch*0.83;
+  const vox=cw*0.025; // hex chamfer on viewport corners
+
+  // === SIDE PANELS (fill outside the viewport) ===
+  ctx.save();
+  // Create a clipping mask that is everything EXCEPT the viewport
+  ctx.beginPath();
+  ctx.rect(0,0,cw,ch);
+  // Cut out viewport (clockwise → evenodd rule inverts it)
+  ctx.moveTo(vL+vox,vT); ctx.lineTo(vR-vox,vT);
+  ctx.lineTo(vR,vT+vox); ctx.lineTo(vR,vB-vox);
+  ctx.lineTo(vR-vox,vB); ctx.lineTo(vL+vox,vB);
+  ctx.lineTo(vL,vB-vox); ctx.lineTo(vL,vT+vox);
+  ctx.closePath();
+  ctx.clip('evenodd');
+
+  // Dark metallic fill for panels
+  ctx.fillStyle='rgba(3,7,18,0.96)';
+  ctx.fillRect(0,0,cw,ch);
+
+  // Subtle hex/grid lines on side panels
+  ctx.strokeStyle='rgba(0,140,200,0.10)';ctx.lineWidth=0.6;
+  for(let x=0;x<cw;x+=22){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,ch);ctx.stroke();}
+  for(let y=0;y<ch;y+=22){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(cw,y);ctx.stroke();}
+  ctx.restore();
+
+  // === VIEWPORT BORDER — cyan glow outline ===
+  ctx.save();
+  ctx.strokeStyle='rgba(0,190,255,0.65)';
+  ctx.lineWidth=2;ctx.shadowBlur=14;ctx.shadowColor='#0088FF';
+  ctx.beginPath();
+  ctx.moveTo(vL+vox,vT); ctx.lineTo(vR-vox,vT);
+  ctx.lineTo(vR,vT+vox); ctx.lineTo(vR,vB-vox);
+  ctx.lineTo(vR-vox,vB); ctx.lineTo(vL+vox,vB);
+  ctx.lineTo(vL,vB-vox); ctx.lineTo(vL,vT+vox);
+  ctx.closePath();ctx.stroke();
+  // Inner dim edge line
+  ctx.strokeStyle='rgba(0,120,180,0.25)';ctx.lineWidth=1;ctx.shadowBlur=0;
+  const ii=4;
+  ctx.beginPath();
+  ctx.moveTo(vL+vox+ii,vT+ii); ctx.lineTo(vR-vox-ii,vT+ii);
+  ctx.lineTo(vR-ii,vT+vox+ii); ctx.lineTo(vR-ii,vB-vox-ii);
+  ctx.lineTo(vR-vox-ii,vB-ii); ctx.lineTo(vL+vox+ii,vB-ii);
+  ctx.lineTo(vL+ii,vB-vox-ii); ctx.lineTo(vL+ii,vT+vox+ii);
+  ctx.closePath();ctx.stroke();
+  ctx.restore();
+
+  // === TOP STRUCTURAL BAR — narrow bar across top of viewport ===
+  const strutY=vT+ch*0.24; // horizontal divider splits top small windows from main area
+  ctx.save();
+  ctx.fillStyle='rgba(3,7,18,0.80)';
+  ctx.fillRect(vL+vox,vT,vR-vL-vox*2,ch*0.065);
+  ctx.strokeStyle='rgba(0,160,220,0.30)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(vL,vT+ch*0.065);ctx.lineTo(vR,vT+ch*0.065);ctx.stroke();
+  // Center vertical strut
+  ctx.fillStyle='rgba(3,7,18,0.70)';
+  ctx.fillRect(cw/2-5,vT,10,ch*0.065);
+  ctx.strokeStyle='rgba(0,160,220,0.25)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(cw/2,vT);ctx.lineTo(cw/2,vT+ch*0.065);ctx.stroke();
+  ctx.restore();
+
+  // === CORNER BRACKETS — structural detail in viewport corners ===
+  ctx.save();
+  const bLen=cw*0.048,bW=1.8;
+  ctx.strokeStyle='rgba(0,200,255,0.55)';ctx.lineWidth=bW;ctx.shadowBlur=6;ctx.shadowColor='#00BBFF';
+  const brackets=[
+    [vL,vT,1,1],[vR,vT,-1,1],[vL,vB,1,-1],[vR,vB,-1,-1]
+  ];
+  for(const[bx,by,sx,sy] of brackets){
+    ctx.beginPath();
+    ctx.moveTo(bx+sx*bLen,by);ctx.lineTo(bx,by);ctx.lineTo(bx,by+sy*bLen);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // === DASHBOARD — bottom bar below viewport ===
+  const dashT=vB+1, dashH=ch-dashT;
+  ctx.save();
+  ctx.fillStyle='rgba(3,6,16,0.97)';
+  ctx.fillRect(0,dashT,cw,dashH);
+  // Top edge glow of dashboard
+  ctx.strokeStyle='rgba(0,180,255,0.45)';ctx.lineWidth=1.5;ctx.shadowBlur=8;ctx.shadowColor='#0077FF';
+  ctx.beginPath();ctx.moveTo(0,dashT);ctx.lineTo(cw,dashT);ctx.stroke();
+  // Dashboard bevel detail (inset highlight)
+  ctx.strokeStyle='rgba(0,90,130,0.3)';ctx.lineWidth=0.8;ctx.shadowBlur=0;
+  ctx.beginPath();ctx.moveTo(0,dashT+4);ctx.lineTo(cw,dashT+4);ctx.stroke();
+
+  // Instrument strip — colored indicator bars
+  const iCols=['#FF5500','#44FFAA','#FFD700','#22DDFF','#FF44CC','#88FF44'];
+  const iCount=iCols.length;
+  const iSpacing=cw/iCount;
+  for(let i=0;i<iCount;i++){
+    const ix=i*iSpacing+iSpacing*0.18;
+    const iw=iSpacing*0.64, ih=Math.max(4,dashH*0.18);
+    const iy=dashT+dashH*0.3;
+    const pulse=0.55+Math.sin(t*1.4+i*0.9)*0.3;
+    ctx.fillStyle=iCols[i];ctx.shadowBlur=10;ctx.shadowColor=iCols[i];
+    ctx.globalAlpha=pulse;
+    ctx.beginPath();ctx.roundRect(ix,iy,iw,ih,3);ctx.fill();
+    // Dim bar background
+    ctx.globalAlpha=0.12;ctx.fillStyle='#ffffff';
+    ctx.beginPath();ctx.roundRect(ix,iy,iw,ih,3);ctx.fill();
+  }
+  // Central readout text
+  ctx.globalAlpha=0.4;ctx.fillStyle='#00BBFF';ctx.shadowBlur=0;
+  ctx.textAlign='center';ctx.font=`bold ${Math.max(8,Math.floor(dashH*0.3))}px 'Courier New',monospace`;
+  ctx.fillText('SYS  ·  NAV  ·  WPN  ·  COM',cw/2,dashT+dashH*0.75);
+  ctx.restore();
+}
+
+// ── Targeting reticle ─────────────────────────────────────────────
+// Draws the center bracket crosshair. Pulses when locked onto an enemy.
+function drawTargetingReticle(locked=false,lockProgress=0){
+  const cw=canvas.width,ch=canvas.height;
+  const cx=cw/2,cy=ch/2;
+  const t=performance.now()*0.001;
+
+  // Size and color vary with lock state
+  const size=Math.min(cw,ch)*0.055;
+  const gap=size*0.7;
+  const col=locked?`rgba(255,80,80,${0.7+Math.sin(t*8)*0.3})`:'rgba(0,200,255,0.75)';
+  const glow=locked?'#FF4444':'#0088FF';
+
+  ctx.save();
+  ctx.strokeStyle=col;ctx.lineWidth=2;ctx.shadowBlur=locked?18:10;ctx.shadowColor=glow;
+
+  // Four corner brackets
+  const arms=[[-1,-1],[1,-1],[1,1],[-1,1]];
+  for(const[sx,sy] of arms){
+    const ox=cx+sx*gap,oy=cy+sy*gap;
+    ctx.beginPath();
+    ctx.moveTo(ox+sx*size,oy);ctx.lineTo(ox,oy);ctx.lineTo(ox,oy+sy*size);
+    ctx.stroke();
+  }
+
+  // Lock progress arc (fills as lock-on increases)
+  if(lockProgress>0){
+    ctx.strokeStyle=`rgba(255,200,50,${lockProgress*0.8})`;
+    ctx.lineWidth=1.5;ctx.shadowColor='#FFCC00';ctx.shadowBlur=8;
+    ctx.beginPath();
+    ctx.arc(cx,cy,gap*1.3,-Math.PI/2,-Math.PI/2+lockProgress*Math.PI*2);
+    ctx.stroke();
+  }
+
+  // Center dot
+  const dotR=locked?3.5:2;
+  ctx.beginPath();ctx.arc(cx,cy,dotR,0,Math.PI*2);
+  ctx.fillStyle=col;ctx.shadowBlur=locked?12:6;ctx.fill();
+
+  ctx.restore();
+}
 
 // ── Audio ─────────────────────────────────────────────────────────
 let aCtx=null;
@@ -1060,73 +1244,182 @@ function drawWaveAnnouncer(){
   ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
+// ── HUD helpers ───────────────────────────────────────────────────
+// Draws a glassmorphism panel: dark fill + glowing border
+function _hudPanel(x,y,w,h,col='rgba(0,180,255,0.55)',rounding=6){
+  ctx.save();
+  ctx.fillStyle='rgba(4,10,24,0.72)';
+  ctx.strokeStyle=col;ctx.lineWidth=1.2;
+  ctx.shadowBlur=8;ctx.shadowColor=col;
+  ctx.beginPath();ctx.roundRect(x,y,w,h,rounding);
+  ctx.fill();ctx.stroke();
+  ctx.restore();
+}
+// Draws a vertical fill bar (used for shields, power etc.)
+function _hudBar(x,y,w,h,pct,col,label,pctLabel){
+  ctx.save();
+  // Track bg
+  ctx.fillStyle='rgba(255,255,255,0.07)';
+  ctx.beginPath();ctx.roundRect(x,y,w,h,2);ctx.fill();
+  // Fill
+  const fillH=h*Math.max(0,Math.min(1,pct));
+  ctx.fillStyle=col;ctx.shadowBlur=8;ctx.shadowColor=col;
+  ctx.beginPath();ctx.roundRect(x,y+h-fillH,w,fillH,2);ctx.fill();
+  // Label above
+  if(label){
+    ctx.font=`bold ${Math.max(7,Math.floor(w*0.85))}px 'Courier New',monospace`;
+    ctx.fillStyle='rgba(200,230,255,0.7)';ctx.shadowBlur=0;ctx.textAlign='center';
+    ctx.fillText(label,x+w/2,y-4);
+  }
+  // % below
+  if(pctLabel){
+    ctx.font=`${Math.max(6,Math.floor(w*0.75))}px 'Courier New',monospace`;
+    ctx.fillStyle='rgba(200,230,255,0.55)';ctx.textAlign='center';
+    ctx.fillText(pctLabel,x+w/2,y+h+10);
+  }
+  ctx.restore();
+}
+
 // ── HUD ───────────────────────────────────────────────────────────
 function drawHUD(){
-  const cw=canvas.width;
-  const sz=(f,mx)=>Math.min(Math.floor(cw*f),mx); // cap font size for large screens
+  const cw=canvas.width,ch=canvas.height;
+  const sz=(f,mx)=>Math.min(Math.floor(cw*f),mx);
+  const now=performance.now()*0.001;
   ctx.save();
-  ctx.textAlign='left';
-  // Score
-  ctx.font=`bold ${sz(0.048,20)}px 'Courier New',monospace`;
-  ctx.fillStyle=C.yel;ctx.shadowBlur=8;ctx.shadowColor=C.yel;ctx.globalAlpha=0.9;
-  ctx.fillText(`SCORE: ${String(score).padStart(6,'0')}`,14,38);
-  // Combo
+
+  // ── TOP CENTER: Mission Status ──────────────────────────────────
+  const msW=Math.min(cw*0.52,240),msH=sz(0.065,26);
+  const msX=cw/2-msW/2,msY=10;
+  _hudPanel(msX,msY,msW,msH,'rgba(0,200,255,0.6)',4);
+  ctx.textAlign='center';
+  ctx.font=`bold ${sz(0.032,13)}px 'Courier New',monospace`;
+  ctx.fillStyle='rgba(180,240,255,0.9)';ctx.shadowBlur=6;ctx.shadowColor='#00AAFF';
+  const missionLabel=gameMode==='blitz'?`BLITZ · ${Math.ceil(blitzTimeLeft)}s`:'MISSION STATUS: INTERCEPT';
+  ctx.fillText(missionLabel,cw/2,msY+msH*0.68);
+  // Blitz color override
+  if(gameMode==='blitz'&&blitzTimeLeft<=10){
+    ctx.fillStyle=C.red;ctx.shadowColor=C.red;
+    ctx.fillText(missionLabel,cw/2,msY+msH*0.68);
+  }
+
+  // ── TOP RIGHT: Score + Wave panel ──────────────────────────────
+  const srW=Math.min(cw*0.30,130),srH=sz(0.12,48);
+  const srX=cw-srW-8,srY=8;
+  _hudPanel(srX,srY,srW,srH,'rgba(0,180,255,0.5)',5);
+  ctx.textAlign='right';
+  ctx.font=`bold ${sz(0.03,12)}px 'Courier New',monospace`;
+  ctx.fillStyle=C.yel;ctx.shadowBlur=8;ctx.shadowColor=C.yel;
+  ctx.fillText(`SCORE: ${String(score).padStart(6,'0')}`,srX+srW-6,srY+srH*0.44);
+  ctx.font=`${sz(0.024,10)}px 'Courier New',monospace`;
+  ctx.fillStyle=C.sky;ctx.shadowBlur=4;ctx.shadowColor=C.sky;
+  ctx.fillText(`WAVE ${waveNum}`,srX+srW-6,srY+srH*0.82);
+  // Mini rocket icon (red wireframe)
+  const rix=srX+14,riy=srY+srH*0.42;
+  ctx.save();ctx.translate(rix,riy);ctx.rotate(Math.PI);
+  const rs=6;
+  ctx.strokeStyle='#FF4444';ctx.lineWidth=1;ctx.shadowBlur=4;ctx.shadowColor='#FF4444';
+  ctx.beginPath();ctx.moveTo(0,-rs);ctx.lineTo(-rs*0.5,rs*0.5);ctx.lineTo(rs*0.5,rs*0.5);ctx.closePath();ctx.stroke();
+  ctx.restore();
+
+  // Combo badge — floats under score panel when active
   if(combo>1){
-    ctx.font=`bold ${sz(0.038,16)}px 'Courier New',monospace`;
     const cm=Math.min(combo,8);
-    ctx.fillStyle=cm>=5?C.mag:cm>=3?C.ora:C.yel;
-    ctx.shadowColor=ctx.fillStyle;ctx.shadowBlur=10;
-    ctx.fillText(`x${cm} COMBO`,14,68);
-  }
-  // Hand status
-  ctx.font=`${sz(0.026,12)}px 'Courier New',monospace`;
-  const yOff=combo>1?92:64;
-  if(!handVisible){
-    ctx.fillStyle='#334433';ctx.shadowBlur=0;ctx.globalAlpha=0.5;
-    ctx.fillText('SHOW YOUR HAND',14,yOff);
-  } else {
-    const shootBand=bands.find(b=>b.canShoot);
-    if(shootBand){
-      if(shootBand.locked){
-        const charge=Math.min(1,(performance.now()-shootBand.lockedSince)/200);
-        if(charge>=1){
-          ctx.fillStyle=C.red;ctx.shadowColor=C.red;ctx.shadowBlur=8;ctx.globalAlpha=1;
-          ctx.fillText('▶ FLICK TO FIRE',14,yOff);
-        } else {
-          ctx.fillStyle=C.yel;ctx.shadowColor=C.yel;ctx.shadowBlur=6;ctx.globalAlpha=1;
-          ctx.fillText('◎ LOCKED ON',14,yOff);
-        }
-      } else {
-        ctx.fillStyle='#335533';ctx.shadowBlur=0;ctx.globalAlpha=0.6;
-        ctx.fillText('CURL INDEX TO AIM',14,yOff);
-      }
-    }
-  }
-  // BLITZ countdown — top center
-  if(gameMode==='blitz'){
-    const tc=blitzTimeLeft<=10?C.red:blitzTimeLeft<=20?C.ora:C.yel;
-    ctx.save();
-    ctx.textAlign='center';
-    ctx.font=`bold ${sz(0.065,28)}px 'Courier New',monospace`;
-    ctx.fillStyle=tc;ctx.shadowColor=tc;
-    ctx.shadowBlur=blitzTimeLeft<=10?(Math.sin(Date.now()/120)*8+10):8;
+    const cbCol=cm>=5?C.mag:cm>=3?C.ora:C.yel;
+    ctx.save();ctx.textAlign='right';
+    ctx.font=`bold ${sz(0.038,15)}px 'Courier New',monospace`;
+    ctx.fillStyle=cbCol;ctx.shadowBlur=12;ctx.shadowColor=cbCol;
     ctx.globalAlpha=0.95;
-    ctx.fillText(`${Math.ceil(blitzTimeLeft)}s`,cw/2,38);
+    ctx.fillText(`x${cm} COMBO`,cw-10,srY+srH+sz(0.042,18));
     ctx.restore();
   }
-  // Right side
-  ctx.textAlign='right';
-  ctx.font=`bold ${sz(0.04,17)}px 'Courier New',monospace`;
-  ctx.fillStyle=C.sky;ctx.shadowBlur=8;ctx.shadowColor=C.sky;ctx.globalAlpha=0.9;
-  ctx.fillText(`WAVE ${waveNum}`,cw-12,36);
-  ctx.font=`${sz(0.038,16)}px 'Courier New',monospace`;
-  let livStr='';for(let i=0;i<3;i++) livStr+=i<lives?'◆ ':'◇ ';
-  ctx.fillStyle=C.pnk;ctx.shadowColor=C.pnk;ctx.shadowBlur=6;ctx.fillText(livStr.trim(),cw-12,68);
-  ctx.font=`${sz(0.03,13)}px 'Courier New',monospace`;
-  let blStr='BLAST: ';for(let i=0;i<3;i++) blStr+=i<blastCharges?'⚡':'·';
-  ctx.fillStyle=blastCharges>0?C.yel:'#334433';
-  ctx.shadowColor=blastCharges>0?C.yel:'transparent';ctx.shadowBlur=blastCharges>0?6:0;
-  ctx.fillText(blStr,cw-12,94);
+
+  // ── LEFT SIDE: Shield + Power bars ─────────────────────────────
+  const barPanW=Math.min(cw*0.095,42),barPanH=ch*0.30;
+  const barPanX=8,barPanY=ch*0.30;
+  _hudPanel(barPanX,barPanY,barPanW,barPanH,'rgba(0,180,255,0.35)',5);
+  const bW=Math.max(7,Math.floor(barPanW*0.28));
+  const bH=barPanH*0.35,bGap=barPanH*0.12;
+  const b1X=barPanX+(barPanW-bW*2-bGap*0.5)/2;
+  const b2X=b1X+bW+Math.floor(barPanW*0.12);
+  const bTop=barPanY+barPanH*0.12;
+
+  // Shield bar
+  const shieldPct=lives/3;
+  const shCol=shieldPct>0.6?'#44CCFF':shieldPct>0.3?'#FFB800':'#FF4444';
+  _hudBar(b1X,bTop,bW,bH,shieldPct,shCol,'SHD',`${Math.round(shieldPct*100)}%`);
+  // Power bar (blast charges / 3)
+  const powPct=blastCharges/3;
+  _hudBar(b2X,bTop,bW,bH,powPct,'#FFCC00','PWR',`${Math.round(powPct*100)}%`);
+
+  // Label at bottom of panel
+  ctx.textAlign='center';
+  ctx.font=`bold ${Math.max(6,sz(0.018,8))}px 'Courier New',monospace`;
+  ctx.fillStyle='rgba(0,200,255,0.55)';ctx.shadowBlur=0;
+  ctx.fillText('STATUS',barPanX+barPanW/2,barPanY+barPanH-6);
+
+  // ── RIGHT SIDE: Gesture indicator ──────────────────────────────
+  const gpW=Math.min(cw*0.28,124),gpH=sz(0.10,40);
+  const gpX=cw-gpW-8,gpY=ch*0.44;
+  const shootBand=bands.find(b=>b.canShoot);
+  let gestureText='SHOW HAND',gestureActive=false;
+  if(handVisible&&shootBand){
+    if(shootBand.locked){
+      const charge=Math.min(1,(performance.now()-shootBand.lockedSince)/200);
+      gestureText=charge>=1?'FLICK  ›  FIRE':'LOCKED ON';gestureActive=true;
+    } else {
+      gestureText='CURL INDEX TO AIM';
+    }
+  }
+  _hudPanel(gpX,gpY,gpW,gpH,gestureActive?'rgba(255,200,50,0.6)':'rgba(0,160,220,0.4)',5);
+  ctx.textAlign='left';
+  ctx.font=`${sz(0.020,9)}px 'Courier New',monospace`;
+  ctx.fillStyle='rgba(150,200,220,0.7)';ctx.shadowBlur=0;
+  ctx.fillText('GESTURE:',gpX+6,gpY+gpH*0.38);
+  ctx.font=`bold ${sz(0.024,10)}px 'Courier New',monospace`;
+  const gc=gestureActive?C.yel:C.sky;
+  ctx.fillStyle=gc;ctx.shadowBlur=6;ctx.shadowColor=gc;
+  ctx.fillText(gestureText,gpX+6,gpY+gpH*0.76);
+
+  // Blast charges row  — just below gesture panel
+  const blaX=gpX,blaY=gpY+gpH+5,blaW=gpW,blaH=sz(0.06,24);
+  _hudPanel(blaX,blaY,blaW,blaH,'rgba(255,200,50,0.35)',4);
+  ctx.textAlign='left';ctx.font=`${sz(0.022,9)}px 'Courier New',monospace`;
+  ctx.fillStyle='rgba(200,180,50,0.65)';ctx.shadowBlur=0;
+  ctx.fillText('BLAST:',blaX+6,blaY+blaH*0.72);
+  for(let i=0;i<3;i++){
+    ctx.save();
+    ctx.fillStyle=i<blastCharges?C.yel:'rgba(80,70,20,0.5)';
+    if(i<blastCharges){ctx.shadowBlur=8;ctx.shadowColor=C.yel;}
+    ctx.beginPath();ctx.roundRect(blaX+blaW*0.42+i*(blaW*0.18),blaY+blaH*0.22,blaW*0.14,blaH*0.55,2);
+    ctx.fill();ctx.restore();
+  }
+
+  // ── BOTTOM CENTER: Target lock info ────────────────────────────
+  // Find nearest rocket to screen center
+  let nearestR=null,nearestD=Infinity;
+  for(const r of rockets){
+    if(!r.alive||r.explodeTimer>0)continue;
+    const d=Math.hypot(r.x-cw/2,r.y-ch/2);
+    if(d<nearestD){nearestD=d;nearestR=r;}
+  }
+  const tlW=Math.min(cw*0.55,240),tlH=sz(0.09,36);
+  const tlX=cw/2-tlW/2,tlY=ch*0.84+4;
+  if(nearestR){
+    const distM=Math.round(nearestD*0.8);
+    const typeLabel=nearestR.type==='scout'?'SCT':nearestR.type==='cruiser'?'CRS':'DRD';
+    _hudPanel(tlX,tlY,tlW,tlH,'rgba(255,80,80,0.5)',4);
+    ctx.textAlign='center';
+    ctx.font=`bold ${sz(0.026,11)}px 'Courier New',monospace`;
+    ctx.fillStyle='rgba(255,200,200,0.9)';ctx.shadowBlur=6;ctx.shadowColor='#FF4444';
+    ctx.fillText(`TARGET LOCKED: [H-${typeLabel}-${String(waveNum).padStart(2,'0')}]  DIST: ${distM}m`,cw/2,tlY+tlH*0.68);
+  } else if(waveState==='clearing'){
+    _hudPanel(tlX,tlY,tlW,tlH,'rgba(50,255,100,0.4)',4);
+    ctx.textAlign='center';
+    ctx.font=`bold ${sz(0.026,11)}px 'Courier New',monospace`;
+    ctx.fillStyle=C.grn;ctx.shadowBlur=8;ctx.shadowColor=C.grn;
+    ctx.fillText('SECTOR CLEAR',cw/2,tlY+tlH*0.68);
+  }
+
   ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
@@ -1342,19 +1635,33 @@ function loop(ts){
   if(handVisible){
     const dispLM=getDisplayLM();
     const dispTips=dispLM?TIP_IDX.map(i=>dispLM[i]):fingertips;
-    // Thin hand skeleton
+    // Glowing wireframe hand skeleton (matches reference image style)
     if(dispLM&&dispLM.length===21){
       ctx.save();
-      ctx.lineWidth=1.2;ctx.globalAlpha=0.25;ctx.lineCap='round';ctx.shadowBlur=0;
+      ctx.lineCap='round';
+      // Glow pass — thick, very transparent
+      ctx.lineWidth=5;ctx.globalAlpha=0.10;ctx.shadowBlur=0;
+      for(const[a,b] of HAND_CONNECTIONS){
+        const pa=dispLM[a],pb=dispLM[b];if(!pa||!pb)continue;
+        ctx.strokeStyle='#00CCFF';
+        ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();
+      }
+      // Core lines — thin, bright cyan
+      ctx.lineWidth=1.4;ctx.globalAlpha=0.70;ctx.shadowBlur=8;ctx.shadowColor='#00AAFF';
       for(const[a,b] of HAND_CONNECTIONS){
         const pa=dispLM[a],pb=dispLM[b];if(!pa||!pb)continue;
         ctx.strokeStyle=FINGER_COLS[fingerOf(Math.max(a,b))];
         ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();
       }
+      // Joint dots — bright with glow
       for(let i=0;i<21;i++){
-        const p=dispLM[i],r=TIP_IDX.includes(i)?3.5:2;
+        const p=dispLM[i];
+        const isTip=TIP_IDX.includes(i);
+        const r=isTip?4:2.5;
+        const col=FINGER_COLS[fingerOf(i)];
         ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);
-        ctx.fillStyle=FINGER_COLS[fingerOf(i)];ctx.globalAlpha=0.38;ctx.fill();
+        ctx.fillStyle=col;ctx.globalAlpha=isTip?0.95:0.65;
+        ctx.shadowBlur=isTip?14:6;ctx.shadowColor=col;ctx.fill();
       }
       ctx.restore();
     }
@@ -1476,6 +1783,16 @@ function loop(ts){
 
   drawComboPops(dt);
   drawWaveAnnouncer();
+
+  // Cockpit frame overlay drawn on top of all game elements
+  drawCockpitOverlay();
+
+  // Targeting reticle at screen center
+  const _sb=bands.find(b=>b.canShoot);
+  const _locked=!!(_sb&&_sb.locked);
+  const _charge=_locked?Math.min(1,(performance.now()-_sb.lockedSince)/200):0;
+  drawTargetingReticle(_locked&&_charge>=1,_charge);
+
   drawHUD();
 
   ctx.restore();
