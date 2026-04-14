@@ -9,14 +9,14 @@
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{width:100%;height:100%;background:#000;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
-    #c{position:fixed;top:0;left:0;width:100%;height:100%;display:block;z-index:1}
-    #v,video,canvas:not(#c){display:none!important;position:fixed!important;left:-9999px!important;top:-9999px!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;z-index:-1!important}
+    #c{position:fixed;top:0;left:0;width:100%;height:100%;display:block}
+    #v{display:none}
   </style>
 </head>
 <body>
 <video id="v" playsinline autoplay muted></video>
 <canvas id="c"></canvas>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
 <script>
 'use strict';
 
@@ -29,14 +29,12 @@ resize();window.addEventListener('resize',resize);
 
 // ── Palette ───────────────────────────────────────────────────────
 const C={
-  cyan:'#00FFCC',mag:'#FF1188',yel:'#FFCC00',grn:'#00CC66',
-  ora:'#FF6600', pnk:'#FF2288',pur:'#9933FF',sky:'#00AAFF',
-  red:'#EE1122', lim:'#AAFF22',wht:'#EEEEFF', blu:'#3366FF'
+  cyan:'#55EEFF',mag:'#FF66DD',yel:'#FFE44D',grn:'#44FF99',
+  ora:'#FF8833', pnk:'#FF55BB',pur:'#AA44FF',sky:'#44DDFF',
+  red:'#FF5544', lim:'#88FF44',wht:'#EEEEFF', blu:'#5599FF'
 };
-// Rainbow spectrum: pink → red → orange → yellow → lime → teal → sky → purple
-const BEAM_COLS=[C.pnk,C.red,C.ora,C.yel,C.lim,C.cyan,C.sky,C.pur];
-// Hand fingers: thumb=hot-pink, index=blue, middle=purple, ring=gold, pinky=teal
-const FINGER_COLS=[C.pnk,C.blu,C.pur,C.yel,C.cyan];
+const BEAM_COLS=[C.cyan,C.yel,C.ora,C.red,C.grn,C.pnk,C.sky,C.pur];
+const FINGER_COLS=[C.pnk,C.cyan,C.yel,C.grn,C.ora];
 
 // ── Hand landmark indices ─────────────────────────────────────────
 const TIP_IDX=[4,8,12,16,20];
@@ -58,21 +56,48 @@ const HAND_LM=[
   [0.59,0.63],[0.61,0.43],[0.62,0.28],[0.63,0.15],
   [0.68,0.69],[0.71,0.53],[0.73,0.41],[0.75,0.32],
 ];
-// Z-depth per landmark: 0=farthest back (wrist), 0.65=closest (fingertips)
-const HAND_Z=[
-  0.00,                          // 0: wrist
-  0.15,0.25,0.38,0.55,          // 1-4: thumb
-  0.20,0.32,0.46,0.65,          // 5-8: index
-  0.18,0.30,0.44,0.62,          // 9-12: middle
-  0.16,0.28,0.42,0.60,          // 13-16: ring
-  0.14,0.25,0.38,0.55,          // 17-20: pinky
+
+// ── Closed fist geometry (normalized vertices + triangular faces) ─
+const FIST_VERTS=[
+  // Row 0: 4 knuckle peaks
+  [0.28,0.04],[0.42,0.00],[0.56,0.03],[0.68,0.09],
+  // Row 1: finger shoulders / inter-knuckle valleys
+  [0.18,0.18],[0.32,0.14],[0.46,0.13],[0.60,0.15],[0.76,0.20],
+  // Row 2: knuckle-palm transition
+  [0.14,0.35],[0.28,0.30],[0.44,0.29],[0.60,0.31],[0.78,0.35],
+  // Row 3: mid palm
+  [0.10,0.52],[0.30,0.48],[0.52,0.47],[0.72,0.50],[0.82,0.54],
+  // Row 4: wrist
+  [0.14,0.72],[0.38,0.70],[0.58,0.70],[0.76,0.73],
+  // Thumb (left protrusion, verts 22-25)
+  [0.00,0.22],[0.06,0.14],[0.06,0.32],[0.04,0.50],
+];
+// [v1, v2, v3, fingerColorIdx] — FINGER_COLS: 0=pink,1=cyan,2=yel,3=grn,4=ora
+const FIST_FACES=[
+  // Thumb — pink
+  [22,23,4,0],[22,4,9,0],[22,9,24,0],[24,9,14,0],[24,25,14,0],
+  // Index top — pink
+  [0,4,5,0],[4,5,10,0],
+  // Index-middle — cyan
+  [0,1,5,1],[1,5,6,1],[5,6,10,1],[6,10,11,1],
+  // Middle-ring — yellow
+  [1,2,6,2],[2,6,7,2],[6,7,11,2],[7,11,12,2],
+  // Ring — green
+  [2,3,7,3],[3,7,8,3],[7,8,12,3],
+  // Pinky — orange
+  [8,12,13,4],
+  // Mid palm
+  [9,10,14,0],[10,14,15,0],[10,11,15,1],[11,15,16,1],
+  [11,12,16,2],[12,16,17,2],[12,13,17,3],[13,17,18,4],
+  // Wrist
+  [14,15,19,0],[15,19,20,1],[15,16,20,1],
+  [16,20,21,2],[16,17,21,2],[17,21,22,3],[17,18,22,4],
 ];
 
-
 // ── Game constants ────────────────────────────────────────────────
-const SNAP_ARM=90;    // px: stretch beyond this to arm slingshot
-const SNAP_FIRE=75;   // px: snap below this to fire (raised for EMA reliability)
+const SNAP_FIRE=60;   // px: fingers closer than this = locked/aiming
 const PINCH_TH=45;    // px: thumb+index pinch for blast
+const EMA=0.6;        // smoothing factor for fingertip positions
 
 // ── Rocket type definitions ───────────────────────────────────────
 const ROCKET_TYPES={
@@ -249,18 +274,6 @@ function haptic(p){if(navigator.vibrate)navigator.vibrate(p);}
 let hiScore=parseInt(localStorage.getItem('vr_hi')||'0');
 function saveHiScore(){if(score>hiScore){hiScore=score;localStorage.setItem('vr_hi',String(score));}}
 
-// ── Game modes ────────────────────────────────────────────────────
-let gameMode='classic'; // 'classic' | 'blitz'
-const BLITZ_TIME=60;
-let blitzTimer=BLITZ_TIME;
-
-// ── Tutorial ──────────────────────────────────────────────────────
-let tutorialDone=false,tutorialAlpha=1;
-
-// ── Hit flash pool ────────────────────────────────────────────────
-let hitFlashes=[]; // {x,y,r,life,maxLife,col}
-let muzzleFlashes=[]; // {x,y,life,maxLife,col} — burst at shot origin
-
 
 // ── Rocket class ──────────────────────────────────────────────────
 class Rocket{
@@ -271,22 +284,7 @@ class Rocket{
     this.sz=cfg.sz;this.points=cfg.points;
     this.alive=true;this.explodeTimer=0;this.particles=[];
     this.killed=false;this._escaped=false;this.flashTimer=0;
-    this.zOffset=Math.random()*Math.PI*2;
-    this.z=0.3+0.7*Math.random();
-    this._drawSz=this.sz;this._drawAlpha=1;
-    this.wake=[];  // trail of {x,y,z} world positions
     this.reset(true);
-  }
-  updateZ(time){
-    const period=8+(this.zOffset%4);
-    // Subtle depth: rockets only vary 80–100% size so they stay readable
-    this.z=0.60+0.40*(0.5+0.5*Math.sin(time*(Math.PI*2/period)+this.zOffset));
-    this._drawSz=this.sz*(0.78+0.22*this.z);
-    this._drawAlpha=0.80+0.20*this.z;
-    if(this.alive){
-      this.wake.unshift({x:this.x,y:this.y,z:this.z});
-      if(this.wake.length>14) this.wake.pop();
-    }
   }
   reset(init=false){
     const cw=canvas.width,ch=canvas.height,pad=this.sz*2;
@@ -301,15 +299,15 @@ class Rocket{
   }
   getBodyColor(){
     const{hp,type}=this;
-    if(type==='scout') return'#EE1122';
-    if(type==='cruiser') return hp>=2?'#00FFCC':'#FF6600';
-    return hp>=3?'#9933FF':hp>=2?'#FF6600':'#FFCC00';
+    if(type==='scout') return'#CC0000';
+    if(type==='cruiser') return hp>=2?'#00CCFF':'#FF8800';
+    return hp>=3?'#9900FF':hp>=2?'#FF4400':'#FFFF00';
   }
   getFinColor(){
     const{type}=this;
-    if(type==='scout') return'#00FFCC';
-    if(type==='cruiser') return'#AAFF22';
-    return'#3366FF';
+    if(type==='scout') return'#00CC66';
+    if(type==='cruiser') return'#00FF99';
+    return'#CC00FF';
   }
   get radius(){return this.sz*0.75;}
   update(dt,handCenter){
@@ -339,85 +337,76 @@ class Rocket{
   }
   explode(){
     this.alive=false;this.killed=true;this.explodeTimer=1.4;
-    const startZ=this.z;
     for(let i=0;i<16;i++){
       const a=(i/16)*Math.PI*2,spd=60+Math.random()*120;
       const col=BEAM_COLS[i%BEAM_COLS.length];
-      const vz=(Math.random()-0.5)*1.4; // z-velocity: some fly toward camera, some away
-      this.particles.push({x:this.x,y:this.y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,vz,pz:startZ,life:0.8+Math.random()*0.5,col,type:'ray',len:30+Math.random()*50});
+      this.particles.push({x:this.x,y:this.y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,life:0.8+Math.random()*0.5,col,type:'ray',len:30+Math.random()*50});
     }
     for(let i=0;i<8;i++){
       const a=Math.random()*Math.PI*2,spd=40+Math.random()*80;
       const col=BEAM_COLS[Math.floor(Math.random()*BEAM_COLS.length)];
-      const vz=(Math.random()-0.5)*1.2;
-      this.particles.push({x:this.x,y:this.y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,vz,pz:startZ,life:0.6+Math.random()*0.7,col,type:'debris',rot:Math.random()*Math.PI,sz:4+Math.random()*10});
+      this.particles.push({x:this.x,y:this.y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,life:0.6+Math.random()*0.7,col,type:'debris',rot:Math.random()*Math.PI,sz:4+Math.random()*10});
     }
   }
   drawRocket(x,y,angle,sz,alpha=1){
     ctx.save();
     ctx.translate(x,y);ctx.rotate(angle);
     ctx.globalAlpha=alpha;ctx.lineCap='round';ctx.lineJoin='round';
-    // Subtle depth foreshortening
-    const zCompress=0.82+0.18*this.z;
-    ctx.scale(1,zCompress);
     const s=sz;
     const bcol=this.flashTimer>0?'#FFFFFF':this.getBodyColor();
     const fcol=this.getFinColor();
     // Body
     ctx.beginPath();ctx.moveTo(0,-s);ctx.lineTo(-s*0.4,s*0.5);ctx.lineTo(s*0.4,s*0.5);ctx.closePath();
-    ctx.strokeStyle=bcol;ctx.lineWidth=1.5;ctx.shadowBlur=0;ctx.stroke();
+    ctx.strokeStyle=bcol;ctx.lineWidth=1.5;ctx.shadowBlur=5;ctx.shadowColor=bcol;ctx.stroke();
     // Fins
     ctx.beginPath();ctx.moveTo(-s*0.4,s*0.1);ctx.lineTo(-s*0.85,s*0.75);ctx.lineTo(-s*0.4,s*0.5);ctx.closePath();
-    ctx.strokeStyle=fcol;ctx.stroke();
+    ctx.strokeStyle=fcol;ctx.shadowColor=fcol;ctx.stroke();
     ctx.beginPath();ctx.moveTo(s*0.4,s*0.1);ctx.lineTo(s*0.85,s*0.75);ctx.lineTo(s*0.4,s*0.5);ctx.closePath();
-    ctx.strokeStyle=fcol;ctx.stroke();
+    ctx.strokeStyle=fcol;ctx.shadowColor=fcol;ctx.stroke();
     // Window
     ctx.beginPath();ctx.moveTo(0,-s*0.25);ctx.lineTo(-s*0.18,0);ctx.lineTo(0,s*0.22);ctx.lineTo(s*0.18,0);ctx.closePath();
-    ctx.strokeStyle='#00FFCC';ctx.stroke();
+    ctx.strokeStyle='#00CCFF';ctx.shadowColor='#00CCFF';ctx.stroke();
     // HP pips for multi-hp rockets
     if(this.maxHP>1){
       for(let i=0;i<this.maxHP;i++){
         ctx.beginPath();ctx.arc((i-(this.maxHP-1)/2)*s*0.32,-s*0.62,s*0.1,0,Math.PI*2);
-        ctx.strokeStyle=i<this.hp?bcol:'#1a1a2e';ctx.lineWidth=1.2;ctx.shadowBlur=0;ctx.stroke();
+        ctx.strokeStyle=i<this.hp?bcol:'#1a1a2e';ctx.lineWidth=1.2;ctx.shadowBlur=3;ctx.stroke();
       }
     }
     // Cross detail lines
     ctx.beginPath();ctx.moveTo(-s*0.3,s*0.3);ctx.lineTo(s*0.3,s*0.3);
-    ctx.strokeStyle=bcol;ctx.lineWidth=1;ctx.shadowBlur=0;ctx.stroke();
+    ctx.strokeStyle=bcol;ctx.lineWidth=1;ctx.shadowBlur=3;ctx.shadowColor=bcol;ctx.stroke();
     ctx.beginPath();ctx.moveTo(-s*0.2,-s*0.1);ctx.lineTo(s*0.2,-s*0.1);ctx.stroke();
     // Thruster
     const flicker=0.6+0.4*Math.sin(Date.now()*0.015);
     ctx.globalAlpha=alpha*flicker;
     ctx.beginPath();ctx.moveTo(-s*0.25,s*0.5);ctx.lineTo(0,s*0.5+s*0.5*flicker);ctx.lineTo(s*0.25,s*0.5);
-    ctx.strokeStyle='#FF8800';ctx.lineWidth=2;ctx.shadowBlur=0;ctx.stroke();
+    ctx.strokeStyle='#FF8800';ctx.lineWidth=2;ctx.shadowColor=C.ora;ctx.shadowBlur=8;ctx.stroke();
     // Trail
     ctx.globalAlpha=alpha*0.4;
     const vl=Math.hypot(this.vx||1,this.vy||0);
     for(let i=1;i<=3;i++){
       const tx=-(this.vx||0)/vl*i*8,ty=-(this.vy||0)/vl*i*8;
       ctx.beginPath();ctx.moveTo(-s*0.12+tx,s*0.6+ty);ctx.lineTo(s*0.12+tx,s*0.6+ty);
-      ctx.strokeStyle=C.sky;ctx.lineWidth=1.5-i*0.3;ctx.shadowBlur=0;ctx.stroke();
+      ctx.strokeStyle=C.sky;ctx.lineWidth=1.5-i*0.3;ctx.shadowBlur=4;ctx.shadowColor=C.sky;ctx.stroke();
     }
     ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;
   }
   draw(){
     if(!this.alive){
       for(const p of this.particles){
-        // Advance z-depth each frame
-        if(p.pz!==undefined) p.pz=Math.max(0.05,Math.min(1,p.pz+(p.vz||0)*0.016));
-        const depthScale=p.pz!==undefined?(0.35+0.65*p.pz):1;
-        const a=Math.min(1,p.life/0.6)*depthScale;
-        ctx.save();ctx.globalAlpha=a;ctx.strokeStyle=p.col;ctx.shadowBlur=0*depthScale;
+        const a=Math.min(1,p.life/0.6);
+        ctx.save();ctx.globalAlpha=a;ctx.strokeStyle=p.col;ctx.shadowBlur=8;ctx.shadowColor=p.col;
         if(p.type==='ray'){
           const nx=p.vx/Math.hypot(p.vx,p.vy),ny=p.vy/Math.hypot(p.vx,p.vy);
-          ctx.lineWidth=1.5*depthScale;ctx.beginPath();
+          ctx.lineWidth=1.5;ctx.beginPath();
           ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+nx*p.len*a,p.y+ny*p.len*a);ctx.stroke();
           ctx.globalAlpha=a*0.4;
           ctx.beginPath();ctx.moveTo(p.x+ny*3,p.y-nx*3);ctx.lineTo(p.x+nx*p.len*a*0.8+ny*3,p.y+ny*p.len*a*0.8-nx*3);ctx.stroke();
         } else {
           ctx.translate(p.x,p.y);ctx.rotate(p.rot+p.life);
-          const sz=p.sz*(0.5+a*0.5)*depthScale;
-          ctx.lineWidth=1.2*depthScale;
+          const sz=p.sz*(0.5+a*0.5);
+          ctx.lineWidth=1.2;
           ctx.beginPath();ctx.moveTo(-sz,-sz*0.5);ctx.lineTo(sz,-sz*0.5);ctx.lineTo(sz*0.5,sz);ctx.closePath();ctx.stroke();
         }
         ctx.restore();
@@ -430,21 +419,7 @@ class Rocket{
       }
       return;
     }
-    // Glowing depth-scaled wake trail
-    const wCol=this.getBodyColor();
-    for(let i=0;i<this.wake.length;i++){
-      const w=this.wake[i];
-      const t=1-(i/this.wake.length);   // 1=fresh, 0=oldest
-      const wAlpha=(this._drawAlpha??1)*t*t*0.55;
-      const wR=(this._drawSz??this.sz)*0.18*t*w.z;
-      if(wR<0.5||wAlpha<0.02) continue;
-      ctx.save();
-      ctx.beginPath();ctx.arc(w.x,w.y,wR,0,Math.PI*2);
-      ctx.fillStyle=wCol;ctx.globalAlpha=wAlpha;
-      ctx.shadowBlur=0;ctx.fill();
-      ctx.restore();
-    }
-    this.drawRocket(this.x,this.y,Math.atan2(this.vy,this.vx)-Math.PI/2,this._drawSz??this.sz,this._drawAlpha??1);
+    this.drawRocket(this.x,this.y,Math.atan2(this.vy,this.vx)-Math.PI/2,this.sz);
   }
 }
 
@@ -470,14 +445,14 @@ class Shot{
     ctx.save();
     if(this.trail.length>1){
       ctx.strokeStyle=this.col;ctx.lineWidth=2.5;ctx.lineCap='round';
-      ctx.shadowBlur=0;ctx.globalAlpha=a*0.5;
+      ctx.shadowBlur=8;ctx.shadowColor=this.col;ctx.globalAlpha=a*0.5;
       ctx.beginPath();ctx.moveTo(this.trail[0].x,this.trail[0].y);
       for(const p of this.trail) ctx.lineTo(p.x,p.y);
       ctx.stroke();
     }
     ctx.globalAlpha=a;
     const r=5+a*4;
-    ctx.fillStyle=this.col;ctx.shadowBlur=0;
+    ctx.fillStyle=this.col;ctx.shadowBlur=16;ctx.shadowColor=this.col;
     ctx.beginPath();
     for(let i=0;i<8;i++){
       const ang=i*Math.PI/4,ri=i%2===0?r:r*0.32;
@@ -503,7 +478,7 @@ class Beam{
     const nx=-this.vy/700,ny=this.vx/700;
     ctx.save();
     ctx.globalAlpha=a*0.9;ctx.strokeStyle=this.color;
-    ctx.lineWidth=1.8;ctx.lineCap='round';ctx.shadowBlur=0;
+    ctx.lineWidth=1.8;ctx.lineCap='round';ctx.shadowBlur=8;ctx.shadowColor=this.color;
     ctx.beginPath();
     ctx.moveTo(this.ox+nx*offset,this.oy+ny*offset);
     ctx.lineTo(this.x+nx*offset,this.y+ny*offset);
@@ -512,54 +487,84 @@ class Beam{
 }
 
 // ── ElasticBand class ─────────────────────────────────────────────
-// Mechanic: fingers TOGETHER (<70px) = lock-on aiming
-//           fingers SPREAD APART (cross 70px outward) = FIRE
-//           must have been locked for 150ms+ before spread fires
 class Band{
-  constructor(a,b,ci){
+  constructor(a,b,ci,canShoot=false){
     this.a=a;this.b=b;this.ci=ci;this.color=BEAM_COLS[ci%BEAM_COLS.length];
     this.cx=0;this.cy=0;this.cvx=0;this.cvy=0;
-    this.vAmp=0;this.vFreq=1.8+Math.random()*1.4;this.vTime=0;
-    this.prevDist=999;this.lastPluckMs=0;this.lastShotMs=0;
-    this.locked=false;this.lockedSince=0;
+    this.vAmp=0;this.vFreq=5+Math.random()*7;this.vTime=0;
+    this.prevDist=999;this.lastSnapMs=0;this.lastPluckMs=0;
+    this.locked=false;this.lockedSince=0;this.lastShotMs=0;
+    this.canShoot=canShoot;this._prevCurl=999;
     this._pendingShot=null;
-  }
-  _fire(mx,my,spread){
-    this.lastShotMs=performance.now();
-    this._pendingShot={x:mx,y:my,peakDist:spread,col:this.color,bandIdx:this.ci};
-    const mag=18+Math.random()*12,ang=(Math.random()-0.5)*Math.PI;
-    this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
-    this.vAmp=Math.max(this.vAmp,14+Math.random()*10);
   }
   update(tips,dt){
     this.cvx+=-0.16*this.cx;this.cvy+=-0.16*this.cy;
     this.cvx*=0.86;this.cvy*=0.86;
     this.cx+=this.cvx;this.cy+=this.cvy;
-    this.vAmp*=0.90;this.vTime+=dt;
+    this.vAmp*=0.935;this.vTime+=dt;
     const a=tips[this.a],b=tips[this.b];if(!a||!b)return;
     const dist=Math.hypot(b.x-a.x,b.y-a.y),now=performance.now();
     const wasLocked=this.locked;
-    const nowLocked=(dist<SNAP_FIRE); // SNAP_FIRE=75 is the lock/unlock threshold
-    // Track when we entered locked state
-    if(nowLocked&&!wasLocked) this.lockedSince=now;
-    // FIRE: just crossed out of locked, AND was locked for 150ms+ (intentional pinch)
-    if(!nowLocked&&wasLocked&&this.lockedSince>0){
-      const lockDur=now-this.lockedSince;
-      if(lockDur>150&&now-this.lastShotMs>400){
-        const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-        this._fire(mx,my,dist);
+    let nowLocked;
+
+    if(this.canShoot){
+      // ── Curl detection: index tip(8)→knuckle(5), small = curled/locked ──
+      const curlThresh=_palmScale*0.55;
+      nowLocked=(_indexCurl<curlThresh);
+      // Velocity: positive = index extending outward (the "flick")
+      const curlVel=_indexCurl-this._prevCurl;
+      this._prevCurl=_indexCurl;
+
+      if(nowLocked&&!wasLocked){
+        this.lockedSince=now;
+        if(now-this.lastSnapMs>180){
+          const mag=30+Math.random()*40,ang=(Math.random()-0.5)*Math.PI*1.5;
+          this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
+          this.vAmp=Math.max(this.vAmp,25+Math.random()*20);
+          this.lastSnapMs=now;playSnap();
+        }
       }
-      this.lockedSince=0;
+      if(wasLocked&&this.lockedSince>0){
+        const lockDur=now-this.lockedSince;
+        // Fire: fast flick (velocity) OR slow deliberate release
+        const isFlick=curlVel>_palmScale*0.12&&lockDur>80;
+        const holdFire=!nowLocked&&lockDur>200;
+        if((isFlick||holdFire)&&now-this.lastShotMs>600){
+          const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+          this._pendingShot={x:mx,y:my,peakDist:dist,col:this.color,bandIdx:this.ci};
+          this.lastShotMs=now;
+          const mag=55+Math.random()*35,ang=(Math.random()-0.5)*Math.PI;
+          this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
+          this.vAmp=Math.max(this.vAmp,50+Math.random()*30);
+        }
+        if(!nowLocked) this.lockedSince=0;
+      }
+    } else {
+      // ── Pluck bands: original tip-to-tip distance ──
+      const effectiveSnap=SNAP_FIRE*(_palmScale/120);
+      nowLocked=(dist<effectiveSnap);
+      if(nowLocked&&!wasLocked){
+        this.lockedSince=now;
+        if(now-this.lastSnapMs>180){
+          const mag=30+Math.random()*40,ang=(Math.random()-0.5)*Math.PI*1.5;
+          this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
+          this.vAmp=Math.max(this.vAmp,25+Math.random()*20);
+          this.lastSnapMs=now;playSnap();
+        }
+      }
+      if(!nowLocked) this.lockedSince=0;
     }
+
     this.locked=nowLocked;
     this.prevDist=dist;
   }
   pluck(){
     const now=performance.now();if(now-this.lastPluckMs<140)return;
     this.lastPluckMs=now;
-    const mag=7+Math.random()*8,ang=(Math.random()-0.5)*Math.PI*2;
+    const mag=18+Math.random()*25,ang=(Math.random()-0.5)*Math.PI*2;
     this.cvx+=Math.cos(ang)*mag;this.cvy+=Math.sin(ang)*mag;
-    this.vAmp=Math.max(this.vAmp,10+Math.random()*8);
+    this.vAmp=Math.max(this.vAmp,35+Math.random()*28);
+    playTwang(this.ci);
   }
   draw(tips){
     const a=tips[this.a],b=tips[this.b];if(!a||!b)return;
@@ -569,27 +574,24 @@ class Band{
     const vib=this.vAmp*Math.sin(this.vTime*this.vFreq*Math.PI*2);
     const cpx=mx+this.cx+px*vib,cpy=my+this.cy+py*vib;
     const tension=Math.min(1,Math.max(0,(dist-40)/260));
-    const alpha=0.55+tension*0.45;
-    const locked=this.locked;
+    const charge=this.locked?Math.min(1,(performance.now()-this.lockedSince)/400):0;
+    const alpha=0.3+tension*0.7;
+    const wm=1+charge*0.55;
+    const dim=this.canShoot?1:0.35; // non-shoot bands are dim decorations
     ctx.lineCap='round';
-    // Main band — bright when locked (aiming)
+    for(const[w,al]of[[20,0.03],[12,0.07],[7,0.14],[4,0.22]]){
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
+      ctx.strokeStyle=this.color;ctx.globalAlpha=al*alpha*(1+charge*0.6)*dim;ctx.lineWidth=w*wm;ctx.shadowBlur=0;ctx.stroke();
+    }
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
-    ctx.strokeStyle=this.color;
-    ctx.globalAlpha=locked?1.0:alpha;
-    ctx.lineWidth=locked?2.0:(0.9+tension*0.4);
-    ctx.shadowBlur=0;ctx.stroke();
-    // White specular
+    ctx.strokeStyle=this.color;ctx.globalAlpha=0.85*alpha*dim;
+    ctx.lineWidth=(2+tension*1.5)*wm;ctx.shadowBlur=8+charge*22;ctx.shadowColor=this.color;ctx.stroke();
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
-    ctx.strokeStyle=C.wht;
-    ctx.globalAlpha=locked?0.55:(0.20+tension*0.15)*alpha;
-    ctx.lineWidth=locked?0.9:0.5;ctx.shadowBlur=0;ctx.stroke();
-    // Locked pulse dot at midpoint
-    if(locked){
-      const pulse=0.55+0.45*Math.sin(Date.now()*0.014);
-      ctx.beginPath();ctx.arc(mx,my,5*pulse,0,Math.PI*2);
-      ctx.fillStyle=this.color;ctx.globalAlpha=0.9;ctx.fill();
-      ctx.beginPath();ctx.arc(mx,my,2.5,0,Math.PI*2);
-      ctx.fillStyle=C.wht;ctx.globalAlpha=0.95;ctx.fill();
+    ctx.strokeStyle=C.wht;ctx.globalAlpha=(0.5+charge*0.5)*alpha*dim;ctx.lineWidth=0.8;ctx.shadowBlur=0;ctx.stroke();
+    if(charge>0.65){
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cpx,cpy,b.x,b.y);
+      ctx.strokeStyle='#FFFFFF';ctx.globalAlpha=0.3*(charge-0.65)/0.35*dim;ctx.lineWidth=5;
+      ctx.shadowBlur=22;ctx.shadowColor='#FFFFFF';ctx.stroke();
     }
     ctx.globalAlpha=1;ctx.shadowBlur=0;
   }
@@ -619,23 +621,67 @@ function checkPlucks(tips,bands){
   }
 }
 
-// ── Hand overlay — fingertip triangles ────────────────────────────
+// ── Hand overlay — targeting reticle + lock arc ───────────────────
 function fingerOf(i){if(i<=4)return 0;if(i<=8)return 1;if(i<=12)return 2;if(i<=16)return 3;return 4;}
-function drawHandOverlay(lms){
-  for(let i=0;i<5;i++){
-    const tip=lms[TIP_IDX[i]],dip=lms[TIP_DIP[i]];
-    const col=FINGER_COLS[i];
-    const dx=tip.x-dip.x,dy=tip.y-dip.y,len=Math.hypot(dx,dy)||1;
-    const nx=dx/len,ny=dy/len,px=-ny,py=nx,sz=11;
-    const ax=tip.x+nx*sz,ay=tip.y+ny*sz;
-    const bx=tip.x+px*sz*0.6,by=tip.y+py*sz*0.6;
-    const cx2=tip.x-px*sz*0.6,cy2=tip.y-py*sz*0.6;
+function drawHandOverlay(lms,dispTips,bands){
+  if(!lms||!dispTips) return;
+  // Palm center crosshair (landmark 9 = middle knuckle)
+  const palm=lms[9];
+  if(palm){
     ctx.save();
-    ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.lineTo(cx2,cy2);ctx.closePath();
-    ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.shadowBlur=0;ctx.globalAlpha=0.92;ctx.stroke();
-    ctx.beginPath();ctx.arc(tip.x,tip.y,3,0,Math.PI*2);
-    ctx.fillStyle=col;ctx.globalAlpha=0.9;ctx.fill();
+    ctx.strokeStyle=C.cyan;ctx.lineWidth=1;ctx.globalAlpha=0.38;ctx.shadowBlur=0;
+    const sz=14;
+    ctx.beginPath();
+    ctx.moveTo(palm.x-sz,palm.y);ctx.lineTo(palm.x+sz,palm.y);
+    ctx.moveTo(palm.x,palm.y-sz);ctx.lineTo(palm.x,palm.y+sz);
+    ctx.stroke();
+    ctx.beginPath();ctx.arc(palm.x,palm.y,sz*0.55,0,Math.PI*2);
+    ctx.globalAlpha=0.15;ctx.stroke();
     ctx.restore();
+  }
+  // Shoot band (thumb-index) lock/charge indicator
+  const shootBand=bands.find(b=>b.canShoot);
+  if(shootBand&&dispTips[0]&&dispTips[1]){
+    const mx=(dispTips[0].x+dispTips[1].x)/2,my=(dispTips[0].y+dispTips[1].y)/2;
+    if(shootBand.locked){
+      const charge=Math.min(1,(performance.now()-shootBand.lockedSince)/200);
+      ctx.save();
+      // Charging arc — fills clockwise over 200ms
+      ctx.strokeStyle=C.yel;ctx.lineWidth=3;ctx.globalAlpha=0.5+charge*0.5;
+      ctx.shadowBlur=8+charge*14;ctx.shadowColor=C.yel;
+      ctx.beginPath();ctx.arc(mx,my,16,-Math.PI/2,-Math.PI/2+charge*Math.PI*2);ctx.stroke();
+      // Center dot
+      ctx.beginPath();ctx.arc(mx,my,4,0,Math.PI*2);
+      ctx.fillStyle=C.yel;ctx.globalAlpha=0.9;ctx.shadowBlur=6;ctx.fill();
+      // Targeting line + rocket ring when fully charged
+      if(charge>0.8&&rockets.length){
+        let nearest=null,nd=Infinity;
+        for(const r of rockets){
+          if(!r.alive||r.explodeTimer>0) continue;
+          const d=Math.hypot(r.x-mx,r.y-my);
+          if(d<nd){nd=d;nearest=r;}
+        }
+        if(nearest){
+          ctx.strokeStyle=C.yel;ctx.lineWidth=1;ctx.globalAlpha=0.35;ctx.shadowBlur=0;
+          ctx.setLineDash([6,6]);
+          ctx.beginPath();ctx.moveTo(mx,my);ctx.lineTo(nearest.x,nearest.y);ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.strokeStyle=C.red;ctx.lineWidth=1.5;ctx.globalAlpha=0.7;
+          ctx.shadowBlur=8;ctx.shadowColor=C.red;
+          ctx.beginPath();ctx.arc(nearest.x,nearest.y,nearest.radius+10,0,Math.PI*2);ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+    // Thumb + index fingertip dots — larger, cleaner than triangles
+    for(let i=0;i<2;i++){
+      const t=dispTips[i];if(!t)continue;
+      ctx.save();
+      ctx.beginPath();ctx.arc(t.x,t.y,shootBand.locked?7:5,0,Math.PI*2);
+      ctx.strokeStyle=FINGER_COLS[i];ctx.lineWidth=2;ctx.globalAlpha=0.9;
+      ctx.shadowBlur=shootBand.locked?14:6;ctx.shadowColor=FINGER_COLS[i];ctx.stroke();
+      ctx.restore();
+    }
   }
   ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
@@ -649,7 +695,7 @@ function drawStaticHand(cx,cy,handW,handH){
     const dx=pb.x-pa.x,dy=pb.y-pa.y,len=Math.hypot(dx,dy);if(len<2)continue;
     const px=-dy/len*3,py=dx/len*3;
     ctx.save();
-    ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.shadowBlur=0;ctx.globalAlpha=0.85;
+    ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.shadowBlur=4;ctx.shadowColor=col;ctx.globalAlpha=0.85;
     ctx.beginPath();
     ctx.moveTo(pa.x+px,pa.y+py);ctx.lineTo(pb.x+px,pb.y+py);
     ctx.moveTo(pa.x-px,pa.y-py);ctx.lineTo(pb.x-px,pb.y-py);
@@ -663,7 +709,7 @@ function drawStaticHand(cx,cy,handW,handH){
     const fi=fingerOf(i),col=FINGER_COLS[fi<5?fi:4];
     ctx.save();
     ctx.beginPath();ctx.arc(p.x,p.y,isTip?3.5:2,0,Math.PI*2);
-    ctx.strokeStyle=col;ctx.lineWidth=1.2;ctx.shadowBlur=0;
+    ctx.strokeStyle=col;ctx.lineWidth=1.2;ctx.shadowBlur=4;ctx.shadowColor=col;
     ctx.globalAlpha=0.9;ctx.stroke();ctx.restore();
   }
   for(let i=0;i<5;i++){
@@ -671,150 +717,127 @@ function drawStaticHand(cx,cy,handW,handH){
     const col=FINGER_COLS[i];
     const dx=tip.x-dip.x,dy=tip.y-dip.y,len=Math.hypot(dx,dy)||1;
     ctx.save();
-    ctx.strokeStyle=col;ctx.lineWidth=1;ctx.shadowBlur=0;ctx.globalAlpha=0.45;
+    ctx.strokeStyle=col;ctx.lineWidth=1;ctx.shadowBlur=6;ctx.shadowColor=col;ctx.globalAlpha=0.45;
     ctx.beginPath();ctx.moveTo(tip.x,tip.y);ctx.lineTo(tip.x+dx/len*40,tip.y+dy/len*40);ctx.stroke();
     ctx.restore();
   }
   ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
-// ── 3D Open hand illustration (start screen) ──────────────────────
-function drawPolyHand(cx,cy,w,h,time=0){
-  // Slow Y-axis rotation sway: ±13° over ~12s
-  const yAngle=Math.sin(time*0.52)*0.22;
-  const cosA=Math.cos(yAngle),sinA=Math.sin(yAngle);
-  const focal=2.8; // perspective strength — higher = flatter
+// ── Wireframe fist (start screen) ─────────────────────────────────
+function drawPolyFist(cx,cy,w,h){
+  // Map normalized [0,1] → screen coords
+  const p=(x,y)=>[cx-w*0.5+x*w, cy-h*0.5+y*h];
 
-  // Project each landmark through Y-rotation + perspective divide
-  const pts=HAND_LM.map((lm,i)=>{
-    const lx=lm[0]-0.5;           // center x
-    const lz=HAND_Z[i]-0.3;       // center z
-    const rx=lx*cosA-lz*sinA;     // Y-axis rotation
-    const rz=lx*sinA+lz*cosA;
-    const scale=focal/(focal+rz); // perspective
-    return{
-      x:cx+rx*w*scale,
-      y:(cy-h*0.5)+lm[1]*h*scale,
-      z:rz,scale
-    };
-  });
+  // ── 4 knuckle peaks (top bumps) ────────────────────────────────
+  const kn=[p(0.33,0.09),p(0.47,0.05),p(0.60,0.08),p(0.71,0.14)];
+  // Valleys between / beside knuckles
+  const kv=[p(0.22,0.20),p(0.40,0.17),p(0.54,0.17),p(0.66,0.19),p(0.78,0.25)];
 
-  // Bone half-width (pre-perspective; scaled per point during draw)
-  function boneHW(a,b){
-    const hi=Math.max(a,b);
-    if(hi<=4) return hi<=2?5.5:hi<=3?4.2:3.2;
-    if(hi<=8) return hi<=6?5.2:hi<=7?4:2.9;
-    if(hi<=12) return hi<=10?5.4:hi<=11?4.2:3.1;
-    if(hi<=16) return hi<=14?5:hi<=15?3.8:2.7;
-    return hi<=18?4.2:hi<=19?3.1:2.3;
-  }
+  // ── OUTER SILHOUETTE ────────────────────────────────────────────
+  // Thumb tip → left edge → wrist → right edge → knuckle row → back
+  const outline=[
+    p(0.06,0.24),  // thumb tip top
+    p(0.00,0.36),  // thumb tip
+    p(0.02,0.50),  // thumb body
+    p(0.08,0.63),  // thumb base
+    p(0.14,0.78),  // lower-left
+    p(0.22,0.86),  // wrist left
+    p(0.64,0.86),  // wrist right
+    p(0.80,0.76),  // lower-right
+    p(0.84,0.58),  // right edge mid
+    p(0.82,0.38),  // right shoulder
+    kv[4],          // right of pinky
+    kn[3],          // pinky peak
+    kv[3],          // ring-pinky valley
+    kn[2],          // ring peak
+    kv[2],          // middle-ring valley
+    kn[1],          // middle peak
+    kv[1],          // index-middle valley
+    kn[0],          // index peak
+    kv[0],          // left of index
+    p(0.14,0.28),  // upper-left
+  ];
 
-  // Depth-sort bones (far first so near renders on top)
-  const sortedBones=[...HAND_CONNECTIONS].sort((ba,bb)=>{
-    return((pts[ba[0]].z+pts[ba[1]].z)*0.5)-((pts[bb[0]].z+pts[bb[1]].z)*0.5);
-  });
+  // Draw main outline (cyan glow)
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(outline[0][0],outline[0][1]);
+  for(let i=1;i<outline.length;i++) ctx.lineTo(outline[i][0],outline[i][1]);
+  ctx.closePath();
+  ctx.strokeStyle='#00CCFF';ctx.lineWidth=1.8;ctx.shadowBlur=10;ctx.shadowColor='#00CCFF';ctx.globalAlpha=0.75;
+  ctx.stroke();ctx.restore();
 
-  for(const[a,b]of sortedBones){
-    const pa=pts[a],pb=pts[b];
-    const avgScale=(pa.scale+pb.scale)*0.5;
-    const dx=pb.x-pa.x,dy=pb.y-pa.y,len=Math.hypot(dx,dy);if(len<2)continue;
-    const nx=-dy/len,ny=dx/len;
-    // Each end uses its own perspective scale for natural taper
-    const hwA=boneHW(a,b)*pa.scale, hwB=boneHW(a,b)*pb.scale;
-    const fi=fingerOf(Math.max(a,b)),col=FINGER_COLS[Math.min(fi,4)];
-    // Closer bones are brighter
-    const depthAlpha=0.50+0.45*Math.max(0,Math.min(1,(avgScale-0.85)*6));
-    const tl={x:pa.x+nx*hwA,y:pa.y+ny*hwA};
-    const tr={x:pa.x-nx*hwA,y:pa.y-ny*hwA};
-    const bl={x:pb.x+nx*hwB,y:pb.y+ny*hwB};
-    const br={x:pb.x-nx*hwB,y:pb.y-ny*hwB};
+  // ── KNUCKLE ARCS — each finger colored ─────────────────────────
+  const kCols=[C.pnk,C.cyan,C.yel,C.grn];
+  for(let i=0;i<4;i++){
     ctx.save();
-    ctx.strokeStyle=col;ctx.shadowBlur=0*avgScale;ctx.globalAlpha=depthAlpha*0.80;
-    ctx.lineWidth=0.85*avgScale;
     ctx.beginPath();
-    ctx.moveTo(tl.x,tl.y);ctx.lineTo(bl.x,bl.y);
-    ctx.moveTo(tr.x,tr.y);ctx.lineTo(br.x,br.y);
-    ctx.moveTo(tl.x,tl.y);ctx.lineTo(tr.x,tr.y);
-    ctx.moveTo(bl.x,bl.y);ctx.lineTo(br.x,br.y);
-    ctx.stroke();
-    // Inner diagonal facet
-    ctx.lineWidth=0.5;ctx.globalAlpha=depthAlpha*0.22;ctx.shadowBlur=0;
-    ctx.beginPath();ctx.moveTo(tl.x,tl.y);ctx.lineTo(br.x,br.y);ctx.stroke();
-    ctx.restore();
+    ctx.moveTo(kv[i][0],kv[i][1]);
+    ctx.lineTo(kn[i][0],kn[i][1]);
+    ctx.lineTo(kv[i+1][0],kv[i+1][1]);
+    ctx.strokeStyle=kCols[i];ctx.lineWidth=2.5;ctx.shadowBlur=10;ctx.shadowColor=kCols[i];ctx.globalAlpha=0.92;
+    ctx.stroke();ctx.restore();
   }
 
-  // Depth-sorted joint rings
-  const sortedLM=[...Array(21).keys()].sort((a,b)=>pts[a].z-pts[b].z);
-  for(const i of sortedLM){
-    const pt=pts[i],fi=fingerOf(i),col=FINGER_COLS[Math.min(fi,4)];
-    const isTip=TIP_IDX.includes(i),isMCP=[1,5,9,13,17].includes(i);
-    const r=(isTip?5:isMCP?4:2.8)*pt.scale;
-    const depthAlpha=0.55+0.40*Math.max(0,Math.min(1,(pt.scale-0.85)*6));
-    ctx.save();
-    ctx.beginPath();ctx.arc(pt.x,pt.y,r,0,Math.PI*2);
-    ctx.strokeStyle=col;ctx.lineWidth=1.0*pt.scale;
-    ctx.shadowBlur=0;ctx.globalAlpha=depthAlpha*0.80;ctx.stroke();
-    if(isTip){
-      ctx.beginPath();ctx.arc(pt.x,pt.y,r*0.38,0,Math.PI*2);
-      ctx.fillStyle=col;ctx.globalAlpha=depthAlpha*0.55;ctx.fill();
-    }
-    ctx.restore();
-  }
+  // ── INTERNAL ANATOMY LINES ──────────────────────────────────────
+  // Knuckle row horizontal
+  ctx.save();
+  ctx.beginPath();ctx.moveTo(...p(0.20,0.32));ctx.lineTo(...p(0.80,0.34));
+  ctx.strokeStyle=C.yel;ctx.lineWidth=1;ctx.shadowBlur=4;ctx.shadowColor=C.yel;ctx.globalAlpha=0.5;ctx.stroke();ctx.restore();
 
-  // Energy rays from fingertips
-  for(let i=0;i<5;i++){
-    const tip=pts[TIP_IDX[i]],dip=pts[TIP_DIP[i]],col=FINGER_COLS[i];
-    const dx=tip.x-dip.x,dy=tip.y-dip.y,len=Math.hypot(dx,dy)||1;
+  // Finger separation verticals (3 lines between 4 fingers)
+  [[0.40,1],[0.54,2],[0.66,3]].forEach(([x,ci])=>{
     ctx.save();
-    ctx.strokeStyle=col;ctx.lineWidth=0.7;ctx.shadowBlur=0;ctx.globalAlpha=0.32;
-    ctx.beginPath();ctx.moveTo(tip.x,tip.y);ctx.lineTo(tip.x+dx/len*26,tip.y+dy/len*26);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(...p(x,0.17));ctx.lineTo(...p(x,0.32));
+    ctx.strokeStyle=FINGER_COLS[ci];ctx.lineWidth=1;ctx.shadowBlur=3;ctx.shadowColor=FINGER_COLS[ci];ctx.globalAlpha=0.55;ctx.stroke();ctx.restore();
+  });
+
+  // Thumb diagonal separation
+  ctx.save();
+  ctx.beginPath();ctx.moveTo(...p(0.16,0.27));ctx.lineTo(...p(0.09,0.62));
+  ctx.strokeStyle=C.pnk;ctx.lineWidth=1.2;ctx.shadowBlur=5;ctx.shadowColor=C.pnk;ctx.globalAlpha=0.65;ctx.stroke();ctx.restore();
+
+  // Wrist line
+  ctx.save();
+  ctx.beginPath();ctx.moveTo(...p(0.22,0.74));ctx.lineTo(...p(0.64,0.74));
+  ctx.strokeStyle=C.ora;ctx.lineWidth=1;ctx.shadowBlur=3;ctx.shadowColor=C.ora;ctx.globalAlpha=0.5;ctx.stroke();ctx.restore();
+
+  // Palm diagonal facets (subtle wireframe feel)
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(...p(0.20,0.32));ctx.lineTo(...p(0.80,0.74));  // main diagonal
+  ctx.moveTo(...p(0.80,0.34));ctx.lineTo(...p(0.22,0.74));  // cross diagonal
+  ctx.strokeStyle=C.sky;ctx.lineWidth=0.7;ctx.shadowBlur=0;ctx.globalAlpha=0.22;ctx.stroke();ctx.restore();
+
+  // ── KNUCKLE GLOW DOTS ──────────────────────────────────────────
+  for(let i=0;i<4;i++){
+    ctx.save();
+    ctx.beginPath();ctx.arc(kn[i][0],kn[i][1],4,0,Math.PI*2);
+    ctx.fillStyle=kCols[i];ctx.shadowBlur=14;ctx.shadowColor=kCols[i];ctx.globalAlpha=1;ctx.fill();
     ctx.restore();
   }
   ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
-// ── Banner title ──────────────────────────────────────────────────
-function drawBannerTitle(cx,cy){
+// ── Mode button (CLASSIC / BLITZ) ─────────────────────────────────
+function drawModeBtn(x,y,w,h,c1,c2,label){
   ctx.save();
-  const cw=canvas.width;
-  const boxW=cw*0.4,boxH=cw*0.115,gap=cw*0.018;
-  const totalW=boxW*2+gap;
-  const lx=cx-totalW/2,rx=cx+gap/2;
-  const fs=Math.min(boxW*0.38,boxH*0.6);
-  ctx.font=`bold ${Math.floor(fs)}px 'Courier New',monospace`;
+  // Dark fill
+  ctx.fillStyle='rgba(0,0,0,0.55)';
+  ctx.beginPath();ctx.roundRect(x,y,w,h,10);ctx.fill();
+  // Glowing border
+  const grad=ctx.createLinearGradient(x,y,x+w,y+h);
+  grad.addColorStop(0,c1);grad.addColorStop(1,c2);
+  ctx.strokeStyle=grad;ctx.lineWidth=2.5;ctx.shadowBlur=18;ctx.shadowColor=c1;
+  ctx.beginPath();ctx.roundRect(x,y,w,h,10);ctx.stroke();
+  // Label
+  const tg=ctx.createLinearGradient(x,y,x+w,y+h);
+  tg.addColorStop(0,c1);tg.addColorStop(1,c2);
+  ctx.fillStyle=tg;ctx.shadowBlur=12;ctx.shadowColor=c1;
   ctx.textAlign='center';ctx.textBaseline='middle';
-
-  // Draws a scroll-tab hex shape: top corners chamfered
-  function scrollPath(x,y,w,h,ins){
-    const cut=(h-ins*2)*0.32;
-    ctx.beginPath();
-    ctx.moveTo(x+ins+cut, y+ins);
-    ctx.lineTo(x+w-ins-cut, y+ins);
-    ctx.lineTo(x+w-ins, y+ins+cut);
-    ctx.lineTo(x+w-ins, y+h-ins);
-    ctx.lineTo(x+ins, y+h-ins);
-    ctx.lineTo(x+ins, y+ins+cut);
-    ctx.closePath();
-  }
-
-  function drawTab(x,y,w,h,c1,c2,label,yOff){
-    const grad=ctx.createLinearGradient(x,y,x+w,y+h);
-    grad.addColorStop(0,c1);grad.addColorStop(1,c2);
-    // Outer glow stroke
-    ctx.shadowBlur=0;ctx.strokeStyle=grad;ctx.lineWidth=2.8;
-    scrollPath(x,y+yOff,w,h,0);ctx.stroke();
-    // Inner inset stroke
-    ctx.shadowBlur=0;ctx.lineWidth=1.2;
-    scrollPath(x,y+yOff,w,h,4);ctx.stroke();
-    // Text
-    const tg=ctx.createLinearGradient(x,y+yOff,x+w,y+yOff+h);
-    tg.addColorStop(0,c1);tg.addColorStop(1,c2);
-    ctx.fillStyle=tg;ctx.shadowBlur=0;
-    ctx.fillText(label,x+w/2,y+yOff+h/2);
-  }
-
-  drawTab(lx,cy,boxW,boxH,'#EE1122','#FF6600','VECTOR',6);
-  drawTab(rx,cy,boxW,boxH,'#00FFCC','#3366FF','ROCKET',0);
+  ctx.font=`bold ${Math.min(Math.floor(w*0.26),20)}px 'Courier New',monospace`;
+  ctx.fillText(label,x+w/2,y+h/2);
   ctx.restore();
 }
 
@@ -829,7 +852,7 @@ function drawLightning(x1,y1,x2,y2,col,segs=5){
   pts.push([x2,y2]);
   ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
   for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
-  ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.shadowBlur=0;
+  ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.shadowBlur=10;ctx.shadowColor=col;
   ctx.globalAlpha=0.85;ctx.stroke();ctx.restore();
 }
 function draw4Star(x,y,r,col){
@@ -840,7 +863,7 @@ function draw4Star(x,y,r,col){
     i===0?ctx.moveTo(x+Math.cos(a)*radius,y+Math.sin(a)*radius):ctx.lineTo(x+Math.cos(a)*radius,y+Math.sin(a)*radius);
   }
   ctx.closePath();
-  ctx.fillStyle=col;ctx.shadowBlur=0;ctx.globalAlpha=0.7;ctx.fill();
+  ctx.fillStyle=col;ctx.shadowBlur=8;ctx.shadowColor=col;ctx.globalAlpha=0.7;ctx.fill();
   ctx.restore();
 }
 
@@ -848,97 +871,78 @@ function draw4Star(x,y,r,col){
 // ── Start screen ──────────────────────────────────────────────────
 let startRockets=null;
 function initStartRockets(){
-  startRockets=[new Rocket('scout',0.55),new Rocket('cruiser',0.45),new Rocket('scout',0.50)];
-  startRockets[0].x=canvas.width*0.82;startRockets[0].y=canvas.height*0.28;  // right
-  startRockets[1].x=canvas.width*0.86;startRockets[1].y=canvas.height*0.50;  // right
-  startRockets[2].x=canvas.width*0.16;startRockets[2].y=canvas.height*0.38;  // LEFT
+  startRockets=[
+    new Rocket('scout',0.55),new Rocket('cruiser',0.40),new Rocket('scout',0.48),
+    new Rocket('scout',0.62),new Rocket('cruiser',0.35)
+  ];
+  const cw=canvas.width,ch=canvas.height;
+  startRockets[0].x=cw*0.80;startRockets[0].y=ch*0.52;
+  startRockets[1].x=cw*0.88;startRockets[1].y=ch*0.68;
+  startRockets[2].x=cw*0.18;startRockets[2].y=ch*0.58;
+  startRockets[3].x=cw*0.70;startRockets[3].y=ch*0.40;
+  startRockets[4].x=cw*0.22;startRockets[4].y=ch*0.74;
 }
 function drawStartScreen(time){
   drawBg();
   const cw=canvas.width,ch=canvas.height,cx=cw/2;
+  const sz=(f,mx)=>Math.min(Math.floor(cw*f),mx);
+
+  // Ambient rockets
   if(!startRockets) initStartRockets();
-  for(const r of startRockets){r.updateZ(time);r.update(1/60,null);r.draw();}
-  draw4Star(cw-30,ch-30,12,C.wht);
-  // Poly fist (closed)
-  const fistScale=Math.min(cw,ch)*0.20;
-  const fistY=ch*0.42;
-  drawPolyHand(cx,fistY,fistScale*1.5,fistScale*1.7,time);
-  // Beams from fist knuckles (top of fist)
-  const beamOriginY=fistY-fistScale*0.22;
-  const beamTargetY=ch*0.70;
-  for(let i=0;i<BEAM_COLS.length;i++){
-    const off=(i-BEAM_COLS.length/2)*2.8;
-    ctx.save();
-    ctx.globalAlpha=0.55+0.1*Math.sin(time*3+i);
-    ctx.strokeStyle=BEAM_COLS[i];ctx.lineWidth=1.5;ctx.shadowBlur=0;
-    ctx.beginPath();ctx.moveTo(cx+off,beamOriginY);ctx.lineTo(cx+off,beamTargetY);ctx.stroke();
-    ctx.restore();
-  }
-  // Big target rocket with large starburst
-  const bigR=new Rocket('dreadnought',1.0);
-  bigR.x=cx;bigR.y=beamTargetY;bigR.vx=1;bigR.vy=0;bigR.alive=true;
-  for(let i=0;i<16;i++){
-    const a=(i/16)*Math.PI*2+time*0.5,rLen=48+30*Math.sin(time*4+i);
-    ctx.save();
-    ctx.globalAlpha=0.45+0.3*Math.sin(time*3+i);
-    ctx.strokeStyle=BEAM_COLS[i%BEAM_COLS.length];ctx.lineWidth=1.4;ctx.shadowBlur=0;
-    ctx.beginPath();ctx.moveTo(cx,beamTargetY);ctx.lineTo(cx+Math.cos(a)*rLen,beamTargetY+Math.sin(a)*rLen);ctx.stroke();ctx.restore();
-  }
-  // Debris fragments orbiting the explosion
-  for(let i=0;i<4;i++){
-    const da=(i/4)*Math.PI*2+time*0.85,dr=60+i*16;
-    const fx=cx+Math.cos(da)*dr,fy=beamTargetY+Math.sin(da)*dr;
-    ctx.save();ctx.translate(fx,fy);ctx.rotate(time*1.3+i);
-    ctx.strokeStyle=BEAM_COLS[i*2];ctx.lineWidth=1.1;ctx.shadowBlur=0;ctx.globalAlpha=0.65;
-    ctx.beginPath();ctx.moveTo(-5,-3);ctx.lineTo(5,-3);ctx.lineTo(3,5);ctx.closePath();ctx.stroke();
-    ctx.restore();
-  }
-  bigR.drawRocket(cx,beamTargetY,0,bigR.sz);
-  const impGrad=ctx.createRadialGradient(cx,beamTargetY,0,cx,beamTargetY,70+14*Math.sin(time*4));
-  impGrad.addColorStop(0,`rgba(255,200,50,${0.4+0.15*Math.sin(time*4)})`);impGrad.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=impGrad;ctx.fillRect(cx-100,beamTargetY-100,200,200);
-  // Title
-  const titleY=ch*0.03;
-  drawBannerTitle(cx,titleY);
-  if(Math.floor(time*4)%3!==0){
-    drawLightning(cx-cw*0.44,titleY+cw*0.04,cx-cw*0.22,titleY+cw*0.13,'#EE1122');
-    drawLightning(cx+cw*0.22,titleY+cw*0.04,cx+cw*0.44,titleY+cw*0.13,'#00FFCC');
-  }
-  // Hi score top-right
+  for(const r of startRockets){r.update(1/60,null);r.draw();}
+
+  // Hi score — top right, unobstructed
   if(hiScore>0){
     ctx.save();
-    ctx.font=`${Math.floor(cw*0.03)}px 'Courier New',monospace`;
-    ctx.fillStyle=C.yel;ctx.textAlign='right';ctx.shadowBlur=0;
-    ctx.fillText(`HI: ${String(hiScore).padStart(6,'0')}`,cw-12,28);
+    ctx.font=`${sz(0.034,14)}px 'Courier New',monospace`;
+    ctx.fillStyle=C.yel;ctx.textAlign='right';ctx.shadowBlur=6;ctx.shadowColor=C.yel;
+    ctx.fillText(`HI: ${String(hiScore).padStart(6,'0')}`,cw-12,26);
     ctx.restore();
   }
-  // Mode select buttons
-  const btnY=ch*0.895,btnH=ch*0.065,btnW=cw*0.42,gap=cw*0.04;
-  const lbx=cx-gap/2-btnW,rbx=cx+gap/2;
-  function modeBtn(x,y,w,h,label,sub,col){
-    ctx.save();
-    ctx.strokeStyle=col;ctx.lineWidth=1.2;ctx.globalAlpha=0.85;
-    ctx.strokeRect(x,y,w,h);
-    ctx.font=`bold ${Math.floor(w*0.135)}px 'Courier New',monospace`;
-    ctx.fillStyle=col;ctx.textAlign='center';ctx.fillText(label,x+w/2,y+h*0.52);
-    ctx.font=`${Math.floor(w*0.075)}px 'Courier New',monospace`;
-    ctx.fillStyle=C.wht;ctx.globalAlpha=0.6;ctx.fillText(sub,x+w/2,y+h*0.84);
-    ctx.restore();
-  }
-  modeBtn(lbx,btnY,btnW,btnH,'CLASSIC','WAVES',C.cyan);
-  modeBtn(rbx,btnY,btnW,btnH,'BLITZ','60 SEC',C.ora);
-  // HOW TO PLAY
+
+  // VECTOR ROCKET — large gradient text, no box
   ctx.save();
   ctx.textAlign='center';
-  const hdrSz=Math.floor(cw*0.032),bodySz=Math.floor(cw*0.026),lh=cw*0.042,instrY=ch*0.87;
-  ctx.font=`bold ${hdrSz}px 'Courier New',monospace`;
-  ctx.fillStyle=C.cyan;ctx.shadowBlur=0;ctx.fillText('HOW TO PLAY',cx,instrY);
-  ctx.font=`${bodySz}px 'Courier New',monospace`;
-  ctx.fillStyle=C.sky;ctx.shadowBlur=0;
-  ctx.fillText('PINCH FINGERS TOGETHER  ›  AIM + LOCK ON',cx,instrY+lh);
-  ctx.fillText('FLICK OTHER FINGER  ›  PLUCK BAND',cx,instrY+lh*2);
-  ctx.fillText('PINCH THUMB+INDEX  ›  EMERGENCY BLAST (x3)',cx,instrY+lh*3);
+  const titleSz=sz(0.115,50);
+  ctx.font=`bold ${titleSz}px 'Courier New',monospace`;
+  const tg=ctx.createLinearGradient(cx-cw*0.4,0,cx+cw*0.4,0);
+  tg.addColorStop(0,C.cyan);tg.addColorStop(0.5,C.wht);tg.addColorStop(1,C.mag);
+  ctx.fillStyle=tg;ctx.shadowBlur=24;ctx.shadowColor=C.cyan;
+  ctx.fillText('VECTOR',cx,ch*0.11);
+  ctx.shadowColor=C.mag;
+  ctx.fillText('ROCKET',cx,ch*0.11+titleSz*1.15);
   ctx.restore();
+
+  // HOW TO PLAY — directly under title
+  ctx.save();
+  ctx.textAlign='center';
+  const hdrSz=sz(0.034,14),bodySz=sz(0.028,12),lh=sz(0.048,20);
+  const instrY=ch*0.11+titleSz*1.15+lh*1.8;
+  ctx.font=`bold ${hdrSz}px 'Courier New',monospace`;
+  ctx.fillStyle='#00FFCC';ctx.shadowBlur=6;ctx.shadowColor='#00FFCC';
+  ctx.fillText('— HOW TO PLAY —',cx,instrY);
+  ctx.font=`${bodySz}px 'Courier New',monospace`;
+  ctx.fillStyle='#00CCAA';ctx.shadowBlur=3;ctx.shadowColor='#00CCAA';
+  ctx.fillText('CURL INDEX FINGER  ›  LOCK ON',cx,instrY+lh*1.4);
+  ctx.fillText('FLICK OUT  ›  FIRE SHOT',cx,instrY+lh*2.5);
+  ctx.fillText('PINCH THUMB+INDEX  ›  BLAST (x3)',cx,instrY+lh*3.6);
+  ctx.restore();
+
+  // Mode buttons — CLASSIC (left) and BLITZ (right) at bottom
+  const btnW=cw*0.38,btnH=Math.min(Math.floor(ch*0.068),54),btnY=ch*0.82;
+  const classicX=cx-btnW-cw*0.03;
+  const blitzX=cx+cw*0.03;
+  drawModeBtn(classicX,btnY,btnW,btnH,C.cyan,C.sky,'CLASSIC');
+  drawModeBtn(blitzX,btnY,btnW,btnH,C.yel,C.ora,'\u26A1 BLITZ');
+  _blitzBtnRect={x:blitzX,y:btnY,w:btnW,h:btnH};
+
+  // Subtle prompt below buttons
+  ctx.save();
+  ctx.font=`${sz(0.026,11)}px 'Courier New',monospace`;
+  ctx.fillStyle='#223322';ctx.textAlign='center';ctx.globalAlpha=0.55;
+  ctx.fillText('TAP CLASSIC TO START  ·  BLITZ = 60s SURVIVAL',cx,btnY+btnH+sz(0.04,17));
+  ctx.restore();
+
   ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
@@ -949,50 +953,32 @@ function drawGameOver(time){
   const newHi=score>0&&score>=hiScore;
   ctx.save();ctx.textAlign='center';
   // GAME OVER
-  ctx.font=`bold ${Math.floor(cw*0.11)}px 'Courier New',monospace`;
+  const sz=(f,mx)=>Math.min(Math.floor(cw*f),mx);
+  ctx.font=`bold ${sz(0.11,48)}px 'Courier New',monospace`;
   const gog=ctx.createLinearGradient(0,ch*0.28,cw,ch*0.38);
-  gog.addColorStop(0,'#EE1122');gog.addColorStop(1,'#FF6600');
-  ctx.fillStyle=gog;ctx.shadowBlur=0;ctx.fillText('GAME OVER',cx,ch*0.32);
-  // Wave
-  ctx.font=`${Math.floor(cw*0.045)}px 'Courier New',monospace`;
-  ctx.fillStyle=C.cyan;ctx.shadowBlur=0;
+  gog.addColorStop(0,'#FF2200');gog.addColorStop(1,'#FF8800');
+  ctx.fillStyle=gog;ctx.shadowBlur=22;ctx.shadowColor='#FF4400';ctx.fillText('GAME OVER',cx,ch*0.32);
+  ctx.font=`${sz(0.045,20)}px 'Courier New',monospace`;
+  ctx.fillStyle=C.sky;ctx.shadowColor=C.sky;ctx.shadowBlur=8;
   ctx.fillText(`WAVE REACHED: ${waveNum}`,cx,ch*0.43);
-  // Score
-  ctx.font=`bold ${Math.floor(cw*0.065)}px 'Courier New',monospace`;
-  ctx.fillStyle=C.yel;ctx.shadowBlur=0;
+  ctx.font=`bold ${sz(0.065,28)}px 'Courier New',monospace`;
+  ctx.fillStyle=C.yel;ctx.shadowColor=C.yel;ctx.shadowBlur=12;
   ctx.fillText(`SCORE: ${String(score).padStart(6,'0')}`,cx,ch*0.535);
-  // Hi
-  ctx.font=`${Math.floor(cw*0.04)}px 'Courier New',monospace`;
+  ctx.font=`${sz(0.04,18)}px 'Courier New',monospace`;
   if(newHi){
     const flash=Math.sin(time*6)>0;
-    ctx.fillStyle=flash?'#FFD700':'#FF8800';ctx.shadowBlur=0;
+    ctx.fillStyle=flash?'#FFD700':'#FF8800';ctx.shadowColor='#FFD700';ctx.shadowBlur=16;
     ctx.fillText('★ NEW HIGH SCORE! ★',cx,ch*0.625);
   } else {
     ctx.fillStyle='#445544';ctx.shadowBlur=0;
     ctx.fillText(`BEST: ${String(hiScore).padStart(6,'0')}`,cx,ch*0.625);
   }
-  // Play again
   if(Math.floor(time*2)%2===0){
-    ctx.font=`bold ${Math.floor(cw*0.052)}px 'Courier New',monospace`;
-    ctx.fillStyle=C.grn;ctx.shadowBlur=0;
-    ctx.fillText('► TAP TO PLAY AGAIN ◄',cx,ch*0.76);
+    ctx.font=`bold ${sz(0.052,22)}px 'Courier New',monospace`;
+    ctx.fillStyle=C.grn;ctx.shadowBlur=14;ctx.shadowColor=C.grn;
+    ctx.fillText('► PLAY AGAIN ◄',cx,ch*0.78);
   }
-  // Share button
-  ctx.font=`bold ${Math.floor(cw*0.042)}px 'Courier New',monospace`;
-  ctx.strokeStyle=C.yel;ctx.lineWidth=1.2;ctx.globalAlpha=0.8;
-  const sbw=cw*0.58,sbh=ch*0.055,sbx=cx-sbw/2,sby=ch*0.84;
-  ctx.strokeRect(sbx,sby,sbw,sbh);
-  ctx.fillStyle=C.yel;ctx.globalAlpha=0.9;
-  ctx.fillText('⬆ SHARE SCORE',cx,sby+sbh*0.68);
   ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;
-}
-// Share action — wired to game over tap
-function tryShare(){
-  if(state!=='gameover') return;
-  const modeLabel=gameMode==='blitz'?'60s BLITZ':'WAVE '+waveNum;
-  const txt=`I scored ${score} in Vector Rocket (${modeLabel})! Can you beat me? 🚀\nhttps://zitro3d.github.io/Mobile_Creative_Creations/`;
-  if(navigator.share){navigator.share({title:'Vector Rocket',text:txt}).catch(()=>{});}
-  else{navigator.clipboard.writeText(txt).then(()=>alert('Score copied to clipboard!')).catch(()=>{});}
 }
 
 // ── Threat indicators ─────────────────────────────────────────────
@@ -1021,14 +1007,14 @@ function drawWaveAnnouncer(){
   const a=Math.min(1,waveAnncTimer*3);
   const cw=canvas.width,ch=canvas.height;
   ctx.save();ctx.textAlign='center';
-  ctx.font=`bold ${Math.floor(cw*0.12)}px 'Courier New',monospace`;
+  ctx.font=`bold ${Math.min(Math.floor(cw*0.12),52)}px 'Courier New',monospace`;
   const wg=ctx.createLinearGradient(0,ch*0.41,cw,ch*0.55);
-  wg.addColorStop(0,'#FFCC00');wg.addColorStop(1,'#00FFCC');
-  ctx.fillStyle=wg;ctx.shadowBlur=0;ctx.globalAlpha=a;
+  wg.addColorStop(0,'#00FFFF');wg.addColorStop(1,'#0044FF');
+  ctx.fillStyle=wg;ctx.shadowBlur=28;ctx.shadowColor='#00FFFF';ctx.globalAlpha=a;
   ctx.fillText(waveAnncText,cw/2,ch*0.47);
   if(waveAnncSub){
-    ctx.font=`${Math.floor(cw*0.05)}px 'Courier New',monospace`;
-    ctx.fillStyle=C.yel;ctx.shadowBlur=0;
+    ctx.font=`${Math.min(Math.floor(cw*0.05),22)}px 'Courier New',monospace`;
+    ctx.fillStyle=C.yel;ctx.shadowColor=C.yel;ctx.shadowBlur=12;
     ctx.fillText(waveAnncSub,cw/2,ch*0.58);
   }
   ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;
@@ -1037,62 +1023,70 @@ function drawWaveAnnouncer(){
 // ── HUD ───────────────────────────────────────────────────────────
 function drawHUD(){
   const cw=canvas.width;
+  const sz=(f,mx)=>Math.min(Math.floor(cw*f),mx); // cap font size for large screens
   ctx.save();
   ctx.textAlign='left';
   // Score
-  ctx.font=`bold ${Math.floor(cw*0.048)}px 'Courier New',monospace`;
-  ctx.fillStyle=C.cyan;ctx.shadowBlur=0;ctx.globalAlpha=0.9;
+  ctx.font=`bold ${sz(0.048,20)}px 'Courier New',monospace`;
+  ctx.fillStyle=C.yel;ctx.shadowBlur=8;ctx.shadowColor=C.yel;ctx.globalAlpha=0.9;
   ctx.fillText(`SCORE: ${String(score).padStart(6,'0')}`,14,38);
   // Combo
   if(combo>1){
-    ctx.font=`bold ${Math.floor(cw*0.038)}px 'Courier New',monospace`;
+    ctx.font=`bold ${sz(0.038,16)}px 'Courier New',monospace`;
     const cm=Math.min(combo,8);
     ctx.fillStyle=cm>=5?C.mag:cm>=3?C.ora:C.yel;
-    ctx.shadowBlur=0;
+    ctx.shadowColor=ctx.fillStyle;ctx.shadowBlur=10;
     ctx.fillText(`x${cm} COMBO`,14,68);
   }
-  // Pinch / hand status
-  ctx.font=`${Math.floor(cw*0.026)}px 'Courier New',monospace`;
+  // Hand status
+  ctx.font=`${sz(0.026,12)}px 'Courier New',monospace`;
   const yOff=combo>1?92:64;
   if(!handVisible){
     ctx.fillStyle='#334433';ctx.shadowBlur=0;ctx.globalAlpha=0.5;
     ctx.fillText('SHOW YOUR HAND',14,yOff);
-  } else if(fingertips[0]&&fingertips[1]){
-    const pd=Math.hypot(fingertips[1].x-fingertips[0].x,fingertips[1].y-fingertips[0].y);
-    if(pd<PINCH_TH&&blastCharges>0){
-      ctx.fillStyle=C.red;ctx.shadowBlur=0;ctx.globalAlpha=1;ctx.fillText('◉ FIRING!',14,yOff);
-    } else if(pd<90&&blastCharges>0){
-      ctx.fillStyle=C.yel;ctx.shadowBlur=0;ctx.globalAlpha=1;ctx.fillText('◎ ALMOST...',14,yOff);
+  } else {
+    const shootBand=bands.find(b=>b.canShoot);
+    if(shootBand){
+      if(shootBand.locked){
+        const charge=Math.min(1,(performance.now()-shootBand.lockedSince)/200);
+        if(charge>=1){
+          ctx.fillStyle=C.red;ctx.shadowColor=C.red;ctx.shadowBlur=8;ctx.globalAlpha=1;
+          ctx.fillText('▶ FLICK TO FIRE',14,yOff);
+        } else {
+          ctx.fillStyle=C.yel;ctx.shadowColor=C.yel;ctx.shadowBlur=6;ctx.globalAlpha=1;
+          ctx.fillText('◎ LOCKED ON',14,yOff);
+        }
+      } else {
+        ctx.fillStyle='#335533';ctx.shadowBlur=0;ctx.globalAlpha=0.6;
+        ctx.fillText('CURL INDEX TO AIM',14,yOff);
+      }
     }
+  }
+  // BLITZ countdown — top center
+  if(gameMode==='blitz'){
+    const tc=blitzTimeLeft<=10?C.red:blitzTimeLeft<=20?C.ora:C.yel;
+    ctx.save();
+    ctx.textAlign='center';
+    ctx.font=`bold ${sz(0.065,28)}px 'Courier New',monospace`;
+    ctx.fillStyle=tc;ctx.shadowColor=tc;
+    ctx.shadowBlur=blitzTimeLeft<=10?(Math.sin(Date.now()/120)*8+10):8;
+    ctx.globalAlpha=0.95;
+    ctx.fillText(`${Math.ceil(blitzTimeLeft)}s`,cw/2,38);
+    ctx.restore();
   }
   // Right side
   ctx.textAlign='right';
-  // Wave
-  ctx.font=`bold ${Math.floor(cw*0.04)}px 'Courier New',monospace`;
-  ctx.fillStyle=C.grn;ctx.shadowBlur=0;ctx.globalAlpha=0.9;
+  ctx.font=`bold ${sz(0.04,17)}px 'Courier New',monospace`;
+  ctx.fillStyle=C.sky;ctx.shadowBlur=8;ctx.shadowColor=C.sky;ctx.globalAlpha=0.9;
   ctx.fillText(`WAVE ${waveNum}`,cw-12,36);
-  // Lives
-  ctx.font=`${Math.floor(cw*0.038)}px 'Courier New',monospace`;
+  ctx.font=`${sz(0.038,16)}px 'Courier New',monospace`;
   let livStr='';for(let i=0;i<3;i++) livStr+=i<lives?'◆ ':'◇ ';
-  ctx.fillStyle=C.red;ctx.shadowBlur=0;ctx.fillText(livStr.trim(),cw-12,68);
-  // Blast charges
-  ctx.font=`${Math.floor(cw*0.03)}px 'Courier New',monospace`;
+  ctx.fillStyle=C.pnk;ctx.shadowColor=C.pnk;ctx.shadowBlur=6;ctx.fillText(livStr.trim(),cw-12,68);
+  ctx.font=`${sz(0.03,13)}px 'Courier New',monospace`;
   let blStr='BLAST: ';for(let i=0;i<3;i++) blStr+=i<blastCharges?'⚡':'·';
   ctx.fillStyle=blastCharges>0?C.yel:'#334433';
-  ctx.shadowBlur=0;
+  ctx.shadowColor=blastCharges>0?C.yel:'transparent';ctx.shadowBlur=blastCharges>0?6:0;
   ctx.fillText(blStr,cw-12,94);
-  // Blitz countdown
-  if(gameMode==='blitz'){
-    const secs=Math.ceil(Math.max(0,blitzTimer));
-    const urgentCol=secs<=10?C.red:secs<=20?C.ora:C.cyan;
-    ctx.textAlign='center';
-    ctx.font=`bold ${Math.floor(cw*0.11)}px 'Courier New',monospace`;
-    ctx.fillStyle=urgentCol;ctx.globalAlpha=secs<=10?(0.7+0.3*Math.sin(Date.now()*0.01)):0.75;
-    ctx.fillText(String(secs).padStart(2,'0'),cw/2,canvas.height-22);
-    ctx.globalAlpha=0.9;
-    ctx.font=`${Math.floor(cw*0.028)}px 'Courier New',monospace`;
-    ctx.fillStyle=C.wht;ctx.fillText('BLITZ',cw/2,canvas.height-52);
-  }
   ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 
@@ -1104,8 +1098,8 @@ function drawComboPops(dt){
     if(p.life<=0){comboPops.splice(i,1);continue;}
     const a=p.life/p.maxLife;
     ctx.save();ctx.textAlign='center';
-    ctx.font=`bold ${Math.floor(canvas.width*0.072*a+canvas.width*0.03)}px 'Courier New',monospace`;
-    ctx.fillStyle=`rgba(255,200,0,${a})`;ctx.shadowBlur=0;ctx.globalAlpha=a;
+    ctx.font=`bold ${Math.min(Math.floor(canvas.width*0.072*a+canvas.width*0.03),36)}px 'Courier New',monospace`;
+    ctx.fillStyle=`rgba(255,200,0,${a})`;ctx.shadowBlur=16;ctx.shadowColor='#FFD700';ctx.globalAlpha=a;
     ctx.fillText(p.text,p.x,p.y-35*(1-a));
     ctx.restore();
   }
@@ -1141,13 +1135,21 @@ function fireBlast(center,tips,beams){
 
 // ── Game state ────────────────────────────────────────────────────
 let state='start';
+let gameMode='classic'; // 'classic' | 'blitz'
+let blitzTimeLeft=0;
+let _blitzBtnRect=null; // set during drawStartScreen, used by tap handler
 let fingertips=Array(5).fill(null);
 let allLandmarks=null,handVisible=false;
+let _smoothTips=Array(5).fill(null);
+let _lastHandTs=0;
+let _lmA=null,_lmB=null,_lmAts=0,_lmBts=0;
+let _palmScale=120; // px: palm size, EMA smoothed — used to normalize pinch threshold
+let _indexCurl=999; // px: index tip→knuckle distance, low = curled/locked
+let bursts=[];      // fire burst rings
 let bands=[],beams=[],rockets=[],shots=[];
 let score=0,lives=3,combo=1,waveNum=1;
 let waveKillsNeeded=0,waveState='active',waveTimer=0;
 let lastTs=0,running=false,trackingStarted=false;
-let globalShotCooldown=0; // prevents mass-fire when multiple bands arm at once
 const WAVE_BONUS=500;
 
 function spawnWave(wave){
@@ -1161,102 +1163,113 @@ function spawnWave(wave){
 }
 
 function initGame(){
-  bands=BAND_PAIRS.map(([a,b],i)=>new Band(a,b,i));
-  beams=[];shots=[];comboPops.length=0;hitFlashes=[];muzzleFlashes=[];
+  // 4 adjacent bands: thumb-index (shoots), others pluck-only
+  const ADJ=[[0,1,0,true],[1,2,1,false],[2,3,2,false],[3,4,3,false]];
+  bands=ADJ.map(([a,b,ci,shoot])=>new Band(a,b,ci,shoot));
+  bursts=[];
+  beams=[];shots=[];comboPops.length=0;
   score=0;lives=3;combo=1;waveNum=1;
   wasPinched=false;pinchCooldown=0;blastCharges=3;
-  shakeAmt=0;globalShotCooldown=0;waveState='active';waveTimer=0;
+  shakeAmt=0;waveState='active';waveTimer=0;
   waveAnncText='';waveAnncSub='';waveAnncTimer=0;
-  blitzTimer=BLITZ_TIME;tutorialDone=false;tutorialAlpha=1;
+  blitzTimeLeft=gameMode==='blitz'?60:0;
   spawnWave(1);
   playStartChord();
 }
 
-// ── MediaPipe ─────────────────────────────────────────────────────
-let _smoothTips=Array(5).fill(null);
-const EMA=0.6;
-let _lastHandTs=0;
-// Interpolation state — store two consecutive landmark sets + timestamps
-let _lmA=null,_lmB=null,_lmAts=0,_lmBts=0;
-// Returns predicted landmark positions for RIGHT NOW (smooth 60fps)
-// by extrapolating from the last two MediaPipe results
+// ── Hand interpolation (60fps visual from 15fps detection) ────────
 function getDisplayLM(){
   if(!_lmB) return allLandmarks;
   if(!_lmA) return _lmB;
   const now=performance.now(),dt=_lmBts-_lmAts;
   if(dt<10) return _lmB;
-  const t=Math.min(1.5,(now-_lmBts)/dt); // extrapolate up to 1.5x interval
+  const t=Math.min(1.5,(now-_lmBts)/dt);
   return _lmB.map((b,i)=>({x:b.x+t*(b.x-_lmA[i].x),y:b.y+t*(b.y-_lmA[i].y)}));
 }
 
-function initTracking(){
-  const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-  hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.5,minTrackingConfidence:0.4});
-  hands.onResults(res=>{
+// ── MediaPipe ─────────────────────────────────────────────────────
+async function initTracking(){
+  try{
+    const{HandLandmarker,FilesetResolver}=window;
+    if(!HandLandmarker||!FilesetResolver){console.error('tasks-vision not loaded');return;}
+    const vision=await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm'
+    );
+    // Try GPU first, fall back to CPU
+    let hl;
     try{
-      const now=performance.now();
-      _lastHandTs=now;
-      fingertips=Array(5).fill(null);allLandmarks=null;handVisible=false;
-      if(res.multiHandLandmarks&&res.multiHandLandmarks.length>0){
-        handVisible=true;
-        const lm=res.multiHandLandmarks[0];
-        const newLM=lm.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
-        // Roll interpolation buffer: A=previous, B=current
-        _lmA=_lmB; _lmAts=_lmBts;
-        _lmB=newLM; _lmBts=now;
-        allLandmarks=newLM;
-        // EMA-smooth fingertips for gesture detection
-        for(let i=0;i<5;i++){
-          const p=lm[TIP_IDX[i]];
-          const raw={x:(1-p.x)*canvas.width,y:p.y*canvas.height};
-          const prev=_smoothTips[i];
-          if(!prev){_smoothTips[i]=raw;}
-          else{
-            const d=Math.hypot(raw.x-prev.x,raw.y-prev.y);
-            if(d>4) _smoothTips[i]={x:prev.x+EMA*(raw.x-prev.x),y:prev.y+EMA*(raw.y-prev.y)};
-          }
-          fingertips[i]=_smoothTips[i];
-        }
-      } else {
-        _smoothTips=Array(5).fill(null);
-        _lmA=null;_lmB=null;
-      }
-    }catch(e){console.warn('hand result',e);}
-  });
-
-  navigator.mediaDevices.getUserMedia({
-    video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:15,max:20}}
-  }).then(stream=>{
+      hl=await HandLandmarker.createFromOptions(vision,{
+        baseOptions:{
+          modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+          delegate:'GPU'
+        },
+        runningMode:'VIDEO',numHands:1
+      });
+    }catch(gpuErr){
+      console.warn('GPU unavailable, using CPU',gpuErr);
+      hl=await HandLandmarker.createFromOptions(vision,{
+        baseOptions:{
+          modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+          delegate:'CPU'
+        },
+        runningMode:'VIDEO',numHands:1
+      });
+    }
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:30,max:30}}
+    });
     video.srcObject=stream;
-    video.onloadeddata=()=>{
-      const mpCv=document.createElement('canvas');
-      mpCv.width=160;mpCv.height=120;
-      const mpCtx=mpCv.getContext('2d');
-      let _busy=false;
-      // 8fps inference — independent of render loop
-      setInterval(async()=>{
-        if(_busy||state!=='playing'||video.readyState<2) return;
-        _busy=true;
-        try{mpCtx.drawImage(video,0,0,160,120);await hands.send({image:mpCv});}
-        catch(e){console.warn('send',e);}
-        finally{_busy=false;}
-      },125);
-    };
-    video.play().catch(e=>console.error(e));
-  }).catch(e=>console.error('cam',e));
+    await video.play();
+    // Process frames at ~15fps, synced to video decoder
+    let lastTs2=0;
+    function processFrame(now){
+      video.requestVideoFrameCallback(processFrame);
+      if(state!=='playing'||video.readyState<2) return;
+      if(now-lastTs2<66) return; // ~15fps cap
+      lastTs2=now;
+      try{
+        const r=hl.detectForVideo(video,now);
+        _lastHandTs=now;
+        fingertips=Array(5).fill(null);allLandmarks=null;handVisible=false;
+        const lms=r.landmarks&&r.landmarks[0];
+        if(lms&&lms.length===21){
+          handVisible=true;
+          const newLM=lms.map(p=>({x:(1-p.x)*canvas.width,y:p.y*canvas.height}));
+          _lmA=_lmB;_lmAts=_lmBts;
+          _lmB=newLM;_lmBts=now;
+          allLandmarks=newLM;
+          // Palm size: wrist(0) → mid-knuckle(9), EMA smoothed
+          const ps=Math.hypot(newLM[9].x-newLM[0].x,newLM[9].y-newLM[0].y);
+          _palmScale=ps*0.15+_palmScale*0.85;
+          // Index curl: tip(8) → knuckle(5), small = curled, EMA smoothed
+          const ic=Math.hypot(newLM[8].x-newLM[5].x,newLM[8].y-newLM[5].y);
+          _indexCurl=ic*0.5+_indexCurl*0.5;
+          for(let i=0;i<5;i++){
+            const raw={x:(1-lms[TIP_IDX[i]].x)*canvas.width,y:lms[TIP_IDX[i]].y*canvas.height};
+            const prev=_smoothTips[i];
+            if(!prev){_smoothTips[i]=raw;}
+            else{
+              const d=Math.hypot(raw.x-prev.x,raw.y-prev.y);
+              if(d>4) _smoothTips[i]={x:prev.x+EMA*(raw.x-prev.x),y:prev.y+EMA*(raw.y-prev.y)};
+            }
+            fingertips[i]=_smoothTips[i];
+          }
+        } else {
+          _smoothTips=Array(5).fill(null);_lmA=null;_lmB=null;
+        }
+      }catch(e){console.warn('detect',e);}
+    }
+    video.requestVideoFrameCallback(processFrame);
+  }catch(e){console.error('initTracking',e);}
 }
 
 // ── Render loop ───────────────────────────────────────────────────
 function loop(ts){
   if(!running) return;
   requestAnimationFrame(loop);
-  try{
   const dt=Math.min((ts-lastTs)/1000,0.05);lastTs=ts;
   const time=ts/1000;
-  // Clear stale hand state if MediaPipe hasn't reported in 800ms
-  if(handVisible&&(ts-_lastHandTs)>800){
-    handVisible=false;fingertips=Array(5).fill(null);allLandmarks=null;_smoothTips=Array(5).fill(null);
-  }
+
   if(state==='start'){drawStartScreen(time);return;}
   if(state==='gameover'){drawGameOver(time);return;}
 
@@ -1277,108 +1290,60 @@ function loop(ts){
     handCenter={x:vt.reduce((s,t)=>s+t.x,0)/vt.length,y:vt.reduce((s,t)=>s+t.y,0)/vt.length};
   }
 
-  // Interpolated display landmarks — smooth 60fps visual even at 8fps inference
-  const dispLM=handVisible?getDisplayLM():null;
-  // Display fingertips (for band.draw visual) — from interpolated landmarks
-  const dispTips=dispLM?TIP_IDX.map(i=>dispLM[i]):fingertips;
-
-  // Hand bones wireframe (drawn under bands)
-  if(dispLM&&dispLM.length===21){
-    ctx.save();ctx.lineWidth=1.0;ctx.globalAlpha=0.5;ctx.shadowBlur=0;ctx.lineCap='round';
-    for(const[a,b] of HAND_CONNECTIONS){
-      const pa=dispLM[a],pb=dispLM[b];
-      if(!pa||!pb) continue;
-      const fi=fingerOf(Math.max(a,b));
-      ctx.strokeStyle=FINGER_COLS[Math.min(fi,4)];
-      ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();
-    }
-    ctx.restore();
-    drawHandOverlay(dispLM);
+  // Stale hand: clear if no detection for 800ms
+  if(handVisible&&(ts-_lastHandTs)>800){
+    handVisible=false;fingertips=Array(5).fill(null);allLandmarks=null;
+    _smoothTips=Array(5).fill(null);_lmA=null;_lmB=null;_indexCurl=999;
   }
 
   // Bands — update, slingshot, draw
-  globalShotCooldown=Math.max(0,globalShotCooldown-dt);
   if(handVisible){
+    const dispLM=getDisplayLM();
+    const dispTips=dispLM?TIP_IDX.map(i=>dispLM[i]):fingertips;
+    // Thin hand skeleton
+    if(dispLM&&dispLM.length===21){
+      ctx.save();
+      ctx.lineWidth=1.2;ctx.globalAlpha=0.25;ctx.lineCap='round';ctx.shadowBlur=0;
+      for(const[a,b] of HAND_CONNECTIONS){
+        const pa=dispLM[a],pb=dispLM[b];if(!pa||!pb)continue;
+        ctx.strokeStyle=FINGER_COLS[fingerOf(Math.max(a,b))];
+        ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();
+      }
+      for(let i=0;i<21;i++){
+        const p=dispLM[i],r=TIP_IDX.includes(i)?3.5:2;
+        ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);
+        ctx.fillStyle=FINGER_COLS[fingerOf(i)];ctx.globalAlpha=0.38;ctx.fill();
+      }
+      ctx.restore();
+    }
+    if(dispLM) drawHandOverlay(dispLM,dispTips,bands);
     for(const b of bands){
-      b.update(fingertips,dt);
-      // Global cooldown: only 1 shot fires per ~500ms to prevent mass-fire overload
-      if(b._pendingShot&&globalShotCooldown<=0){
+      b.update(fingertips,dt); // raw EMA tips for gesture accuracy
+      if(b._pendingShot){
         const{x,y,peakDist,col}=b._pendingShot;
         b._pendingShot=null;
-        globalShotCooldown=0.5;
         if(handCenter){
-          let dx=x-handCenter.x,dy=y-handCenter.y,len=Math.hypot(dx,dy);
-          // Fallback: if midpoint ≈ handCenter (symmetric stretch), aim straight up
-          if(len<18){dx=0;dy=-1;}else{dx/=len;dy/=len;}
-          // Aim assist: snap toward nearest alive rocket within ±35°
-          let bestRocket=null,bestDot=-1;
-          for(const r of rockets){
-            if(!r.alive)continue;
-            const rdx=r.x-x,rdy=r.y-y,rlen=Math.hypot(rdx,rdy)||1;
-            const dot=dx*(rdx/rlen)+dy*(rdy/rlen);
-            if(dot>Math.cos(35*Math.PI/180)&&dot>bestDot){bestDot=dot;bestRocket=r;}
-          }
-          // If no rocket in cone, aim at closest rocket above hand
-          if(!bestRocket){
-            let nearest=null,nearDist=Infinity;
-            for(const r of rockets){
-              if(!r.alive||r.y>y)continue;
-              const d=Math.hypot(r.x-x,r.y-y);
-              if(d<nearDist){nearDist=d;nearest=r;}
-            }
-            bestRocket=nearest;
-          }
-          if(bestRocket){
-            const rdx=bestRocket.x-x,rdy=bestRocket.y-y,rlen=Math.hypot(rdx,rdy)||1;
-            dx=dx*0.40+(rdx/rlen)*0.60;dy=dy*0.40+(rdy/rlen)*0.60;
-            const nl=Math.hypot(dx,dy)||1;dx/=nl;dy/=nl;
-          }
-          const speed=480+Math.min(peakDist,280)*1.7;
-          shots.push(new Shot(x,y,dx,dy,col,speed));
-          muzzleFlashes.push({x,y,life:0.22,maxLife:0.22,col});
-          tutorialDone=true;
+          const dx=x-handCenter.x,dy=y-handCenter.y,len=Math.hypot(dx,dy)||1;
+          const speed=580+Math.min(peakDist,280)*1.2;
+          shots.push(new Shot(x,y,dx/len,dy/len,col,speed));
+          bursts.push({x,y,life:1,col});
           playSlingShot(peakDist);haptic(30);
         }
-      } else if(b._pendingShot){
-        b._pendingShot=null; // discard excess shots from other bands this frame
       }
     }
-    checkPlucks(fingertips,bands);
+    checkPlucks(dispTips,bands);
     checkPinchBlast(fingertips,beams);
-    // Draw bands using interpolated display tips for smooth 60fps visuals
-    for(const b of bands) b.draw(dispTips);
-
-    // Lock-on: when fingers are TOGETHER (locked), show crosshair on nearest rocket
-    for(const b of bands){
-      if(!b.locked) continue;
-      const tips2=[dispTips[b.a],dispTips[b.b]];
-      if(!tips2[0]||!tips2[1]) continue;
-      const mx=(tips2[0].x+tips2[1].x)/2,my=(tips2[0].y+tips2[1].y)/2;
-      // Find nearest alive rocket above the finger midpoint
-      let tgt=null,nearDist=Infinity;
-      for(const r of rockets){
-        if(!r.alive) continue;
-        const d=Math.hypot(r.x-mx,r.y-my);
-        if(d<nearDist){nearDist=d;tgt=r;}
-      }
-      if(tgt){
-        const pulse=0.5+0.5*Math.sin(Date.now()*0.014);
-        const cr=tgt._drawSz??tgt.sz;
-        // Crosshair ring around target
-        ctx.save();
-        ctx.strokeStyle=b.color;ctx.lineWidth=1.5;ctx.globalAlpha=0.55+0.35*pulse;
-        ctx.beginPath();ctx.arc(tgt.x,tgt.y,cr*1.5+6*pulse,0,Math.PI*2);ctx.stroke();
-        // Four crosshair ticks
-        const tk=cr*0.45+3;
-        [[0,-1],[0,1],[-1,0],[1,0]].forEach(([ox,oy])=>{
-          ctx.beginPath();
-          ctx.moveTo(tgt.x+ox*(cr*1.5+tk+3*pulse),tgt.y+oy*(cr*1.5+tk+3*pulse));
-          ctx.lineTo(tgt.x+ox*(cr*1.5+3*pulse),tgt.y+oy*(cr*1.5+3*pulse));
-          ctx.stroke();
-        });
-        ctx.restore();
-      }
-    }
+    for(const b of bands) b.draw(dispTips); // interpolated tips for smooth visual
+  }
+  // Fire burst rings
+  for(let i=bursts.length-1;i>=0;i--){
+    const b=bursts[i];b.life-=dt*4;
+    if(b.life<=0){bursts.splice(i,1);continue;}
+    ctx.save();
+    ctx.globalAlpha=b.life*0.9;ctx.shadowBlur=20*b.life;ctx.shadowColor=b.col;
+    ctx.strokeStyle=b.col;ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(b.x,b.y,(1-b.life)*50,0,Math.PI*2);ctx.stroke();
+    ctx.restore();
   }
 
   // Threat indicators (behind rockets)
@@ -1395,9 +1360,7 @@ function loop(ts){
   for(let i=0;i<lb.length;i++) lb[i].draw((i%3-1)*3);
   beams=lb;
 
-  // Rockets — update z-depth, depth-sort (far first), then draw
-  for(const r of rockets) r.updateZ(time);
-  rockets.sort((a,b)=>a.z-b.z);
+  // Rockets
   for(const r of rockets){r.update(dt,handCenter);r.draw();}
 
   // Shot → rocket collisions
@@ -1410,8 +1373,7 @@ function loop(ts){
         if(rocket.damage()){
           score+=rocket.points*Math.min(combo,8);
           comboPops.push({x:rocket.x,y:rocket.y,text:`x${Math.min(combo,8)}`,life:1.1,maxLife:1.1});
-          hitFlashes.push({x:rocket.x,y:rocket.y,r:rocket.sz*2.2,life:0.45,maxLife:0.45,col:rocket.getBodyColor()});
-          combo++;triggerShake(10);haptic(40);playHit();waveKillsNeeded--;
+          combo++;triggerShake(8);haptic(40);playHit();waveKillsNeeded--;
         }
         break;
       }
@@ -1428,8 +1390,7 @@ function loop(ts){
         if(rocket.damage()){
           score+=rocket.points*Math.min(combo,8);
           comboPops.push({x:rocket.x,y:rocket.y,text:`x${Math.min(combo,8)}`,life:1.1,maxLife:1.1});
-          hitFlashes.push({x:rocket.x,y:rocket.y,r:rocket.sz*2.2,life:0.45,maxLife:0.45,col:rocket.getBodyColor()});
-          combo++;triggerShake(10);haptic(40);playHit();waveKillsNeeded--;
+          combo++;triggerShake(8);haptic(40);playHit();waveKillsNeeded--;
         }
         break;
       }
@@ -1465,52 +1426,10 @@ function loop(ts){
   }
   if(waveAnncTimer>0) waveAnncTimer-=dt;
 
-  // Blitz countdown
+  // BLITZ countdown — end game when time expires
   if(gameMode==='blitz'){
-    blitzTimer-=dt;
-    if(blitzTimer<=0){saveHiScore();state='gameover';ctx.restore();return;}
-  }
-
-  // Muzzle flashes — star burst at shot origin
-  muzzleFlashes=muzzleFlashes.filter(f=>f.life>0);
-  for(const f of muzzleFlashes){
-    f.life-=dt;
-    const a=f.life/f.maxLife;
-    const spikes=6,r1=18*a,r2=8*a;
-    ctx.save();ctx.globalAlpha=a*0.9;ctx.strokeStyle=f.col;ctx.lineWidth=1.5;
-    ctx.translate(f.x,f.y);
-    ctx.beginPath();
-    for(let i=0;i<spikes*2;i++){
-      const ang=(i/spikes)*Math.PI,r=i%2===0?r1:r2;
-      i===0?ctx.moveTo(Math.cos(ang)*r,Math.sin(ang)*r):ctx.lineTo(Math.cos(ang)*r,Math.sin(ang)*r);
-    }
-    ctx.closePath();ctx.stroke();
-    ctx.globalAlpha=a*0.6;ctx.fillStyle=C.wht;
-    ctx.beginPath();ctx.arc(0,0,4*a,0,Math.PI*2);ctx.fill();
-    ctx.restore();
-  }
-
-  // Hit flashes
-  hitFlashes=hitFlashes.filter(f=>f.life>0);
-  for(const f of hitFlashes){
-    f.life-=dt;
-    const a=f.life/f.maxLife;
-    ctx.save();ctx.globalAlpha=a*0.85;
-    ctx.beginPath();ctx.arc(f.x,f.y,f.r*(1.8-a*0.8),0,Math.PI*2);
-    ctx.strokeStyle=f.col;ctx.lineWidth=2;ctx.stroke();
-    ctx.restore();
-  }
-
-  // Tutorial overlay
-  if(!tutorialDone&&tutorialAlpha>0){
-    tutorialAlpha=Math.max(0,tutorialAlpha-dt*0.4);
-    const cw=canvas.width,ch=canvas.height;
-    ctx.save();ctx.globalAlpha=tutorialAlpha*0.88;
-    ctx.font=`bold ${Math.floor(cw*0.042)}px 'Courier New',monospace`;
-    ctx.textAlign='center';ctx.fillStyle=C.cyan;ctx.shadowBlur=0;
-    ctx.fillText('PINCH TOGETHER TO AIM  ·  SPREAD APART TO FIRE',cw/2,ch*0.88);
-    ctx.restore();
-    if(tutorialAlpha===0) tutorialDone=true;
+    blitzTimeLeft-=dt;
+    if(blitzTimeLeft<=0){blitzTimeLeft=0;saveHiScore();state='gameover';ctx.restore();return;}
   }
 
   drawComboPops(dt);
@@ -1519,34 +1438,38 @@ function loop(ts){
 
   ctx.restore();
   ctx.globalAlpha=1;ctx.shadowBlur=0;
-  }catch(e){console.error('loop err',e);ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;}
 }
 
 // ── Boot ──────────────────────────────────────────────────────────
-function startGame(mode='classic'){
+function handleTap(clientX,clientY){
   ensureAudio();
-  gameMode=mode;
   if(state==='gameover'){
+    gameMode='classic';
     state='playing';initGame();
     if(!trackingStarted){initTracking();trackingStarted=true;}
     return;
   }
   if(state!=='start') return;
+  // Determine mode: tap BLITZ button = blitz, everything else = classic
+  gameMode='classic';
+  if(_blitzBtnRect){
+    const rect=canvas.getBoundingClientRect();
+    const scaleX=canvas.width/rect.width,scaleY=canvas.height/rect.height;
+    const cx=(clientX-rect.left)*scaleX,cy=(clientY-rect.top)*scaleY;
+    if(cx>=_blitzBtnRect.x&&cx<=_blitzBtnRect.x+_blitzBtnRect.w&&
+       cy>=_blitzBtnRect.y&&cy<=_blitzBtnRect.y+_blitzBtnRect.h){
+      gameMode='blitz';
+    }
+  }
   state='playing';initGame();
   if(!trackingStarted){initTracking();trackingStarted=true;}
 }
-// Touch/click — left/right = classic/blitz on start; share zone on gameover
-function handleTap(cx,cy){
-  if(state==='start'){startGame(cx<canvas.width/2?'classic':'blitz');}
-  else if(state==='gameover'){
-    const ch=canvas.height,cw=canvas.width;
-    const sby=ch*0.84,sbh=ch*0.055,sbx=cw/2-cw*0.29;
-    if(cy>=sby&&cy<=sby+sbh&&cx>=sbx&&cx<=sbx+cw*0.58){tryShare();}
-    else startGame();
-  } else startGame();
-}
 canvas.addEventListener('click',e=>handleTap(e.clientX,e.clientY));
-canvas.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches[0];handleTap(t.clientX,t.clientY);},{passive:false});
+canvas.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  const t=e.changedTouches[0];
+  handleTap(t.clientX,t.clientY);
+},{passive:false});
 
 running=true;lastTs=performance.now();
 requestAnimationFrame(loop);
