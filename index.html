@@ -1231,6 +1231,15 @@ function getDisplayLM(){
 // ── MediaPipe ─────────────────────────────────────────────────────
 async function initTracking(){
   try{
+    // ⚠ getUserMedia MUST be first — iOS Safari expires the user gesture
+    // context after any async await, so camera must be requested immediately.
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:30,max:30}}
+    });
+    video.srcObject=stream;
+    await video.play();
+
+    // Now load MediaPipe (can take a few seconds — camera is already running)
     const{HandLandmarker,FilesetResolver}=window;
     if(!HandLandmarker||!FilesetResolver){console.error('tasks-vision not loaded');return;}
     const vision=await FilesetResolver.forVisionTasks(
@@ -1256,11 +1265,6 @@ async function initTracking(){
         runningMode:'VIDEO',numHands:1
       });
     }
-    const stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:30,max:30}}
-    });
-    video.srcObject=stream;
-    await video.play();
     // Process frames at ~15fps, synced to video decoder
     let lastTs2=0;
     function processFrame(now){
