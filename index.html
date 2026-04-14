@@ -1193,31 +1193,17 @@ function getDisplayLM(){
 }
 
 // ── MediaPipe ─────────────────────────────────────────────────────
-async function initTracking(){
-  // getUserMedia FIRST — iOS Safari kills the user-gesture context after any
-  // unrelated await, so camera permission must be requested before loading MediaPipe.
-  trackingStatus='ALLOW CAMERA ACCESS\u2026';
-  let stream;
-  try{
-    stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:30,max:30}}
-    });
-  }catch(e){console.error('camera error',e);trackingStatus='CAMERA ERROR';return;}
-
-  video.srcObject=stream;
-  // Await play() but ignore AbortError — the autoplay attribute can race with
-  // programmatic play() on iOS and throw, but the video is still playing.
-  try{await video.play();}catch(e){}
-  trackingStatus='LOADING AI\u2026';
-
-  // Load MediaPipe now that camera is confirmed running
-  let hl;
+// Preload MediaPipe immediately on page load (no gesture needed for model loading).
+// By the time the user taps to start, it's already done.
+let _hlReady=null;
+(async()=>{
   try{
     const{HandLandmarker,FilesetResolver}=window;
     if(!HandLandmarker||!FilesetResolver){console.error('tasks-vision not loaded');return;}
     const vision=await FilesetResolver.forVisionTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm'
     );
+    let hl;
     try{
       hl=await HandLandmarker.createFromOptions(vision,{
         baseOptions:{
@@ -1227,7 +1213,7 @@ async function initTracking(){
         runningMode:'VIDEO',numHands:1
       });
     }catch(gpuErr){
-      console.warn('GPU unavailable, using CPU',gpuErr);
+      console.warn('GPU unavailable, falling back to CPU');
       hl=await HandLandmarker.createFromOptions(vision,{
         baseOptions:{
           modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
@@ -1236,15 +1222,39 @@ async function initTracking(){
         runningMode:'VIDEO',numHands:1
       });
     }
-  }catch(e){console.error('mediapipe error',e);trackingStatus='AI LOAD ERROR';return;}
+    _hlReady=hl;
+    console.log('MediaPipe ready');
+  }catch(e){console.error('mediapipe preload error',e);}
+})();
 
-  trackingStatus=''; // ready — normal HUD takes over
-  // Frame loop — requestVideoFrameCallback syncs to actual video frame delivery
+async function initTracking(){
+  // getUserMedia is the FIRST await — iOS gesture context is still valid.
+  // MediaPipe is already loading in the background so we don't need to await it here.
+  trackingStatus='REQUESTING CAMERA\u2026';
+  let stream;
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:30,max:30}}
+    });
+  }catch(e){console.error('camera error',e);trackingStatus='CAMERA ERROR';return;}
+
+  video.srcObject=stream;
+  try{await video.play();}catch(e){}
+
+  // Wait for MediaPipe if it hasn't finished loading yet (normally already done)
+  if(!_hlReady){
+    trackingStatus='LOADING AI\u2026';
+    for(let i=0;i<300&&!_hlReady;i++) await new Promise(r=>setTimeout(r,100));
+  }
+  if(!_hlReady){console.error('mediapipe never loaded');trackingStatus='AI ERROR';return;}
+
+  trackingStatus='';
+  const hl=_hlReady;
   let lastTs2=0;
   function processFrame(now){
     video.requestVideoFrameCallback(processFrame);
     if(state!=='playing'||video.readyState<2) return;
-    if(now-lastTs2<66) return; // ~15fps cap
+    if(now-lastTs2<66) return;
     lastTs2=now;
     try{
       const r=hl.detectForVideo(video,now);
