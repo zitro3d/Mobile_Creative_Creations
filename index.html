@@ -1230,20 +1230,22 @@ function getDisplayLM(){
 
 // ── MediaPipe ─────────────────────────────────────────────────────
 async function initTracking(){
-  // Step 1 — Camera: must happen first so iOS gesture context is still active
+  // getUserMedia FIRST — iOS Safari kills the user-gesture context after any
+  // unrelated await, so camera permission must be requested before loading MediaPipe.
+  let stream;
   try{
-    const stream=await navigator.mediaDevices.getUserMedia({
+    stream=await navigator.mediaDevices.getUserMedia({
       video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:30,max:30}}
     });
-    video.srcObject=stream;
-    // Don't await play() — on iOS the autoplay attribute can cause an AbortError
-    // that kills the entire function. Calling without await lets the video play
-    // regardless and we continue to MediaPipe setup.
-    video.play().catch(()=>{});
   }catch(e){console.error('camera error',e);return;}
 
-  // Step 2 — MediaPipe: loads in background while video is already running
-  let hl=null;
+  video.srcObject=stream;
+  // Await play() but ignore AbortError — the autoplay attribute can race with
+  // programmatic play() on iOS and throw, but the video is still playing.
+  try{await video.play();}catch(e){}
+
+  // Load MediaPipe now that camera is confirmed running
+  let hl;
   try{
     const{HandLandmarker,FilesetResolver}=window;
     if(!HandLandmarker||!FilesetResolver){console.error('tasks-vision not loaded');return;}
@@ -1270,15 +1272,11 @@ async function initTracking(){
     }
   }catch(e){console.error('mediapipe error',e);return;}
 
-  // Step 3 — Frame loop: rVFC primary, rAF fallback for older browsers
+  // Frame loop — requestVideoFrameCallback syncs to actual video frame delivery
   let lastTs2=0;
-  function scheduleNext(){
-    if('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(processFrame);
-    else requestAnimationFrame(processFrame);
-  }
   function processFrame(now){
-    scheduleNext();
-    if(!hl||state!=='playing'||video.readyState<2) return;
+    video.requestVideoFrameCallback(processFrame);
+    if(state!=='playing'||video.readyState<2) return;
     if(now-lastTs2<66) return; // ~15fps cap
     lastTs2=now;
     try{
@@ -1311,7 +1309,7 @@ async function initTracking(){
       }
     }catch(e){console.warn('detect',e);}
   }
-  scheduleNext();
+  video.requestVideoFrameCallback(processFrame);
 }
 
 // ── Render loop ───────────────────────────────────────────────────
