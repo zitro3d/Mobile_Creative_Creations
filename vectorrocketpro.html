@@ -165,26 +165,6 @@ Integrated (°)
   document.body.appendChild(renderer.domElement);
 
   // ─────────────────────────────────────────────────────────────────
-  //  POST-PROCESSING — subtle depth of field
-  //
-  //  Focus plane at ~100 u in front of camera.
-  //  Ships at z=-600 (far horizon) → max blur ≈ 1.5% screen width.
-  //  Ships at z=-100 → sharp.  Ships at z=-20 → sharp.
-  //  BokehPass renders its own depth pass internally so no extra
-  //  WebGLRenderTarget setup is required.
-  // ─────────────────────────────────────────────────────────────────
-  const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-
-  const bokehPass = new BokehPass(scene, camera, {
-    focus:   100,      // world-unit focus distance — ships in focus < 100 u
-    aperture: 0.00003, // controls blur rate outside focal plane
-    maxblur:  0.012,   // cap at 1.2% screen width — subtle, not soap-opera
-  });
-  bokehPass.renderToScreen = true;
-  composer.addPass(bokehPass);
-
-  // ─────────────────────────────────────────────────────────────────
   //  SCENE & CAMERA  (must come before anything that references them)
   // ─────────────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
@@ -201,6 +181,22 @@ Integrated (°)
   camera.position.set(0, 80, 30);
   camera.rotation.order = 'YXZ';   // YXZ — standard FPS order, no gimbal lock
   camera.rotation.x = THREE.MathUtils.degToRad(BASE_PITCH_DEG);
+
+  // ─────────────────────────────────────────────────────────────────
+  //  POST-PROCESSING — subtle depth of field
+  //  Must come after scene + camera (RenderPass and BokehPass need both).
+  //  Ships at z=-600 → max blur ~1.5%; ships at z=-100 and closer → sharp.
+  // ─────────────────────────────────────────────────────────────────
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+
+  const bokehPass = new BokehPass(scene, camera, {
+    focus:    100,      // world-unit focus distance
+    aperture: 0.00003,
+    maxblur:  0.012,
+  });
+  bokehPass.renderToScreen = true;
+  composer.addPass(bokehPass);
 
   // ─────────────────────────────────────────────────────────────────
   //  SCENE LIGHTING  (required for MeshStandardMaterial to show colour)
