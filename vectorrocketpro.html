@@ -10,7 +10,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #000; overflow: hidden; }
+    body { background: #000; overflow: hidden; touch-action: none; }
+    canvas { display: block; touch-action: none; }
 
     /* ── Mission Start overlay ─────────────────────────────────── */
     #overlay {
@@ -86,6 +87,23 @@
       font-size: 0.60rem;
       letter-spacing: 0.22em;
       color: rgba(0,242,255,0.40);
+    }
+
+    /* ── Gesture hint (fades out after game start) ─────────────── */
+    #gesture-hint {
+      position: fixed;
+      bottom: 14%;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Orbitron', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.22em;
+      color: rgba(0,242,255,0.70);
+      text-shadow: 0 0 10px rgba(0,242,255,0.5);
+      z-index: 20;
+      pointer-events: none;
+      display: none;
+      transition: opacity 1.2s ease;
     }
 
     /* ── Score display ──────────────────────────────────────────── */
@@ -197,6 +215,9 @@ Integrated (°)
   <!-- Score counter -->
   <div id="score">0</div>
 
+  <!-- Gesture hint — fades out 4s after game start -->
+  <div id="gesture-hint">⟶  FLICK TO FIRE  ⟶</div>
+
   <!-- Cockpit HUD — pointer-events: none so it never blocks input -->
   <div id="hud">
     <div id="cockpit-frame"></div>
@@ -256,6 +277,9 @@ Integrated (°)
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setClearColor(0x00000a, 1);
   document.body.appendChild(renderer.domElement);
+  // Critical for mobile: tell browser this canvas handles its own touches
+  // so it never swallows pointerdown/pointerup for scroll or pinch-zoom.
+  renderer.domElement.style.touchAction = 'none';
 
   // ─────────────────────────────────────────────────────────────────
   //  SCENE & CAMERA  (must come before anything that references them)
@@ -1033,12 +1057,22 @@ Integrated (°)
     })();
   }
 
+  // Track only one pointer (first finger) — ignore subsequent touches
+  let flickPointerId = -1;
+
   renderer.domElement.addEventListener('pointerdown', (ev) => {
+    // Only track the first finger; ignore extra touches (pinch, etc.)
+    if (flickPointerId !== -1) return;
+    ev.preventDefault();   // stop browser scroll / zoom hijack
+    flickPointerId = ev.pointerId;
     flickStart = { x: ev.clientX, y: ev.clientY, t: performance.now() };
-  });
+  }, { passive: false });
 
   renderer.domElement.addEventListener('pointerup', (ev) => {
+    if (ev.pointerId !== flickPointerId) return;
+    flickPointerId = -1;
     if (!flickStart) return;
+
     const sx = flickStart.x, sy = flickStart.y;
     const ex = ev.clientX,   ey = ev.clientY;
     const dist    = Math.sqrt((ex-sx)**2 + (ey-sy)**2);
@@ -1052,9 +1086,9 @@ Integrated (°)
     if (nowMs - lastFireMs < FIRE_COOL_MS) return;
     lastFireMs = nowMs;
 
-    // Ray through the flick END point (not screen centre)
+    // Ray through the flick END point in NDC
     const ndcX = ( ex / window.innerWidth  ) * 2 - 1;
-    const ndcY = -(ey / window.innerHeight) * 2 + 1;
+    const ndcY = -(ey / window.innerHeight ) * 2 + 1;
     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
 
     // Collect hits across all visible enemy meshes
@@ -1076,17 +1110,27 @@ Integrated (°)
       score += 100;
       scoreEl.textContent = score;
     } else {
-      // Miss — laser goes to max range
       const missPos = new THREE.Vector3();
       raycaster.ray.at(400, missPos);
       spawnLaser(missPos);
     }
+  }, { passive: false });
+
+  // Safety: if pointer leaves canvas mid-flick, cancel the gesture
+  renderer.domElement.addEventListener('pointercancel', (ev) => {
+    if (ev.pointerId === flickPointerId) { flickPointerId = -1; flickStart = null; }
   });
 
   document.getElementById('start-btn').addEventListener('click', async () => {
     document.getElementById('overlay').style.display = 'none';
     document.getElementById('debug').style.display   = 'block';
     scoreEl.style.display = 'block';
+    // Show gesture hint, then fade it out after 4s
+    const hint = document.getElementById('gesture-hint');
+    hint.style.display  = 'block';
+    hint.style.opacity  = '1';
+    setTimeout(() => { hint.style.opacity = '0'; }, 4000);
+    setTimeout(() => { hint.style.display = 'none'; }, 5200);
 
     // Attach listener FIRST — in place before permission dialog resolves (iOS)
     window.addEventListener('devicemotion', handleMotion, true);
