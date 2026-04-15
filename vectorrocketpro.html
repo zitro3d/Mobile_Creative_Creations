@@ -89,7 +89,7 @@
       color: rgba(0,242,255,0.40);
     }
 
-    /* ── Gesture hint (fades out after game start) ─────────────── */
+    /* ── Gesture hint ───────────────────────────────────────────── */
     #gesture-hint {
       position: fixed;
       bottom: 14%;
@@ -104,6 +104,30 @@
       pointer-events: none;
       display: none;
       transition: opacity 1.2s ease;
+    }
+
+    /* ── Hand tracking status indicator ────────────────────────── */
+    #hand-status {
+      position: fixed;
+      bottom: 22px; right: 22px;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      z-index: 20;
+      pointer-events: none;
+      display: none;
+      transition: background 0.08s, box-shadow 0.08s;
+    }
+    #hand-status[data-state="none"]  {
+      background: rgba(255,255,255,0.08);
+      box-shadow: none;
+    }
+    #hand-status[data-state="open"]  {
+      background: rgba(0,242,255,0.55);
+      box-shadow: 0 0 8px rgba(0,242,255,0.7);
+    }
+    #hand-status[data-state="pinch"] {
+      background: #ff0066;
+      box-shadow: 0 0 18px rgba(255,0,102,0.95);
     }
 
     /* ── Score display ──────────────────────────────────────────── */
@@ -216,7 +240,10 @@ Integrated (°)
   <div id="score">0</div>
 
   <!-- Gesture hint — fades out 4s after game start -->
-  <div id="gesture-hint">⟶  FLICK TO FIRE  ⟶</div>
+  <div id="gesture-hint">PINCH TO FIRE</div>
+
+  <!-- Hand tracking status pill -->
+  <div id="hand-status" data-state="none"></div>
 
   <!-- Cockpit HUD — pointer-events: none so it never blocks input -->
   <div id="hud">
@@ -224,6 +251,11 @@ Integrated (°)
     <div id="cockpit-border"></div>
     <div id="crosshair"><div id="crosshair-ring"></div></div>
   </div>
+
+  <!-- MediaPipe Hands — hand tracking via front camera.
+       Must load as classic scripts (not ES modules) before the importmap. -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js" crossorigin="anonymous"></script>
 
   <script type="importmap">
   {
@@ -964,134 +996,84 @@ Integrated (°)
   });
 
   // ─────────────────────────────────────────────────────────────────
-  //  FLICK-TO-FIRE
-  //  Gesture: pointerdown → pointerup, dist > 30px, elapsed < 300ms
-  //  Ray cast through the flick's END point (not screen centre)
-  //  250ms fire cooldown prevents ghost-firing
+  //  COMBAT — shared state, effects, and triggerShoot()
+  //  Two input sources call triggerShoot():
+  //    1. MediaPipe hand tracking  — pinch gesture on right hand
+  //    2. Touch fallback           — screen tap while hand tracking unavailable
   // ─────────────────────────────────────────────────────────────────
   const raycaster    = new THREE.Raycaster();
-  let   flickStart   = null;
   let   lastFireMs   = 0;
   let   score        = 0;
   const scoreEl      = document.getElementById('score');
-  const FLICK_MIN    = 30;   // px minimum travel
-  const FLICK_MAX_T  = 300;  // ms maximum duration
-  const FIRE_COOL_MS = 250;  // ms between shots
+  const handStatusEl = document.getElementById('hand-status');
+  const FIRE_COOL_MS = 250;   // ms between shots
 
   // ── Cube-fragment explosion ──────────────────────────────────────
   function spawnExplosion(pos) {
-    const COUNT     = 16;
     const fragments = [];
-    for (let k = 0; k < COUNT; k++) {
+    for (let k = 0; k < 16; k++) {
       const sz  = 1.2 + Math.random() * 2.0;
       const geo = new THREE.BoxGeometry(sz, sz, sz);
       const mat = new THREE.MeshStandardMaterial({
         color:             k % 2 === 0 ? 0xff7722 : 0xffcc44,
         emissive:          k % 2 === 0 ? 0xff4400 : 0xff9900,
         emissiveIntensity: 3.0,
-        transparent:       true,
-        opacity:           1,
-        depthWrite:        false,
+        transparent: true, opacity: 1, depthWrite: false,
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.copy(pos);
       scene.add(mesh);
       fragments.push({
         mesh, geo, mat,
-        vel: new THREE.Vector3(
-          (Math.random() - 0.5) * 200,
-          (Math.random() - 0.5) * 200,
-          (Math.random() - 0.5) * 200,
-        ),
-        rot: new THREE.Vector3(
-          (Math.random() - 0.5) * 10,
-          (Math.random() - 0.5) * 10,
-          (Math.random() - 0.5) * 10,
-        ),
+        vel: new THREE.Vector3((Math.random()-.5)*200, (Math.random()-.5)*200, (Math.random()-.5)*200),
+        rot: new THREE.Vector3((Math.random()-.5)*10,  (Math.random()-.5)*10,  (Math.random()-.5)*10),
       });
     }
-    const DURATION = 1.0;
     const t0 = performance.now();
     (function tick() {
       const elapsed = (performance.now() - t0) / 1000;
-      if (elapsed >= DURATION) {
-        for (const { mesh, geo, mat } of fragments) {
-          scene.remove(mesh); geo.dispose(); mat.dispose();
-        }
+      if (elapsed >= 1.0) {
+        for (const { mesh, geo, mat } of fragments) { scene.remove(mesh); geo.dispose(); mat.dispose(); }
         return;
       }
-      const p = elapsed / DURATION;
+      const p = elapsed;
       for (const { mesh, mat, vel, rot } of fragments) {
         mesh.position.copy(pos).addScaledVector(vel, elapsed);
-        mesh.rotation.x = rot.x * elapsed;
-        mesh.rotation.y = rot.y * elapsed;
-        mesh.rotation.z = rot.z * elapsed;
-        mat.opacity           = 1 - p * p;
-        mat.emissiveIntensity = 3 * (1 - p);
+        mesh.rotation.set(rot.x*elapsed, rot.y*elapsed, rot.z*elapsed);
+        mat.opacity = 1 - p*p; mat.emissiveIntensity = 3*(1-p);
       }
       requestAnimationFrame(tick);
     })();
   }
 
-  // ── Neon-purple laser from gun point to target ───────────────────
+  // ── Neon-purple laser ────────────────────────────────────────────
   function spawnLaser(endPos) {
-    // Origin: slightly below camera to suggest a weapon mount
     const origin = camera.position.clone().add(new THREE.Vector3(0, -3, -2));
     const geo    = new THREE.BufferGeometry().setFromPoints([origin, endPos.clone()]);
     const mat    = new THREE.LineBasicMaterial({
-      color:       0xcc00ff,
-      transparent: true,
-      opacity:     1,
-      linewidth:   2,
-      blending:    THREE.AdditiveBlending,
-      depthWrite:  false,
+      color: 0xcc00ff, transparent: true, opacity: 1,
+      blending: THREE.AdditiveBlending, depthWrite: false,
     });
     const line = new THREE.Line(geo, mat);
     scene.add(line);
     const t0 = performance.now();
     (function fade() {
-      const elapsed = (performance.now() - t0) / 1000;
-      if (elapsed > 0.30) { scene.remove(line); geo.dispose(); mat.dispose(); return; }
-      mat.opacity = 1 - elapsed / 0.30;
+      const e = (performance.now() - t0) / 1000;
+      if (e > 0.30) { scene.remove(line); geo.dispose(); mat.dispose(); return; }
+      mat.opacity = 1 - e / 0.30;
       requestAnimationFrame(fade);
     })();
   }
 
-  // Track only one pointer (first finger) — ignore subsequent touches
-  let flickPointerId = -1;
-
-  renderer.domElement.addEventListener('pointerdown', (ev) => {
-    // Only track the first finger; ignore extra touches (pinch, etc.)
-    if (flickPointerId !== -1) return;
-    ev.preventDefault();   // stop browser scroll / zoom hijack
-    flickPointerId = ev.pointerId;
-    flickStart = { x: ev.clientX, y: ev.clientY, t: performance.now() };
-  }, { passive: false });
-
-  renderer.domElement.addEventListener('pointerup', (ev) => {
-    if (ev.pointerId !== flickPointerId) return;
-    flickPointerId = -1;
-    if (!flickStart) return;
-
-    const sx = flickStart.x, sy = flickStart.y;
-    const ex = ev.clientX,   ey = ev.clientY;
-    const dist    = Math.sqrt((ex-sx)**2 + (ey-sy)**2);
-    const elapsed = performance.now() - flickStart.t;
-    flickStart = null;
-
-    if (dist < FLICK_MIN || elapsed > FLICK_MAX_T) return;
-
-    // 250ms fire cooldown
+  // ── Shared fire logic — called by hand-pinch OR touch fallback ───
+  //  ndcVec: optional THREE.Vector2 in NDC; omit to shoot at crosshair (0,0)
+  function triggerShoot(ndcVec) {
     const nowMs = performance.now();
     if (nowMs - lastFireMs < FIRE_COOL_MS) return;
     lastFireMs = nowMs;
 
-    // Ray through the flick END point in NDC
-    const ndcX = ( ex / window.innerWidth  ) * 2 - 1;
-    const ndcY = -(ey / window.innerHeight ) * 2 + 1;
-    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+    raycaster.setFromCamera(ndcVec || new THREE.Vector2(0, 0), camera);
 
-    // Collect hits across all visible enemy meshes
     const hits = [];
     for (const en of enemies) {
       if (!en.group.visible) continue;
@@ -1114,9 +1096,131 @@ Integrated (°)
       raycaster.ray.at(400, missPos);
       spawnLaser(missPos);
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  //  HAND TRACKING — MediaPipe Hands via front camera
+  //
+  //  Right-hand pinch gesture (thumb tip + index tip close together)
+  //  fires triggerShoot().  The hand status dot bottom-right shows:
+  //    dim   = no hand in frame
+  //    cyan  = hand detected, open
+  //    red   = pinching (fires on leading edge)
+  //
+  //  Front camera mirrors left↔right, so MediaPipe's "Left" label
+  //  corresponds to the user's physical RIGHT hand.
+  // ─────────────────────────────────────────────────────────────────
+  const PINCH_CLOSE = 0.07;   // normalised distance — pinch threshold
+  const PINCH_OPEN  = 0.10;   // hysteresis: must open past this to reset
+  let   wasPinching = false;
+
+  function initHandTracking() {
+    // Hidden video element feeds frames to MediaPipe
+    const videoEl = document.createElement('video');
+    videoEl.setAttribute('playsinline', '');
+    videoEl.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;';
+    document.body.appendChild(videoEl);
+
+    // Verify MediaPipe loaded (script tag may have failed on some networks)
+    if (typeof Hands === 'undefined' || typeof Camera === 'undefined') {
+      console.warn('MediaPipe not loaded — hand tracking unavailable');
+      handStatusEl.style.display = 'none';
+      return;
+    }
+
+    const handsDetector = new Hands({
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`,
+    });
+    handsDetector.setOptions({
+      maxNumHands:            1,
+      modelComplexity:        0,    // 0 = lite model — faster on mobile
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence:  0.5,
+    });
+
+    handsDetector.onResults((results) => {
+      // No hand detected
+      if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+        wasPinching = false;
+        handStatusEl.dataset.state = 'none';
+        return;
+      }
+
+      // MediaPipe "Left" label = user's physical right hand (front cam mirrors)
+      let lmIdx = -1;
+      for (let h = 0; h < results.multiHandedness.length; h++) {
+        if (results.multiHandedness[h].label === 'Left') { lmIdx = h; break; }
+      }
+      // If right hand not found, take whatever hand is visible
+      if (lmIdx === -1) lmIdx = 0;
+
+      const lm       = results.multiHandLandmarks[lmIdx];
+      const thumbTip = lm[4];   // thumb tip
+      const idxTip   = lm[8];   // index finger tip
+
+      const pinchDist = Math.sqrt(
+        (thumbTip.x - idxTip.x) ** 2 +
+        (thumbTip.y - idxTip.y) ** 2
+      );
+
+      const isPinching = wasPinching
+        ? pinchDist < PINCH_OPEN    // hysteresis: stay pinching until clearly open
+        : pinchDist < PINCH_CLOSE;  // enter pinch: must close firmly
+
+      handStatusEl.dataset.state = isPinching ? 'pinch' : 'open';
+
+      if (isPinching && !wasPinching) {
+        triggerShoot();   // fire at crosshair — aiming is done via gyroscope
+      }
+      wasPinching = isPinching;
+    });
+
+    // MediaPipe Camera utility drives getUserMedia + frame loop
+    const mpCam = new Camera(videoEl, {
+      onFrame: async () => { await handsDetector.send({ image: videoEl }); },
+      width: 320, height: 240,
+    });
+    mpCam.start()
+      .then(() => {
+        handStatusEl.style.display = 'block';
+        handStatusEl.dataset.state = 'none';
+        console.log('Hand tracking active');
+      })
+      .catch(err => {
+        console.warn('Hand tracking unavailable:', err);
+        handStatusEl.style.display = 'none';
+      });
+  }
+
+  // ── Touch fallback — fires if hand tracking isn't running ────────
+  //  Simple tap (no flick required) since aiming is via gyro
+  let   flickStart    = null;
+  let   flickPointerId = -1;
+  const FLICK_MIN     = 30;
+  const FLICK_MAX_T   = 300;
+
+  renderer.domElement.addEventListener('pointerdown', (ev) => {
+    if (flickPointerId !== -1) return;
+    ev.preventDefault();
+    flickPointerId = ev.pointerId;
+    flickStart = { x: ev.clientX, y: ev.clientY, t: performance.now() };
   }, { passive: false });
 
-  // Safety: if pointer leaves canvas mid-flick, cancel the gesture
+  renderer.domElement.addEventListener('pointerup', (ev) => {
+    if (ev.pointerId !== flickPointerId) return;
+    flickPointerId = -1;
+    if (!flickStart) return;
+    const dx = ev.clientX - flickStart.x, dy = ev.clientY - flickStart.y;
+    const dist = Math.sqrt(dx*dx + dy*dy), elapsed = performance.now() - flickStart.t;
+    flickStart = null;
+    if (dist < FLICK_MIN || elapsed > FLICK_MAX_T) return;
+    // Fire through the flick endpoint
+    const ndcX = (ev.clientX / window.innerWidth ) * 2 - 1;
+    const ndcY = -(ev.clientY / window.innerHeight) * 2 + 1;
+    triggerShoot(new THREE.Vector2(ndcX, ndcY));
+  }, { passive: false });
+
   renderer.domElement.addEventListener('pointercancel', (ev) => {
     if (ev.pointerId === flickPointerId) { flickPointerId = -1; flickStart = null; }
   });
@@ -1125,12 +1229,13 @@ Integrated (°)
     document.getElementById('overlay').style.display = 'none';
     document.getElementById('debug').style.display   = 'block';
     scoreEl.style.display = 'block';
-    // Show gesture hint, then fade it out after 4s
+    // Show gesture hint then fade out
     const hint = document.getElementById('gesture-hint');
-    hint.style.display  = 'block';
-    hint.style.opacity  = '1';
-    setTimeout(() => { hint.style.opacity = '0'; }, 4000);
-    setTimeout(() => { hint.style.display = 'none'; }, 5200);
+    hint.style.display = 'block'; hint.style.opacity = '1';
+    setTimeout(() => { hint.style.opacity = '0'; }, 4500);
+    setTimeout(() => { hint.style.display = 'none'; }, 5700);
+    // Start hand tracking (requests camera permission)
+    initHandTracking();
 
     // Attach listener FIRST — in place before permission dialog resolves (iOS)
     window.addEventListener('devicemotion', handleMotion, true);
