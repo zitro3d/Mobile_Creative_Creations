@@ -292,73 +292,120 @@
   }
 
   // ─────────────────────────────────────────────────────────────────
-  //  DEVICE ORIENTATION — tilt to look around
+  //  DEVICE ORIENTATION — pipeline:
+  //    1. Calibrate      — first event sets neutral baseline
+  //    2. Buffer (LPF)   — average last 3 readings to cut sharp spikes
+  //    3. Reference frame — remap axes for landscape left/right
+  //    4. Scale          — 10° physical → 2.5° camera
+  //    5. Dead-zone      — discard tremor below threshold
+  //    6. Clamp + build  — store as quaternion (no gimbal lock)
   //
-  //  Pipeline (each sensor event):
-  //    1. Calibrate  — first reading becomes the "straight ahead" baseline
-  //    2. Scale      — INPUT_SCALE reduces physical→camera ratio (10°→2.5°)
-  //    3. Dead-zone  — changes < DEAD_ZONE_DEG are discarded as hand tremor
-  //    4. Clamp      — final angle capped at ±MAX_LOOK (45°)
-  //
-  //  In the render loop the camera lerps toward the target using a
-  //  dt-scaled factor so smoothing is identical at 30, 60, or 120 fps.
+  //  Animate loop uses velocity-based alpha + quaternion slerp:
+  //    large angular gap → higher alpha → fast catch-up (no snap)
+  //    small gap         → BASE_ALPHA  → smooth heavy motion
   // ─────────────────────────────────────────────────────────────────
-  const MAX_LOOK      = Math.PI / 4; // hard clamp — never exceed ±45°
-  const INPUT_SCALE   = 0.25;        // 10° physical tilt → 2.5° camera rotation
-  const DEAD_ZONE_DEG = 1.2;         // sensor noise below this is discarded
-  const SMOOTH_BASE   = 0.08;        // lerp fraction at 60 fps (8% per frame)
+  const MAX_LOOK      = Math.PI / 4;  // ±45° hard clamp
+  const INPUT_SCALE   = 0.25;         // 10° physical → 2.5° camera
+  const DEAD_ZONE_DEG = 1.2;          // tremor threshold in degrees
+  const BASE_ALPHA    = 0.08;         // slerp fraction at 60fps when near target
+  const VEL_SCALE     = 0.6;          // extra alpha per radian of angular distance
+  const BUFFER_SIZE   = 3;            // sensor readings to average
 
-  // Separate target and current objects so the camera chases, never snaps
-  const targetRotation  = { x: 0, y: 0 };
-  const currentRotation = { x: 0, y: 0 };
+  // Target quaternion — set from filtered sensor data in handleOrientation
+  const targetQuat  = new THREE.Quaternion();
+  // Reusable Euler for building quaternions (YXZ = standard FPS order, no gimbal)
+  const targetEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+
+  // Rolling input buffers for the low-pass filter
+  const betaBuf  = [];
+  const gammaBuf = [];
 
   let orientationReady = false;
   let calibBeta        = null;
   let calibGamma       = null;
 
+  function bufPush(buf, v) {
+    buf.push(v);
+    if (buf.length > BUFFER_SIZE) buf.shift();
+  }
+  function bufAvg(buf) {
+    return buf.length ? buf.reduce((s, v) => s + v, 0) / buf.length : 0;
+  }
+
   function handleOrientation(evt) {
-    // ── 1. Calibrate: capture neutral angle on first event ────────
+    const rawBeta  = evt.beta  ?? 90;
+    const rawGamma = evt.gamma ?? 0;
+
+    // ── 1. Calibrate on first event ───────────────────────────────
     if (calibBeta === null) {
-      calibBeta        = evt.beta  ?? 90;
-      calibGamma       = evt.gamma ?? 0;
+      calibBeta        = rawBeta;
+      calibGamma       = rawGamma;
+      betaBuf.length   = 0;
+      gammaBuf.length  = 0;
       orientationReady = true;
     }
 
-    const beta  = evt.beta  ?? calibBeta;
-    const gamma = evt.gamma ?? calibGamma;
+    // ── 2. Low-pass filter: 3-reading rolling average ─────────────
+    bufPush(betaBuf,  rawBeta);
+    bufPush(gammaBuf, rawGamma);
+    const beta  = bufAvg(betaBuf);
+    const gamma = bufAvg(gammaBuf);
 
-    // ── 2. Scale: compress the physical→camera ratio ──────────────
-    const rawPitchDeg = -(beta  - calibBeta)  * INPUT_SCALE;
-    const rawYawDeg   = -(gamma - calibGamma) * INPUT_SCALE;
+    // ── 3. Reference frame: remap axes for landscape orientation ──
+    //  window.orientation:  0 = portrait  |  90 = landscape-left
+    //                     180 = upside-down portrait  | -90 = landscape-right
+    //  Each mode swaps/flips beta↔gamma so there's no sudden 180° jump
+    //  when the user rotates the device.
+    let pitchDev, yawDev;
+    const ori = window.orientation ?? 0;
+    if (ori === 90) {                        // landscape-left
+      pitchDev = -(gamma - calibGamma);
+      yawDev   =  (beta  - calibBeta);
+    } else if (ori === -90) {                // landscape-right
+      pitchDev =  (gamma - calibGamma);
+      yawDev   = -(beta  - calibBeta);
+    } else {                                 // portrait (0) or inverted (180)
+      pitchDev = -(beta  - calibBeta);
+      yawDev   = -(gamma - calibGamma);
+    }
 
-    // ── 3. Dead-zone: discard sub-threshold tremor ────────────────
-    const prevPitchDeg = THREE.MathUtils.radToDeg(targetRotation.x);
-    const prevYawDeg   = THREE.MathUtils.radToDeg(targetRotation.y);
+    // ── 4. Input scaling ──────────────────────────────────────────
+    const rawPitchDeg = pitchDev * INPUT_SCALE;
+    const rawYawDeg   = yawDev   * INPUT_SCALE;
 
-    const filtPitchDeg = Math.abs(rawPitchDeg - prevPitchDeg) < DEAD_ZONE_DEG
+    // ── 5. Dead-zone: hold target if change is below threshold ────
+    const prevPitchDeg = THREE.MathUtils.radToDeg(targetEuler.x);
+    const prevYawDeg   = THREE.MathUtils.radToDeg(targetEuler.y);
+
+    const filtPitch = Math.abs(rawPitchDeg - prevPitchDeg) < DEAD_ZONE_DEG
       ? prevPitchDeg : rawPitchDeg;
-    const filtYawDeg   = Math.abs(rawYawDeg   - prevYawDeg)   < DEAD_ZONE_DEG
+    const filtYaw   = Math.abs(rawYawDeg   - prevYawDeg)   < DEAD_ZONE_DEG
       ? prevYawDeg   : rawYawDeg;
 
-    // ── 4. Clamp and store target (radians) ───────────────────────
-    targetRotation.x = THREE.MathUtils.clamp(
-      THREE.MathUtils.degToRad(filtPitchDeg), -MAX_LOOK, MAX_LOOK
+    // ── 6. Clamp + build target quaternion (no Euler gimbal lock) ─
+    targetEuler.x = THREE.MathUtils.clamp(
+      THREE.MathUtils.degToRad(filtPitch), -MAX_LOOK, MAX_LOOK
     );
-    targetRotation.y = THREE.MathUtils.clamp(
-      THREE.MathUtils.degToRad(filtYawDeg), -MAX_LOOK, MAX_LOOK
+    targetEuler.y = THREE.MathUtils.clamp(
+      THREE.MathUtils.degToRad(filtYaw), -MAX_LOOK, MAX_LOOK
     );
+    targetQuat.setFromEuler(targetEuler);
   }
+
+  // Recalibrate whenever the device rotates (portrait ↔ landscape).
+  // The next sensor event will capture the new neutral position,
+  // preventing any discontinuous jump in the camera angle.
+  window.addEventListener('orientationchange', () => {
+    calibBeta  = null;
+    calibGamma = null;
+  });
 
   document.getElementById('start-btn').addEventListener('click', async () => {
     document.getElementById('overlay').style.display = 'none';
 
-    // Attach listener FIRST — it is already in place when permission resolves,
-    // so the very first event from iOS arrives without any race condition.
+    // Listener attached FIRST — in place before permission resolves (iOS fix)
     window.addEventListener('deviceorientation', handleOrientation, true);
 
-    // iOS 13+ requires an explicit permission call inside a user gesture.
-    // We don't gate on the result string — if permission is granted the
-    // listener above will simply start receiving events.
     try {
       if (
         typeof DeviceOrientationEvent !== 'undefined' &&
@@ -367,8 +414,6 @@
         await DeviceOrientationEvent.requestPermission();
       }
     } catch (err) {
-      // Some browsers throw if the API isn't fully supported — safe to ignore,
-      // the listener will receive events if the browser allows them.
       console.warn('DeviceOrientation permission:', err);
     }
   });
@@ -444,18 +489,26 @@
       neb.material.opacity = NEBULA_MAX_OP * closeFade * farFade;
     }
 
-    // ── Camera lerp — dt-scaled so smoothing is frame-rate independent
-    //  Formula: 1 - (1 - BASE)^(dt*60)
-    //    At 60 fps (dt≈0.0167): factor ≈ SMOOTH_BASE        (e.g. 8%)
-    //    At 30 fps (dt≈0.0333): factor ≈ 1-(1-0.08)^2 ≈ 15% (catches up faster)
-    //    At 120fps (dt≈0.0083): factor ≈ 4%                  (smaller step, same feel)
-    //  Result: the camera always takes the same real-time duration to settle.
+    // ── Camera slerp — velocity-based alpha + quaternion interpolation ─
+    //
+    //  Why quaternions?  Euler lerp jitters during fast motion because
+    //  each axis is interpolated independently and can "fight" each other.
+    //  Quaternion slerp always takes the shortest arc between two orientations.
+    //
+    //  Why velocity-based alpha?
+    //    dist = angular gap between current quaternion and target (radians)
+    //    alpha = BASE_ALPHA + dist * VEL_SCALE   (capped at 0.92)
+    //    → near target: alpha ≈ BASE (slow, heavy)
+    //    → far from target (fast tilt): alpha rises → camera catches up quickly
+    //    → result: no jitter on fast swings, no snap on slow ones
+    //
+    //  DeltaTime correction keeps feel identical at 30/60/120 fps:
+    //    slerpT = 1 - (1 - alpha)^(dt * 60)
     if (orientationReady) {
-      const lerpFactor = 1 - Math.pow(1 - SMOOTH_BASE, dt * 60);
-      currentRotation.x = THREE.MathUtils.lerp(currentRotation.x, targetRotation.x, lerpFactor);
-      currentRotation.y = THREE.MathUtils.lerp(currentRotation.y, targetRotation.y, lerpFactor);
-      camera.rotation.x = currentRotation.x;
-      camera.rotation.y = currentRotation.y;
+      const dist   = camera.quaternion.angleTo(targetQuat);
+      const alpha  = Math.min(0.92, BASE_ALPHA + dist * VEL_SCALE);
+      const slerpT = 1 - Math.pow(1 - alpha, dt * 60);
+      camera.quaternion.slerp(targetQuat, slerpT);
     }
 
     renderer.render(scene, camera);
