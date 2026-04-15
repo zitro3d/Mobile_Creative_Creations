@@ -59,6 +59,35 @@
       box-shadow: 0 0 40px rgba(0,242,255,0.45), inset 0 0 18px rgba(0,242,255,0.15);
     }
 
+    /* ── Loading bar ───────────────────────────────────────────── */
+    #loading-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+    }
+    #loading-bar-track {
+      width: 220px;
+      height: 2px;
+      background: rgba(0,242,255,0.12);
+      border-radius: 1px;
+      overflow: hidden;
+    }
+    #loading-bar {
+      height: 100%;
+      width: 0%;
+      background: #00f2ff;
+      box-shadow: 0 0 10px rgba(0,242,255,0.9);
+      transition: width 0.12s linear;
+    }
+    #loading-label {
+      font-family: 'Orbitron', monospace;
+      font-size: 0.60rem;
+      letter-spacing: 0.22em;
+      color: rgba(0,242,255,0.40);
+    }
+
     /* ── Sensor debug overlay ───────────────────────────────────── */
     #debug {
       display: none;
@@ -127,7 +156,11 @@
   <div id="overlay">
     <h1>VECTOR ROCKET PRO</h1>
     <p>TILT TO NAVIGATE</p>
-    <button id="start-btn">MISSION START</button>
+    <div id="loading-wrap">
+      <div id="loading-bar-track"><div id="loading-bar"></div></div>
+      <div id="loading-label">LOADING ASSETS…</div>
+    </div>
+    <button id="start-btn" style="display:none">MISSION START</button>
   </div>
 
   <!-- Sensor debug panel — visible after MISSION START -->
@@ -244,9 +277,9 @@ Integrated (°)
 
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
-    1.2,   // strength — higher so ship specular highlights glow
-    0.5,   // radius
-    0.70   // lower threshold — catches bright hull reflections, not just lasers
+    1.8,   // strength — boosted for neon emissive glow
+    0.6,   // radius
+    0.25   // low threshold so emissive trim always blooms
   );
   bloomPass.renderToScreen = true;
   composer.addPass(bloomPass);
@@ -315,12 +348,46 @@ Integrated (°)
   })();
 
   // ─────────────────────────────────────────────────────────────────
-  //  FIGHTER JET GLB MODEL
-  //
-  //  Loaded asynchronously — the rest of the scene initialises and
-  //  animates normally while the file is fetching.
-  //  Adjust model.scale / model.rotation after seeing the result in-browser.
+  //  FIGHTER JET GLB MODEL — LoadingManager drives the loading bar
+  //  and reveals MISSION START only when the asset is ready.
+  //  Note: file on disk is 'figherjet.glb' (legacy typo kept).
   // ─────────────────────────────────────────────────────────────────
+  const loadBar    = document.getElementById('loading-bar');
+  const loadLabel  = document.getElementById('loading-label');
+  const loadWrap   = document.getElementById('loading-wrap');
+  const startBtn   = document.getElementById('start-btn');
+
+  const loadManager = new THREE.LoadingManager(
+    // ── onLoad (all queued items done) ────────────────────────────
+    () => {
+      loadBar.style.width = '100%';
+      loadLabel.textContent = 'READY';
+      setTimeout(() => {
+        loadWrap.style.display  = 'none';
+        startBtn.style.display  = '';
+      }, 400);
+    },
+    // ── onProgress ────────────────────────────────────────────────
+    (_url, loaded, total) => {
+      const pct = total > 0 ? Math.round(loaded / total * 100) : 0;
+      loadBar.style.width   = pct + '%';
+      loadLabel.textContent = `LOADING… ${pct}%`;
+    },
+    // ── onError ───────────────────────────────────────────────────
+    (url) => {
+      loadLabel.textContent = 'ERROR — check console';
+      console.error('LoadingManager error:', url);
+    }
+  );
+
+  // ── Neon emissive palette — red / purple / magenta trim colours ──
+  const EMISSIVE_PALETTE = [
+    new THREE.Color(0x9900ff),  // electric purple
+    new THREE.Color(0xff0033),  // neon red
+    new THREE.Color(0xcc0088),  // deep magenta
+    new THREE.Color(0x6600cc),  // violet
+  ];
+
   // Helper — update the GLB line of the debug overlay
   function dbgGlb(msg) {
     const el = document.getElementById('debug');
@@ -328,7 +395,7 @@ Integrated (°)
   }
   dbgGlb('WAITING');
 
-  const gltfLoader = new GLTFLoader();
+  const gltfLoader = new GLTFLoader(loadManager);
   gltfLoader.load(
     './assets/figherjet.glb',
 
@@ -336,29 +403,35 @@ Integrated (°)
     (gltf) => {
       const template = gltf.scene;
 
-      // ── Material normalisation ───────────────────────────────────
-      // GLB metals with no environment map render almost black.
-      // Cap metalness at 0.3 and roughness at 0.55 so the three-point
-      // lighting rig reflects clearly off every surface.
+      // ── Dark sci-fi material override ───────────────────────────
+      // Replace all materials with a dark matte hull + neon emissive
+      // trim so ships read as black with glowing accents under bloom.
+      let meshIdx = 0;
       template.traverse((child) => {
         if (!child.isMesh) return;
+
+        // Ensure MeshStandardMaterial
         if (!(child.material instanceof THREE.MeshStandardMaterial)) {
-          child.material = new THREE.MeshStandardMaterial({
-            color:     child.material.color ?? new THREE.Color(0xcccccc),
-            map:       child.material.map   ?? null,
-          });
+          child.material = new THREE.MeshStandardMaterial();
         }
         const mat = child.material;
-        mat.metalness  = Math.min(mat.metalness ?? 1, 0.45);  // allow some specular
-        mat.roughness  = Math.max(mat.roughness ?? 0, 0.35);  // tighter specular lobe → brighter highlights
+
+        // Dark matte hull — near-black with a cool metallic sheen
+        mat.color.set(0x0d0d18);
+        mat.metalness = 0.75;   // metallic so specular highlights are crisp
+        mat.roughness = 0.50;   // semi-matte — not mirror, not flat
+
+        // Neon emissive trim — cycle palette across mesh parts
+        const emColor = EMISSIVE_PALETTE[meshIdx % EMISSIVE_PALETTE.length];
+        mat.emissive.copy(emColor);
+        mat.emissiveIntensity = 0.65;
+
         mat.needsUpdate = true;
+        meshIdx++;
       });
 
       // ── Auto-scale to a fixed world size ────────────────────────
-      // Models exported in mm, cm, or arbitrary units arrive at wildly
-      // different scales. Normalise to TARGET_LENGTH units along the
-      // longest axis so the jet is always clearly visible.
-      const TARGET_LENGTH = 52;   // smaller world-unit size — less close-up overwhelming
+      const TARGET_LENGTH = 52;
       const rawBox  = new THREE.Box3().setFromObject(template);
       const rawSize = new THREE.Vector3();
       rawBox.getSize(rawSize);
@@ -366,17 +439,15 @@ Integrated (°)
       const autoScale = TARGET_LENGTH / (maxDim || 1);
       template.scale.setScalar(autoScale);
 
-      // ── Orient — nose toward camera (+Z) ────────────────────────
-      // Model's native nose is along +X, so rotate -90° around Y to point +Z.
-      // If still showing side/back, try: Math.PI / 2  or  0  or  -Math.PI
+      // ── Orient — nose toward travel direction ────────────────────
       template.rotation.y = Math.PI / 2;
 
-      // Recompute bbox after scale + rotation for accurate tail position
+      // Recompute bbox after scale + rotation
       template.updateWorldMatrix(true, true);
-      const bbox  = new THREE.Box3().setFromObject(template);
-      const sz    = new THREE.Vector3();
+      const bbox = new THREE.Box3().setFromObject(template);
+      const sz   = new THREE.Vector3();
       bbox.getSize(sz);
-      const tailZ = bbox.min.z - sz.z * 0.05;  // just behind the rearmost face
+      const tailZ = bbox.min.z - sz.z * 0.05;
 
       const dbgMsg =
         `LOADED scale=${autoScale.toFixed(3)} ` +
@@ -385,12 +456,11 @@ Integrated (°)
       dbgGlb(dbgMsg);
       console.log('figherjet.glb —', dbgMsg);
 
-      // ── Build object pool — clone template ENEMY_COUNT times ────
+      // ── Build object pool ────────────────────────────────────────
       for (let i = 0; i < ENEMY_COUNT; i++) {
         const clone = template.clone();
 
-        // Clone each mesh's material independently so opacity can be
-        // set per-instance without affecting other jets in the pool
+        // Clone materials independently (per-instance opacity)
         const meshes = [];
         clone.traverse((child) => {
           if (!child.isMesh) return;
@@ -400,9 +470,16 @@ Integrated (°)
           meshes.push(child);
         });
 
-        clone.visible = false;   // inactive until spawn timer fires
+        // ── Engine glow — neon PointLight at ship centre ──────────
+        // Illuminates the hull with a red-purple engine exhaust halo.
+        // Positioned at world origin of clone; follows ship as it moves.
+        const engineGlow = new THREE.PointLight(0xff2255, 5.0, 50);
+        engineGlow.position.set(0, 0, 0);
+        clone.add(engineGlow);
+
+        clone.visible = false;
         scene.add(clone);
-        enemies.push({ group: clone, meshes });
+        enemies.push({ group: clone, meshes, engineGlow });
         enemyState.push({
           type: 'FRONTAL', speed: 0,
           dirX: 0, dirZ: -1,
@@ -414,13 +491,8 @@ Integrated (°)
       }
     },
 
-    // ── onProgress ────────────────────────────────────────────────
-    (xhr) => {
-      const pct = xhr.lengthComputable
-        ? Math.round(xhr.loaded / xhr.total * 100)
-        : Math.round(xhr.loaded / 1024) + 'KB';
-      dbgGlb(`LOADING ${pct}${xhr.lengthComputable ? '%' : ''}`);
-    },
+    // ── onProgress (LoadingManager handles bar — this is optional) ─
+    undefined,
 
     // ── onError ───────────────────────────────────────────────────
     (error) => {
