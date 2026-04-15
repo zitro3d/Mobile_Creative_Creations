@@ -92,6 +92,7 @@
   <!-- Sensor debug panel — visible after MISSION START -->
   <div id="debug">SENSOR DEBUG
 ────────────────
+GLB    : WAITING
 Status : WAITING
 Events : 0
 Interval: --
@@ -191,6 +192,13 @@ Integrated (°)
   //  animates normally while the file is fetching.
   //  Adjust model.scale / model.rotation after seeing the result in-browser.
   // ─────────────────────────────────────────────────────────────────
+  // Helper — update the GLB line of the debug overlay
+  function dbgGlb(msg) {
+    const el = document.getElementById('debug');
+    el.textContent = el.textContent.replace(/^GLB\s*:.*$/m, `GLB    : ${msg}`);
+  }
+  dbgGlb('WAITING');
+
   const gltfLoader = new GLTFLoader();
   gltfLoader.load(
     './assets/figherjet.glb',
@@ -199,21 +207,10 @@ Integrated (°)
     (gltf) => {
       const template = gltf.scene;
 
-      // Scale — 1:1 starting point; bump to e.g. set(5,5,5) if the jet looks tiny
-      template.scale.set(1, 1, 1);
-
-      // Orient so the nose points toward the camera (+Z).
-      // Most exporters default to nose on -Z; 180° Y-flip corrects that.
-      // Switch to rotation.x = Math.PI/2 if the jet arrives nose-up instead.
-      template.rotation.y = Math.PI;
-
-      // ── Material check on template — clones inherit the result ──
+      // ── Material check ───────────────────────────────────────────
       template.traverse((child) => {
         if (!child.isMesh) return;
-        if (child.material instanceof THREE.MeshStandardMaterial) {
-          console.log(`fighterjet ✓ MeshStandardMaterial — "${child.name}"`);
-        } else {
-          console.warn(`fighterjet: "${child.name}" uses ${child.material.type} — upgrading`);
+        if (!(child.material instanceof THREE.MeshStandardMaterial)) {
           child.material = new THREE.MeshStandardMaterial({
             color:     child.material.color ?? new THREE.Color(0xcccccc),
             map:       child.material.map   ?? null,
@@ -224,16 +221,34 @@ Integrated (°)
         child.material.needsUpdate = true;
       });
 
-      // ── Locate the tail for thruster placement ──────────────────
-      // After rotation.y = Math.PI: nose is at +Z, tail is at -Z (bbox.min.z).
+      // ── Auto-scale to a fixed world size ────────────────────────
+      // Models exported in mm, cm, or arbitrary units arrive at wildly
+      // different scales. Normalise to TARGET_LENGTH units along the
+      // longest axis so the jet is always clearly visible.
+      const TARGET_LENGTH = 22;   // world units — tweak for bigger/smaller
+      const rawBox  = new THREE.Box3().setFromObject(template);
+      const rawSize = new THREE.Vector3();
+      rawBox.getSize(rawSize);
+      const maxDim    = Math.max(rawSize.x, rawSize.y, rawSize.z);
+      const autoScale = TARGET_LENGTH / (maxDim || 1);
+      template.scale.setScalar(autoScale);
+
+      // ── Orient — nose toward camera (+Z) ────────────────────────
+      template.rotation.y = Math.PI;
+
+      // Recompute bbox after scale + rotation for accurate tail position
       template.updateWorldMatrix(true, true);
       const bbox  = new THREE.Box3().setFromObject(template);
-      const tailZ = bbox.min.z - 2;   // 2 units behind the rearmost face
-      console.log(
-        `fighterjet: size=(${(bbox.max.x-bbox.min.x).toFixed(1)}, ` +
-        `${(bbox.max.y-bbox.min.y).toFixed(1)}, ${(bbox.max.z-bbox.min.z).toFixed(1)}), ` +
-        `tailZ=${tailZ.toFixed(1)}`
-      );
+      const sz    = new THREE.Vector3();
+      bbox.getSize(sz);
+      const tailZ = bbox.min.z - sz.z * 0.05;  // just behind the rearmost face
+
+      const dbgMsg =
+        `LOADED scale=${autoScale.toFixed(3)} ` +
+        `size=(${sz.x.toFixed(1)},${sz.y.toFixed(1)},${sz.z.toFixed(1)}) ` +
+        `tailZ=${tailZ.toFixed(1)}`;
+      dbgGlb(dbgMsg);
+      console.log('figherjet.glb —', dbgMsg);
 
       // ── Build object pool — clone template ENEMY_COUNT times ────
       for (let i = 0; i < ENEMY_COUNT; i++) {
@@ -254,7 +269,7 @@ Integrated (°)
         thrustSprite.position.z = tailZ;
         clone.add(thrustSprite);
 
-        // Point light at exhaust — illuminates nearby stars and hull
+        // Point light at exhaust
         const thrustLight = new THREE.PointLight(glowCol, 2.5, 50);
         thrustLight.position.z = tailZ;
         clone.add(thrustLight);
@@ -266,20 +281,20 @@ Integrated (°)
         // Stagger start depths so ships arrive in waves, not all at once
         enemies[i].group.position.z = ENEMY_SPAWN_Z * (0.12 + 0.88 * Math.random());
       }
-
-      console.log(`fighterjet.glb loaded — ${ENEMY_COUNT} enemy clones ready.`);
     },
 
     // ── onProgress ────────────────────────────────────────────────
     (xhr) => {
-      if (xhr.lengthComputable) {
-        console.log(`fighterjet.glb: ${Math.round(xhr.loaded / xhr.total * 100)}% loaded`);
-      }
+      const pct = xhr.lengthComputable
+        ? Math.round(xhr.loaded / xhr.total * 100)
+        : Math.round(xhr.loaded / 1024) + 'KB';
+      dbgGlb(`LOADING ${pct}${xhr.lengthComputable ? '%' : ''}`);
     },
 
     // ── onError ───────────────────────────────────────────────────
     (error) => {
-      console.error('figherjet.glb failed to load — check the path ./assets/figherjet.glb:', error);
+      dbgGlb('ERROR — see console');
+      console.error('figherjet.glb failed to load:', error);
     }
   );
 
