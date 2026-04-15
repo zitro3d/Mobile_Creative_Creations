@@ -277,9 +277,9 @@ Integrated (°)
 
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
-    1.8,   // strength — boosted for neon emissive glow
-    0.6,   // radius
-    0.25   // low threshold so emissive trim always blooms
+    1.4,   // strength
+    0.5,   // radius
+    0.55   // threshold — catches specular highlights, lasers, engine glow
   );
   bloomPass.renderToScreen = true;
   composer.addPass(bloomPass);
@@ -380,14 +380,6 @@ Integrated (°)
     }
   );
 
-  // ── Neon emissive palette — red / purple / magenta trim colours ──
-  const EMISSIVE_PALETTE = [
-    new THREE.Color(0x9900ff),  // electric purple
-    new THREE.Color(0xff0033),  // neon red
-    new THREE.Color(0xcc0088),  // deep magenta
-    new THREE.Color(0x6600cc),  // violet
-  ];
-
   // Helper — update the GLB line of the debug overlay
   function dbgGlb(msg) {
     const el = document.getElementById('debug');
@@ -403,31 +395,21 @@ Integrated (°)
     (gltf) => {
       const template = gltf.scene;
 
-      // ── Dark sci-fi material override ───────────────────────────
-      // Replace all materials with a dark matte hull + neon emissive
-      // trim so ships read as black with glowing accents under bloom.
-      let meshIdx = 0;
+      // ── Material fix — preserve GLB textures, correct lighting only ─
+      // GLB metals with no env-map render near-black. Cap metalness/roughness
+      // so the three-point lighting rig reads off the original textures.
       template.traverse((child) => {
         if (!child.isMesh) return;
-
-        // Ensure MeshStandardMaterial
         if (!(child.material instanceof THREE.MeshStandardMaterial)) {
-          child.material = new THREE.MeshStandardMaterial();
+          child.material = new THREE.MeshStandardMaterial({
+            color: child.material.color ?? new THREE.Color(0xcccccc),
+            map:   child.material.map   ?? null,
+          });
         }
         const mat = child.material;
-
-        // Dark matte hull — near-black with a cool metallic sheen
-        mat.color.set(0x0d0d18);
-        mat.metalness = 0.75;   // metallic so specular highlights are crisp
-        mat.roughness = 0.50;   // semi-matte — not mirror, not flat
-
-        // Neon emissive trim — cycle palette across mesh parts
-        const emColor = EMISSIVE_PALETTE[meshIdx % EMISSIVE_PALETTE.length];
-        mat.emissive.copy(emColor);
-        mat.emissiveIntensity = 0.65;
-
+        mat.metalness  = Math.min(mat.metalness ?? 1, 0.45);
+        mat.roughness  = Math.max(mat.roughness ?? 0, 0.35);
         mat.needsUpdate = true;
-        meshIdx++;
       });
 
       // ── Auto-scale to a fixed world size ────────────────────────
@@ -470,10 +452,9 @@ Integrated (°)
           meshes.push(child);
         });
 
-        // ── Engine glow — neon PointLight at ship centre ──────────
-        // Illuminates the hull with a red-purple engine exhaust halo.
-        // Positioned at world origin of clone; follows ship as it moves.
-        const engineGlow = new THREE.PointLight(0xff2255, 5.0, 50);
+        // ── Engine glow — warm exhaust PointLight ────────────────
+        // Soft orange halo at ship centre — doesn't overwhelm textures.
+        const engineGlow = new THREE.PointLight(0xff6600, 2.2, 45);
         engineGlow.position.set(0, 0, 0);
         clone.add(engineGlow);
 
@@ -675,6 +656,19 @@ Integrated (°)
     enemyState[i].shaken     = false;
   }
 
+  // Returns true if world position (x,y,z) is within MIN units of any
+  // other active enemy (skip index i so a ship doesn't collide with itself)
+  function tooClose(x, y, z, skipIdx) {
+    const MIN_SQ = 130 * 130;
+    for (let j = 0; j < enemies.length; j++) {
+      if (j === skipIdx || !enemies[j].group.visible) continue;
+      const p  = enemies[j].group.position;
+      const dx = p.x - x, dy = p.y - y, dz = p.z - z;
+      if (dx*dx + dy*dy + dz*dz < MIN_SQ) return true;
+    }
+    return false;
+  }
+
   function activateEnemy(i) {
     const e  = enemies[i];
     const es = enemyState[i];
@@ -682,7 +676,9 @@ Integrated (°)
     const typeRoll = Math.random();
     let spawnX, spawnY, spawnZ, targetX, targetZ;
 
-    spawnY = (Math.random() - 0.5) * 24;   // near eye level for first-person
+    // Wide vertical spread — ships at many heights, slight upward bias
+    // Range: approx -20 to +60 world units (camera at Y=0, ground at Y=-30)
+    spawnY = (Math.random() - 0.25) * 80;
 
     if (typeRoll < 0.50) {
       // ── FRONTAL: guaranteed lateral offset so it never flies dead-on ─
@@ -690,16 +686,16 @@ Integrated (°)
       const fSide = Math.random() < 0.5 ? 1 : -1;
       spawnX  = fSide * (40 + Math.random() * 60);  // min 40 units from center
       spawnZ  = -480;
-      targetX = (Math.random() - 0.5) * 100;        // wider target spread
+      targetX = (Math.random() - 0.5) * 100;
       targetZ = 100;
       es.speed = 110 + Math.random() * 50;
     } else if (typeRoll < 0.75) {
-      // ── PURSUIT: spawns behind and to side, never dead-center ────
+      // ── PURSUIT: starts well behind camera, flies away into distance ─
       const side = Math.random() < 0.5 ? 1 : -1;
       es.type = 'PURSUIT';
-      spawnX  = side * (40 + Math.random() * 40);   // offset so it clears camera
-      spawnZ  = 80;
-      targetX = spawnX * 0.6;
+      spawnX  = side * (50 + Math.random() * 60);  // clearly off to the side
+      spawnZ  = 180;                                 // well behind camera
+      targetX = spawnX * 0.5;
       targetZ = -480;
       es.speed = 110 + Math.random() * 50;
     } else {
@@ -712,6 +708,9 @@ Integrated (°)
       targetZ = -50 + (Math.random() - 0.5) * 40;
       es.speed = 80 + Math.random() * 50;
     }
+
+    // Reject spawn if another ship is already too close — prevents bunching
+    if (tooClose(spawnX, spawnY, spawnZ, i)) return;
 
     e.group.position.set(spawnX, spawnY, spawnZ);
     es.baseX = spawnX;
