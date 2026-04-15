@@ -88,6 +88,20 @@
       color: rgba(0,242,255,0.40);
     }
 
+    /* ── Score display ──────────────────────────────────────────── */
+    #score {
+      position: fixed;
+      top: 18px; right: 20px;
+      font-family: 'Orbitron', monospace;
+      font-size: 1.1rem;
+      letter-spacing: 0.18em;
+      color: #00f2ff;
+      text-shadow: 0 0 14px rgba(0,242,255,0.8);
+      z-index: 20;
+      pointer-events: none;
+      display: none;
+    }
+
     /* ── Sensor debug overlay ───────────────────────────────────── */
     #debug {
       display: none;
@@ -179,6 +193,9 @@ rotationRate (°/s)
 Integrated (°)
   pitch : --
   yaw   : --</div>
+
+  <!-- Score counter -->
+  <div id="score">0</div>
 
   <!-- Cockpit HUD — pointer-events: none so it never blocks input -->
   <div id="hud">
@@ -684,34 +701,45 @@ Integrated (°)
 
   // Pick the next 3-D waypoint based on where the ship currently is.
   // Increments passCount; returns null when maxPasses is exhausted.
+  //
+  // Key rule: never assign a waypoint that requires > ~100° of turning.
+  // For deep-ahead ships (flying in -Z), arc them SIDEWAYS first so the
+  // ship banks naturally rather than decelerating and pivoting in place.
   function nextWaypoint(es) {
     es.passCount++;
     if (es.passCount > es.maxPasses) return null;
 
-    const ty = (Math.random() - 0.25) * 80;   // height −20..+60
+    // Y floor: keep base well above ground (ground=-30, wobble up to ±17)
+    const ty = Math.max(-10, (Math.random() - 0.2) * 70);
     const px = es.baseX, pz = es.baseZ;
 
-    if (pz < -150) {
-      // Deep ahead — U-turn to behind/beside camera
+    if (pz < -200) {
+      // Deep ahead, flying roughly in −Z. Avoid reverse waypoints.
+      // Instead: arc perpendicular to current heading (≈ 90° turn).
+      const hspd   = Math.sqrt(es.velX*es.velX + es.velZ*es.velZ);
+      const hdgX   = hspd > 1 ? es.velX/hspd : 0;
+      const hdgZ   = hspd > 1 ? es.velZ/hspd : -1;
+      const pSign  = Math.random() < 0.5 ? 1 : -1;
+      // Perpendicular: rotate heading 90° in XZ → (-hdgZ, hdgX)
       return {
-        x: (Math.random() < 0.5 ? -1 : 1) * (40 + Math.random() * 90),
+        x: px + (-hdgZ * pSign) * (130 + Math.random() * 90),
         y: ty,
-        z: 150 + Math.random() * 100,
+        z: pz  + (70  + Math.random() * 110),   // slight forward arc
       };
     } else if (pz > 60) {
-      // Behind camera — bank back toward the front on a diagonal
+      // Behind camera — bank diagonally back toward the front
       return {
         x: (Math.random() - 0.5) * 200,
         y: ty,
-        z: -260 - Math.random() * 200,
+        z: -240 - Math.random() * 200,
       };
     } else {
-      // Mid-arena — cross to opposite quadrant
+      // Mid-arena — sweep to opposite quadrant (≤ ~90° turn)
       const side = px > 0 ? -1 : 1;
       return {
-        x: side * (50 + Math.random() * 90),
+        x: side * (60 + Math.random() * 80),
         y: ty,
-        z: pz > -80 ? -380 : 120,
+        z: pz > -80 ? -360 : 120,
       };
     }
   }
@@ -734,7 +762,7 @@ Integrated (°)
     es.maxPasses  = 2 + Math.floor(Math.random() * 3);  // 2–4 passes
 
     // ── Spawn position ─────────────────────────────────────────────
-    const spawnY  = (Math.random() - 0.25) * 80;  // −20 to +60
+    const spawnY  = Math.max(-10, (Math.random() - 0.2) * 70);  // −10..+56
     let spawnX, spawnZ;
     const typeRoll = Math.random();
     es.spawnType   = typeRoll < 0.5 ? 'FRONT' : typeRoll < 0.75 ? 'REAR' : 'SIDE';
@@ -912,65 +940,85 @@ Integrated (°)
   });
 
   // ─────────────────────────────────────────────────────────────────
-  //  FLICK-TO-FIRE — raycaster + explosion particles + laser line
+  //  FLICK-TO-FIRE
+  //  Gesture: pointerdown → pointerup, dist > 30px, elapsed < 300ms
+  //  Ray cast through the flick's END point (not screen centre)
+  //  250ms fire cooldown prevents ghost-firing
   // ─────────────────────────────────────────────────────────────────
-  const raycaster   = new THREE.Raycaster();
-  const centerNDC   = new THREE.Vector2(0, 0);   // screen center in NDC
-  let   flickStart  = null;
-  const FLICK_MIN   = 28;   // minimum pixel travel for a valid flick
-  const FLICK_MAX_T = 320;  // maximum milliseconds for a flick gesture
+  const raycaster    = new THREE.Raycaster();
+  let   flickStart   = null;
+  let   lastFireMs   = 0;
+  let   score        = 0;
+  const scoreEl      = document.getElementById('score');
+  const FLICK_MIN    = 30;   // px minimum travel
+  const FLICK_MAX_T  = 300;  // ms maximum duration
+  const FIRE_COOL_MS = 250;  // ms between shots
 
+  // ── Cube-fragment explosion ──────────────────────────────────────
   function spawnExplosion(pos) {
-    const COUNT  = 90;
-    const posArr = new Float32Array(COUNT * 3);
-    const vels   = [];
+    const COUNT     = 16;
+    const fragments = [];
     for (let k = 0; k < COUNT; k++) {
-      posArr[k*3]   = pos.x;
-      posArr[k*3+1] = pos.y;
-      posArr[k*3+2] = pos.z;
-      vels.push(new THREE.Vector3(
-        (Math.random() - 0.5) * 180,
-        (Math.random() - 0.5) * 180,
-        (Math.random() - 0.5) * 180
-      ));
+      const sz  = 1.2 + Math.random() * 2.0;
+      const geo = new THREE.BoxGeometry(sz, sz, sz);
+      const mat = new THREE.MeshStandardMaterial({
+        color:             k % 2 === 0 ? 0xff7722 : 0xffcc44,
+        emissive:          k % 2 === 0 ? 0xff4400 : 0xff9900,
+        emissiveIntensity: 3.0,
+        transparent:       true,
+        opacity:           1,
+        depthWrite:        false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(pos);
+      scene.add(mesh);
+      fragments.push({
+        mesh, geo, mat,
+        vel: new THREE.Vector3(
+          (Math.random() - 0.5) * 200,
+          (Math.random() - 0.5) * 200,
+          (Math.random() - 0.5) * 200,
+        ),
+        rot: new THREE.Vector3(
+          (Math.random() - 0.5) * 10,
+          (Math.random() - 0.5) * 10,
+          (Math.random() - 0.5) * 10,
+        ),
+      });
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
-    const mat = new THREE.PointsMaterial({
-      color:       0xff8833,
-      size:        2.5,
-      sizeAttenuation: true,
-      transparent: true,
-      opacity:     1,
-      blending:    THREE.AdditiveBlending,
-      depthWrite:  false,
-    });
-    const pts   = new THREE.Points(geo, mat);
-    scene.add(pts);
+    const DURATION = 1.0;
     const t0 = performance.now();
     (function tick() {
       const elapsed = (performance.now() - t0) / 1000;
-      if (elapsed > 0.9) { scene.remove(pts); geo.dispose(); mat.dispose(); return; }
-      const pAttr = geo.attributes.position;
-      for (let k = 0; k < COUNT; k++) {
-        pAttr.setXYZ(k, pos.x + vels[k].x * elapsed,
-                        pos.y + vels[k].y * elapsed,
-                        pos.z + vels[k].z * elapsed);
+      if (elapsed >= DURATION) {
+        for (const { mesh, geo, mat } of fragments) {
+          scene.remove(mesh); geo.dispose(); mat.dispose();
+        }
+        return;
       }
-      pAttr.needsUpdate = true;
-      mat.opacity = 1 - elapsed / 0.9;
+      const p = elapsed / DURATION;
+      for (const { mesh, mat, vel, rot } of fragments) {
+        mesh.position.copy(pos).addScaledVector(vel, elapsed);
+        mesh.rotation.x = rot.x * elapsed;
+        mesh.rotation.y = rot.y * elapsed;
+        mesh.rotation.z = rot.z * elapsed;
+        mat.opacity           = 1 - p * p;
+        mat.emissiveIntensity = 3 * (1 - p);
+      }
       requestAnimationFrame(tick);
     })();
   }
 
-  function spawnLaser(hitPos) {
-    const origin = camera.position.clone();
-    const pts2   = [origin, hitPos.clone()];
-    const geo    = new THREE.BufferGeometry().setFromPoints(pts2);
+  // ── Neon-purple laser from gun point to target ───────────────────
+  function spawnLaser(endPos) {
+    // Origin: slightly below camera to suggest a weapon mount
+    const origin = camera.position.clone().add(new THREE.Vector3(0, -3, -2));
+    const geo    = new THREE.BufferGeometry().setFromPoints([origin, endPos.clone()]);
     const mat    = new THREE.LineBasicMaterial({
-      color:       0xdd22ff,
+      color:       0xcc00ff,
       transparent: true,
       opacity:     1,
+      linewidth:   2,
       blending:    THREE.AdditiveBlending,
       depthWrite:  false,
     });
@@ -979,8 +1027,8 @@ Integrated (°)
     const t0 = performance.now();
     (function fade() {
       const elapsed = (performance.now() - t0) / 1000;
-      if (elapsed > 0.35) { scene.remove(line); geo.dispose(); mat.dispose(); return; }
-      mat.opacity = 1 - elapsed / 0.35;
+      if (elapsed > 0.30) { scene.remove(line); geo.dispose(); mat.dispose(); return; }
+      mat.opacity = 1 - elapsed / 0.30;
       requestAnimationFrame(fade);
     })();
   }
@@ -991,17 +1039,25 @@ Integrated (°)
 
   renderer.domElement.addEventListener('pointerup', (ev) => {
     if (!flickStart) return;
-    const dx      = ev.clientX - flickStart.x;
-    const dy      = ev.clientY - flickStart.y;
-    const dist    = Math.sqrt(dx * dx + dy * dy);
+    const sx = flickStart.x, sy = flickStart.y;
+    const ex = ev.clientX,   ey = ev.clientY;
+    const dist    = Math.sqrt((ex-sx)**2 + (ey-sy)**2);
     const elapsed = performance.now() - flickStart.t;
-    flickStart    = null;
+    flickStart = null;
+
     if (dist < FLICK_MIN || elapsed > FLICK_MAX_T) return;
 
-    // Cast from camera through screen centre
-    raycaster.setFromCamera(centerNDC, camera);
+    // 250ms fire cooldown
+    const nowMs = performance.now();
+    if (nowMs - lastFireMs < FIRE_COOL_MS) return;
+    lastFireMs = nowMs;
 
-    // Collect all visible enemy meshes
+    // Ray through the flick END point (not screen centre)
+    const ndcX = ( ex / window.innerWidth  ) * 2 - 1;
+    const ndcY = -(ey / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+
+    // Collect hits across all visible enemy meshes
     const hits = [];
     for (const en of enemies) {
       if (!en.group.visible) continue;
@@ -1010,18 +1066,19 @@ Integrated (°)
     }
 
     if (hits.length > 0) {
-      // Closest hit wins
       hits.sort((a, b) => a.dist - b.dist);
       const { point, en } = hits[0];
       const idx = enemies.indexOf(en);
       if (idx !== -1) deactivateEnemy(idx);
       spawnExplosion(point);
       spawnLaser(point);
-      shakeTimer = 0.12;
+      shakeTimer = 0.10;
+      score += 100;
+      scoreEl.textContent = score;
     } else {
-      // Miss — show laser going straight ahead 200 u
+      // Miss — laser goes to max range
       const missPos = new THREE.Vector3();
-      raycaster.ray.at(200, missPos);
+      raycaster.ray.at(400, missPos);
       spawnLaser(missPos);
     }
   });
@@ -1029,6 +1086,7 @@ Integrated (°)
   document.getElementById('start-btn').addEventListener('click', async () => {
     document.getElementById('overlay').style.display = 'none';
     document.getElementById('debug').style.display   = 'block';
+    scoreEl.style.display = 'block';
 
     // Attach listener FIRST — in place before permission dialog resolves (iOS)
     window.addEventListener('devicemotion', handleMotion, true);
@@ -1191,8 +1249,8 @@ Integrated (°)
       const nDZ = cdZ + (tdZ - cdZ) * steer;
       const nDL = Math.sqrt(nDX*nDX + nDY*nDY + nDZ*nDZ) || 1;
 
-      // Accelerate to full speed; brake in sharp turns
-      const brakeFactor = 0.25 + 0.75 * Math.max(0, align);  // 0.25..1.0
+      // Brake in sharp turns; minimum 45% so ships never pivot in place
+      const brakeFactor = 0.45 + 0.55 * Math.max(0, align);  // 0.45..1.0
       const tgtSpd = es.maxSpeed * brakeFactor;
       es.curSpeed += (tgtSpd - es.curSpeed) * Math.min(1, (es.accel / es.maxSpeed) * 4 * dt);
 
@@ -1208,6 +1266,8 @@ Integrated (°)
       es.baseX += es.velX * dt;
       es.baseY += es.velY * dt;
       es.baseZ += es.velZ * dt;
+      // Y floor: keep above ground (ground=−30, wobble up to ±17)
+      if (es.baseY < -13) { es.baseY = -13; if (es.velY < 0) es.velY = 0; }
 
       e.group.position.x = es.baseX + wobX;
       e.group.position.y = es.baseY + wobY;
