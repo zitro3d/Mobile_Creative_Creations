@@ -16,90 +16,66 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
     }
   }
   </script>
 
   <script type="module">
   import * as THREE from 'three';
-  import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
-  import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
-  import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
   // ─────────────────────────────────────────────────────────────────
-  //  TUNABLE CONSTANTS — adjust these to change look & feel
+  //  TUNABLE CONSTANTS
   // ─────────────────────────────────────────────────────────────────
-  const STAR_COUNT    = 5000;   // total star points
-  const STAR_SPREAD_X = 220;    // horizontal spread of the star field
-  const STAR_SPREAD_Y = 130;    // vertical spread
-  const STAR_DEPTH    = 2000;   // how deep the tunnel extends behind the camera
-  const STAR_FADE_FAR = 1600;   // distance at which stars are invisible (fade start)
-  const STAR_FADE_NEAR= 400;    // distance at which stars reach full brightness
+  const STAR_COUNT         = 5000;
+  const STAR_SPREAD_X      = 220;
+  const STAR_SPREAD_Y      = 130;
+  const STAR_DEPTH         = 2000;
+  const STAR_FADE_FAR      = 1600;
+  const STAR_FADE_NEAR     = 400;
 
-  const NEBULA_COUNT  = 20;     // number of volumetric cloud sprites
-  const NEBULA_DEPTH  = 1800;   // max depth at which nebulas spawn
-  const NEBULA_MAX_OP = 0.12;   // peak opacity — keep low for subtle atmosphere
+  const NEBULA_COUNT       = 20;
+  const NEBULA_DEPTH       = 1800;
+  const NEBULA_MAX_OP      = 0.18;
 
-  // Constant cruising speed — no oscillation.
-  // Change SPEED here (or via game logic later) to control travel rate.
-  const SPEED              = 80;   // star travel speed, units / second
-  const NEBULA_SPEED_FACTOR = 0.28; // nebulas move at 28% of star speed → parallax depth
+  const SPEED              = 80;    // star speed, units / second
+  const NEBULA_SPEED_FACTOR = 0.28; // nebulas at 28% → parallax depth
 
-  const BASE_FOV      = 72;     // fixed field of view — warp effect added later
+  const BASE_FOV           = 72;
 
   // ─────────────────────────────────────────────────────────────────
   //  RENDERER
   // ─────────────────────────────────────────────────────────────────
   const renderer = new THREE.WebGLRenderer({
-    antialias: false,          // off — not needed for points/sprites, saves GPU
+    antialias: false,
     powerPreference: 'high-performance',
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // cap for mobile
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setClearColor(0x00000a, 1); // near-black with the faintest blue tint
+  renderer.setClearColor(0x00000a, 1);
   document.body.appendChild(renderer.domElement);
 
   // ─────────────────────────────────────────────────────────────────
-  //  POST-PROCESSING — UnrealBloomPass for star/nebula glow
+  //  SCENE & CAMERA  (must come before anything that references them)
   // ─────────────────────────────────────────────────────────────────
-  const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  const bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
-    1.5,   // strength
-    0.4,   // radius
-    0.0    // threshold — glow everything (stars are already dim by vertex colour)
-  );
-  composer.addPass(bloomPass);
-
-  // ─────────────────────────────────────────────────────────────────
-  //  SCENE & CAMERA
-  // ─────────────────────────────────────────────────────────────────
-  const scene  = new THREE.Scene();
+  const scene = new THREE.Scene();
 
   const camera = new THREE.PerspectiveCamera(
     BASE_FOV,
     window.innerWidth / window.innerHeight,
-    0.5,    // near
-    3500    // far — must exceed STAR_DEPTH + NEBULA_DEPTH
+    0.5,
+    4000
   );
   camera.position.set(0, 0, 0);
 
   // ─────────────────────────────────────────────────────────────────
-  //  UNIVERSE GROUP
-  //  Every object lives inside this single Group.
-  //  Moving universe.position.z forward each frame is equivalent to
-  //  flying the camera through space — one transform, zero overhead.
+  //  UNIVERSE GROUP — all objects live here; group stays at origin
   // ─────────────────────────────────────────────────────────────────
   const universe = new THREE.Group();
   scene.add(universe);
 
   // ─────────────────────────────────────────────────────────────────
-  //  STAR TEXTURE — soft circular gradient so points render as
-  //  round discs instead of WebGL's default square sprites.
-  //  alphaTest on the material clips the square corners entirely.
+  //  STAR TEXTURE — circular soft gradient, no square corners
   // ─────────────────────────────────────────────────────────────────
   function makeStarTexture() {
     const SZ  = 64;
@@ -107,74 +83,61 @@
     cvs.width = cvs.height = SZ;
     const ctx = cvs.getContext('2d');
     const grd = ctx.createRadialGradient(SZ/2, SZ/2, 0, SZ/2, SZ/2, SZ/2);
-    grd.addColorStop(0.0, 'rgba(255,255,255,1.0)'); // bright centre
+    grd.addColorStop(0.0, 'rgba(255,255,255,1.0)');
     grd.addColorStop(0.4, 'rgba(255,255,255,0.8)');
     grd.addColorStop(0.8, 'rgba(255,255,255,0.2)');
-    grd.addColorStop(1.0, 'rgba(255,255,255,0.0)'); // transparent edge
+    grd.addColorStop(1.0, 'rgba(255,255,255,0.0)');
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, SZ, SZ);
     return new THREE.CanvasTexture(cvs);
   }
 
   // ─────────────────────────────────────────────────────────────────
-  //  STAR FIELD — BufferGeometry + THREE.Points (5 000 stars)
+  //  STAR FIELD
   // ─────────────────────────────────────────────────────────────────
-  const starPos = new Float32Array(STAR_COUNT * 3);
-  // Per-vertex RGB colour — brightness encodes distance fade.
-  // Stars far away start black (invisible); brighten as they approach.
-  const starCol = new Float32Array(STAR_COUNT * 3);
-
-  // Per-star intrinsic brightness: random value so stars twinkle at
-  // different intensities — some barely visible, some blazing white.
+  const starPos        = new Float32Array(STAR_COUNT * 3);
+  const starCol        = new Float32Array(STAR_COUNT * 3);
   const starBrightness = new Float32Array(STAR_COUNT);
 
   for (let i = 0; i < STAR_COUNT; i++) {
     starPos[i * 3]     = (Math.random() - 0.5) * STAR_SPREAD_X * 2;
     starPos[i * 3 + 1] = (Math.random() - 0.5) * STAR_SPREAD_Y * 2;
     starPos[i * 3 + 2] = -(Math.random() * STAR_DEPTH);
-    // Random max brightness: faint (0.2) to blazing (1.0)
     starBrightness[i]  = 0.2 + Math.random() * 0.8;
     starCol[i * 3] = starCol[i * 3 + 1] = starCol[i * 3 + 2] = 0;
   }
 
-  const starGeo  = new THREE.BufferGeometry();
-  const starAttr = new THREE.BufferAttribute(starPos, 3);
+  const starGeo     = new THREE.BufferGeometry();
+  const starAttr    = new THREE.BufferAttribute(starPos, 3);
   const starColAttr = new THREE.BufferAttribute(starCol, 3);
   starGeo.setAttribute('position', starAttr);
-  starGeo.setAttribute('color',    starColAttr); // drives per-star brightness
+  starGeo.setAttribute('color',    starColAttr);
 
   const starMat = new THREE.PointsMaterial({
-    map:          makeStarTexture(), // circular soft disc — no more squares
-    size:         1.8,
-    sizeAttenuation: true,  // larger when close → sells the depth rush
-    vertexColors: true,     // use starColAttr for per-star brightness/fade
-    transparent:  true,
-    alphaTest:    0.01,     // clips the transparent square corners cleanly
-    depthWrite:   false,    // avoids sorting artifacts with nebulas
+    map:             makeStarTexture(),
+    size:            1.8,
+    sizeAttenuation: true,
+    vertexColors:    true,
+    transparent:     true,
+    alphaTest:       0.01,
+    depthWrite:      false,
   });
 
   universe.add(new THREE.Points(starGeo, starMat));
 
   // ─────────────────────────────────────────────────────────────────
-  //  NEBULA SPRITES — volumetric clouds via THREE.Sprite
-  //
-  //  Each sprite uses a canvas-generated radial gradient texture.
-  //  AdditiveBlending means colours add to whatever is behind them,
-  //  giving the naturally glowing look without any lighting setup.
+  //  NEBULA SPRITES
   // ─────────────────────────────────────────────────────────────────
-
-  // Build a soft radial gradient texture on a canvas.
-  // r/g/b = inner core colour. Edge always fades to transparent.
   function makeNebulaTexture(r, g, b) {
     const SZ  = 256;
     const cvs = document.createElement('canvas');
     cvs.width = cvs.height = SZ;
     const ctx = cvs.getContext('2d');
     const grd = ctx.createRadialGradient(SZ/2, SZ/2, 0, SZ/2, SZ/2, SZ/2);
-    grd.addColorStop(0.00, `rgba(${r},${g},${b},1.0)`); // bright core
+    grd.addColorStop(0.00, `rgba(${r},${g},${b},1.0)`);
     grd.addColorStop(0.25, `rgba(${r},${g},${b},0.6)`);
     grd.addColorStop(0.60, `rgba(${r},${g},${b},0.2)`);
-    grd.addColorStop(1.00, `rgba(${r},${g},${b},0.0)`); // transparent edge
+    grd.addColorStop(1.00, `rgba(${r},${g},${b},0.0)`);
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, SZ, SZ);
     return new THREE.CanvasTexture(cvs);
@@ -189,22 +152,19 @@
     makeNebulaTexture(  0, 242, 200), // electric teal
   ];
 
-  // Spawn all nebula sprites
   const nebulas = [];
 
   for (let i = 0; i < NEBULA_COUNT; i++) {
     const mat = new THREE.SpriteMaterial({
-      map:       nebTextures[Math.floor(Math.random() * nebTextures.length)],
+      map:         nebTextures[Math.floor(Math.random() * nebTextures.length)],
       transparent: true,
-      depthWrite:  false,                   // don't block stars behind them
-      blending:    THREE.AdditiveBlending,  // colours glow, add to scene
-      opacity:     0,                       // start invisible; fades in
+      depthWrite:  false,
+      blending:    THREE.AdditiveBlending,
+      opacity:     0,
     });
 
     const sprite = new THREE.Sprite(mat);
-
-    // Place randomly along the tunnel depth
-    const scale = 100 + Math.random() * 250; // large — they're distant clouds
+    const scale  = 100 + Math.random() * 250;
     sprite.scale.set(scale, scale, 1);
     sprite.position.set(
       (Math.random() - 0.5) * 320,
@@ -219,9 +179,6 @@
   // ─────────────────────────────────────────────────────────────────
   //  HELPERS
   // ─────────────────────────────────────────────────────────────────
-
-  // GLSL-style smoothstep: smooth 0→1 curve from edge0 to edge1.
-  // Works with reversed edges (edge0 > edge1) for inverse mapping.
   function smoothstep(edge0, edge1, x) {
     const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
     return t * t * (3 - 2 * t);
@@ -234,44 +191,36 @@
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    composer.setSize(window.innerWidth, window.innerHeight);
-    bloomPass.resolution.set(window.innerWidth, window.innerHeight);
   });
 
   // ─────────────────────────────────────────────────────────────────
   //  ANIMATION LOOP
-  //  Stars and nebulas move directly in local space each frame.
-  //  universe.position stays at 0 always — no precision reset needed.
-  //  distAhead = -localZ (positive = in front of camera).
+  //  Each object moves independently in local space — no group offset,
+  //  no precision reset, no group pop. Truly infinite.
   // ─────────────────────────────────────────────────────────────────
   let prevTime = performance.now();
 
   function animate() {
     requestAnimationFrame(animate);
 
-    const now = performance.now();
-    const dt  = Math.min((now - prevTime) / 1000, 0.05); // cap at 50 ms
-    prevTime  = now;
+    const now  = performance.now();
+    const dt   = Math.min((now - prevTime) / 1000, 0.05);
+    prevTime   = now;
 
     const starTravel   = SPEED * dt;
-    const nebulaTravel = SPEED * NEBULA_SPEED_FACTOR * dt; // nebulas drift slower → parallax
+    const nebulaTravel = SPEED * NEBULA_SPEED_FACTOR * dt;
 
     // ── Stars: individual Z-wrap ──────────────────────────────────
-    //  Each star advances independently. When it passes z > 50
-    //  (behind the camera) it wraps to -STAR_DEPTH with new random
-    //  X/Y so the pattern never repeats.
     for (let i = 0; i < STAR_COUNT; i++) {
       let lz = starAttr.getZ(i) + starTravel;
 
       if (lz > 50) {
-        // Individual reset — fresh position, never a group pop
         lz = -STAR_DEPTH;
         starAttr.setX(i, (Math.random() - 0.5) * STAR_SPREAD_X * 2);
         starAttr.setY(i, (Math.random() - 0.5) * STAR_SPREAD_Y * 2);
         starBrightness[i] = 0.2 + Math.random() * 0.8;
         starCol[i * 3] = starCol[i * 3 + 1] = starCol[i * 3 + 2] = 0;
       } else {
-        // Distance-based brightness fade — stars emerge from the dark
         const distAhead = -lz;
         const fade = smoothstep(STAR_FADE_FAR, STAR_FADE_NEAR, distAhead);
         const b    = fade * starBrightness[i];
@@ -283,21 +232,14 @@
     starAttr.needsUpdate    = true;
     starColAttr.needsUpdate = true;
 
-    // ── Nebulas: individual Z-wrap, parallax speed, smooth opacity ─
-    //  Nebulas travel at NEBULA_SPEED_FACTOR × star speed, so they
-    //  appear massive and far behind the star layer — pure parallax.
-    //
-    //  Opacity formula:
-    //    closeFade  = Math.min(1, |z| / 200)
-    //      → 0 at camera (z=0), ramps to 1 by z=-200, prevents popping
-    //    farFade    = smoothstep fade-in from the deep horizon
-    //      → 0 at spawn (-NEBULA_DEPTH), 1 once inside the visible band
-    //    combined   = NEBULA_MAX_OP × closeFade × farFade
+    // ── Nebulas: individual Z-wrap, parallax speed ────────────────
+    //  closeFade = Math.min(1, |z| / 200)  — fades to 0 at camera
+    //  farFade   = smoothstep from horizon  — fades in from deep space
     for (const neb of nebulas) {
       neb.position.z += nebulaTravel;
 
       if (neb.position.z > 50) {
-        // Individual reset with randomised X/Y — no pattern repeat
+        // Immediately reposition to farthest point — count stays at 20
         neb.position.x = (Math.random() - 0.5) * 320;
         neb.position.y = (Math.random() - 0.5) * 200;
         neb.position.z = -NEBULA_DEPTH;
@@ -307,14 +249,12 @@
         continue;
       }
 
-      // Close fade: prevents pop as the sprite rushes past the lens
       const closeFade = Math.min(1, Math.abs(neb.position.z) / 200);
-      // Far fade: smooth emergence from the deep horizon
       const farFade   = smoothstep(NEBULA_DEPTH, NEBULA_DEPTH * 0.65, -neb.position.z);
       neb.material.opacity = NEBULA_MAX_OP * closeFade * farFade;
     }
 
-    composer.render();
+    renderer.render(scene, camera);
   }
 
   animate();
