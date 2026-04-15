@@ -140,7 +140,7 @@ Integrated (°)
   const BASE_FOV           = 72;
 
   // ── Enemy rocket pool ──────────────────────────────────────────────
-  const ENEMY_COUNT        = 10;   // pool size — safe for iPhone GPU budget
+  const ENEMY_COUNT        = 3;    // working set — tuning scale before adding more
   const ENEMY_SPAWN_Z      = -450; // z where new enemies are placed
   const ENEMY_SPREAD_X     = 280;  // ± half-width of spawn band
   const ENEMY_SPREAD_Y     = 200;  // ± half-height
@@ -225,7 +225,7 @@ Integrated (°)
       // Models exported in mm, cm, or arbitrary units arrive at wildly
       // different scales. Normalise to TARGET_LENGTH units along the
       // longest axis so the jet is always clearly visible.
-      const TARGET_LENGTH = 40;   // world units — tweak for bigger/smaller
+      const TARGET_LENGTH = 80;   // world units — tweak for bigger/smaller
       const rawBox  = new THREE.Box3().setFromObject(template);
       const rawSize = new THREE.Vector3();
       rawBox.getSize(rawSize);
@@ -252,30 +252,10 @@ Integrated (°)
 
       // ── Build object pool — clone template ENEMY_COUNT times ────
       for (let i = 0; i < ENEMY_COUNT; i++) {
-        const isCyan  = (i % 3 !== 0);
-        const glowCol = isCyan ? 0x00d0ff : 0xff4422;
-
         const clone = template.clone();
 
-        // Thruster glow sprite at tail
-        const thrustMat = new THREE.SpriteMaterial({
-          map:         thrusterTex,
-          blending:    THREE.AdditiveBlending,
-          transparent: true,
-          color:       new THREE.Color(glowCol),
-        });
-        const thrustSprite = new THREE.Sprite(thrustMat);
-        thrustSprite.scale.set(4, 4, 1);
-        thrustSprite.position.z = tailZ;
-        clone.add(thrustSprite);
-
-        // Point light at exhaust
-        const thrustLight = new THREE.PointLight(glowCol, 2.5, 50);
-        thrustLight.position.z = tailZ;
-        clone.add(thrustLight);
-
         scene.add(clone);
-        enemies.push({ group: clone, thrustSprite, thrustLight });
+        enemies.push({ group: clone });
         enemyState.push({ speed: 0, rollSpeed: 0 });
         resetEnemy(i);
         // Stagger start depths so ships arrive in waves, not all at once
@@ -464,24 +444,7 @@ Integrated (°)
   //  Arrays start empty; the animate loop guards with enemies.length.
   // ─────────────────────────────────────────────────────────────────
 
-  // Thruster glow texture — white-core radial gradient, tinted per clone
-  function makeThrusterTexture() {
-    const SZ  = 64;
-    const cvs = document.createElement('canvas');
-    cvs.width = cvs.height = SZ;
-    const ctx = cvs.getContext('2d');
-    const grd = ctx.createRadialGradient(SZ/2, SZ/2, 0, SZ/2, SZ/2, SZ/2);
-    grd.addColorStop(0.00, 'rgba(220, 255, 255, 1.00)');
-    grd.addColorStop(0.25, 'rgba(120, 220, 255, 0.85)');
-    grd.addColorStop(0.60, 'rgba( 40, 120, 220, 0.35)');
-    grd.addColorStop(1.00, 'rgba(  0,  40, 120, 0.00)');
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, SZ, SZ);
-    return new THREE.CanvasTexture(cvs);
-  }
-  const thrusterTex = makeThrusterTexture();
-
-  const enemies    = [];  // { group, thrustSprite, thrustLight }
+  const enemies    = [];  // { group }
   const enemyState = [];  // { speed, rollSpeed }
 
   function resetEnemy(i) {
@@ -729,26 +692,14 @@ Integrated (°)
       neb.material.opacity = NEBULA_MAX_OP * closeFade * farFade;
     }
 
-    // ── Enemy rockets: pool update ────────────────────────────────
-    //  Each ship advances along +Z at its own speed, rolls on its Z axis,
-    //  and pulses its thruster sprite + point light.  When it passes the
-    //  camera (z > 50) it is instantly recycled back to ENEMY_SPAWN_Z —
-    //  no allocations, no garbage collection pressure.
-    const t = now / 1000;  // seconds, for thruster flicker phase
+    // ── Enemy jets: pool update ───────────────────────────────────
     for (let i = 0; i < enemies.length; i++) {  // length = 0 until GLB loads
       const e  = enemies[i];
       const es = enemyState[i];
 
-      // Advance and roll
       e.group.position.z += es.speed * dt;
       e.group.rotation.z += es.rollSpeed * dt;
 
-      // Thruster flicker — rapid sin oscillation per ship (offset by index)
-      const pulse = 0.60 + 0.40 * Math.sin(t * 13.5 + i * 2.1);
-      e.thrustSprite.material.opacity = pulse;
-      e.thrustLight.intensity         = pulse * 2.5;
-
-      // Pool recycle — no delete, just teleport back to spawn depth
       if (e.group.position.z > 50) {
         resetEnemy(i);
       }
