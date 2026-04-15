@@ -181,7 +181,7 @@ Integrated (°)
   const STAR_FADE_NEAR     = 400;
 
   const NEBULA_COUNT       = 28;    // more sprites → denser colour mixing
-  const NEBULA_DEPTH       = 1800;
+  const NEBULA_DEPTH       = 3000;  // pushed way back so ships never fly through them
   const NEBULA_MAX_OP      = 1.0;   // texture is very dim, so allow full opacity multiplier
   const NEBULA_SPREAD_X    = 700;   // wide horizontal spread for full-screen coverage
   const NEBULA_SPREAD_Y    = 420;   // tall vertical spread
@@ -212,7 +212,8 @@ Integrated (°)
   // ─────────────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
   // Exponential fog — ships emerge from darkness, no hard pop-in at spawn depth
-  scene.fog = new THREE.FogExp2(0x000000, 0.0022);
+  // Reduced density so ships at z=-600 are still visible
+  scene.fog = new THREE.FogExp2(0x000000, 0.0010);
 
   const camera = new THREE.PerspectiveCamera(
     BASE_FOV,
@@ -574,7 +575,7 @@ Integrated (°)
     sprite.position.set(
       (Math.random() - 0.5) * NEBULA_SPREAD_X,
       (Math.random() - 0.5) * NEBULA_SPREAD_Y,
-      -(200 + Math.random() * NEBULA_DEPTH)
+      -(700 + Math.random() * NEBULA_DEPTH)   // min -700 so ships never overlap nebulas
     );
 
     universe.add(sprite);
@@ -612,11 +613,12 @@ Integrated (°)
     spawnY = (Math.random() - 0.5) * 24;   // near eye level for first-person
 
     if (typeRoll < 0.50) {
-      // ── FRONTAL: classic head-on — starts further back ───────────
+      // ── FRONTAL: guaranteed lateral offset so it never flies dead-on ─
       es.type = 'FRONTAL';
-      spawnX  = (Math.random() - 0.5) * 160;
+      const fSide = Math.random() < 0.5 ? 1 : -1;
+      spawnX  = fSide * (40 + Math.random() * 60);  // min 40 units from center
       spawnZ  = -480;
-      targetX = (Math.random() - 0.5) * 60;
+      targetX = (Math.random() - 0.5) * 100;        // wider target spread
       targetZ = 100;
       es.speed = 110 + Math.random() * 50;
     } else if (typeRoll < 0.75) {
@@ -1015,7 +1017,7 @@ Integrated (°)
         // Immediately reposition to farthest point — count stays at NEBULA_COUNT
         neb.position.x = (Math.random() - 0.5) * NEBULA_SPREAD_X;
         neb.position.y = (Math.random() - 0.5) * NEBULA_SPREAD_Y;
-        neb.position.z = -NEBULA_DEPTH;
+        neb.position.z = -(700 + Math.random() * NEBULA_DEPTH);  // back behind ships
         const [sw, sh] = randNebulaScale();
         neb.scale.set(sw, sh, 1);
         neb.material.rotation = Math.random() * Math.PI * 2;
@@ -1067,25 +1069,29 @@ Integrated (°)
       // nose = local -X.  For travel (vx, vz): yaw = atan2(vz, -vx)
       const velX = (e.group.position.x - prevX) / Math.max(dt, 0.001);
       const velZ = (e.group.position.z - prevZ) / Math.max(dt, 0.001);
-      const yawTarget  = Math.atan2(velZ, -velX);
-      const rollTarget = -velX * 0.0028;  // halved — ships tilt into turns without nose-diving
+      const yawTarget = Math.atan2(velZ, -velX);
+      // CROSSING ships move almost purely horizontal — use smaller roll coefficient
+      // so they don't appear to nose-dive when seen from the cockpit
+      const rollCoeff  = es.type === 'CROSSING' ? 0.0008 : 0.0020;
+      const rollTarget = -velX * rollCoeff;
 
       e.group.rotation.y += (yawTarget  - e.group.rotation.y) * Math.min(1, 4.0 * dt);
       e.group.rotation.z += (rollTarget - e.group.rotation.z) * Math.min(1, 5.0 * dt);
-      e.group.rotation.x += (0          - e.group.rotation.x) * Math.min(1, 2.0 * dt);
+      // Faster pitch-to-zero so ships don't stay nose-tilted after banking
+      e.group.rotation.x += (0          - e.group.rotation.x) * Math.min(1, 8.0 * dt);
 
       // ── FRONTAL: fade opacity as ship reaches camera ──────────────
       if (es.type === 'FRONTAL') {
-        if (pz > -40) {
-          deactivateEnemy(i); continue;   // disappear before reaching camera
-        } else if (pz > -90) {
-          const t = (pz + 90) / 50;      // fade from z=-90 to z=-40
+        if (pz > -65) {
+          deactivateEnemy(i); continue;   // disappear well before reaching camera
+        } else if (pz > -115) {
+          const t = (pz + 115) / 50;     // fade from z=-115 to z=-65
           for (const mesh of e.meshes) mesh.material.opacity = 1 - t * t;
         }
       }
 
       // ── Cockpit shake when FRONTAL passes close ───────────────────
-      if (!es.shaken && es.type === 'FRONTAL' && pz > -70) {
+      if (!es.shaken && es.type === 'FRONTAL' && pz > -90) {
         shakeTimer = SHAKE_DURATION;
         es.shaken  = true;
       }
