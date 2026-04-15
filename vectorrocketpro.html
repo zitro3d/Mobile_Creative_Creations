@@ -182,10 +182,17 @@ Integrated (°)
   // ─────────────────────────────────────────────────────────────────
   // White ambient + directional so the GLB model's textures and colours
   // read accurately. Intensity values match the user's spec exactly.
-  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-  const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
-  sunLight.position.set(1, 2, 0.5);
+  // Three-point lighting rig — makes PBR materials readable in a dark space scene
+  scene.add(new THREE.AmbientLight(0xffffff, 1.8));          // strong base fill
+  const sunLight = new THREE.DirectionalLight(0xffffff, 2.0); // key: top-right-front
+  sunLight.position.set(1, 2, 2);
   scene.add(sunLight);
+  const fillLight = new THREE.DirectionalLight(0x88aaff, 1.2); // fill: left-below (cool)
+  fillLight.position.set(-2, -1, 1);
+  scene.add(fillLight);
+  const rimLight = new THREE.DirectionalLight(0xffffff, 0.8);  // rim: from behind
+  rimLight.position.set(0, 0, -1);
+  scene.add(rimLight);
 
   // ─────────────────────────────────────────────────────────────────
   //  FIGHTER JET GLB MODEL
@@ -209,18 +216,22 @@ Integrated (°)
     (gltf) => {
       const template = gltf.scene;
 
-      // ── Material check ───────────────────────────────────────────
+      // ── Material normalisation ───────────────────────────────────
+      // GLB metals with no environment map render almost black.
+      // Cap metalness at 0.3 and roughness at 0.55 so the three-point
+      // lighting rig reflects clearly off every surface.
       template.traverse((child) => {
         if (!child.isMesh) return;
         if (!(child.material instanceof THREE.MeshStandardMaterial)) {
           child.material = new THREE.MeshStandardMaterial({
             color:     child.material.color ?? new THREE.Color(0xcccccc),
             map:       child.material.map   ?? null,
-            metalness: 0.4,
-            roughness: 0.6,
           });
         }
-        child.material.needsUpdate = true;
+        const mat = child.material;
+        mat.metalness  = Math.min(mat.metalness ?? 1, 0.30);
+        mat.roughness  = Math.max(mat.roughness ?? 0, 0.55);
+        mat.needsUpdate = true;
       });
 
       // ── Auto-scale to a fixed world size ────────────────────────
