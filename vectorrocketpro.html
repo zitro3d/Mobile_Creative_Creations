@@ -116,7 +116,10 @@ Integrated (°)
 
   <script type="module">
   import * as THREE from 'three';
-  import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+  import { GLTFLoader }      from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+  import { EffectComposer }  from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js';
+  import { RenderPass }      from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/RenderPass.js';
+  import { BokehPass }       from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/BokehPass.js';
 
   // ─────────────────────────────────────────────────────────────────
   //  TUNABLE CONSTANTS
@@ -158,6 +161,26 @@ Integrated (°)
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setClearColor(0x00000a, 1);
   document.body.appendChild(renderer.domElement);
+
+  // ─────────────────────────────────────────────────────────────────
+  //  POST-PROCESSING — subtle depth of field
+  //
+  //  Focus plane at ~100 u in front of camera.
+  //  Ships at z=-600 (far horizon) → max blur ≈ 1.5% screen width.
+  //  Ships at z=-100 → sharp.  Ships at z=-20 → sharp.
+  //  BokehPass renders its own depth pass internally so no extra
+  //  WebGLRenderTarget setup is required.
+  // ─────────────────────────────────────────────────────────────────
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+
+  const bokehPass = new BokehPass(scene, camera, {
+    focus:   100,      // world-unit focus distance — ships in focus < 100 u
+    aperture: 0.00003, // controls blur rate outside focal plane
+    maxblur:  0.012,   // cap at 1.2% screen width — subtle, not soap-opera
+  });
+  bokehPass.renderToScreen = true;
+  composer.addPass(bokehPass);
 
   // ─────────────────────────────────────────────────────────────────
   //  SCENE & CAMERA  (must come before anything that references them)
@@ -701,6 +724,7 @@ Integrated (°)
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
   });
 
   // ─────────────────────────────────────────────────────────────────
@@ -870,7 +894,7 @@ Integrated (°)
       camera.quaternion.slerp(targetQuat, slerpT);
     }
 
-    renderer.render(scene, camera);
+    composer.render();
   }
 
   animate();
