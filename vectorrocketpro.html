@@ -58,6 +58,25 @@
       background: rgba(0,242,255,0.22);
       box-shadow: 0 0 40px rgba(0,242,255,0.45), inset 0 0 18px rgba(0,242,255,0.15);
     }
+
+    /* ── Sensor debug overlay ───────────────────────────────────── */
+    #debug {
+      display: none;
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 200;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      line-height: 1.7;
+      color: #00f2ff;
+      background: rgba(0, 0, 16, 0.72);
+      border: 1px solid rgba(0, 242, 255, 0.25);
+      border-radius: 4px;
+      padding: 8px 12px;
+      pointer-events: none;
+      white-space: pre;
+    }
   </style>
 </head>
 <body>
@@ -69,6 +88,22 @@
     <p>TILT TO NAVIGATE</p>
     <button id="start-btn">MISSION START</button>
   </div>
+
+  <!-- Sensor debug panel — visible after MISSION START -->
+  <div id="debug">SENSOR DEBUG
+────────────────
+Status : WAITING
+Events : 0
+Interval: --
+
+rotationRate (°/s)
+  alpha : --
+  beta  : --
+  gamma : --
+
+Integrated (°)
+  pitch : --
+  yaw   : --</div>
 
   <script type="importmap">
   {
@@ -477,10 +512,37 @@
   const targetQuat  = new THREE.Quaternion();
   const targetEuler = new THREE.Euler(0, 0, 0, 'YXZ');  // YXZ = FPS order, no gimbal
 
-  let motionReady = false;
+  let motionReady   = false;
+  let motionEvents  = 0;                              // total events received
+  const dbgEl       = document.getElementById('debug');
 
   function handleMotion(evt) {
     const rate = evt.rotationRate;
+    motionEvents++;
+
+    // ── Debug overlay — throttled to every 4th event (~15 fps) ───
+    if (motionEvents % 4 === 0) {
+      const a  = rate?.alpha  ?? null;
+      const b  = rate?.beta   ?? null;
+      const g  = rate?.gamma  ?? null;
+      const fmt = v => v === null ? '  null' : v.toFixed(2).padStart(8);
+      dbgEl.textContent =
+        `SENSOR DEBUG\n` +
+        `────────────────\n` +
+        `Status : ${motionReady ? 'ACTIVE ✓' : 'WAITING…'}\n` +
+        `Events : ${motionEvents}\n` +
+        `Interval: ${(evt.interval ?? 0).toFixed(1)} ms\n` +
+        `\n` +
+        `rotationRate (°/s)\n` +
+        `  alpha :${fmt(a)}\n` +
+        `  beta  :${fmt(b)}\n` +
+        `  gamma :${fmt(g)}\n` +
+        `\n` +
+        `Integrated (°)\n` +
+        `  pitch :${integratedPitch.toFixed(2).padStart(8)}\n` +
+        `  yaw   :${integratedYaw.toFixed(2).padStart(8)}`;
+    }
+
     if (!rate) return;
 
     // evt.interval is ms between events — use it as dt so integration is exact
@@ -546,6 +608,7 @@
 
   document.getElementById('start-btn').addEventListener('click', async () => {
     document.getElementById('overlay').style.display = 'none';
+    document.getElementById('debug').style.display   = 'block';
 
     // Attach listener FIRST — in place before permission dialog resolves (iOS)
     window.addEventListener('devicemotion', handleMotion, true);
