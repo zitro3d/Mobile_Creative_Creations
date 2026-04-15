@@ -685,11 +685,11 @@ Integrated (°)
   //    alpha = BASE_ALPHA + dist × VEL_SCALE             (higher gap → faster)
   //    t     = 1 − (1 − alpha)^(dt × 60)                (dt-corrected)
   // ─────────────────────────────────────────────────────────────────
-  const MAX_LOOK_DEG = 45;    // ±45° integrated angle hard clamp
-  const INPUT_SCALE  = 0.35;  // rotationRate multiplier — tune movement feel
-  const EXP_SMOOTH   = 0.10;  // exponential filter weight (lower = heavier)
-  const BASE_ALPHA   = 0.05;  // reduced — camera drifts into position like a heavy vessel
-  const VEL_SCALE    = 0.45;  // velocity boost capped lower for smoother feel
+  const MAX_LOOK_DEG = 55;    // ±55° integrated angle hard clamp
+  const INPUT_SCALE  = 0.85;  // rotationRate multiplier — higher = more responsive tilt
+  const EXP_SMOOTH   = 0.20;  // exponential filter weight — 0.20 = snappy but smooth
+  const BASE_ALPHA   = 0.14;  // slerp base fraction — camera tracks phone tilt directly
+  const VEL_SCALE    = 0.65;  // extra alpha per radian of angular distance
 
   // Integrated camera angles in degrees (purely relative — no North reference)
   let integratedPitch = 0;
@@ -705,12 +705,18 @@ Integrated (°)
   const targetQuat  = new THREE.Quaternion().setFromEuler(targetEuler);
 
   let motionReady   = false;
-  let motionEvents  = 0;                              // total events received
+  let motionEvents  = 0;
+  let lastMotionMs  = 0;   // tracks real time between events — evt.interval unreliable
   const dbgEl       = document.getElementById('debug');
 
   function handleMotion(evt) {
     const rate = evt.rotationRate;
     motionEvents++;
+    const nowMs = performance.now();
+    const dt    = lastMotionMs > 0
+                    ? Math.min((nowMs - lastMotionMs) / 1000, 0.05)
+                    : 0.016;
+    lastMotionMs = nowMs;
 
     // ── Debug overlay — throttled to every 4th event (~15 fps) ───
     if (motionEvents % 4 === 0) {
@@ -736,9 +742,6 @@ Integrated (°)
     }
 
     if (!rate) return;
-
-    // evt.interval is ms between events — use it as dt so integration is exact
-    const dt = Math.min((evt.interval || 16) / 1000, 0.05);
 
     // ── 1. Remap rotationRate axes to camera pitch / yaw ──────────
     //
