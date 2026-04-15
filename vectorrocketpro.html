@@ -292,129 +292,131 @@
   }
 
   // ─────────────────────────────────────────────────────────────────
-  //  DEVICE ORIENTATION — pipeline:
-  //    1. Calibrate      — first event sets neutral baseline
-  //    2. Buffer (LPF)   — average last 3 readings to cut sharp spikes
-  //    3. Reference frame — remap axes for landscape left/right
-  //    4. Scale          — 10° physical → 2.5° camera
-  //    5. Dead-zone      — discard tremor below threshold
-  //    6. Clamp + build  — store as quaternion (no gimbal lock)
+  //  DEVICE MOTION — rotationRate integration (no absolute-north snap)
   //
-  //  Animate loop uses velocity-based alpha + quaternion slerp:
-  //    large angular gap → higher alpha → fast catch-up (no snap)
-  //    small gap         → BASE_ALPHA  → smooth heavy motion
+  //  DeviceOrientationEvent gives absolute angles referenced to magnetic
+  //  North. The sensor periodically recalibrates, causing the camera to
+  //  snap back. DeviceMotionEvent.rotationRate gives angular velocity
+  //  (°/sec) which we integrate manually — motion is 100% relative,
+  //  the camera never snaps to any external reference frame.
+  //
+  //  Pipeline per 'devicemotion' event:
+  //    1. Read rotationRate.beta / .gamma (°/sec)
+  //    2. Remap axes via window.orientation (portrait vs landscape)
+  //    3. Integrate: angle += rate × dt × INPUT_SCALE
+  //    4. Clamp integrated angles to ±MAX_LOOK_DEG
+  //    5. Exponential smooth: smooth = smooth × 0.9 + angle × 0.1
+  //    6. Build targetQuat from smoothed angles (YXZ — no gimbal lock)
+  //
+  //  Animate loop: velocity-based quaternion slerp
+  //    dist  = camera.quaternion.angleTo(targetQuat)     (radians)
+  //    alpha = BASE_ALPHA + dist × VEL_SCALE             (higher gap → faster)
+  //    t     = 1 − (1 − alpha)^(dt × 60)                (dt-corrected)
   // ─────────────────────────────────────────────────────────────────
-  const MAX_LOOK      = Math.PI / 4;  // ±45° hard clamp
-  const INPUT_SCALE   = 0.25;         // 10° physical → 2.5° camera
-  const DEAD_ZONE_DEG = 1.2;          // tremor threshold in degrees
-  const BASE_ALPHA    = 0.08;         // slerp fraction at 60fps when near target
-  const VEL_SCALE     = 0.6;          // extra alpha per radian of angular distance
-  const BUFFER_SIZE   = 3;            // sensor readings to average
+  const MAX_LOOK_DEG = 45;    // ±45° integrated angle hard clamp
+  const INPUT_SCALE  = 0.35;  // rotationRate multiplier — tune movement feel
+  const EXP_SMOOTH   = 0.10;  // exponential filter weight (lower = heavier)
+  const BASE_ALPHA   = 0.10;  // slerp base fraction at 60fps (near-target)
+  const VEL_SCALE    = 0.65;  // extra alpha per radian of angular distance
 
-  // Target quaternion — set from filtered sensor data in handleOrientation
+  // Integrated camera angles in degrees (purely relative — no North reference)
+  let integratedPitch = 0;
+  let integratedYaw   = 0;
+
+  // Exponentially smoothed values — fed to targetQuat each event
+  let smoothedPitch = 0;
+  let smoothedYaw   = 0;
+
+  // Quaternion the camera slerps toward each frame
   const targetQuat  = new THREE.Quaternion();
-  // Reusable Euler for building quaternions (YXZ = standard FPS order, no gimbal)
-  const targetEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const targetEuler = new THREE.Euler(0, 0, 0, 'YXZ');  // YXZ = FPS order, no gimbal
 
-  // Rolling input buffers for the low-pass filter
-  const betaBuf  = [];
-  const gammaBuf = [];
+  let motionReady = false;
 
-  let orientationReady = false;
-  let calibBeta        = null;
-  let calibGamma       = null;
+  function handleMotion(evt) {
+    const rate = evt.rotationRate;
+    if (!rate) return;
 
-  function bufPush(buf, v) {
-    buf.push(v);
-    if (buf.length > BUFFER_SIZE) buf.shift();
-  }
-  function bufAvg(buf) {
-    return buf.length ? buf.reduce((s, v) => s + v, 0) / buf.length : 0;
-  }
+    // evt.interval is ms between events — use it as dt so integration is exact
+    const dt = Math.min((evt.interval || 16) / 1000, 0.05);
 
-  function handleOrientation(evt) {
-    const rawBeta  = evt.beta  ?? 90;
-    const rawGamma = evt.gamma ?? 0;
-
-    // ── 1. Calibrate on first event ───────────────────────────────
-    if (calibBeta === null) {
-      calibBeta        = rawBeta;
-      calibGamma       = rawGamma;
-      betaBuf.length   = 0;
-      gammaBuf.length  = 0;
-      orientationReady = true;
-    }
-
-    // ── 2. Low-pass filter: 3-reading rolling average ─────────────
-    bufPush(betaBuf,  rawBeta);
-    bufPush(gammaBuf, rawGamma);
-    const beta  = bufAvg(betaBuf);
-    const gamma = bufAvg(gammaBuf);
-
-    // ── 3. Reference frame: remap axes for landscape orientation ──
-    //  window.orientation:  0 = portrait  |  90 = landscape-left
-    //                     180 = upside-down portrait  | -90 = landscape-right
-    //  Each mode swaps/flips beta↔gamma so there's no sudden 180° jump
-    //  when the user rotates the device.
-    let pitchDev, yawDev;
+    // ── 1. Remap rotationRate axes to camera pitch / yaw ──────────
+    //
+    //  Device axes (right-hand rule):
+    //    rate.beta  — rotation around X (left→right edge), °/sec
+    //                 positive = top of phone tilts toward viewer
+    //    rate.gamma — rotation around Y (bottom→top edge), °/sec
+    //                 positive = right edge tilts toward viewer
+    //
+    //  Portrait   (ori=0):   beta→pitch, gamma→yaw  (standard mapping)
+    //  Landscape-L (ori=90): axes swap — beta→yaw, gamma→pitch
+    //    "tilting like a steering wheel" maps correctly in landscape
+    //  Landscape-R (ori=-90): axes swap with opposing signs
+    let deltaPitch, deltaYaw;
     const ori = window.orientation ?? 0;
-    if (ori === 90) {                        // landscape-left
-      pitchDev = -(gamma - calibGamma);
-      yawDev   =  (beta  - calibBeta);
-    } else if (ori === -90) {                // landscape-right
-      pitchDev =  (gamma - calibGamma);
-      yawDev   = -(beta  - calibBeta);
-    } else {                                 // portrait (0) or inverted (180)
-      pitchDev = -(beta  - calibBeta);
-      yawDev   = -(gamma - calibGamma);
+
+    if (ori === 90) {                      // landscape-left (home on left)
+      deltaPitch = -(rate.gamma ?? 0) * dt * INPUT_SCALE;
+      deltaYaw   =  (rate.beta  ?? 0) * dt * INPUT_SCALE;
+    } else if (ori === -90) {              // landscape-right (home on right)
+      deltaPitch =  (rate.gamma ?? 0) * dt * INPUT_SCALE;
+      deltaYaw   = -(rate.beta  ?? 0) * dt * INPUT_SCALE;
+    } else {                               // portrait (0) or inverted (180)
+      deltaPitch = -(rate.beta  ?? 0) * dt * INPUT_SCALE;
+      deltaYaw   = -(rate.gamma ?? 0) * dt * INPUT_SCALE;
     }
 
-    // ── 4. Input scaling ──────────────────────────────────────────
-    const rawPitchDeg = pitchDev * INPUT_SCALE;
-    const rawYawDeg   = yawDev   * INPUT_SCALE;
-
-    // ── 5. Dead-zone: hold target if change is below threshold ────
-    const prevPitchDeg = THREE.MathUtils.radToDeg(targetEuler.x);
-    const prevYawDeg   = THREE.MathUtils.radToDeg(targetEuler.y);
-
-    const filtPitch = Math.abs(rawPitchDeg - prevPitchDeg) < DEAD_ZONE_DEG
-      ? prevPitchDeg : rawPitchDeg;
-    const filtYaw   = Math.abs(rawYawDeg   - prevYawDeg)   < DEAD_ZONE_DEG
-      ? prevYawDeg   : rawYawDeg;
-
-    // ── 6. Clamp + build target quaternion (no Euler gimbal lock) ─
-    targetEuler.x = THREE.MathUtils.clamp(
-      THREE.MathUtils.degToRad(filtPitch), -MAX_LOOK, MAX_LOOK
+    // ── 2. Integrate and clamp ────────────────────────────────────
+    integratedPitch = THREE.MathUtils.clamp(
+      integratedPitch + deltaPitch, -MAX_LOOK_DEG, MAX_LOOK_DEG
     );
-    targetEuler.y = THREE.MathUtils.clamp(
-      THREE.MathUtils.degToRad(filtYaw), -MAX_LOOK, MAX_LOOK
+    integratedYaw = THREE.MathUtils.clamp(
+      integratedYaw + deltaYaw, -MAX_LOOK_DEG, MAX_LOOK_DEG
     );
+
+    // ── 3. Exponential smoothing — kills high-frequency spikes ────
+    // Formula: currentValue = (lastValue × 0.9) + (newValue × 0.1)
+    // Low EXP_SMOOTH weight means fast shakes contribute little per frame;
+    // sustained tilts accumulate naturally through the integration above.
+    smoothedPitch = smoothedPitch * (1 - EXP_SMOOTH) + integratedPitch * EXP_SMOOTH;
+    smoothedYaw   = smoothedYaw   * (1 - EXP_SMOOTH) + integratedYaw   * EXP_SMOOTH;
+
+    // ── 4. Build target quaternion (YXZ — no gimbal lock) ─────────
+    targetEuler.x = THREE.MathUtils.degToRad(smoothedPitch);
+    targetEuler.y = THREE.MathUtils.degToRad(smoothedYaw);
     targetQuat.setFromEuler(targetEuler);
+    motionReady = true;
   }
 
-  // Recalibrate whenever the device rotates (portrait ↔ landscape).
-  // The next sensor event will capture the new neutral position,
-  // preventing any discontinuous jump in the camera angle.
+  // On device rotation: reset integrated angles so the camera re-centres
+  // in the new orientation rather than jumping to a stale integrated value.
   window.addEventListener('orientationchange', () => {
-    calibBeta  = null;
-    calibGamma = null;
+    integratedPitch = 0;
+    integratedYaw   = 0;
+    smoothedPitch   = 0;
+    smoothedYaw     = 0;
+    motionReady     = false;
   });
 
   document.getElementById('start-btn').addEventListener('click', async () => {
     document.getElementById('overlay').style.display = 'none';
 
-    // Listener attached FIRST — in place before permission resolves (iOS fix)
-    window.addEventListener('deviceorientation', handleOrientation, true);
+    // Attach listener FIRST — in place before permission dialog resolves (iOS)
+    window.addEventListener('devicemotion', handleMotion, true);
 
+    // iOS 13+ requires explicit permission inside a user gesture.
+    // DeviceMotionEvent and DeviceOrientationEvent share the same dialog;
+    // try Motion first, fall back to Orientation if the API differs.
     try {
-      if (
-        typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function'
-      ) {
+      if (typeof DeviceMotionEvent !== 'undefined' &&
+          typeof DeviceMotionEvent.requestPermission === 'function') {
+        await DeviceMotionEvent.requestPermission();
+      } else if (typeof DeviceOrientationEvent !== 'undefined' &&
+                 typeof DeviceOrientationEvent.requestPermission === 'function') {
         await DeviceOrientationEvent.requestPermission();
       }
     } catch (err) {
-      console.warn('DeviceOrientation permission:', err);
+      console.warn('Motion permission:', err);
     }
   });
 
@@ -504,7 +506,7 @@
     //
     //  DeltaTime correction keeps feel identical at 30/60/120 fps:
     //    slerpT = 1 - (1 - alpha)^(dt * 60)
-    if (orientationReady) {
+    if (motionReady) {
       const dist   = camera.quaternion.angleTo(targetQuat);
       const alpha  = Math.min(0.92, BASE_ALPHA + dist * VEL_SCALE);
       const slerpT = 1 - Math.pow(1 - alpha, dt * 60);
