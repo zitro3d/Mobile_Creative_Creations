@@ -115,6 +115,7 @@ Integrated (°)
 
   <script type="module">
   import * as THREE from 'three';
+  import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
 
   // ─────────────────────────────────────────────────────────────────
   //  TUNABLE CONSTANTS
@@ -176,12 +177,78 @@ Integrated (°)
   // ─────────────────────────────────────────────────────────────────
   //  SCENE LIGHTING  (required for MeshStandardMaterial to show colour)
   // ─────────────────────────────────────────────────────────────────
-  // Soft ambient fills black faces so the ship silhouette reads clearly.
-  scene.add(new THREE.AmbientLight(0x080818, 1.4));
-  // Dim directional light gives metallic surfaces a slight sheen angle.
-  const sunLight = new THREE.DirectionalLight(0x3355aa, 0.55);
+  // White ambient + directional so the GLB model's textures and colours
+  // read accurately. Intensity values match the user's spec exactly.
+  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
   sunLight.position.set(1, 2, 0.5);
   scene.add(sunLight);
+
+  // ─────────────────────────────────────────────────────────────────
+  //  FIGHTER JET GLB MODEL
+  //
+  //  Loaded asynchronously — the rest of the scene initialises and
+  //  animates normally while the file is fetching.
+  //  Adjust model.scale / model.rotation after seeing the result in-browser.
+  // ─────────────────────────────────────────────────────────────────
+  const gltfLoader = new GLTFLoader();
+  gltfLoader.load(
+    './assets/fighterjet.glb',
+
+    // ── onLoad ────────────────────────────────────────────────────
+    (gltf) => {
+      const model = gltf.scene;
+
+      // Scale — 1:1 starting point; increase if the model looks tiny
+      model.scale.set(1, 1, 1);
+
+      // Rotate so the nose points toward the camera (+Z direction).
+      // Most exporters default to nose-forward on -Z; a 180° Y-flip corrects that.
+      // Change to Math.PI / 2 (X) if the model arrives nose-up instead.
+      model.rotation.y = Math.PI;
+
+      // Position directly ahead of camera at a comfortable preview distance
+      model.position.set(0, -5, -60);
+
+      // ── Material check ─────────────────────────────────────────
+      // GLB files exported from Blender/Maya already use PBR materials
+      // which Three.js maps to MeshStandardMaterial automatically.
+      // We traverse every mesh, log what we find, and upgrade any legacy
+      // material so it reacts correctly to the scene lights.
+      model.traverse((child) => {
+        if (!child.isMesh) return;
+        if (child.material instanceof THREE.MeshStandardMaterial) {
+          console.log(`fighterjet ✓ MeshStandardMaterial — "${child.name}"`);
+        } else {
+          console.warn(
+            `fighterjet: "${child.name}" uses ${child.material.type} — upgrading to MeshStandardMaterial`
+          );
+          child.material = new THREE.MeshStandardMaterial({
+            color:    child.material.color  ?? new THREE.Color(0xcccccc),
+            map:      child.material.map    ?? null,
+            metalness: 0.4,
+            roughness: 0.6,
+          });
+        }
+        child.material.needsUpdate = true;
+      });
+
+      scene.add(model);
+      console.log('fighterjet.glb loaded successfully.');
+    },
+
+    // ── onProgress ────────────────────────────────────────────────
+    (xhr) => {
+      if (xhr.lengthComputable) {
+        console.log(`fighterjet.glb: ${Math.round(xhr.loaded / xhr.total * 100)}% loaded`);
+      }
+    },
+
+    // ── onError ───────────────────────────────────────────────────
+    (error) => {
+      console.error('fighterjet.glb failed to load — check the path ./assets/fighterjet.glb:', error);
+    }
+  );
 
   // ─────────────────────────────────────────────────────────────────
   //  UNIVERSE GROUP — all objects live here; group stays at origin
