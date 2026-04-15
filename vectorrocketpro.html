@@ -141,11 +141,11 @@ Integrated (°)
 
   // ── Enemy rocket pool ──────────────────────────────────────────────
   const ENEMY_COUNT        = 3;    // working set — tuning scale before adding more
-  const ENEMY_SPAWN_Z      = -450; // z where new enemies are placed
-  const ENEMY_SPREAD_X     = 280;  // ± half-width of spawn band
-  const ENEMY_SPREAD_Y     = 200;  // ± half-height
-  const ENEMY_MIN_SPEED    = 160;  // units / sec — faster than stars (80) to cut through
-  const ENEMY_MAX_SPEED    = 240;
+  const ENEMY_SPAWN_Z      = -600; // spawn deeper — more time to read the approach
+  const ENEMY_SPREAD_X     = 260;
+  const ENEMY_SPREAD_Y     = 180;
+  const ENEMY_MIN_SPEED    = 60;   // slow end — feels piloted, not missile-like
+  const ENEMY_MAX_SPEED    = 130;  // fast end — still readable
 
   // ─────────────────────────────────────────────────────────────────
   //  RENDERER
@@ -260,10 +260,15 @@ Integrated (°)
 
         scene.add(clone);
         enemies.push({ group: clone });
-        enemyState.push({ speed: 0, targetX: 0, targetY: 0, shaken: false });
+        enemyState.push({ speed: 0, targetX: 0, targetY: 0,
+                          baseX: 0, baseY: 0,
+                          waveAmp: 0, waveFreq: 0, wavePhase: 0,
+                          shaken: false });
         resetEnemy(i);
-        // Stagger start depths so ships arrive in waves, not all at once
-        enemies[i].group.position.z = ENEMY_SPAWN_Z * (0.12 + 0.88 * Math.random());
+        // Even depth spacing + small jitter — guarantees jets never arrive together
+        const spacing = Math.abs(ENEMY_SPAWN_Z) / ENEMY_COUNT;
+        enemies[i].group.position.z = ENEMY_SPAWN_Z + i * spacing
+                                      + (Math.random() - 0.5) * spacing * 0.4;
       }
     },
 
@@ -448,29 +453,50 @@ Integrated (°)
   //  Arrays start empty; the animate loop guards with enemies.length.
   // ─────────────────────────────────────────────────────────────────
 
-  const enemies    = [];  // { group }
-  const enemyState = [];  // { speed, targetX, targetY, shaken }
+  const enemies    = [];
+  // Per-enemy state — baseX/Y track the lerped convergence position separately
+  // from the sine-wave weave so the two motions compose cleanly
+  const enemyState = [];
 
   function resetEnemy(i) {
     const e  = enemies[i];
     const es = enemyState[i];
 
-    // 70% central lane, 30% wide — player always has targets to aim at
+    // 70% spawn in a central column, 30% from the wide edges
     const central = Math.random() < 0.70;
-    const spawnX  = (Math.random() - 0.5) * ENEMY_SPREAD_X * (central ? 0.55 : 2.0);
-    const spawnY  = (Math.random() - 0.5) * ENEMY_SPREAD_Y * (central ? 0.55 : 2.0);
+    const spawnX  = (Math.random() - 0.5) * ENEMY_SPREAD_X * (central ? 0.50 : 1.80);
+    const spawnY  = (Math.random() - 0.5) * ENEMY_SPREAD_Y * (central ? 0.50 : 1.80);
     e.group.position.set(spawnX, spawnY, ENEMY_SPAWN_Z);
 
-    // Converge toward a point near screen center — gives the 'banking in' feel
-    es.targetX = (Math.random() - 0.5) * 40;
-    es.targetY = (Math.random() - 0.5) * 25;
+    // Base position for lerp — starts at spawn point
+    es.baseX = spawnX;
+    es.baseY = spawnY;
 
-    // Nose slightly down (~5°) + gentle initial bank matching spawn side
-    const bank = spawnX * 0.004;  // bank toward center: right spawn → bank left
+    // 55% direct approach (converge near center), 45% near-miss (fly past to side)
+    const nearMiss = Math.random() < 0.45;
+    if (nearMiss) {
+      // Bank hard to one side — player feels the jet fly past them
+      const side = spawnX >= 0 ? 1 : -1;
+      es.targetX = side * (90 + Math.random() * 80);
+    } else {
+      es.targetX = (Math.random() - 0.5) * 55;
+    }
+    es.targetY = (Math.random() - 0.5) * 35;
+
+    // Weave — 60% of jets oscillate laterally (feels like evasive maneuvering)
+    const weaves   = Math.random() < 0.60;
+    es.waveAmp     = weaves ? 12 + Math.random() * 22 : 0;
+    es.waveFreq    = 0.35 + Math.random() * 0.55;  // slow enough to read clearly
+    es.wavePhase   = Math.random() * Math.PI * 2;  // each jet out of sync
+
+    // Speed: spread across the full range so jets genuinely feel different
+    es.speed = ENEMY_MIN_SPEED + Math.random() * (ENEMY_MAX_SPEED - ENEMY_MIN_SPEED);
+
+    // Initial bank leans toward center of screen
+    const bank = spawnX * 0.003;
     e.group.rotation.set(-0.09, Math.PI / 2, bank);
 
-    es.speed  = ENEMY_MIN_SPEED + Math.random() * (ENEMY_MAX_SPEED - ENEMY_MIN_SPEED);
-    es.shaken = false;  // allow cockpit shake once per pass
+    es.shaken = false;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -707,34 +733,41 @@ Integrated (°)
     }
 
     // ── Enemy jets: pool update ───────────────────────────────────
+    const tSec = now / 1000;
     for (let i = 0; i < enemies.length; i++) {  // length = 0 until GLB loads
       const e  = enemies[i];
       const es = enemyState[i];
 
-      // Forward — faster than stars (160-240 vs 80) so jets cut through the field
+      // ── Forward ──────────────────────────────────────────────────
       e.group.position.z += es.speed * dt;
 
-      // Lateral lerp toward target — 55% of gap closed per second (smooth curve-in)
-      const prevX = e.group.position.x;
-      const prevY = e.group.position.y;
-      e.group.position.x += (es.targetX - e.group.position.x) * 0.55 * dt;
-      e.group.position.y += (es.targetY - e.group.position.y) * 0.55 * dt;
+      // ── Lateral: lerp base toward target, then add weave on top ──
+      // Convergence at 45%/sec — gradual, feels like the pilot is steering
+      es.baseX += (es.targetX - es.baseX) * 0.45 * dt;
+      es.baseY += (es.targetY - es.baseY) * 0.45 * dt;
 
-      // Dynamic bank — roll proportional to lateral velocity (bank into turn)
-      const lateralVel  = (e.group.position.x - prevX) / dt;  // units / sec
-      const targetRoll  = -lateralVel * 0.009;                 // right move → roll right
-      e.group.rotation.z += (targetRoll - e.group.rotation.z) * Math.min(1, 4 * dt);
+      // Sine weave composited on top (zero if waveAmp = 0 for straight jets)
+      const waveX   = es.waveAmp * Math.sin(tSec * es.waveFreq + es.wavePhase);
+      const prevX   = e.group.position.x;
+      e.group.position.x = es.baseX + waveX;
+      e.group.position.y = es.baseY;
 
-      // Nose-down pitch held constant so jet always looks like it's diving in
+      // ── Banking — driven by total lateral velocity ───────────────
+      const lateralVel = (e.group.position.x - prevX) / Math.max(dt, 0.001);
+      const targetRoll = -lateralVel * 0.007;
+      e.group.rotation.z += (targetRoll - e.group.rotation.z) * Math.min(1, 5 * dt);
+
+      // Nose-down held constant — always looks like it's diving at you
       e.group.rotation.x = -0.09;
 
-      // Cockpit shake trigger — fires once per pass when jet is almost on camera
-      if (!es.shaken && e.group.position.z > -12) {
+      // ── Cockpit shake — once per pass, as jet screams past ───────
+      if (!es.shaken && e.group.position.z > -15) {
         shakeTimer = SHAKE_DURATION;
         es.shaken  = true;
       }
 
-      if (e.group.position.z > 50) resetEnemy(i);
+      // Recycle BEFORE camera so we never see inside the model
+      if (e.group.position.z > -25) resetEnemy(i);
     }
 
     // ── Cockpit shake ─────────────────────────────────────────────
