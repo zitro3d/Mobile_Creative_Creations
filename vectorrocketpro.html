@@ -197,35 +197,26 @@ Integrated (°)
 
     // ── onLoad ────────────────────────────────────────────────────
     (gltf) => {
-      const model = gltf.scene;
+      const template = gltf.scene;
 
-      // Scale — 1:1 starting point; increase if the model looks tiny
-      model.scale.set(1, 1, 1);
+      // Scale — 1:1 starting point; bump to e.g. set(5,5,5) if the jet looks tiny
+      template.scale.set(1, 1, 1);
 
-      // Rotate so the nose points toward the camera (+Z direction).
-      // Most exporters default to nose-forward on -Z; a 180° Y-flip corrects that.
-      // Change to Math.PI / 2 (X) if the model arrives nose-up instead.
-      model.rotation.y = Math.PI;
+      // Orient so the nose points toward the camera (+Z).
+      // Most exporters default to nose on -Z; 180° Y-flip corrects that.
+      // Switch to rotation.x = Math.PI/2 if the jet arrives nose-up instead.
+      template.rotation.y = Math.PI;
 
-      // Position directly ahead of camera at a comfortable preview distance
-      model.position.set(0, -5, -60);
-
-      // ── Material check ─────────────────────────────────────────
-      // GLB files exported from Blender/Maya already use PBR materials
-      // which Three.js maps to MeshStandardMaterial automatically.
-      // We traverse every mesh, log what we find, and upgrade any legacy
-      // material so it reacts correctly to the scene lights.
-      model.traverse((child) => {
+      // ── Material check on template — clones inherit the result ──
+      template.traverse((child) => {
         if (!child.isMesh) return;
         if (child.material instanceof THREE.MeshStandardMaterial) {
           console.log(`fighterjet ✓ MeshStandardMaterial — "${child.name}"`);
         } else {
-          console.warn(
-            `fighterjet: "${child.name}" uses ${child.material.type} — upgrading to MeshStandardMaterial`
-          );
+          console.warn(`fighterjet: "${child.name}" uses ${child.material.type} — upgrading`);
           child.material = new THREE.MeshStandardMaterial({
-            color:    child.material.color  ?? new THREE.Color(0xcccccc),
-            map:      child.material.map    ?? null,
+            color:     child.material.color ?? new THREE.Color(0xcccccc),
+            map:       child.material.map   ?? null,
             metalness: 0.4,
             roughness: 0.6,
           });
@@ -233,8 +224,50 @@ Integrated (°)
         child.material.needsUpdate = true;
       });
 
-      scene.add(model);
-      console.log('fighterjet.glb loaded successfully.');
+      // ── Locate the tail for thruster placement ──────────────────
+      // After rotation.y = Math.PI: nose is at +Z, tail is at -Z (bbox.min.z).
+      template.updateWorldMatrix(true, true);
+      const bbox  = new THREE.Box3().setFromObject(template);
+      const tailZ = bbox.min.z - 2;   // 2 units behind the rearmost face
+      console.log(
+        `fighterjet: size=(${(bbox.max.x-bbox.min.x).toFixed(1)}, ` +
+        `${(bbox.max.y-bbox.min.y).toFixed(1)}, ${(bbox.max.z-bbox.min.z).toFixed(1)}), ` +
+        `tailZ=${tailZ.toFixed(1)}`
+      );
+
+      // ── Build object pool — clone template ENEMY_COUNT times ────
+      for (let i = 0; i < ENEMY_COUNT; i++) {
+        const isCyan  = (i % 3 !== 0);
+        const glowCol = isCyan ? 0x00d0ff : 0xff4422;
+
+        const clone = template.clone();
+
+        // Thruster glow sprite at tail
+        const thrustMat = new THREE.SpriteMaterial({
+          map:         thrusterTex,
+          blending:    THREE.AdditiveBlending,
+          transparent: true,
+          color:       new THREE.Color(glowCol),
+        });
+        const thrustSprite = new THREE.Sprite(thrustMat);
+        thrustSprite.scale.set(12, 12, 1);
+        thrustSprite.position.z = tailZ;
+        clone.add(thrustSprite);
+
+        // Point light at exhaust — illuminates nearby stars and hull
+        const thrustLight = new THREE.PointLight(glowCol, 2.5, 50);
+        thrustLight.position.z = tailZ;
+        clone.add(thrustLight);
+
+        scene.add(clone);
+        enemies.push({ group: clone, thrustSprite, thrustLight });
+        enemyState.push({ speed: 0, rollSpeed: 0 });
+        resetEnemy(i);
+        // Stagger start depths so ships arrive in waves, not all at once
+        enemies[i].group.position.z = ENEMY_SPAWN_Z * (0.12 + 0.88 * Math.random());
+      }
+
+      console.log(`fighterjet.glb loaded — ${ENEMY_COUNT} enemy clones ready.`);
     },
 
     // ── onProgress ────────────────────────────────────────────────
@@ -412,25 +445,11 @@ Integrated (°)
   }
 
   // ─────────────────────────────────────────────────────────────────
-  //  ENEMY ROCKETS — procedural pool
-  //
-  //  Each ship = ConeGeometry(4, 18, 3) body + BoxGeometry engine block
-  //  + EdgesGeometry neon wireframe overlay + thruster Sprite + PointLight.
-  //  All 10 pool instances share the same body geometry and body material;
-  //  only the wireframe LineBasicMaterial colours differ (⅔ cyan, ⅓ red).
-  //  Pool reset: when a ship passes z > 50 it's moved back to ENEMY_SPAWN_Z
-  //  with new random position, speed, and roll — zero allocations at runtime.
+  //  ENEMY POOL — populated in the GLTFLoader onLoad callback above.
+  //  Arrays start empty; the animate loop guards with enemies.length.
   // ─────────────────────────────────────────────────────────────────
 
-  // Shared body material — dark metallic grey with faint blue emissive
-  const enemyBodyMat = new THREE.MeshStandardMaterial({
-    color:     0x12121e,
-    metalness: 0.85,
-    roughness: 0.25,
-    emissive:  new THREE.Color(0x000412),
-  });
-
-  // Thruster glow texture — single white-core radial gradient, tinted per ship
+  // Thruster glow texture — white-core radial gradient, tinted per clone
   function makeThrusterTexture() {
     const SZ  = 64;
     const cvs = document.createElement('canvas');
@@ -447,72 +466,6 @@ Integrated (°)
   }
   const thrusterTex = makeThrusterTexture();
 
-  // ── Shared geometries (computed once) ────────────────────────────
-  // Cone tip naturally at +Y; rotateX(-90°) moves it to +Z so the rocket
-  // points toward the camera as it approaches from negative Z.
-  const _coneGeo      = new THREE.ConeGeometry(4, 18, 3);
-  _coneGeo.rotateX(-Math.PI / 2);
-
-  const _boxGeo       = new THREE.BoxGeometry(6, 4, 5);
-
-  // EdgesGeometry is also computed once from each base geometry.
-  // Sharing EdgesGeometry across LineSegments instances is safe —
-  // each LineSegments has its own matrix/material.
-  const _coneEdgesGeo = new THREE.EdgesGeometry(_coneGeo);
-  const _boxEdgesGeo  = new THREE.EdgesGeometry(_boxGeo);
-
-  // ── Build one pooled ship ─────────────────────────────────────────
-  function buildEnemyShip(index) {
-    const isCyan  = (index % 3 !== 0);          // ⅔ cyan, ⅓ red
-    const wireCol = isCyan ? 0x00f2ff : 0xff2244;
-    const glowCol = isCyan ? 0x00d0ff : 0xff4422;
-
-    const group = new THREE.Group();
-
-    // Body cone — tip at local +Z (faces camera as ship flies in)
-    group.add(new THREE.Mesh(_coneGeo, enemyBodyMat));
-
-    // Neon wireframe overlay on cone
-    group.add(new THREE.LineSegments(
-      _coneEdgesGeo,
-      new THREE.LineBasicMaterial({ color: wireCol, transparent: true, opacity: 0.9 })
-    ));
-
-    // Engine block sitting just behind the cone base (cone base is at z = -9)
-    const boxMesh = new THREE.Mesh(_boxGeo, enemyBodyMat);
-    boxMesh.position.z = -11;
-    group.add(boxMesh);
-
-    // Neon wireframe on engine block
-    const boxWire = new THREE.LineSegments(
-      _boxEdgesGeo,
-      new THREE.LineBasicMaterial({ color: wireCol, transparent: true, opacity: 0.70 })
-    );
-    boxWire.position.z = -11;
-    group.add(boxWire);
-
-    // Thruster glow sprite — sits behind the engine block
-    const thrustMat = new THREE.SpriteMaterial({
-      map:         thrusterTex,
-      blending:    THREE.AdditiveBlending,
-      transparent: true,
-      color:       new THREE.Color(glowCol),  // tints white texture to cyan / red
-    });
-    const thrustSprite = new THREE.Sprite(thrustMat);
-    thrustSprite.scale.set(14, 14, 1);
-    thrustSprite.position.z = -16;
-    group.add(thrustSprite);
-
-    // Point light at thruster — illuminates nearby stars and the ship itself
-    const thrustLight = new THREE.PointLight(glowCol, 2.5, 50);
-    thrustLight.position.z = -16;
-    group.add(thrustLight);
-
-    universe.add(group);
-    return { group, thrustSprite, thrustLight };
-  }
-
-  // ── Object pool + per-instance state ─────────────────────────────
   const enemies    = [];  // { group, thrustSprite, thrustLight }
   const enemyState = [];  // { speed, rollSpeed }
 
@@ -523,20 +476,12 @@ Integrated (°)
       (Math.random() - 0.5) * ENEMY_SPREAD_Y * 2,
       ENEMY_SPAWN_Z
     );
-    // Random starting roll so ships don't all look identical on spawn
-    e.group.rotation.set(0, 0, Math.random() * Math.PI * 2);
+    // Preserve rotation.y = Math.PI (nose toward camera) and randomise roll only
+    e.group.rotation.set(0, Math.PI, Math.random() * Math.PI * 2);
     enemyState[i].speed     = ENEMY_MIN_SPEED +
                               Math.random() * (ENEMY_MAX_SPEED - ENEMY_MIN_SPEED);
     enemyState[i].rollSpeed = (Math.random() < 0.5 ? 1 : -1) *
                               (0.6 + Math.random() * 1.8);   // rad / sec
-  }
-
-  for (let i = 0; i < ENEMY_COUNT; i++) {
-    enemies.push(buildEnemyShip(i));
-    enemyState.push({ speed: 0, rollSpeed: 0 });
-    resetEnemy(i);
-    // Stagger depths so they arrive at different times rather than a single wave
-    enemies[i].group.position.z = ENEMY_SPAWN_Z * (0.12 + 0.88 * Math.random());
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -773,7 +718,7 @@ Integrated (°)
     //  camera (z > 50) it is instantly recycled back to ENEMY_SPAWN_Z —
     //  no allocations, no garbage collection pressure.
     const t = now / 1000;  // seconds, for thruster flicker phase
-    for (let i = 0; i < ENEMY_COUNT; i++) {
+    for (let i = 0; i < enemies.length; i++) {  // length = 0 until GLB loads
       const e  = enemies[i];
       const es = enemyState[i];
 
