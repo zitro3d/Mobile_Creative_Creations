@@ -140,15 +140,17 @@ Integrated (°)
   const SPEED              = 80;    // star speed, units / second
   const NEBULA_SPEED_FACTOR = 0.28; // nebulas at 28% → parallax depth
 
-  const BASE_FOV           = 72;
+  const BASE_FOV           = 45;   // tighter lens — ships look larger, less distorted
+  const BASE_PITCH_DEG     = -8;   // neutral downward tilt for elevated chase-cam angle
 
   // ── Enemy rocket pool ──────────────────────────────────────────────
-  const ENEMY_COUNT        = 3;    // working set — tuning scale before adding more
-  const ENEMY_SPAWN_Z      = -600; // spawn deeper — more time to read the approach
+  const ENEMY_COUNT        = 3;
+  const ENEMY_SPAWN_Z      = -600;
   const ENEMY_SPREAD_X     = 260;
   const ENEMY_SPREAD_Y     = 180;
-  const ENEMY_MIN_SPEED    = 60;   // slow end — feels piloted, not missile-like
-  const ENEMY_MAX_SPEED    = 130;  // fast end — still readable
+  const ENEMY_MIN_SPEED    = 60;
+  const ENEMY_MAX_SPEED    = 130;
+  const ENEMY_BASE_Y       = -8;   // ships fly across a flat plane below the camera
 
   // ─────────────────────────────────────────────────────────────────
   //  RENDERER
@@ -195,10 +197,10 @@ Integrated (°)
     0.1,   // near clip reduced — avoids model penetration at close range
     4000
   );
-  camera.position.set(0, 0, 0);
-  // YXZ order: yaw is applied first, then pitch on the already-yawed axis.
-  // This is the standard first-person Euler order — no gimbal lock at ±90°.
-  camera.rotation.order = 'YXZ';
+  // Chase-cam position: elevated and slightly behind, angled down to the action zone
+  camera.position.set(0, 10, 20);
+  camera.rotation.order = 'YXZ';   // YXZ — standard FPS order, no gimbal lock
+  camera.rotation.x = THREE.MathUtils.degToRad(BASE_PITCH_DEG);
 
   // ─────────────────────────────────────────────────────────────────
   //  SCENE LIGHTING  (required for MeshStandardMaterial to show colour)
@@ -216,6 +218,49 @@ Integrated (°)
   const rimLight = new THREE.DirectionalLight(0xffffff, 0.8);  // rim: from behind
   rimLight.position.set(0, 0, -1);
   scene.add(rimLight);
+
+  // Dramatic side SpotLight — raking light casts deep hull shadows
+  const spotLight = new THREE.SpotLight(0xffeedd, 5.0);
+  spotLight.position.set(180, 80, -100);
+  spotLight.target.position.set(0, -10, -250);
+  spotLight.angle    = Math.PI / 14;  // tight beam
+  spotLight.penumbra = 0.45;          // soft falloff at edge
+  spotLight.decay    = 1;
+  spotLight.distance = 800;
+  scene.add(spotLight);
+  scene.add(spotLight.target);
+
+  // ─────────────────────────────────────────────────────────────────
+  //  GROUND PLANE — dark canyon floor gives the eye a reference point
+  // ─────────────────────────────────────────────────────────────────
+  (function buildGround() {
+    // Canvas-generated subtle cyan grid — no external texture file needed
+    const SZ   = 512;
+    const cvs  = document.createElement('canvas');
+    cvs.width  = cvs.height = SZ;
+    const ctx  = cvs.getContext('2d');
+    ctx.fillStyle = '#06060f';
+    ctx.fillRect(0, 0, SZ, SZ);
+    ctx.strokeStyle = 'rgba(0,220,255,0.07)';
+    ctx.lineWidth   = 1;
+    const cells = 16;
+    for (let i = 0; i <= cells; i++) {
+      const p = (i / cells) * SZ;
+      ctx.beginPath(); ctx.moveTo(p, 0);  ctx.lineTo(p, SZ); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,  p); ctx.lineTo(SZ, p); ctx.stroke();
+    }
+    const tex        = new THREE.CanvasTexture(cvs);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(24, 24);
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(4000, 4000),
+      new THREE.MeshStandardMaterial({ map: tex, roughness: 1.0, metalness: 0.0 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -20;
+    scene.add(ground);
+  })();
 
   // ─────────────────────────────────────────────────────────────────
   //  FIGHTER JET GLB MODEL
@@ -507,31 +552,30 @@ Integrated (°)
     const e  = enemies[i];
     const es = enemyState[i];
 
-    // ── Spawn position — 70% central column, 30% wide flanks ───────
+    // ── Spawn position — flat flight plane, 70% central column ─────
     const central = Math.random() < 0.70;
     const spawnX  = (Math.random() - 0.5) * ENEMY_SPREAD_X * (central ? 0.45 : 1.8);
-    const spawnY  = (Math.random() - 0.5) * ENEMY_SPREAD_Y * (central ? 0.45 : 1.8);
+    // Ships spawn near the flat flight plane — tight vertical scatter so
+    // the elevated camera always sees them on the same "deck"
+    const spawnY  = ENEMY_BASE_Y + (Math.random() - 0.5) * 16;
     e.group.position.set(spawnX, spawnY, ENEMY_SPAWN_Z);
     es.baseX = spawnX;
     es.baseY = spawnY;
 
     // ── Lane assignment — three distinct flight patterns ─────────────
-    //   A: head-on (dangerous — flies straight at player)
-    //   B: hard bank left (near-miss — sweeps past left side)
-    //   C: hard bank right (near-miss — sweeps past right side)
     const roll = Math.random();
     if (roll < 0.34) {
       es.lane    = 'A';
-      es.targetX = (Math.random() - 0.5) * 45;   // near center
-      es.targetY = (Math.random() - 0.5) * 30;
+      es.targetX = (Math.random() - 0.5) * 45;
+      es.targetY = ENEMY_BASE_Y + (Math.random() - 0.5) * 16;
     } else if (roll < 0.67) {
       es.lane    = 'B';
-      es.targetX = -(110 + Math.random() * 90);  // hard left
-      es.targetY = (Math.random() - 0.5) * 40;
+      es.targetX = -(110 + Math.random() * 90);
+      es.targetY = ENEMY_BASE_Y + (Math.random() - 0.5) * 16;
     } else {
       es.lane    = 'C';
-      es.targetX = 110 + Math.random() * 90;     // hard right
-      es.targetY = (Math.random() - 0.5) * 40;
+      es.targetX = 110 + Math.random() * 90;
+      es.targetY = ENEMY_BASE_Y + (Math.random() - 0.5) * 16;
     }
 
     // ── Speed class — interceptors, bombers, patrol ──────────────────
@@ -585,8 +629,8 @@ Integrated (°)
   const MAX_LOOK_DEG = 45;    // ±45° integrated angle hard clamp
   const INPUT_SCALE  = 0.35;  // rotationRate multiplier — tune movement feel
   const EXP_SMOOTH   = 0.10;  // exponential filter weight (lower = heavier)
-  const BASE_ALPHA   = 0.10;  // slerp base fraction at 60fps (near-target)
-  const VEL_SCALE    = 0.65;  // extra alpha per radian of angular distance
+  const BASE_ALPHA   = 0.05;  // reduced — camera drifts into position like a heavy vessel
+  const VEL_SCALE    = 0.45;  // velocity boost capped lower for smoother feel
 
   // Integrated camera angles in degrees (purely relative — no North reference)
   let integratedPitch = 0;
@@ -597,8 +641,9 @@ Integrated (°)
   let smoothedYaw   = 0;
 
   // Quaternion the camera slerps toward each frame
-  const targetQuat  = new THREE.Quaternion();
-  const targetEuler = new THREE.Euler(0, 0, 0, 'YXZ');  // YXZ = FPS order, no gimbal
+  // Initialise with base pitch so neutral hold already looks downward
+  const targetEuler = new THREE.Euler(THREE.MathUtils.degToRad(BASE_PITCH_DEG), 0, 0, 'YXZ');
+  const targetQuat  = new THREE.Quaternion().setFromEuler(targetEuler);
 
   let motionReady   = false;
   let motionEvents  = 0;                              // total events received
@@ -677,8 +722,8 @@ Integrated (°)
     smoothedPitch = smoothedPitch * (1 - EXP_SMOOTH) + integratedPitch * EXP_SMOOTH;
     smoothedYaw   = smoothedYaw   * (1 - EXP_SMOOTH) + integratedYaw   * EXP_SMOOTH;
 
-    // ── 4. Build target quaternion (YXZ — no gimbal lock) ─────────
-    targetEuler.x = THREE.MathUtils.degToRad(smoothedPitch);
+    // ── 4. Build target quaternion — BASE_PITCH_DEG is the neutral rest angle
+    targetEuler.x = THREE.MathUtils.degToRad(smoothedPitch + BASE_PITCH_DEG);
     targetEuler.y = THREE.MathUtils.degToRad(smoothedYaw);
     targetQuat.setFromEuler(targetEuler);
     motionReady = true;
@@ -733,12 +778,15 @@ Integrated (°)
   //  no precision reset, no group pop. Truly infinite.
   // ─────────────────────────────────────────────────────────────────
   // ── Spawn timer — fires every 1–2.5 s to stagger jet arrivals ───
-  let spawnCountdown = 1.2;   // first jet appears after ~1.2 s
+  let spawnCountdown = 1.2;
+
+  // ── Chase-cam base position — position lerps back here each frame ─
+  const CAM_BASE_POS = new THREE.Vector3(0, 10, 20);
 
   // ── Cockpit shake state ───────────────────────────────────────────
   let shakeTimer = 0;
-  const SHAKE_DURATION = 0.20;  // seconds
-  const SHAKE_MAG      = 0.014; // peak magnitude (world units)
+  const SHAKE_DURATION = 0.20;
+  const SHAKE_MAG      = 0.014;
 
   let prevTime = performance.now();
 
@@ -859,17 +907,18 @@ Integrated (°)
       }
     }
 
-    // ── Cockpit shake ─────────────────────────────────────────────
+    // ── Cockpit shake + heavy position drift ─────────────────────────
     if (shakeTimer > 0) {
       shakeTimer -= dt;
-      const mag = SHAKE_MAG * (shakeTimer / SHAKE_DURATION); // fade to zero
+      const mag = SHAKE_MAG * (shakeTimer / SHAKE_DURATION);
       camera.position.set(
-        (Math.random() - 0.5) * mag * 2,
-        (Math.random() - 0.5) * mag * 2,
-        0
+        CAM_BASE_POS.x + (Math.random() - 0.5) * mag * 2,
+        CAM_BASE_POS.y + (Math.random() - 0.5) * mag * 2,
+        CAM_BASE_POS.z
       );
     } else {
-      camera.position.set(0, 0, 0);
+      // Lerp back to base — camera drifts like a heavy vessel, never snaps
+      camera.position.lerp(CAM_BASE_POS, Math.min(1, 8 * dt));
     }
 
     // ── Camera slerp — velocity-based alpha + quaternion interpolation ─
