@@ -102,6 +102,14 @@
 
   const BASE_FOV           = 72;
 
+  // ── Enemy rocket pool ──────────────────────────────────────────────
+  const ENEMY_COUNT        = 10;   // pool size — safe for iPhone GPU budget
+  const ENEMY_SPAWN_Z      = -900; // z where new enemies are placed
+  const ENEMY_SPREAD_X     = 280;  // ± half-width of spawn band
+  const ENEMY_SPREAD_Y     = 200;  // ± half-height
+  const ENEMY_MIN_SPEED    = 100;  // units / sec toward camera
+  const ENEMY_MAX_SPEED    = 260;
+
   // ─────────────────────────────────────────────────────────────────
   //  RENDERER
   // ─────────────────────────────────────────────────────────────────
@@ -129,6 +137,16 @@
   // YXZ order: yaw is applied first, then pitch on the already-yawed axis.
   // This is the standard first-person Euler order — no gimbal lock at ±90°.
   camera.rotation.order = 'YXZ';
+
+  // ─────────────────────────────────────────────────────────────────
+  //  SCENE LIGHTING  (required for MeshStandardMaterial to show colour)
+  // ─────────────────────────────────────────────────────────────────
+  // Soft ambient fills black faces so the ship silhouette reads clearly.
+  scene.add(new THREE.AmbientLight(0x080818, 1.4));
+  // Dim directional light gives metallic surfaces a slight sheen angle.
+  const sunLight = new THREE.DirectionalLight(0x3355aa, 0.55);
+  sunLight.position.set(1, 2, 0.5);
+  scene.add(sunLight);
 
   // ─────────────────────────────────────────────────────────────────
   //  UNIVERSE GROUP — all objects live here; group stays at origin
@@ -289,6 +307,134 @@
   function smoothstep(edge0, edge1, x) {
     const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
     return t * t * (3 - 2 * t);
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  //  ENEMY ROCKETS — procedural pool
+  //
+  //  Each ship = ConeGeometry(4, 18, 3) body + BoxGeometry engine block
+  //  + EdgesGeometry neon wireframe overlay + thruster Sprite + PointLight.
+  //  All 10 pool instances share the same body geometry and body material;
+  //  only the wireframe LineBasicMaterial colours differ (⅔ cyan, ⅓ red).
+  //  Pool reset: when a ship passes z > 50 it's moved back to ENEMY_SPAWN_Z
+  //  with new random position, speed, and roll — zero allocations at runtime.
+  // ─────────────────────────────────────────────────────────────────
+
+  // Shared body material — dark metallic grey with faint blue emissive
+  const enemyBodyMat = new THREE.MeshStandardMaterial({
+    color:     0x12121e,
+    metalness: 0.85,
+    roughness: 0.25,
+    emissive:  new THREE.Color(0x000412),
+  });
+
+  // Thruster glow texture — single white-core radial gradient, tinted per ship
+  function makeThrusterTexture() {
+    const SZ  = 64;
+    const cvs = document.createElement('canvas');
+    cvs.width = cvs.height = SZ;
+    const ctx = cvs.getContext('2d');
+    const grd = ctx.createRadialGradient(SZ/2, SZ/2, 0, SZ/2, SZ/2, SZ/2);
+    grd.addColorStop(0.00, 'rgba(220, 255, 255, 1.00)');
+    grd.addColorStop(0.25, 'rgba(120, 220, 255, 0.85)');
+    grd.addColorStop(0.60, 'rgba( 40, 120, 220, 0.35)');
+    grd.addColorStop(1.00, 'rgba(  0,  40, 120, 0.00)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, SZ, SZ);
+    return new THREE.CanvasTexture(cvs);
+  }
+  const thrusterTex = makeThrusterTexture();
+
+  // ── Shared geometries (computed once) ────────────────────────────
+  // Cone tip naturally at +Y; rotateX(-90°) moves it to +Z so the rocket
+  // points toward the camera as it approaches from negative Z.
+  const _coneGeo      = new THREE.ConeGeometry(4, 18, 3);
+  _coneGeo.rotateX(-Math.PI / 2);
+
+  const _boxGeo       = new THREE.BoxGeometry(6, 4, 5);
+
+  // EdgesGeometry is also computed once from each base geometry.
+  // Sharing EdgesGeometry across LineSegments instances is safe —
+  // each LineSegments has its own matrix/material.
+  const _coneEdgesGeo = new THREE.EdgesGeometry(_coneGeo);
+  const _boxEdgesGeo  = new THREE.EdgesGeometry(_boxGeo);
+
+  // ── Build one pooled ship ─────────────────────────────────────────
+  function buildEnemyShip(index) {
+    const isCyan  = (index % 3 !== 0);          // ⅔ cyan, ⅓ red
+    const wireCol = isCyan ? 0x00f2ff : 0xff2244;
+    const glowCol = isCyan ? 0x00d0ff : 0xff4422;
+
+    const group = new THREE.Group();
+
+    // Body cone — tip at local +Z (faces camera as ship flies in)
+    group.add(new THREE.Mesh(_coneGeo, enemyBodyMat));
+
+    // Neon wireframe overlay on cone
+    group.add(new THREE.LineSegments(
+      _coneEdgesGeo,
+      new THREE.LineBasicMaterial({ color: wireCol, transparent: true, opacity: 0.9 })
+    ));
+
+    // Engine block sitting just behind the cone base (cone base is at z = -9)
+    const boxMesh = new THREE.Mesh(_boxGeo, enemyBodyMat);
+    boxMesh.position.z = -11;
+    group.add(boxMesh);
+
+    // Neon wireframe on engine block
+    const boxWire = new THREE.LineSegments(
+      _boxEdgesGeo,
+      new THREE.LineBasicMaterial({ color: wireCol, transparent: true, opacity: 0.70 })
+    );
+    boxWire.position.z = -11;
+    group.add(boxWire);
+
+    // Thruster glow sprite — sits behind the engine block
+    const thrustMat = new THREE.SpriteMaterial({
+      map:         thrusterTex,
+      blending:    THREE.AdditiveBlending,
+      transparent: true,
+      color:       new THREE.Color(glowCol),  // tints white texture to cyan / red
+    });
+    const thrustSprite = new THREE.Sprite(thrustMat);
+    thrustSprite.scale.set(14, 14, 1);
+    thrustSprite.position.z = -16;
+    group.add(thrustSprite);
+
+    // Point light at thruster — illuminates nearby stars and the ship itself
+    const thrustLight = new THREE.PointLight(glowCol, 2.5, 50);
+    thrustLight.position.z = -16;
+    group.add(thrustLight);
+
+    universe.add(group);
+    return { group, thrustSprite, thrustLight };
+  }
+
+  // ── Object pool + per-instance state ─────────────────────────────
+  const enemies    = [];  // { group, thrustSprite, thrustLight }
+  const enemyState = [];  // { speed, rollSpeed }
+
+  function resetEnemy(i) {
+    const e = enemies[i];
+    e.group.position.set(
+      (Math.random() - 0.5) * ENEMY_SPREAD_X * 2,
+      (Math.random() - 0.5) * ENEMY_SPREAD_Y * 2,
+      ENEMY_SPAWN_Z
+    );
+    // Random starting roll so ships don't all look identical on spawn
+    e.group.rotation.set(0, 0, Math.random() * Math.PI * 2);
+    enemyState[i].speed     = ENEMY_MIN_SPEED +
+                              Math.random() * (ENEMY_MAX_SPEED - ENEMY_MIN_SPEED);
+    enemyState[i].rollSpeed = (Math.random() < 0.5 ? 1 : -1) *
+                              (0.6 + Math.random() * 1.8);   // rad / sec
+  }
+
+  for (let i = 0; i < ENEMY_COUNT; i++) {
+    enemies.push(buildEnemyShip(i));
+    enemyState.push({ speed: 0, rollSpeed: 0 });
+    resetEnemy(i);
+    // Stagger depths so they arrive at different times rather than a single wave
+    enemies[i].group.position.z = ENEMY_SPAWN_Z * (0.12 + 0.88 * Math.random());
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -489,6 +635,31 @@
       const closeFade = Math.min(1, Math.abs(neb.position.z) / 200);
       const farFade   = smoothstep(NEBULA_DEPTH, NEBULA_DEPTH * 0.65, -neb.position.z);
       neb.material.opacity = NEBULA_MAX_OP * closeFade * farFade;
+    }
+
+    // ── Enemy rockets: pool update ────────────────────────────────
+    //  Each ship advances along +Z at its own speed, rolls on its Z axis,
+    //  and pulses its thruster sprite + point light.  When it passes the
+    //  camera (z > 50) it is instantly recycled back to ENEMY_SPAWN_Z —
+    //  no allocations, no garbage collection pressure.
+    const t = now / 1000;  // seconds, for thruster flicker phase
+    for (let i = 0; i < ENEMY_COUNT; i++) {
+      const e  = enemies[i];
+      const es = enemyState[i];
+
+      // Advance and roll
+      e.group.position.z += es.speed * dt;
+      e.group.rotation.z += es.rollSpeed * dt;
+
+      // Thruster flicker — rapid sin oscillation per ship (offset by index)
+      const pulse = 0.60 + 0.40 * Math.sin(t * 13.5 + i * 2.1);
+      e.thrustSprite.material.opacity = pulse;
+      e.thrustLight.intensity         = pulse * 2.5;
+
+      // Pool recycle — no delete, just teleport back to spawn depth
+      if (e.group.position.z > 50) {
+        resetEnemy(i);
+      }
     }
 
     // ── Camera slerp — velocity-based alpha + quaternion interpolation ─
