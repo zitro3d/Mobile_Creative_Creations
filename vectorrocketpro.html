@@ -294,25 +294,30 @@
   // ─────────────────────────────────────────────────────────────────
   //  DEVICE ORIENTATION — tilt to look around
   //
-  //  Calibrated neutral: the first sensor reading after tapping Start
-  //  is stored as the "center" position, so whatever angle the user
-  //  holds their phone at is treated as looking straight ahead.
+  //  Pipeline (each sensor event):
+  //    1. Calibrate  — first reading becomes the "straight ahead" baseline
+  //    2. Scale      — INPUT_SCALE reduces physical→camera ratio (10°→2.5°)
+  //    3. Dead-zone  — changes < DEAD_ZONE_DEG are discarded as hand tremor
+  //    4. Clamp      — final angle capped at ±MAX_LOOK (45°)
   //
-  //  MAX_LOOK   : hard clamp — camera never exceeds ±45°
-  //  LERP_SPEED : 0.07 = 7% of remaining gap closed per frame → heavy feel
+  //  In the render loop the camera lerps toward the target using a
+  //  dt-scaled factor so smoothing is identical at 30, 60, or 120 fps.
   // ─────────────────────────────────────────────────────────────────
-  const MAX_LOOK   = Math.PI / 4;
-  const LERP_SPEED = 0.07;
+  const MAX_LOOK      = Math.PI / 4; // hard clamp — never exceed ±45°
+  const INPUT_SCALE   = 0.25;        // 10° physical tilt → 2.5° camera rotation
+  const DEAD_ZONE_DEG = 1.2;         // sensor noise below this is discarded
+  const SMOOTH_BASE   = 0.08;        // lerp fraction at 60 fps (8% per frame)
 
-  let targetPitch      = 0;
-  let targetYaw        = 0;
+  // Separate target and current objects so the camera chases, never snaps
+  const targetRotation  = { x: 0, y: 0 };
+  const currentRotation = { x: 0, y: 0 };
+
   let orientationReady = false;
-  let calibBeta        = null;   // beta value at "straight ahead"
-  let calibGamma       = null;   // gamma value at "straight ahead"
+  let calibBeta        = null;
+  let calibGamma       = null;
 
   function handleOrientation(evt) {
-    // First event → capture current hold angle as neutral centre.
-    // All subsequent readings are relative deviations from that baseline.
+    // ── 1. Calibrate: capture neutral angle on first event ────────
     if (calibBeta === null) {
       calibBeta        = evt.beta  ?? 90;
       calibGamma       = evt.gamma ?? 0;
@@ -322,14 +327,26 @@
     const beta  = evt.beta  ?? calibBeta;
     const gamma = evt.gamma ?? calibGamma;
 
-    // Deviation from neutral, negated to match Three.js camera convention:
-    //   tilt back  → positive deviation → negative rotation.x → look up
-    //   tilt right → positive gamma deviation → negative rotation.y → look right
-    const rawPitch = THREE.MathUtils.degToRad(-(beta  - calibBeta));
-    const rawYaw   = THREE.MathUtils.degToRad(-(gamma - calibGamma));
+    // ── 2. Scale: compress the physical→camera ratio ──────────────
+    const rawPitchDeg = -(beta  - calibBeta)  * INPUT_SCALE;
+    const rawYawDeg   = -(gamma - calibGamma) * INPUT_SCALE;
 
-    targetPitch = THREE.MathUtils.clamp(rawPitch, -MAX_LOOK, MAX_LOOK);
-    targetYaw   = THREE.MathUtils.clamp(rawYaw,   -MAX_LOOK, MAX_LOOK);
+    // ── 3. Dead-zone: discard sub-threshold tremor ────────────────
+    const prevPitchDeg = THREE.MathUtils.radToDeg(targetRotation.x);
+    const prevYawDeg   = THREE.MathUtils.radToDeg(targetRotation.y);
+
+    const filtPitchDeg = Math.abs(rawPitchDeg - prevPitchDeg) < DEAD_ZONE_DEG
+      ? prevPitchDeg : rawPitchDeg;
+    const filtYawDeg   = Math.abs(rawYawDeg   - prevYawDeg)   < DEAD_ZONE_DEG
+      ? prevYawDeg   : rawYawDeg;
+
+    // ── 4. Clamp and store target (radians) ───────────────────────
+    targetRotation.x = THREE.MathUtils.clamp(
+      THREE.MathUtils.degToRad(filtPitchDeg), -MAX_LOOK, MAX_LOOK
+    );
+    targetRotation.y = THREE.MathUtils.clamp(
+      THREE.MathUtils.degToRad(filtYawDeg), -MAX_LOOK, MAX_LOOK
+    );
   }
 
   document.getElementById('start-btn').addEventListener('click', async () => {
@@ -427,10 +444,18 @@
       neb.material.opacity = NEBULA_MAX_OP * closeFade * farFade;
     }
 
-    // ── Camera lerp — smooth, heavy rotation toward sensor target ─
+    // ── Camera lerp — dt-scaled so smoothing is frame-rate independent
+    //  Formula: 1 - (1 - BASE)^(dt*60)
+    //    At 60 fps (dt≈0.0167): factor ≈ SMOOTH_BASE        (e.g. 8%)
+    //    At 30 fps (dt≈0.0333): factor ≈ 1-(1-0.08)^2 ≈ 15% (catches up faster)
+    //    At 120fps (dt≈0.0083): factor ≈ 4%                  (smaller step, same feel)
+    //  Result: the camera always takes the same real-time duration to settle.
     if (orientationReady) {
-      camera.rotation.x = THREE.MathUtils.lerp(camera.rotation.x, targetPitch, LERP_SPEED);
-      camera.rotation.y = THREE.MathUtils.lerp(camera.rotation.y, targetYaw,   LERP_SPEED);
+      const lerpFactor = 1 - Math.pow(1 - SMOOTH_BASE, dt * 60);
+      currentRotation.x = THREE.MathUtils.lerp(currentRotation.x, targetRotation.x, lerpFactor);
+      currentRotation.y = THREE.MathUtils.lerp(currentRotation.y, targetRotation.y, lerpFactor);
+      camera.rotation.x = currentRotation.x;
+      camera.rotation.y = currentRotation.y;
     }
 
     renderer.render(scene, camera);
