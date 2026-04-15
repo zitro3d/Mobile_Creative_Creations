@@ -462,11 +462,16 @@ Integrated (°)
         scene.add(clone);
         enemies.push({ group: clone, meshes, engineGlow });
         enemyState.push({
-          type: 'FRONTAL', speed: 0,
-          dirX: 0, dirZ: -1,
+          // Pilot style (set by activateEnemy)
+          styleName: 'SMOOTH', maxSpeed: 110, accel: 60, turnRate: 1.0,
+          wobbleAmp: 8, wobbleFreq: 0.2, wobblePhase: 0,
+          // Kinematic state
+          velX: 0, velY: 0, velZ: -110, curSpeed: 0,
           baseX: 0, baseY: 0, baseZ: -300,
-          targetX: 0, targetZ: 100,
-          waveAmp: 0, waveFreq: 0, wavePhase: 0,
+          // Navigation
+          targetX: 0, targetY: 0, targetZ: 100,
+          passCount: 0, maxPasses: 3,
+          spawnType: 'FRONT',
           shaken: false,
         });
       }
@@ -656,8 +661,16 @@ Integrated (°)
     enemyState[i].shaken     = false;
   }
 
-  // Returns true if world position (x,y,z) is within MIN units of any
-  // other active enemy (skip index i so a ship doesn't collide with itself)
+  // ─────────────────────────────────────────────────────────────────
+  //  PILOT STYLES — flight envelope per personality
+  // ─────────────────────────────────────────────────────────────────
+  const PILOT_STYLES = {
+    AGGRESSIVE: { maxSpeed: 165, accel: 115, turnRate: 2.8, wobbleAmp:  3, wobbleFreq: 0.35 },
+    SMOOTH:     { maxSpeed: 105, accel:  55, turnRate: 0.9, wobbleAmp:  9, wobbleFreq: 0.20 },
+    ERRATIC:    { maxSpeed: 140, accel:  85, turnRate: 2.1, wobbleAmp: 17, wobbleFreq: 0.65 },
+  };
+
+  // True when another visible ship is within MIN units of (x,y,z)
   function tooClose(x, y, z, skipIdx) {
     const MIN_SQ = 130 * 130;
     for (let j = 0; j < enemies.length; j++) {
@@ -669,73 +682,94 @@ Integrated (°)
     return false;
   }
 
+  // Pick the next 3-D waypoint based on where the ship currently is.
+  // Increments passCount; returns null when maxPasses is exhausted.
+  function nextWaypoint(es) {
+    es.passCount++;
+    if (es.passCount > es.maxPasses) return null;
+
+    const ty = (Math.random() - 0.25) * 80;   // height −20..+60
+    const px = es.baseX, pz = es.baseZ;
+
+    if (pz < -150) {
+      // Deep ahead — U-turn to behind/beside camera
+      return {
+        x: (Math.random() < 0.5 ? -1 : 1) * (40 + Math.random() * 90),
+        y: ty,
+        z: 150 + Math.random() * 100,
+      };
+    } else if (pz > 60) {
+      // Behind camera — bank back toward the front on a diagonal
+      return {
+        x: (Math.random() - 0.5) * 200,
+        y: ty,
+        z: -260 - Math.random() * 200,
+      };
+    } else {
+      // Mid-arena — cross to opposite quadrant
+      const side = px > 0 ? -1 : 1;
+      return {
+        x: side * (50 + Math.random() * 90),
+        y: ty,
+        z: pz > -80 ? -380 : 120,
+      };
+    }
+  }
+
   function activateEnemy(i) {
     const e  = enemies[i];
     const es = enemyState[i];
 
+    // ── Pilot style ───────────────────────────────────────────────
+    const names  = ['AGGRESSIVE', 'SMOOTH', 'ERRATIC'];
+    const sName  = names[Math.floor(Math.random() * 3)];
+    const style  = PILOT_STYLES[sName];
+    es.styleName  = sName;
+    es.maxSpeed   = style.maxSpeed  + Math.random() * 25;
+    es.accel      = style.accel;
+    es.turnRate   = style.turnRate  + (Math.random() - 0.5) * 0.3;
+    es.wobbleAmp  = style.wobbleAmp;
+    es.wobbleFreq = style.wobbleFreq + Math.random() * 0.15;
+    es.wobblePhase = Math.random() * Math.PI * 2;
+    es.maxPasses  = 2 + Math.floor(Math.random() * 3);  // 2–4 passes
+
+    // ── Spawn position ─────────────────────────────────────────────
+    const spawnY  = (Math.random() - 0.25) * 80;  // −20 to +60
+    let spawnX, spawnZ;
     const typeRoll = Math.random();
-    let spawnX, spawnY, spawnZ, targetX, targetZ;
+    es.spawnType   = typeRoll < 0.5 ? 'FRONT' : typeRoll < 0.75 ? 'REAR' : 'SIDE';
 
-    // Wide vertical spread — ships at many heights, slight upward bias
-    // Range: approx -20 to +60 world units (camera at Y=0, ground at Y=-30)
-    spawnY = (Math.random() - 0.25) * 80;
-
-    if (typeRoll < 0.50) {
-      // ── FRONTAL: guaranteed lateral offset so it never flies dead-on ─
-      es.type = 'FRONTAL';
-      const fSide = Math.random() < 0.5 ? 1 : -1;
-      spawnX  = fSide * (40 + Math.random() * 60);  // min 40 units from center
-      spawnZ  = -480;
-      targetX = (Math.random() - 0.5) * 100;
-      targetZ = 100;
-      es.speed = 110 + Math.random() * 50;
-    } else if (typeRoll < 0.75) {
-      // ── PURSUIT: starts well behind camera, flies away into distance ─
+    if (es.spawnType === 'FRONT') {
       const side = Math.random() < 0.5 ? 1 : -1;
-      es.type = 'PURSUIT';
-      spawnX  = side * (50 + Math.random() * 60);  // clearly off to the side
-      spawnZ  = 180;                                 // well behind camera
-      targetX = spawnX * 0.5;
-      targetZ = -480;
-      es.speed = 110 + Math.random() * 50;
+      spawnX = side * (40 + Math.random() * 60);
+      spawnZ = -480;
+    } else if (es.spawnType === 'REAR') {
+      spawnX = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 60);
+      spawnZ = 180;
     } else {
-      // ── CROSSING: diagonal left-to-right or right-to-left ────────
-      es.type = 'CROSSING';
-      const fromLeft = Math.random() < 0.5;
-      spawnX  = fromLeft ? -150 : 150;
-      spawnZ  = -100;
-      targetX = fromLeft ?  150 : -150;
-      targetZ = -50 + (Math.random() - 0.5) * 40;
-      es.speed = 80 + Math.random() * 50;
+      spawnX = (Math.random() < 0.5 ? -1 : 1) * 160;
+      spawnZ = -80 - Math.random() * 120;
     }
 
-    // Reject spawn if another ship is already too close — prevents bunching
     if (tooClose(spawnX, spawnY, spawnZ, i)) return;
 
+    es.baseX = spawnX; es.baseY = spawnY; es.baseZ = spawnZ;
+    es.passCount = 0;
+
+    // ── First waypoint ─────────────────────────────────────────────
+    const wp = nextWaypoint(es);
+    if (!wp) return;
+    es.targetX = wp.x; es.targetY = wp.y; es.targetZ = wp.z;
+
+    // ── Initial velocity — 30% speed toward first waypoint ────────
+    const dx = wp.x - spawnX, dy = wp.y - spawnY, dz = wp.z - spawnZ;
+    const d  = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+    const v0 = es.maxSpeed * 0.3;
+    es.velX = (dx/d) * v0; es.velY = (dy/d) * v0; es.velZ = (dz/d) * v0;
+    es.curSpeed = v0;
+
     e.group.position.set(spawnX, spawnY, spawnZ);
-    es.baseX = spawnX;
-    es.baseY = spawnY;
-    es.baseZ = spawnZ;
-
-    // Normalised travel direction
-    const dx   = targetX - spawnX;
-    const dz   = targetZ - spawnZ;
-    const dist = Math.sqrt(dx * dx + dz * dz);
-    es.dirX    = dx / dist;
-    es.dirZ    = dz / dist;
-    es.targetX = targetX;
-    es.targetZ = targetZ;
-
-    // Weave (FRONTAL + CROSSING only)
-    const weaves = es.type !== 'PURSUIT' && Math.random() < 0.55;
-    es.waveAmp   = weaves ? 8 + Math.random() * 14 : 0;
-    es.waveFreq  = 0.30 + Math.random() * 0.50;
-    es.wavePhase = Math.random() * Math.PI * 2;
-
-    // Initial orientation: nose faces travel direction
-    // formula: yaw = atan2(dirZ, -dirX)  (nose = local -X → world dir)
-    const initYaw = Math.atan2(dz, -dx);
-    e.group.rotation.set(0, initYaw, es.dirX * -0.22);  // gentler initial bank
+    e.group.rotation.set(0, Math.atan2(dz, -dx), 0);
 
     for (const mesh of e.meshes) mesh.material.opacity = 1;
     e.group.visible = true;
@@ -1111,58 +1145,101 @@ Integrated (°)
       }
     }
 
-    // ── Enemy jets: 360° combat sphere movement ──────────────────────
+    // ── Enemy jets: steering behaviors ──────────────────────────────
     const tSec = now / 1000;
     for (let i = 0; i < enemies.length; i++) {
       const e  = enemies[i];
       if (!e.group.visible) continue;
       const es = enemyState[i];
 
-      // ── Cull at boundaries ────────────────────────────────────────
-      const pz = e.group.position.z;
-      const px = e.group.position.x;
-      if (pz > 110 || pz < -510 || Math.abs(px) > 280) {
-        deactivateEnemy(i);
-        continue;
+      const px = es.baseX, py = es.baseY, pz = es.baseZ;
+
+      // ── Hard-boundary safety valve ────────────────────────────────
+      if (pz > 260 || pz < -580 || Math.abs(px) > 360) {
+        deactivateEnemy(i); continue;
       }
 
-      // ── Move along normalised direction + weave ───────────────────
-      const prevX = e.group.position.x;
-      const prevZ = e.group.position.z;
-      const waveX = es.waveAmp * Math.sin(tSec * es.waveFreq + es.wavePhase);
+      // ── Near waypoint → assign next ───────────────────────────────
+      const toPx = es.targetX - px, toPy = es.targetY - py, toPz = es.targetZ - pz;
+      let   toDist = Math.sqrt(toPx*toPx + toPy*toPy + toPz*toPz);
 
-      es.baseX += es.dirX * es.speed * dt;
-      es.baseZ += es.dirZ * es.speed * dt;
-      e.group.position.x = es.baseX + waveX;
+      if (toDist < 55) {
+        const wp = nextWaypoint(es);
+        if (!wp) { deactivateEnemy(i); continue; }
+        es.targetX = wp.x; es.targetY = wp.y; es.targetZ = wp.z;
+        // Recompute to-target after reassignment
+        toDist = Math.sqrt(
+          (wp.x-px)*(wp.x-px) + (wp.y-py)*(wp.y-py) + (wp.z-pz)*(wp.z-pz)
+        ) || 1;
+      }
+
+      // ── Steering ──────────────────────────────────────────────────
+      const speed = Math.sqrt(es.velX*es.velX + es.velY*es.velY + es.velZ*es.velZ);
+      // Current heading (unit vector)
+      const cdX = speed > 0.01 ? es.velX/speed : 0;
+      const cdY = speed > 0.01 ? es.velY/speed : 0;
+      const cdZ = speed > 0.01 ? es.velZ/speed : -1;
+      // Target heading (unit vector)
+      const tdX = (es.targetX-px)/toDist;
+      const tdY = (es.targetY-py)/toDist;
+      const tdZ = (es.targetZ-pz)/toDist;
+
+      // Alignment: +1 = on target, −1 = pointing away
+      const align = cdX*tdX + cdY*tdY + cdZ*tdZ;
+
+      // Gradually steer current heading toward target heading
+      const steer = Math.min(1, es.turnRate * dt);
+      const nDX = cdX + (tdX - cdX) * steer;
+      const nDY = cdY + (tdY - cdY) * steer;
+      const nDZ = cdZ + (tdZ - cdZ) * steer;
+      const nDL = Math.sqrt(nDX*nDX + nDY*nDY + nDZ*nDZ) || 1;
+
+      // Accelerate to full speed; brake in sharp turns
+      const brakeFactor = 0.25 + 0.75 * Math.max(0, align);  // 0.25..1.0
+      const tgtSpd = es.maxSpeed * brakeFactor;
+      es.curSpeed += (tgtSpd - es.curSpeed) * Math.min(1, (es.accel / es.maxSpeed) * 4 * dt);
+
+      es.velX = (nDX/nDL) * es.curSpeed;
+      es.velY = (nDY/nDL) * es.curSpeed;
+      es.velZ = (nDZ/nDL) * es.curSpeed;
+
+      // ── Wobble — organic micro-oscillation per pilot style ────────
+      const wobX = es.wobbleAmp * Math.sin(tSec * es.wobbleFreq        + es.wobblePhase);
+      const wobY = es.wobbleAmp * Math.cos(tSec * es.wobbleFreq * 0.73 + es.wobblePhase * 1.3);
+
+      // ── Integrate base position ───────────────────────────────────
+      es.baseX += es.velX * dt;
+      es.baseY += es.velY * dt;
+      es.baseZ += es.velZ * dt;
+
+      e.group.position.x = es.baseX + wobX;
+      e.group.position.y = es.baseY + wobY;
       e.group.position.z = es.baseZ;
 
-      // ── LookAt: nose follows actual velocity ──────────────────────
-      // nose = local -X.  For travel (vx, vz): yaw = atan2(vz, -vx)
-      const velX = (e.group.position.x - prevX) / Math.max(dt, 0.001);
-      const velZ = (e.group.position.z - prevZ) / Math.max(dt, 0.001);
-      const yawTarget = Math.atan2(velZ, -velX);
-      // CROSSING ships move almost purely horizontal — use smaller roll coefficient
-      // so they don't appear to nose-dive when seen from the cockpit
-      const rollCoeff  = es.type === 'CROSSING' ? 0.0008 : 0.0020;
-      const rollTarget = -velX * rollCoeff;
+      // ── Rotation: yaw+pitch follow velocity; roll banks into turns ─
+      const vspd = Math.sqrt(es.velX*es.velX + es.velY*es.velY + es.velZ*es.velZ);
+      const vdX  = vspd > 0.01 ? es.velX/vspd : cdX;
+      const vdY  = vspd > 0.01 ? es.velY/vspd : cdY;
+      const vdZ  = vspd > 0.01 ? es.velZ/vspd : cdZ;
 
-      e.group.rotation.y += (yawTarget  - e.group.rotation.y) * Math.min(1, 4.0 * dt);
-      e.group.rotation.z += (rollTarget - e.group.rotation.z) * Math.min(1, 5.0 * dt);
-      // Faster pitch-to-zero so ships don't stay nose-tilted after banking
-      e.group.rotation.x += (0          - e.group.rotation.x) * Math.min(1, 8.0 * dt);
+      const yawTgt   = Math.atan2(vdZ, -vdX);
+      const rollTgt  = -vdX * 0.52;                                         // ±30° bank
+      const pitchTgt = -Math.asin(Math.max(-0.65, Math.min(0.65, vdY)));   // follow vertical vel
 
-      // ── FRONTAL: fade opacity as ship reaches camera ──────────────
-      if (es.type === 'FRONTAL') {
-        if (pz > -65) {
-          deactivateEnemy(i); continue;   // disappear well before reaching camera
-        } else if (pz > -115) {
-          const t = (pz + 115) / 50;     // fade from z=-115 to z=-65
-          for (const mesh of e.meshes) mesh.material.opacity = 1 - t * t;
-        }
+      e.group.rotation.y += (yawTgt   - e.group.rotation.y) * Math.min(1, es.turnRate * 3 * dt);
+      e.group.rotation.z += (rollTgt  - e.group.rotation.z) * Math.min(1, 5.0 * dt);
+      e.group.rotation.x += (pitchTgt - e.group.rotation.x) * Math.min(1, 4.0 * dt);
+
+      // ── Fade + deactivate any ship closing in from the front ──────
+      const comingIn = es.velZ > 15 && pz > -120 && pz < 0;
+      if (comingIn) {
+        if (pz > -65) { deactivateEnemy(i); continue; }
+        const t = (pz + 120) / 55;
+        for (const mesh of e.meshes) mesh.material.opacity = Math.max(0, 1 - t*t);
       }
 
-      // ── Cockpit shake when FRONTAL passes close ───────────────────
-      if (!es.shaken && es.type === 'FRONTAL' && pz > -90) {
+      // ── Cockpit shake on near approach ────────────────────────────
+      if (!es.shaken && es.velZ > 15 && pz > -95 && pz < 0) {
         shakeTimer = SHAKE_DURATION;
         es.shaken  = true;
       }
