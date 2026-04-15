@@ -77,6 +77,47 @@
       pointer-events: none;
       white-space: pre;
     }
+
+    /* ── Cockpit HUD overlay ─────────────────────────────────────── */
+    #hud {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    #cockpit-frame {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 70% 58% at 50% 50%,
+        transparent 48%, rgba(0,3,18,0.72) 74%, rgba(0,2,14,0.97) 100%);
+    }
+    #cockpit-border {
+      position: absolute;
+      inset: 3%;
+      border: 1.5px solid rgba(0,220,255,0.20);
+      clip-path: polygon(8% 0%,92% 0%,100% 8%,100% 92%,92% 100%,8% 100%,0% 92%,0% 8%);
+      box-shadow: inset 0 0 28px rgba(0,220,255,0.07);
+    }
+    #crosshair {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      width: 44px; height: 44px;
+    }
+    #crosshair::before,#crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(0,255,200,0.75);
+    }
+    #crosshair::before { width: 100%; height: 1px; top: 50%; left: 0; transform: translateY(-50%); }
+    #crosshair::after  { width: 1px; height: 100%; left: 50%; top: 0; transform: translateX(-50%); }
+    #crosshair-ring {
+      position: absolute;
+      inset: 10px;
+      border: 1px solid rgba(0,255,200,0.55);
+      border-radius: 50%;
+    }
   </style>
 </head>
 <body>
@@ -106,6 +147,13 @@ Integrated (°)
   pitch : --
   yaw   : --</div>
 
+  <!-- Cockpit HUD — pointer-events: none so it never blocks input -->
+  <div id="hud">
+    <div id="cockpit-frame"></div>
+    <div id="cockpit-border"></div>
+    <div id="crosshair"><div id="crosshair-ring"></div></div>
+  </div>
+
   <script type="importmap">
   {
     "imports": {
@@ -120,6 +168,7 @@ Integrated (°)
   import { EffectComposer }  from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js';
   import { RenderPass }      from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/RenderPass.js';
   import { BokehPass }       from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/BokehPass.js';
+  import { UnrealBloomPass }  from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js';
 
   // ─────────────────────────────────────────────────────────────────
   //  TUNABLE CONSTANTS
@@ -140,17 +189,11 @@ Integrated (°)
   const SPEED              = 80;    // star speed, units / second
   const NEBULA_SPEED_FACTOR = 0.28; // nebulas at 28% → parallax depth
 
-  const BASE_FOV           = 45;   // tighter lens — ships look larger, less distorted
-  const BASE_PITCH_DEG     = -38;  // steep top-down angle — full top deck of ship visible
+  const BASE_FOV           = 50;   // cinematic compressed cockpit lens
+  const BASE_PITCH_DEG     = 0;    // first-person: look straight ahead
 
-  // ── Enemy rocket pool ──────────────────────────────────────────────
-  const ENEMY_COUNT        = 3;
-  const ENEMY_SPAWN_Z      = -600;
-  const ENEMY_SPREAD_X     = 260;
-  const ENEMY_SPREAD_Y     = 180;
-  const ENEMY_MIN_SPEED    = 60;
-  const ENEMY_MAX_SPEED    = 130;
-  const ENEMY_BASE_Y       = -8;   // ships fly across a flat plane below the camera
+  // ── Enemy combat sphere ────────────────────────────────────────────
+  const ENEMY_COUNT        = 5;    // active slots in pool
 
   // ─────────────────────────────────────────────────────────────────
   //  RENDERER
@@ -177,9 +220,9 @@ Integrated (°)
     0.1,   // near clip reduced — avoids model penetration at close range
     4000
   );
-  // Chase-cam position: high above and slightly behind, looking steeply down at top deck
-  camera.position.set(0, 80, 30);
-  camera.rotation.order = 'YXZ';   // YXZ — standard FPS order, no gimbal lock
+  // First-person cockpit: camera sits at origin, looks straight ahead
+  camera.position.set(0, 0, 0);
+  camera.rotation.order = 'YXZ';
   camera.rotation.x = THREE.MathUtils.degToRad(BASE_PITCH_DEG);
 
   // ─────────────────────────────────────────────────────────────────
@@ -195,36 +238,43 @@ Integrated (°)
     aperture: 0.00003,
     maxblur:  0.012,
   });
-  bokehPass.renderToScreen = true;
+  bokehPass.renderToScreen = false;
   composer.addPass(bokehPass);
+
+  const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    0.7,   // strength
+    0.4,   // radius
+    0.88   // threshold — only very bright emissives (lasers, stars) bloom
+  );
+  bloomPass.renderToScreen = true;
+  composer.addPass(bloomPass);
 
   // ─────────────────────────────────────────────────────────────────
   //  SCENE LIGHTING  (required for MeshStandardMaterial to show colour)
   // ─────────────────────────────────────────────────────────────────
   // White ambient + directional so the GLB model's textures and colours
   // read accurately. Intensity values match the user's spec exactly.
-  // Three-point lighting rig — makes PBR materials readable in a dark space scene
-  scene.add(new THREE.AmbientLight(0xffffff, 1.8));          // strong base fill
-  const sunLight = new THREE.DirectionalLight(0xffffff, 2.0); // key: top-right-front
-  sunLight.position.set(1, 2, 2);
+  // ── HemisphereLight: cool space sky, dark void below ─────────────
+  scene.add(new THREE.HemisphereLight(0x3366bb, 0x000011, 1.8));
+
+  // Key directional — front-above
+  const sunLight = new THREE.DirectionalLight(0xffffff, 2.2);
+  sunLight.position.set(1, 3, 2);
   scene.add(sunLight);
-  const fillLight = new THREE.DirectionalLight(0x88aaff, 1.2); // fill: left-below (cool)
-  fillLight.position.set(-2, -1, 1);
-  scene.add(fillLight);
-  const rimLight = new THREE.DirectionalLight(0xffffff, 0.8);  // rim: from behind
-  rimLight.position.set(0, 0, -1);
+
+  // Rim from behind
+  const rimLight = new THREE.DirectionalLight(0x5577ff, 1.0);
+  rimLight.position.set(0, 1, -2);
   scene.add(rimLight);
 
-  // Dramatic side SpotLight — raking light casts deep hull shadows
-  const spotLight = new THREE.SpotLight(0xffeedd, 5.0);
-  spotLight.position.set(180, 80, -100);
-  spotLight.target.position.set(0, -10, -250);
-  spotLight.angle    = Math.PI / 14;  // tight beam
-  spotLight.penumbra = 0.45;          // soft falloff at edge
-  spotLight.decay    = 1;
-  spotLight.distance = 800;
-  scene.add(spotLight);
-  scene.add(spotLight.target);
+  // Cockpit point lights — bounce off hulls as ships pass close
+  const ptLeft  = new THREE.PointLight(0x00ccff, 4.0, 90);
+  ptLeft.position.set(-12, 4, -8);
+  scene.add(ptLeft);
+  const ptRight = new THREE.PointLight(0xff7722, 4.0, 90);
+  ptRight.position.set( 12, 4, -8);
+  scene.add(ptRight);
 
   // ─────────────────────────────────────────────────────────────────
   //  GROUND PLANE — dark canyon floor gives the eye a reference point
@@ -347,11 +397,14 @@ Integrated (°)
         clone.visible = false;   // inactive until spawn timer fires
         scene.add(clone);
         enemies.push({ group: clone, meshes });
-        enemyState.push({ speed: 0, lane: 'A',
-                          targetX: 0, targetY: 0,
-                          baseX: 0,   baseY: 0,
-                          waveAmp: 0, waveFreq: 0, wavePhase: 0,
-                          shaken: false });
+        enemyState.push({
+          type: 'FRONTAL', speed: 0,
+          dirX: 0, dirZ: -1,
+          baseX: 0, baseY: 0, baseZ: -300,
+          targetX: 0, targetZ: 100,
+          waveAmp: 0, waveFreq: 0, wavePhase: 0,
+          shaken: false,
+        });
       }
     },
 
@@ -548,54 +601,64 @@ Integrated (°)
     const e  = enemies[i];
     const es = enemyState[i];
 
-    // ── Spawn position — flat flight plane, 70% central column ─────
-    const central = Math.random() < 0.70;
-    const spawnX  = (Math.random() - 0.5) * ENEMY_SPREAD_X * (central ? 0.45 : 1.8);
-    // Ships spawn near the flat flight plane — tight vertical scatter so
-    // the elevated camera always sees them on the same "deck"
-    const spawnY  = ENEMY_BASE_Y + (Math.random() - 0.5) * 16;
-    e.group.position.set(spawnX, spawnY, ENEMY_SPAWN_Z);
+    const typeRoll = Math.random();
+    let spawnX, spawnY, spawnZ, targetX, targetZ;
+
+    spawnY = (Math.random() - 0.5) * 24;   // near eye level for first-person
+
+    if (typeRoll < 0.50) {
+      // ── FRONTAL: classic head-on ──────────────────────────────────
+      es.type = 'FRONTAL';
+      spawnX  = (Math.random() - 0.5) * 140;
+      spawnZ  = -300;
+      targetX = (Math.random() - 0.5) * 70;
+      targetZ = 100;
+      es.speed = 110 + Math.random() * 50;
+    } else if (typeRoll < 0.75) {
+      // ── PURSUIT: spawns behind, zooms past forward ───────────────
+      es.type = 'PURSUIT';
+      spawnX  = (Math.random() - 0.5) * 80;
+      spawnZ  = 50;
+      targetX = spawnX + (Math.random() - 0.5) * 40;
+      targetZ = -500;
+      es.speed = 100 + Math.random() * 50;
+    } else {
+      // ── CROSSING: diagonal left-to-right or right-to-left ────────
+      es.type = 'CROSSING';
+      const fromLeft = Math.random() < 0.5;
+      spawnX  = fromLeft ? -150 : 150;
+      spawnZ  = -100;
+      targetX = fromLeft ?  150 : -150;
+      targetZ = -50 + (Math.random() - 0.5) * 40;
+      es.speed = 80 + Math.random() * 50;
+    }
+
+    e.group.position.set(spawnX, spawnY, spawnZ);
     es.baseX = spawnX;
     es.baseY = spawnY;
+    es.baseZ = spawnZ;
 
-    // ── Lane assignment — three distinct flight patterns ─────────────
-    const roll = Math.random();
-    if (roll < 0.34) {
-      es.lane    = 'A';
-      es.targetX = (Math.random() - 0.5) * 45;
-      es.targetY = ENEMY_BASE_Y + (Math.random() - 0.5) * 16;
-    } else if (roll < 0.67) {
-      es.lane    = 'B';
-      es.targetX = -(110 + Math.random() * 90);
-      es.targetY = ENEMY_BASE_Y + (Math.random() - 0.5) * 16;
-    } else {
-      es.lane    = 'C';
-      es.targetX = 110 + Math.random() * 90;
-      es.targetY = ENEMY_BASE_Y + (Math.random() - 0.5) * 16;
-    }
+    // Normalised travel direction
+    const dx   = targetX - spawnX;
+    const dz   = targetZ - spawnZ;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    es.dirX    = dx / dist;
+    es.dirZ    = dz / dist;
+    es.targetX = targetX;
+    es.targetZ = targetZ;
 
-    // ── Speed class — interceptors, bombers, patrol ──────────────────
-    const cls = Math.random();
-    if (cls < 0.35) {
-      es.speed = 100 + Math.random() * 40;   // interceptor: 100–140
-    } else if (cls < 0.65) {
-      es.speed = 45  + Math.random() * 30;   // bomber:      45–75
-    } else {
-      es.speed = 72  + Math.random() * 30;   // patrol:      72–102
-    }
-
-    // ── Weave — 55% of jets oscillate for evasive feel ───────────────
-    const weaves = Math.random() < 0.55;
-    es.waveAmp   = weaves ? 10 + Math.random() * 20 : 0;
+    // Weave (FRONTAL + CROSSING only)
+    const weaves = es.type !== 'PURSUIT' && Math.random() < 0.55;
+    es.waveAmp   = weaves ? 8 + Math.random() * 14 : 0;
     es.waveFreq  = 0.30 + Math.random() * 0.50;
     es.wavePhase = Math.random() * Math.PI * 2;
 
-    // ── Initial orientation — lean toward turn direction ─────────────
-    e.group.rotation.set(-0.09, Math.PI / 2, spawnX * 0.003);
+    // Initial orientation: nose faces travel direction
+    // formula: yaw = atan2(dirZ, -dirX)  (nose = local -X → world dir)
+    const initYaw = Math.atan2(dz, -dx);
+    e.group.rotation.set(0, initYaw, es.dirX * -0.5);
 
-    // Reset per-instance mesh opacity to fully visible
     for (const mesh of e.meshes) mesh.material.opacity = 1;
-
     e.group.visible = true;
     es.shaken       = false;
   }
@@ -735,6 +798,121 @@ Integrated (°)
     motionReady     = false;
   });
 
+  // ─────────────────────────────────────────────────────────────────
+  //  FLICK-TO-FIRE — raycaster + explosion particles + laser line
+  // ─────────────────────────────────────────────────────────────────
+  const raycaster   = new THREE.Raycaster();
+  const centerNDC   = new THREE.Vector2(0, 0);   // screen center in NDC
+  let   flickStart  = null;
+  const FLICK_MIN   = 28;   // minimum pixel travel for a valid flick
+  const FLICK_MAX_T = 320;  // maximum milliseconds for a flick gesture
+
+  function spawnExplosion(pos) {
+    const COUNT  = 90;
+    const posArr = new Float32Array(COUNT * 3);
+    const vels   = [];
+    for (let k = 0; k < COUNT; k++) {
+      posArr[k*3]   = pos.x;
+      posArr[k*3+1] = pos.y;
+      posArr[k*3+2] = pos.z;
+      vels.push(new THREE.Vector3(
+        (Math.random() - 0.5) * 180,
+        (Math.random() - 0.5) * 180,
+        (Math.random() - 0.5) * 180
+      ));
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+    const mat = new THREE.PointsMaterial({
+      color:       0xff8833,
+      size:        2.5,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity:     1,
+      blending:    THREE.AdditiveBlending,
+      depthWrite:  false,
+    });
+    const pts   = new THREE.Points(geo, mat);
+    scene.add(pts);
+    const t0 = performance.now();
+    (function tick() {
+      const elapsed = (performance.now() - t0) / 1000;
+      if (elapsed > 0.9) { scene.remove(pts); geo.dispose(); mat.dispose(); return; }
+      const pAttr = geo.attributes.position;
+      for (let k = 0; k < COUNT; k++) {
+        pAttr.setXYZ(k, pos.x + vels[k].x * elapsed,
+                        pos.y + vels[k].y * elapsed,
+                        pos.z + vels[k].z * elapsed);
+      }
+      pAttr.needsUpdate = true;
+      mat.opacity = 1 - elapsed / 0.9;
+      requestAnimationFrame(tick);
+    })();
+  }
+
+  function spawnLaser(hitPos) {
+    const origin = camera.position.clone();
+    const pts2   = [origin, hitPos.clone()];
+    const geo    = new THREE.BufferGeometry().setFromPoints(pts2);
+    const mat    = new THREE.LineBasicMaterial({
+      color:       0xdd22ff,
+      transparent: true,
+      opacity:     1,
+      blending:    THREE.AdditiveBlending,
+      depthWrite:  false,
+    });
+    const line = new THREE.Line(geo, mat);
+    scene.add(line);
+    const t0 = performance.now();
+    (function fade() {
+      const elapsed = (performance.now() - t0) / 1000;
+      if (elapsed > 0.35) { scene.remove(line); geo.dispose(); mat.dispose(); return; }
+      mat.opacity = 1 - elapsed / 0.35;
+      requestAnimationFrame(fade);
+    })();
+  }
+
+  renderer.domElement.addEventListener('pointerdown', (ev) => {
+    flickStart = { x: ev.clientX, y: ev.clientY, t: performance.now() };
+  });
+
+  renderer.domElement.addEventListener('pointerup', (ev) => {
+    if (!flickStart) return;
+    const dx      = ev.clientX - flickStart.x;
+    const dy      = ev.clientY - flickStart.y;
+    const dist    = Math.sqrt(dx * dx + dy * dy);
+    const elapsed = performance.now() - flickStart.t;
+    flickStart    = null;
+    if (dist < FLICK_MIN || elapsed > FLICK_MAX_T) return;
+
+    // Cast from camera through screen centre
+    raycaster.setFromCamera(centerNDC, camera);
+
+    // Collect all visible enemy meshes
+    const hits = [];
+    for (const en of enemies) {
+      if (!en.group.visible) continue;
+      const res = raycaster.intersectObject(en.group, true);
+      if (res.length) hits.push({ dist: res[0].distance, point: res[0].point, en });
+    }
+
+    if (hits.length > 0) {
+      // Closest hit wins
+      hits.sort((a, b) => a.dist - b.dist);
+      const { point, en } = hits[0];
+      const idx = enemies.indexOf(en);
+      if (idx !== -1) deactivateEnemy(idx);
+      spawnExplosion(point);
+      spawnLaser(point);
+      shakeTimer = 0.12;
+    } else {
+      // Miss — show laser going straight ahead 200 u
+      const missPos = new THREE.Vector3();
+      raycaster.ray.at(200, missPos);
+      spawnLaser(missPos);
+    }
+  });
+
   document.getElementById('start-btn').addEventListener('click', async () => {
     document.getElementById('overlay').style.display = 'none';
     document.getElementById('debug').style.display   = 'block';
@@ -777,7 +955,7 @@ Integrated (°)
   let spawnCountdown = 1.2;
 
   // ── Chase-cam base position — position lerps back here each frame ─
-  const CAM_BASE_POS = new THREE.Vector3(0, 80, 30);
+  const CAM_BASE_POS = new THREE.Vector3(0, 0, 0);
 
   // ── Cockpit shake state ───────────────────────────────────────────
   let shakeTimer = 0;
@@ -841,63 +1019,64 @@ Integrated (°)
       neb.material.opacity = NEBULA_MAX_OP * closeFade * farFade;
     }
 
-    // ── Spawn timer — activate one jet at a time on interval ────────
+    // ── Spawn timer ──────────────────────────────────────────────────
     if (enemies.length > 0) {
       spawnCountdown -= dt;
       if (spawnCountdown <= 0) {
         const idx = enemies.findIndex(e => !e.group.visible);
         if (idx !== -1) activateEnemy(idx);
-        spawnCountdown = 1.0 + Math.random() * 1.5;  // next jet in 1–2.5 s
+        spawnCountdown = 0.8 + Math.random() * 1.4;
       }
     }
 
-    // ── Enemy jets: movement + LookAt ────────────────────────────────
+    // ── Enemy jets: 360° combat sphere movement ──────────────────────
     const tSec = now / 1000;
     for (let i = 0; i < enemies.length; i++) {
       const e  = enemies[i];
       if (!e.group.visible) continue;
       const es = enemyState[i];
 
-      // Forward thrust
-      e.group.position.z += es.speed * dt;
-
-      // Lateral convergence + weave
-      es.baseX += (es.targetX - es.baseX) * 0.42 * dt;
-      es.baseY += (es.targetY - es.baseY) * 0.42 * dt;
-      const waveX = es.waveAmp * Math.sin(tSec * es.waveFreq + es.wavePhase);
-      const prevX = e.group.position.x;
-      e.group.position.x = es.baseX + waveX;
-      e.group.position.y = es.baseY;
-
-      // ── LookAt: orient nose toward actual velocity vector ────────
-      // lateralVel (units/s) drives both yaw and roll
-      const lateralVel = (e.group.position.x - prevX) / Math.max(dt, 0.001);
-      const vertVel    = (es.targetY - e.group.position.y) * 0.42;
-
-      // Yaw: atan2(vz, -vx) aligns nose (local -X → world +Z) with travel
-      const yawTarget   = Math.atan2(es.speed, -lateralVel);
-      // Pitch: slight constant nose-down plus tilt toward Y velocity
-      const pitchTarget = -0.09 + THREE.MathUtils.clamp(vertVel / es.speed, -0.25, 0.15) * 0.5;
-      // Roll: bank into lateral motion — feels like a real banked turn
-      const rollTarget  = -lateralVel * 0.0065;
-
-      e.group.rotation.y += (yawTarget   - e.group.rotation.y) * Math.min(1, 3.5 * dt);
-      e.group.rotation.x += (pitchTarget - e.group.rotation.x) * Math.min(1, 3.5 * dt);
-      e.group.rotation.z += (rollTarget  - e.group.rotation.z) * Math.min(1, 5.0 * dt);
-
-      // ── Opacity fade — jet dissolves before reaching camera ──────
-      // Full opacity beyond -55, fades to zero by -8
-      if (e.group.position.z > -8) {
+      // ── Cull at boundaries ────────────────────────────────────────
+      const pz = e.group.position.z;
+      const px = e.group.position.x;
+      if (pz > 110 || pz < -510 || Math.abs(px) > 280) {
         deactivateEnemy(i);
         continue;
-      } else if (e.group.position.z > -55) {
-        const t = (e.group.position.z + 55) / 47;  // 0 at -55, 1 at -8
-        const opacity = 1 - (t * t);                // quadratic ease-out
-        for (const mesh of e.meshes) mesh.material.opacity = opacity;
       }
 
-      // ── Cockpit shake — as jet screams past close range ──────────
-      if (!es.shaken && e.group.position.z > -20) {
+      // ── Move along normalised direction + weave ───────────────────
+      const prevX = e.group.position.x;
+      const prevZ = e.group.position.z;
+      const waveX = es.waveAmp * Math.sin(tSec * es.waveFreq + es.wavePhase);
+
+      es.baseX += es.dirX * es.speed * dt;
+      es.baseZ += es.dirZ * es.speed * dt;
+      e.group.position.x = es.baseX + waveX;
+      e.group.position.z = es.baseZ;
+
+      // ── LookAt: nose follows actual velocity ──────────────────────
+      // nose = local -X.  For travel (vx, vz): yaw = atan2(vz, -vx)
+      const velX = (e.group.position.x - prevX) / Math.max(dt, 0.001);
+      const velZ = (e.group.position.z - prevZ) / Math.max(dt, 0.001);
+      const yawTarget  = Math.atan2(velZ, -velX);
+      const rollTarget = -velX * 0.006;  // bank into lateral motion
+
+      e.group.rotation.y += (yawTarget  - e.group.rotation.y) * Math.min(1, 4.0 * dt);
+      e.group.rotation.z += (rollTarget - e.group.rotation.z) * Math.min(1, 5.0 * dt);
+      e.group.rotation.x += (0          - e.group.rotation.x) * Math.min(1, 2.0 * dt);
+
+      // ── FRONTAL: fade opacity as ship reaches camera ──────────────
+      if (es.type === 'FRONTAL') {
+        if (pz > -3) {
+          deactivateEnemy(i); continue;
+        } else if (pz > -25) {
+          const t = (pz + 25) / 22;
+          for (const mesh of e.meshes) mesh.material.opacity = 1 - t * t;
+        }
+      }
+
+      // ── Cockpit shake when FRONTAL passes close ───────────────────
+      if (!es.shaken && es.type === 'FRONTAL' && pz > -18) {
         shakeTimer = SHAKE_DURATION;
         es.shaken  = true;
       }
