@@ -169,7 +169,7 @@ Integrated (°)
   const camera = new THREE.PerspectiveCamera(
     BASE_FOV,
     window.innerWidth / window.innerHeight,
-    0.5,
+    0.1,   // near clip reduced — avoids model penetration at close range
     4000
   );
   camera.position.set(0, 0, 0);
@@ -258,17 +258,25 @@ Integrated (°)
       for (let i = 0; i < ENEMY_COUNT; i++) {
         const clone = template.clone();
 
+        // Clone each mesh's material independently so opacity can be
+        // set per-instance without affecting other jets in the pool
+        const meshes = [];
+        clone.traverse((child) => {
+          if (!child.isMesh) return;
+          child.material             = child.material.clone();
+          child.material.transparent = true;
+          child.material.opacity     = 1;
+          meshes.push(child);
+        });
+
+        clone.visible = false;   // inactive until spawn timer fires
         scene.add(clone);
-        enemies.push({ group: clone });
-        enemyState.push({ speed: 0, targetX: 0, targetY: 0,
-                          baseX: 0, baseY: 0,
+        enemies.push({ group: clone, meshes });
+        enemyState.push({ speed: 0, lane: 'A',
+                          targetX: 0, targetY: 0,
+                          baseX: 0,   baseY: 0,
                           waveAmp: 0, waveFreq: 0, wavePhase: 0,
                           shaken: false });
-        resetEnemy(i);
-        // Even depth spacing + small jitter — guarantees jets never arrive together
-        const spacing = Math.abs(ENEMY_SPAWN_Z) / ENEMY_COUNT;
-        enemies[i].group.position.z = ENEMY_SPAWN_Z + i * spacing
-                                      + (Math.random() - 0.5) * spacing * 0.4;
       }
     },
 
@@ -454,49 +462,68 @@ Integrated (°)
   // ─────────────────────────────────────────────────────────────────
 
   const enemies    = [];
-  // Per-enemy state — baseX/Y track the lerped convergence position separately
-  // from the sine-wave weave so the two motions compose cleanly
   const enemyState = [];
 
-  function resetEnemy(i) {
+  function deactivateEnemy(i) {
+    enemies[i].group.visible = false;
+    enemyState[i].shaken     = false;
+  }
+
+  function activateEnemy(i) {
     const e  = enemies[i];
     const es = enemyState[i];
 
-    // 70% spawn in a central column, 30% from the wide edges
+    // ── Spawn position — 70% central column, 30% wide flanks ───────
     const central = Math.random() < 0.70;
-    const spawnX  = (Math.random() - 0.5) * ENEMY_SPREAD_X * (central ? 0.50 : 1.80);
-    const spawnY  = (Math.random() - 0.5) * ENEMY_SPREAD_Y * (central ? 0.50 : 1.80);
+    const spawnX  = (Math.random() - 0.5) * ENEMY_SPREAD_X * (central ? 0.45 : 1.8);
+    const spawnY  = (Math.random() - 0.5) * ENEMY_SPREAD_Y * (central ? 0.45 : 1.8);
     e.group.position.set(spawnX, spawnY, ENEMY_SPAWN_Z);
-
-    // Base position for lerp — starts at spawn point
     es.baseX = spawnX;
     es.baseY = spawnY;
 
-    // 55% direct approach (converge near center), 45% near-miss (fly past to side)
-    const nearMiss = Math.random() < 0.45;
-    if (nearMiss) {
-      // Bank hard to one side — player feels the jet fly past them
-      const side = spawnX >= 0 ? 1 : -1;
-      es.targetX = side * (90 + Math.random() * 80);
+    // ── Lane assignment — three distinct flight patterns ─────────────
+    //   A: head-on (dangerous — flies straight at player)
+    //   B: hard bank left (near-miss — sweeps past left side)
+    //   C: hard bank right (near-miss — sweeps past right side)
+    const roll = Math.random();
+    if (roll < 0.34) {
+      es.lane    = 'A';
+      es.targetX = (Math.random() - 0.5) * 45;   // near center
+      es.targetY = (Math.random() - 0.5) * 30;
+    } else if (roll < 0.67) {
+      es.lane    = 'B';
+      es.targetX = -(110 + Math.random() * 90);  // hard left
+      es.targetY = (Math.random() - 0.5) * 40;
     } else {
-      es.targetX = (Math.random() - 0.5) * 55;
+      es.lane    = 'C';
+      es.targetX = 110 + Math.random() * 90;     // hard right
+      es.targetY = (Math.random() - 0.5) * 40;
     }
-    es.targetY = (Math.random() - 0.5) * 35;
 
-    // Weave — 60% of jets oscillate laterally (feels like evasive maneuvering)
-    const weaves   = Math.random() < 0.60;
-    es.waveAmp     = weaves ? 12 + Math.random() * 22 : 0;
-    es.waveFreq    = 0.35 + Math.random() * 0.55;  // slow enough to read clearly
-    es.wavePhase   = Math.random() * Math.PI * 2;  // each jet out of sync
+    // ── Speed class — interceptors, bombers, patrol ──────────────────
+    const cls = Math.random();
+    if (cls < 0.35) {
+      es.speed = 100 + Math.random() * 40;   // interceptor: 100–140
+    } else if (cls < 0.65) {
+      es.speed = 45  + Math.random() * 30;   // bomber:      45–75
+    } else {
+      es.speed = 72  + Math.random() * 30;   // patrol:      72–102
+    }
 
-    // Speed: spread across the full range so jets genuinely feel different
-    es.speed = ENEMY_MIN_SPEED + Math.random() * (ENEMY_MAX_SPEED - ENEMY_MIN_SPEED);
+    // ── Weave — 55% of jets oscillate for evasive feel ───────────────
+    const weaves = Math.random() < 0.55;
+    es.waveAmp   = weaves ? 10 + Math.random() * 20 : 0;
+    es.waveFreq  = 0.30 + Math.random() * 0.50;
+    es.wavePhase = Math.random() * Math.PI * 2;
 
-    // Initial bank leans toward center of screen
-    const bank = spawnX * 0.003;
-    e.group.rotation.set(-0.09, Math.PI / 2, bank);
+    // ── Initial orientation — lean toward turn direction ─────────────
+    e.group.rotation.set(-0.09, Math.PI / 2, spawnX * 0.003);
 
-    es.shaken = false;
+    // Reset per-instance mesh opacity to fully visible
+    for (const mesh of e.meshes) mesh.material.opacity = 1;
+
+    e.group.visible = true;
+    es.shaken       = false;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -670,6 +697,9 @@ Integrated (°)
   //  Each object moves independently in local space — no group offset,
   //  no precision reset, no group pop. Truly infinite.
   // ─────────────────────────────────────────────────────────────────
+  // ── Spawn timer — fires every 1–2.5 s to stagger jet arrivals ───
+  let spawnCountdown = 1.2;   // first jet appears after ~1.2 s
+
   // ── Cockpit shake state ───────────────────────────────────────────
   let shakeTimer = 0;
   const SHAKE_DURATION = 0.20;  // seconds
@@ -732,42 +762,66 @@ Integrated (°)
       neb.material.opacity = NEBULA_MAX_OP * closeFade * farFade;
     }
 
-    // ── Enemy jets: pool update ───────────────────────────────────
+    // ── Spawn timer — activate one jet at a time on interval ────────
+    if (enemies.length > 0) {
+      spawnCountdown -= dt;
+      if (spawnCountdown <= 0) {
+        const idx = enemies.findIndex(e => !e.group.visible);
+        if (idx !== -1) activateEnemy(idx);
+        spawnCountdown = 1.0 + Math.random() * 1.5;  // next jet in 1–2.5 s
+      }
+    }
+
+    // ── Enemy jets: movement + LookAt ────────────────────────────────
     const tSec = now / 1000;
-    for (let i = 0; i < enemies.length; i++) {  // length = 0 until GLB loads
+    for (let i = 0; i < enemies.length; i++) {
       const e  = enemies[i];
+      if (!e.group.visible) continue;
       const es = enemyState[i];
 
-      // ── Forward ──────────────────────────────────────────────────
+      // Forward thrust
       e.group.position.z += es.speed * dt;
 
-      // ── Lateral: lerp base toward target, then add weave on top ──
-      // Convergence at 45%/sec — gradual, feels like the pilot is steering
-      es.baseX += (es.targetX - es.baseX) * 0.45 * dt;
-      es.baseY += (es.targetY - es.baseY) * 0.45 * dt;
-
-      // Sine weave composited on top (zero if waveAmp = 0 for straight jets)
-      const waveX   = es.waveAmp * Math.sin(tSec * es.waveFreq + es.wavePhase);
-      const prevX   = e.group.position.x;
+      // Lateral convergence + weave
+      es.baseX += (es.targetX - es.baseX) * 0.42 * dt;
+      es.baseY += (es.targetY - es.baseY) * 0.42 * dt;
+      const waveX = es.waveAmp * Math.sin(tSec * es.waveFreq + es.wavePhase);
+      const prevX = e.group.position.x;
       e.group.position.x = es.baseX + waveX;
       e.group.position.y = es.baseY;
 
-      // ── Banking — driven by total lateral velocity ───────────────
+      // ── LookAt: orient nose toward actual velocity vector ────────
+      // lateralVel (units/s) drives both yaw and roll
       const lateralVel = (e.group.position.x - prevX) / Math.max(dt, 0.001);
-      const targetRoll = -lateralVel * 0.007;
-      e.group.rotation.z += (targetRoll - e.group.rotation.z) * Math.min(1, 5 * dt);
+      const vertVel    = (es.targetY - e.group.position.y) * 0.42;
 
-      // Nose-down held constant — always looks like it's diving at you
-      e.group.rotation.x = -0.09;
+      // Yaw: atan2(vz, -vx) aligns nose (local -X → world +Z) with travel
+      const yawTarget   = Math.atan2(es.speed, -lateralVel);
+      // Pitch: slight constant nose-down plus tilt toward Y velocity
+      const pitchTarget = -0.09 + THREE.MathUtils.clamp(vertVel / es.speed, -0.25, 0.15) * 0.5;
+      // Roll: bank into lateral motion — feels like a real banked turn
+      const rollTarget  = -lateralVel * 0.0065;
 
-      // ── Cockpit shake — once per pass, as jet screams past ───────
-      if (!es.shaken && e.group.position.z > -15) {
+      e.group.rotation.y += (yawTarget   - e.group.rotation.y) * Math.min(1, 3.5 * dt);
+      e.group.rotation.x += (pitchTarget - e.group.rotation.x) * Math.min(1, 3.5 * dt);
+      e.group.rotation.z += (rollTarget  - e.group.rotation.z) * Math.min(1, 5.0 * dt);
+
+      // ── Opacity fade — jet dissolves before reaching camera ──────
+      // Full opacity beyond -55, fades to zero by -8
+      if (e.group.position.z > -8) {
+        deactivateEnemy(i);
+        continue;
+      } else if (e.group.position.z > -55) {
+        const t = (e.group.position.z + 55) / 47;  // 0 at -55, 1 at -8
+        const opacity = 1 - (t * t);                // quadratic ease-out
+        for (const mesh of e.meshes) mesh.material.opacity = opacity;
+      }
+
+      // ── Cockpit shake — as jet screams past close range ──────────
+      if (!es.shaken && e.group.position.z > -20) {
         shakeTimer = SHAKE_DURATION;
         es.shaken  = true;
       }
-
-      // Recycle BEFORE camera so we never see inside the model
-      if (e.group.position.z > -25) resetEnemy(i);
     }
 
     // ── Cockpit shake ─────────────────────────────────────────────
