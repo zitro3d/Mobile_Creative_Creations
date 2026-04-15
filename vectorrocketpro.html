@@ -137,50 +137,58 @@
   //  Individual sprites then get random material.rotation + non-uniform
   //  scale, so every cloud looks unique even if it shares a base texture.
   // ─────────────────────────────────────────────────────────────────
+  // Subtle ellipse + scattered micro-wisps.
+  // sx/sy kept close to 1 so the shape is gently non-circular, not a streak.
+  // 6 tiny wisps at random positions break symmetry without drawing lines.
   function makeNebulaTexture(r, g, b, sx = 1.0, sy = 1.0) {
     const SZ  = 512;
     const cvs = document.createElement('canvas');
     cvs.width = cvs.height = SZ;
     const ctx = cvs.getContext('2d');
 
-    // ── Primary lobe (elliptical) ─────────────────────────────────
+    // ── Main body — gently elliptical, very soft core ─────────────
     ctx.save();
     ctx.translate(SZ / 2, SZ / 2);
     ctx.scale(sx, sy);
-    const g1 = ctx.createRadialGradient(0, 0, 0, 0, 0, SZ / 2);
-    g1.addColorStop(0.00, `rgba(${r},${g},${b},0.13)`); // no hot ball — very dim core
-    g1.addColorStop(0.15, `rgba(${r},${g},${b},0.08)`);
-    g1.addColorStop(0.35, `rgba(${r},${g},${b},0.035)`);
-    g1.addColorStop(0.58, `rgba(${r},${g},${b},0.010)`);
-    g1.addColorStop(0.78, `rgba(${r},${g},${b},0.002)`);
-    g1.addColorStop(1.00, `rgba(${r},${g},${b},0.000)`);
-    ctx.fillStyle = g1;
+    const gMain = ctx.createRadialGradient(0, 0, 0, 0, 0, SZ / 2);
+    gMain.addColorStop(0.00, `rgba(${r},${g},${b},0.11)`);
+    gMain.addColorStop(0.12, `rgba(${r},${g},${b},0.08)`);
+    gMain.addColorStop(0.28, `rgba(${r},${g},${b},0.04)`);
+    gMain.addColorStop(0.48, `rgba(${r},${g},${b},0.014)`);
+    gMain.addColorStop(0.68, `rgba(${r},${g},${b},0.003)`);
+    gMain.addColorStop(0.85, `rgba(${r},${g},${b},0.001)`);
+    gMain.addColorStop(1.00, `rgba(${r},${g},${b},0.000)`);
+    ctx.fillStyle = gMain;
     ctx.fillRect(-SZ, -SZ, SZ * 2, SZ * 2);
     ctx.restore();
 
-    // ── Secondary offset wisp — breaks circular symmetry ─────────
-    ctx.save();
-    ctx.translate(SZ * 0.62, SZ * 0.44);    // off-centre
-    ctx.scale(sx * 0.55, sy * 0.72);
-    const g2 = ctx.createRadialGradient(0, 0, 0, 0, 0, SZ / 3);
-    g2.addColorStop(0.00, `rgba(${r},${g},${b},0.07)`);
-    g2.addColorStop(0.35, `rgba(${r},${g},${b},0.025)`);
-    g2.addColorStop(0.75, `rgba(${r},${g},${b},0.004)`);
-    g2.addColorStop(1.00, `rgba(${r},${g},${b},0.000)`);
-    ctx.fillStyle = g2;
-    ctx.fillRect(-SZ, -SZ, SZ * 2, SZ * 2);
-    ctx.restore();
+    // ── Micro-wisps — tiny dim blobs scattered across canvas ──────
+    // Each is a small circular gradient so individually none looks like
+    // a line. Together they give the cloud an organic, irregular silhouette.
+    for (let w = 0; w < 6; w++) {
+      const wx = SZ * (0.15 + Math.random() * 0.70);
+      const wy = SZ * (0.15 + Math.random() * 0.70);
+      const wr = SZ * (0.06 + Math.random() * 0.11); // small radius
+      const wa = 0.015 + Math.random() * 0.030;       // very dim
+
+      const gw = ctx.createRadialGradient(wx, wy, 0, wx, wy, wr);
+      gw.addColorStop(0.0, `rgba(${r},${g},${b},${wa.toFixed(3)})`);
+      gw.addColorStop(0.5, `rgba(${r},${g},${b},${(wa * 0.25).toFixed(3)})`);
+      gw.addColorStop(1.0, `rgba(${r},${g},${b},0.000)`);
+      ctx.fillStyle = gw;
+      ctx.fillRect(wx - wr, wy - wr, wr * 2, wr * 2);
+    }
 
     return new THREE.CanvasTexture(cvs);
   }
 
-  // Each entry has a distinct ellipse ratio — wide/flat vs tall/narrow
+  // Subtle ratios — max 1.35× in either direction, never a visible streak
   const nebTextures = [
-    makeNebulaTexture(  0, 242, 255, 1.9, 0.50), // electric blue   — wide flat
-    makeNebulaTexture(255,   0, 255, 0.50, 1.8), // deep magenta    — tall narrow
-    makeNebulaTexture(  0, 200, 255, 1.4, 0.70), // lighter blue    — moderate wide
-    makeNebulaTexture(220,   0, 255, 0.65, 1.5), // magenta-violet  — tall
-    makeNebulaTexture(  0, 242, 200, 1.7, 0.55), // electric teal   — very wide flat
+    makeNebulaTexture(  0, 242, 255, 1.30, 0.78), // electric blue
+    makeNebulaTexture(255,   0, 255, 0.78, 1.30), // deep magenta
+    makeNebulaTexture(  0, 200, 255, 1.20, 0.85), // lighter blue
+    makeNebulaTexture(220,   0, 255, 0.85, 1.20), // magenta-violet
+    makeNebulaTexture(  0, 242, 200, 1.35, 0.74), // electric teal
   ];
 
   // Helper — random non-uniform scale so sprites aren't all the same shape
