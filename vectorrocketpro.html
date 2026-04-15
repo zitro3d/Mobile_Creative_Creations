@@ -144,8 +144,8 @@ Integrated (°)
   const ENEMY_SPAWN_Z      = -450; // z where new enemies are placed
   const ENEMY_SPREAD_X     = 280;  // ± half-width of spawn band
   const ENEMY_SPREAD_Y     = 200;  // ± half-height
-  const ENEMY_MIN_SPEED    = 55;   // units / sec toward camera
-  const ENEMY_MAX_SPEED    = 120;
+  const ENEMY_MIN_SPEED    = 160;  // units / sec — faster than stars (80) to cut through
+  const ENEMY_MAX_SPEED    = 240;
 
   // ─────────────────────────────────────────────────────────────────
   //  RENDERER
@@ -163,6 +163,8 @@ Integrated (°)
   //  SCENE & CAMERA  (must come before anything that references them)
   // ─────────────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
+  // Exponential fog — ships emerge from darkness, no hard pop-in at spawn depth
+  scene.fog = new THREE.FogExp2(0x000000, 0.0022);
 
   const camera = new THREE.PerspectiveCamera(
     BASE_FOV,
@@ -258,7 +260,7 @@ Integrated (°)
 
         scene.add(clone);
         enemies.push({ group: clone });
-        enemyState.push({ speed: 0, rollSpeed: 0 });
+        enemyState.push({ speed: 0, targetX: 0, targetY: 0, shaken: false });
         resetEnemy(i);
         // Stagger start depths so ships arrive in waves, not all at once
         enemies[i].group.position.z = ENEMY_SPAWN_Z * (0.12 + 0.88 * Math.random());
@@ -447,23 +449,28 @@ Integrated (°)
   // ─────────────────────────────────────────────────────────────────
 
   const enemies    = [];  // { group }
-  const enemyState = [];  // { speed, rollSpeed }
+  const enemyState = [];  // { speed, targetX, targetY, shaken }
 
   function resetEnemy(i) {
-    const e = enemies[i];
-    e.group.position.set(
-      (Math.random() - 0.5) * ENEMY_SPREAD_X * 2,
-      (Math.random() - 0.5) * ENEMY_SPREAD_Y * 2,
-      ENEMY_SPAWN_Z
-    );
-    // Slight random bank angle (±20°) — not a full random spin
-    const bank = (Math.random() - 0.5) * 0.7;
-    e.group.rotation.set(0, Math.PI / 2, bank);
-    enemyState[i].speed     = ENEMY_MIN_SPEED +
-                              Math.random() * (ENEMY_MAX_SPEED - ENEMY_MIN_SPEED);
-    // Very slow roll — jets bank gently, they don't tumble
-    enemyState[i].rollSpeed = (Math.random() < 0.5 ? 1 : -1) *
-                              (0.05 + Math.random() * 0.10);  // rad / sec
+    const e  = enemies[i];
+    const es = enemyState[i];
+
+    // 70% central lane, 30% wide — player always has targets to aim at
+    const central = Math.random() < 0.70;
+    const spawnX  = (Math.random() - 0.5) * ENEMY_SPREAD_X * (central ? 0.55 : 2.0);
+    const spawnY  = (Math.random() - 0.5) * ENEMY_SPREAD_Y * (central ? 0.55 : 2.0);
+    e.group.position.set(spawnX, spawnY, ENEMY_SPAWN_Z);
+
+    // Converge toward a point near screen center — gives the 'banking in' feel
+    es.targetX = (Math.random() - 0.5) * 40;
+    es.targetY = (Math.random() - 0.5) * 25;
+
+    // Nose slightly down (~5°) + gentle initial bank matching spawn side
+    const bank = spawnX * 0.004;  // bank toward center: right spawn → bank left
+    e.group.rotation.set(-0.09, Math.PI / 2, bank);
+
+    es.speed  = ENEMY_MIN_SPEED + Math.random() * (ENEMY_MAX_SPEED - ENEMY_MIN_SPEED);
+    es.shaken = false;  // allow cockpit shake once per pass
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -637,6 +644,11 @@ Integrated (°)
   //  Each object moves independently in local space — no group offset,
   //  no precision reset, no group pop. Truly infinite.
   // ─────────────────────────────────────────────────────────────────
+  // ── Cockpit shake state ───────────────────────────────────────────
+  let shakeTimer = 0;
+  const SHAKE_DURATION = 0.20;  // seconds
+  const SHAKE_MAG      = 0.014; // peak magnitude (world units)
+
   let prevTime = performance.now();
 
   function animate() {
@@ -699,12 +711,43 @@ Integrated (°)
       const e  = enemies[i];
       const es = enemyState[i];
 
+      // Forward — faster than stars (160-240 vs 80) so jets cut through the field
       e.group.position.z += es.speed * dt;
-      e.group.rotation.z += es.rollSpeed * dt;
 
-      if (e.group.position.z > 50) {
-        resetEnemy(i);
+      // Lateral lerp toward target — 55% of gap closed per second (smooth curve-in)
+      const prevX = e.group.position.x;
+      const prevY = e.group.position.y;
+      e.group.position.x += (es.targetX - e.group.position.x) * 0.55 * dt;
+      e.group.position.y += (es.targetY - e.group.position.y) * 0.55 * dt;
+
+      // Dynamic bank — roll proportional to lateral velocity (bank into turn)
+      const lateralVel  = (e.group.position.x - prevX) / dt;  // units / sec
+      const targetRoll  = -lateralVel * 0.009;                 // right move → roll right
+      e.group.rotation.z += (targetRoll - e.group.rotation.z) * Math.min(1, 4 * dt);
+
+      // Nose-down pitch held constant so jet always looks like it's diving in
+      e.group.rotation.x = -0.09;
+
+      // Cockpit shake trigger — fires once per pass when jet is almost on camera
+      if (!es.shaken && e.group.position.z > -12) {
+        shakeTimer = SHAKE_DURATION;
+        es.shaken  = true;
       }
+
+      if (e.group.position.z > 50) resetEnemy(i);
+    }
+
+    // ── Cockpit shake ─────────────────────────────────────────────
+    if (shakeTimer > 0) {
+      shakeTimer -= dt;
+      const mag = SHAKE_MAG * (shakeTimer / SHAKE_DURATION); // fade to zero
+      camera.position.set(
+        (Math.random() - 0.5) * mag * 2,
+        (Math.random() - 0.5) * mag * 2,
+        0
+      );
+    } else {
+      camera.position.set(0, 0, 0);
     }
 
     // ── Camera slerp — velocity-based alpha + quaternion interpolation ─
