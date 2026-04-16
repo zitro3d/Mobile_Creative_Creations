@@ -508,6 +508,7 @@ Integrated (°)
           passCount: 0, maxPasses: 3,
           spawnType: 'FRONT',
           shaken: false,
+          fadeIn: 1,
         });
       }
     },
@@ -569,7 +570,7 @@ Integrated (°)
 
   const starMat = new THREE.PointsMaterial({
     map:             makeStarTexture(),
-    size:            1.8,
+    size:            0.7,
     sizeAttenuation: true,
     vertexColors:    true,
     transparent:     true,
@@ -700,9 +701,10 @@ Integrated (°)
   //  PILOT STYLES — flight envelope per personality
   // ─────────────────────────────────────────────────────────────────
   const PILOT_STYLES = {
-    AGGRESSIVE: { maxSpeed: 165, accel: 115, turnRate: 2.8, wobbleAmp:  3, wobbleFreq: 0.35 },
-    SMOOTH:     { maxSpeed: 105, accel:  55, turnRate: 0.9, wobbleAmp:  9, wobbleFreq: 0.20 },
-    ERRATIC:    { maxSpeed: 140, accel:  85, turnRate: 2.1, wobbleAmp: 17, wobbleFreq: 0.65 },
+    // Noticeably distinct speeds + turn radii so each pilot FEELS different
+    AGGRESSIVE: { maxSpeed: 210, accel: 140, turnRate: 3.4, wobbleAmp:  2, wobbleFreq: 0.40 },
+    SMOOTH:     { maxSpeed:  80, accel:  40, turnRate: 0.6, wobbleAmp: 10, wobbleFreq: 0.16 },
+    ERRATIC:    { maxSpeed: 155, accel:  90, turnRate: 2.2, wobbleAmp: 22, wobbleFreq: 0.75 },
   };
 
   // True when another visible ship is within MIN units of (x,y,z)
@@ -737,9 +739,11 @@ Integrated (°)
     const perpX = -hdgZ * pSign;   // perpendicular direction X
     const perpZ =  hdgX * pSign;   // perpendicular direction Z
 
-    // Target = sideways arc + slight forward nudge so ships don't loop in place
-    const sideDist = 130 + Math.random() * 90;
-    const fwdDist  =  50 + Math.random() * 80;
+    // Arc radius scales with pilot agility: SMOOTH = wide sweeping arcs,
+    // AGGRESSIVE = tight rapid turns, ERRATIC = anything in between.
+    const agility  = Math.min(1, es.turnRate / 3.4);        // 0 (slowest) → 1 (fastest)
+    const sideDist = THREE.MathUtils.lerp(240, 90, agility) + Math.random() * 60;
+    const fwdDist  =  40 + Math.random() * 90;
 
     let tx = px + perpX * sideDist + hdgX * fwdDist;
     let tz = pz + perpZ * sideDist + hdgZ * fwdDist;
@@ -822,9 +826,10 @@ Integrated (°)
     e.group.position.set(spawnX, spawnY, spawnZ);
     e.group.rotation.set(0, Math.atan2(dz, -dx), 0);
 
-    for (const mesh of e.meshes) mesh.material.opacity = 1;
+    for (const mesh of e.meshes) mesh.material.opacity = 0;  // fade in
     e.group.visible = true;
     es.shaken       = false;
+    es.fadeIn       = 0;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -849,11 +854,11 @@ Integrated (°)
   //    alpha = BASE_ALPHA + dist × VEL_SCALE             (higher gap → faster)
   //    t     = 1 − (1 − alpha)^(dt × 60)                (dt-corrected)
   // ─────────────────────────────────────────────────────────────────
-  const MAX_LOOK_DEG = 45;    // ±45° integrated angle hard clamp
-  const INPUT_SCALE  = 0.85;  // rotationRate multiplier — increased for snappy tracking
-  const EXP_SMOOTH   = 0.10;  // exponential filter weight (lower = heavier)
-  const BASE_ALPHA   = 0.14;  // raised — camera catches fast-moving ships
-  const VEL_SCALE    = 0.65;  // velocity boost so wide swings are fast
+  const MAX_LOOK_DEG = 60;    // ±60° — wider range so fast ships don't escape view
+  const INPUT_SCALE  = 0.60;  // rotation rate multiplier
+  const EXP_SMOOTH   = 0.55;  // higher = faster tracking, less lag (was 0.10 — too sluggish)
+  const BASE_ALPHA   = 0.20;  // slerp base — snappier camera follow
+  const VEL_SCALE    = 0.60;  // velocity boost for large angular gaps
 
   // Integrated camera angles in degrees (purely relative — no North reference)
   let integratedPitch = 0;
@@ -1415,14 +1420,16 @@ Integrated (°)
       es.velZ = (nDZ/nDL) * es.curSpeed;
 
       // ── Wobble — organic micro-oscillation per pilot style ────────
-      const wobX = es.wobbleAmp * Math.sin(tSec * es.wobbleFreq        + es.wobblePhase);
-      const wobY = es.wobbleAmp * Math.cos(tSec * es.wobbleFreq * 0.73 + es.wobblePhase * 1.3);
+      // Cap wobble magnitude so it never causes spinning (max ±12 units)
+      const wobAmp = Math.min(es.wobbleAmp, 12);
+      const wobX = wobAmp * Math.sin(tSec * es.wobbleFreq        + es.wobblePhase);
+      const wobY = wobAmp * Math.cos(tSec * es.wobbleFreq * 0.73 + es.wobblePhase * 1.3);
 
       // ── Integrate base position ───────────────────────────────────
       es.baseX += es.velX * dt;
       es.baseY += es.velY * dt;
       es.baseZ += es.velZ * dt;
-      // Y floor: keep above grid (ground=−30)
+      // Y floor: keep above grid
       if (es.baseY < 3) { es.baseY = 3; if (es.velY < 0) es.velY = 0; }
 
       e.group.position.x = es.baseX + wobX;
@@ -1436,16 +1443,22 @@ Integrated (°)
       const vdZ  = vspd > 0.01 ? es.velZ/vspd : cdZ;
 
       const yawTgt   = Math.atan2(vdZ, -vdX);
-      const rollTgt  = -vdX * 0.52;                                         // ±30° bank
-      const pitchTgt = -Math.asin(Math.max(-0.65, Math.min(0.65, vdY)));   // follow vertical vel
+      const rollTgt  = -vdX * 1.3;                                          // ±75° bank — dramatic tilt
+      const pitchTgt = -Math.asin(Math.max(-0.55, Math.min(0.55, vdY)));   // follow vertical vel
 
       e.group.rotation.y += (yawTgt   - e.group.rotation.y) * Math.min(1, es.turnRate * 3 * dt);
-      e.group.rotation.z += (rollTgt  - e.group.rotation.z) * Math.min(1, 5.0 * dt);
-      e.group.rotation.x += (pitchTgt - e.group.rotation.x) * Math.min(1, 4.0 * dt);
+      e.group.rotation.z += (rollTgt  - e.group.rotation.z) * Math.min(1, 7.0 * dt);
+      e.group.rotation.x += (pitchTgt - e.group.rotation.x) * Math.min(1, 4.5 * dt);
 
-      // ── Fade + deactivate any ship closing in from the front ──────
+      // ── Fade in on spawn ──────────────────────────────────────────
+      if (es.fadeIn < 1) {
+        es.fadeIn = Math.min(1, es.fadeIn + dt * 1.8);  // ~0.55 s to full
+        for (const mesh of e.meshes) mesh.material.opacity = es.fadeIn;
+      }
+
+      // ── Fade out + deactivate ships closing from the front ────────
       const comingIn = es.velZ > 15 && pz > -120 && pz < 0;
-      if (comingIn) {
+      if (comingIn && es.fadeIn >= 1) {
         if (pz > -65) { deactivateEnemy(i); continue; }
         const t = (pz + 120) / 55;
         for (const mesh of e.meshes) mesh.material.opacity = Math.max(0, 1 - t*t);
