@@ -499,12 +499,13 @@ Integrated (°)
   //  RENDERER
   // ─────────────────────────────────────────────────────────────────
   const renderer = new THREE.WebGLRenderer({
-    antialias: false,
+    antialias: true,                  // reduces aliasing on beam edges + ship geometry
     powerPreference: 'high-performance',
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setClearColor(0x00000a, 1);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;  // correct gamma — kills banding
   document.body.appendChild(renderer.domElement);
   // Critical for mobile: tell browser this canvas handles its own touches
   // so it never swallows pointerdown/pointerup for scroll or pinch-zoom.
@@ -538,9 +539,9 @@ Integrated (°)
 
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
-    1.2,   // strength
-    0.45,  // radius
-    0.55   // threshold
+    1.5,   // strength  — brighter bleed on laser core + engine glows
+    0.4,   // radius    — tighter halo, less milky spill on dark geometry
+    0.8    // threshold  — only white-hot core + engine glow trigger bloom
   );
   bloomPass.renderToScreen = true;
   composer.addPass(bloomPass);
@@ -858,7 +859,9 @@ Integrated (°)
       depthWrite:  false,
       blending:    THREE.AdditiveBlending,
       opacity:     0,
-      rotation:    Math.random() * Math.PI * 2, // random orientation per sprite
+      rotation:    Math.random() * Math.PI * 2,
+      dithering:   true,     // breaks up gradient banding into noise
+      precision:   'highp',  // 32-bit colour calc in fragment shader
     });
 
     const sprite = new THREE.Sprite(mat);
@@ -893,13 +896,17 @@ Integrated (°)
   function deactivateEnemy(i) {
     enemies[i].group.visible = false;
     enemyState[i].shaken     = false;
-    // Reset charge state
     if (enemyState[i].isCharging) {
       enemyState[i].isCharging  = false;
       enemyState[i].chargeTimer = 0;
-      enemies[i].engineGlow.intensity = 2.2;
-      enemies[i].engineGlow.color.set(0xff6600);
     }
+    // Always restore hull emissive + engine glow on deactivation
+    for (const m of enemies[i].meshes) {
+      m.material.emissive.setRGB(0, 0, 0);
+      m.material.emissiveIntensity = 1;
+    }
+    enemies[i].engineGlow.intensity = 2.2;
+    enemies[i].engineGlow.color.set(0xff6600);
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -1302,30 +1309,63 @@ Integrated (°)
   let hitStopUntil = 0;
 
   // ═══════════════════════════════════════════════════════════════════
-  //  PLASMA BEAM POOL — 16 cylinder beams (2 per shot × 8 cooldowns)
-  //  Each beam: unit CylinderGeometry scaled to length, no allocation at runtime.
-  //  A PointLight rides the tip and is removed (intensity=0) when beam expires.
+  //  VOLUMETRIC PLASMA BEAM POOL — dual-cylinder "white-hot core" design
+  //
+  //  Each pool slot contains two concentric cylinders:
+  //    inner — 30% radius, MeshBasicMaterial white (#ffffff), AdditiveBlending
+  //             appears white-hot; drives the bloom threshold trigger
+  //    outer — 100% radius, MeshStandardMaterial neon purple (#bf00ff), 0.6 opacity
+  //             AdditiveBlending; gives the volumetric glow envelope
+  //
+  //  Both cylinders share identical position/quaternion/Y-scale (beam length).
+  //  Only X/Z scale (thickness burst) animates them open over 80 ms.
+  //  A PointLight trails from origin to target over the beam's 280 ms life.
   // ═══════════════════════════════════════════════════════════════════
-  const _beamGeo    = new THREE.CylinderGeometry(0.28, 0.28, 1, 6, 1);
-  const _beamYAxis  = new THREE.Vector3(0, 1, 0);
-  const _beamDir    = new THREE.Vector3();
-  const _beamMid    = new THREE.Vector3();
-  const _beamLeft   = new THREE.Vector3();
-  const _beamRight  = new THREE.Vector3();
+  const _beamOuterGeo = new THREE.CylinderGeometry(0.28, 0.28, 1, 8, 1);
+  const _beamInnerGeo = new THREE.CylinderGeometry(0.084, 0.084, 1, 8, 1);  // 30% of outer
+  const _beamYAxis    = new THREE.Vector3(0, 1, 0);
+  const _beamDir      = new THREE.Vector3();
+  const _beamMid      = new THREE.Vector3();
+  const _beamLeft     = new THREE.Vector3();
+  const _beamRight    = new THREE.Vector3();
 
   const _beamPool = Array.from({ length: 16 }, () => {
-    const mat  = new THREE.MeshBasicMaterial({
-      color: 0xff1155, transparent: true, opacity: 0,
-      blending: THREE.AdditiveBlending, depthWrite: false,
+    // ── Outer cylinder — neon purple glow envelope ─────────────────
+    const outerMat = new THREE.MeshStandardMaterial({
+      color:             0xbf00ff,
+      emissive:          0xbf00ff,
+      emissiveIntensity: 2.5,
+      transparent:       true,
+      opacity:           0,
+      blending:          THREE.AdditiveBlending,
+      depthWrite:        false,
     });
-    const mesh = new THREE.Mesh(_beamGeo, mat);
-    mesh.frustumCulled = false;
-    mesh.visible = false;
-    scene.add(mesh);
-    const light = new THREE.PointLight(0xff3366, 0, 80);
+    const outerMesh = new THREE.Mesh(_beamOuterGeo, outerMat);
+    outerMesh.frustumCulled = false;
+    outerMesh.visible = false;
+    scene.add(outerMesh);
+
+    // ── Inner cylinder — white-hot core ───────────────────────────
+    const innerMat = new THREE.MeshBasicMaterial({
+      color:      0xffffff,
+      transparent: true,
+      opacity:     0,
+      blending:   THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const innerMesh = new THREE.Mesh(_beamInnerGeo, innerMat);
+    innerMesh.frustumCulled = false;
+    innerMesh.visible = false;
+    scene.add(innerMesh);
+
+    // ── Trailing point light — white-purple mix ────────────────────
+    const light = new THREE.PointLight(0xdf80ff, 0, 90);
     scene.add(light);
+
     return {
-      mesh, mat, light, free: true, t0: 0,
+      outerMesh, outerMat,
+      innerMesh, innerMat,
+      light, free: true, t0: 0,
       origin: new THREE.Vector3(), target: new THREE.Vector3(), len: 1,
     };
   });
@@ -1336,27 +1376,37 @@ Integrated (°)
       if (sl.free) continue;
       const e = (nowMs - sl.t0) / 1000;
       if (e > 0.28) {
-        sl.mat.opacity    = 0;
-        sl.light.intensity = 0;
-        sl.mesh.visible   = false;
-        sl.free           = true;
+        sl.outerMat.opacity = 0;
+        sl.innerMat.opacity = 0;
+        sl.light.intensity  = 0;
+        sl.outerMesh.visible = false;
+        sl.innerMesh.visible = false;
+        sl.free = true;
         continue;
       }
+
       const life      = 1 - e / 0.28;
-      // Thickness burst: 0→1 over first 80 ms
-      const thickness = Math.min(1, e / 0.08);
-      // Pulse synced to heat — hotter = more violent throb
+      const thickness = Math.min(1, e / 0.08);          // burst: 0→1 over 80 ms
       const pulseAmp  = 0.25 + heatFraction * 0.65;
       const pulse     = 1 + Math.sin(nowMs * 0.022) * pulseAmp;
 
-      sl.mesh.scale.set(thickness, sl.len, thickness);
-      sl.mat.opacity       = life * 0.92 * pulse;
-      sl.mat.color.setRGB(1.0 * pulse, 0.08, 0.28 * pulse);  // hot plasma throb
+      // Outer: purple glow envelope — pulses with heat
+      sl.outerMesh.scale.set(thickness, sl.len, thickness);
+      sl.outerMat.opacity           = life * 0.60 * pulse;
+      sl.outerMat.emissiveIntensity = 2.5 * pulse;
 
-      // Trailing PointLight rides beam tip: origin → target over beam life
-      const tFrac = Math.min(1, e * 5);  // reaches tip by ~200 ms
+      // Inner: white-hot core — brighter, less affected by pulse
+      sl.innerMesh.scale.set(thickness, sl.len, thickness);
+      sl.innerMat.opacity = life * 0.95;
+
+      // Share quaternion — inner stays centred inside outer
+      sl.innerMesh.position.copy(sl.outerMesh.position);
+      sl.innerMesh.quaternion.copy(sl.outerMesh.quaternion);
+
+      // Trailing light rides from origin toward target
+      const tFrac = Math.min(1, e * 5);
       sl.light.position.lerpVectors(sl.origin, sl.target, tFrac);
-      sl.light.intensity = life * 10 * pulse;
+      sl.light.intensity = life * 12 * pulse;
     }
   }
 
@@ -1370,13 +1420,22 @@ Integrated (°)
     _beamDir.subVectors(target, origin);
     sl.len = _beamDir.length() || 1;
     _beamMid.copy(origin).addScaledVector(_beamDir, 0.5);
-    sl.mesh.position.copy(_beamMid);
-    sl.mesh.scale.set(0, sl.len, 0);   // starts collapsed — burst animates it open
-    sl.mesh.quaternion.setFromUnitVectors(_beamYAxis, _beamDir.normalize());
-    sl.mat.opacity = 0.9;
-    sl.mesh.visible = true;
+
+    // Position + orient the outer; inner copies these each frame in updateBeams
+    sl.outerMesh.position.copy(_beamMid);
+    sl.outerMesh.scale.set(0, sl.len, 0);   // collapsed — burst opens it
+    sl.outerMesh.quaternion.setFromUnitVectors(_beamYAxis, _beamDir.normalize());
+    sl.outerMat.opacity = 0;
+    sl.outerMesh.visible = true;
+
+    sl.innerMesh.position.copy(_beamMid);
+    sl.innerMesh.scale.set(0, sl.len, 0);
+    sl.innerMesh.quaternion.copy(sl.outerMesh.quaternion);
+    sl.innerMat.opacity = 0;
+    sl.innerMesh.visible = true;
+
     sl.light.position.copy(origin);
-    sl.light.intensity = 8;
+    sl.light.intensity = 10;
   }
 
   // Wing-cannon dual beam: fires from bottom-left and bottom-right of HUD
@@ -1457,14 +1516,14 @@ Integrated (°)
 
   const _eboltPool = Array.from({ length: EBOLT_COUNT }, () => {
     const mat  = new THREE.MeshBasicMaterial({
-      color: 0xff4400, transparent: true, opacity: 0,
+      color: 0xff4500, transparent: true, opacity: 0,   // neon orange per spec
       blending: THREE.AdditiveBlending, depthWrite: false,
     });
     const mesh = new THREE.Mesh(_eboltGeo, mat);
     mesh.frustumCulled = false;
     mesh.visible = false;
     scene.add(mesh);
-    const light = new THREE.PointLight(0xff4400, 0, 60);
+    const light = new THREE.PointLight(0xff4500, 0, 70);
     scene.add(light);
     return { mesh, mat, light, free: true, t0: 0,
              px: 0, py: 0, pz: 0, vx: 0, vy: 0, vz: 0, len: 28 };
@@ -1508,10 +1567,10 @@ Integrated (°)
       sl.mat.opacity   = fade * 0.9;
       sl.light.intensity = fade * 7;
 
-      // Collision: bolt reaches the cockpit near z=0
-      if (sl.pz > -2) {
+      // Collision: bolt crosses the cockpit plane (z ≥ 0) within 2.5 unit radius
+      if (sl.pz >= 0) {
         const dist2 = sl.px * sl.px + sl.py * sl.py;
-        if (dist2 < 16) {   // within 4 world units of centre
+        if (dist2 < 6.25) {   // 2.5² = 6.25
           sl.mat.opacity = 0; sl.light.intensity = 0;
           sl.mesh.visible = false; sl.free = true;
           triggerShieldHit(nowMs);
@@ -1521,12 +1580,12 @@ Integrated (°)
   }
 
   function triggerShieldHit(nowMs) {
-    shakeTimer     = 0.45;           // heavy shake
-    heatStallUntil = nowMs + 1000;   // stall heat recovery 1 s
-    comboCount     = 0;              // reset combo
+    shakeTimer     = 0.20;           // 200 ms heavy shake per spec
+    weaponHeat     = Math.min(100, weaponHeat + 10);  // +10 heat penalty per spec
+    comboCount     = 0;
     clearTimeout(comboTimerId);
     _updateComboDisplay();
-    shieldHitUntil = nowMs + 700;    // red flash duration
+    shieldHitUntil = nowMs + 700;    // red vignette flash
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1746,7 +1805,9 @@ Integrated (°)
   renderer.domElement.addEventListener('pointermove', (ev) => {
     if (ev.pointerId !== touchPointerId) return;
     ev.preventDefault();
-    setCrosshair(ev.clientX, ev.clientY);
+    // Direct assignment — no queuing, zero latency between finger and aim
+    aimX = ev.clientX;
+    aimY = ev.clientY;
   }, { passive: false });
 
   renderer.domElement.addEventListener('pointerup', (ev) => {
@@ -1979,35 +2040,51 @@ Integrated (°)
       e.group.rotation.z += (rollTgt  - e.group.rotation.z) * Math.min(1, 7.0 * dt);
       e.group.rotation.x += (pitchTgt - e.group.rotation.x) * Math.min(1, 4.5 * dt);
 
-      // ── Enemy firing behavior ─────────────────────────────────────
-      const inShootZone = pz < -20 && pz > -80;
+      // ── Enemy firing behavior — dogfight zone Z: -50 … -150 ────────
+      //  30% fire chance every 3 s; 500 ms emissive-red telegraph
+      const inShootZone = pz < -50 && pz > -150;
       if (inShootZone && es.fadeIn >= 1) {
         if (es.isCharging) {
-          // Telegraph: ramp engine glow bright orange during 0.5s charge
-          e.engineGlow.intensity = 2.2 + (es.chargeTimer / 0.5) * 20;
-          e.engineGlow.color.set(0xff4400);
+          const cPct = es.chargeTimer / 0.5;          // 0 → 1 over 500 ms
+          // Hull flashes red — emissive on every mesh for maximum visibility
+          for (const m of e.meshes) {
+            m.material.emissive.setRGB(cPct, 0, 0);
+            m.material.emissiveIntensity = cPct * 6;
+            m.material.needsUpdate = false;            // emissive colour change, no shader recompile
+          }
+          e.engineGlow.intensity = 2.2 + cPct * 22;
+          e.engineGlow.color.set(0xff1100);
           es.chargeTimer += dt;
           if (es.chargeTimer >= 0.5) {
             _fireEnemyBolt(e.group.position.x, e.group.position.y, e.group.position.z);
+            // Restore hull materials
+            for (const m of e.meshes) {
+              m.material.emissive.setRGB(0, 0, 0);
+              m.material.emissiveIntensity = 1;
+            }
             es.isCharging   = false;
             es.chargeTimer  = 0;
-            es.fireCooldown = 1.8 + Math.random() * 1.5;
+            es.fireCooldown = 3.0 + Math.random() * 0.5;
             e.engineGlow.intensity = 2.2;
             e.engineGlow.color.set(0xff6600);
           }
         } else {
           es.fireCooldown -= dt;
           if (es.fireCooldown <= 0) {
-            if (Math.random() < 0.20) {
+            if (Math.random() < 0.30) {
               es.isCharging  = true;
               es.chargeTimer = 0;
             } else {
-              es.fireCooldown = 1.0 + Math.random() * 1.5;
+              es.fireCooldown = 3.0;
             }
           }
         }
       } else if (es.isCharging) {
-        // Left shoot zone mid-charge — abort
+        // Ship left the shoot zone mid-charge — abort, restore hull
+        for (const m of e.meshes) {
+          m.material.emissive.setRGB(0, 0, 0);
+          m.material.emissiveIntensity = 1;
+        }
         es.isCharging   = false;
         es.chargeTimer  = 0;
         e.engineGlow.intensity = 2.2;
@@ -2062,9 +2139,9 @@ Integrated (°)
       camera.rotation.y = camYaw   * (Math.PI / 180);
     }
 
-    // ── Crosshair lerp + DOM update ──────────────────────────────────
-    lerpX += (aimX - lerpX) * Math.min(1, 14 * dt);
-    lerpY += (aimY - lerpY) * Math.min(1, 14 * dt);
+    // ── Crosshair lerp + DOM update — 0.5 alpha = half the gap per frame ──
+    lerpX += (aimX - lerpX) * Math.min(1, 0.50 * dt * 60);
+    lerpY += (aimY - lerpY) * Math.min(1, 0.50 * dt * 60);
     crosshairEl.style.left = lerpX + 'px';
     crosshairEl.style.top  = lerpY + 'px';
 
