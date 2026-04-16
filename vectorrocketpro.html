@@ -171,12 +171,6 @@
       pointer-events: none;
       overflow: hidden;
     }
-    #cockpit-frame {
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(ellipse 70% 58% at 50% 50%,
-        transparent 48%, rgba(0,3,18,0.72) 74%, rgba(0,2,14,0.97) 100%);
-    }
     #cockpit-border {
       position: absolute;
       inset: 3%;
@@ -247,7 +241,6 @@ Integrated (°)
 
   <!-- Cockpit HUD — pointer-events: none so it never blocks input -->
   <div id="hud">
-    <div id="cockpit-frame"></div>
     <div id="cockpit-border"></div>
     <div id="crosshair"><div id="crosshair-ring"></div></div>
   </div>
@@ -724,49 +717,38 @@ Integrated (°)
     return false;
   }
 
-  // Pick the next 3-D waypoint based on where the ship currently is.
-  // Increments passCount; returns null when maxPasses is exhausted.
-  //
-  // Key rule: never assign a waypoint that requires > ~100° of turning.
-  // For deep-ahead ships (flying in -Z), arc them SIDEWAYS first so the
-  // ship banks naturally rather than decelerating and pivoting in place.
+  // Pick the next 3-D waypoint.
+  // ALWAYS arcs ≈90° from the ship's current heading — never assigns a
+  // target that would require a U-turn (180°) or sharp pivot (>120°).
   function nextWaypoint(es) {
     es.passCount++;
     if (es.passCount > es.maxPasses) return null;
 
-    // Y floor: keep well above ground so ships are visible in sky, not on grid
-    const ty = 5 + Math.random() * 35;  // 5..40 units — always above grid line
+    const ty = 5 + Math.random() * 35;   // 5..40 — ships stay in sky
     const px = es.baseX, pz = es.baseZ;
 
-    if (pz < -200) {
-      // Deep ahead, flying roughly in −Z. Avoid reverse waypoints.
-      // Instead: arc perpendicular to current heading (≈ 90° turn).
-      const hspd   = Math.sqrt(es.velX*es.velX + es.velZ*es.velZ);
-      const hdgX   = hspd > 1 ? es.velX/hspd : 0;
-      const hdgZ   = hspd > 1 ? es.velZ/hspd : -1;
-      const pSign  = Math.random() < 0.5 ? 1 : -1;
-      // Perpendicular: rotate heading 90° in XZ → (-hdgZ, hdgX)
-      return {
-        x: px + (-hdgZ * pSign) * (130 + Math.random() * 90),
-        y: ty,
-        z: pz  + (70  + Math.random() * 110),   // slight forward arc
-      };
-    } else if (pz > 60) {
-      // Behind camera — bank diagonally back toward the front
-      return {
-        x: (Math.random() - 0.5) * 200,
-        y: ty,
-        z: -240 - Math.random() * 200,
-      };
-    } else {
-      // Mid-arena — sweep to opposite quadrant (≤ ~90° turn)
-      const side = px > 0 ? -1 : 1;
-      return {
-        x: side * (60 + Math.random() * 80),
-        y: ty,
-        z: pz > -80 ? -360 : 120,
-      };
-    }
+    // Horizontal heading unit vector — fallback to -Z if nearly stopped
+    const hspd = Math.sqrt(es.velX * es.velX + es.velZ * es.velZ);
+    const hdgX = hspd > 1 ? es.velX / hspd : 0;
+    const hdgZ = hspd > 1 ? es.velZ / hspd : -1;
+
+    // Rotate heading 90° left or right in the XZ plane
+    const pSign = Math.random() < 0.5 ? 1 : -1;
+    const perpX = -hdgZ * pSign;   // perpendicular direction X
+    const perpZ =  hdgX * pSign;   // perpendicular direction Z
+
+    // Target = sideways arc + slight forward nudge so ships don't loop in place
+    const sideDist = 130 + Math.random() * 90;
+    const fwdDist  =  50 + Math.random() * 80;
+
+    let tx = px + perpX * sideDist + hdgX * fwdDist;
+    let tz = pz + perpZ * sideDist + hdgZ * fwdDist;
+
+    // Clamp to arena so ships can't wander off into infinity
+    tx = Math.max(-270, Math.min(270, tx));
+    tz = Math.max(-500, Math.min(160, tz));
+
+    return { x: tx, y: ty, z: tz };
   }
 
   function activateEnemy(i) {
@@ -784,7 +766,7 @@ Integrated (°)
     es.wobbleAmp  = style.wobbleAmp;
     es.wobbleFreq = style.wobbleFreq + Math.random() * 0.15;
     es.wobblePhase = Math.random() * Math.PI * 2;
-    es.maxPasses  = 2 + Math.floor(Math.random() * 3);  // 2–4 passes
+    es.maxPasses  = 4 + Math.floor(Math.random() * 3);  // 4–6 passes — more time in arena
 
     // ── Spawn position ─────────────────────────────────────────────
     // Y kept well above ground (ground=−30) so ships appear in the sky,
