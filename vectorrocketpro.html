@@ -305,9 +305,12 @@
       inset: 0;
       pointer-events: none;
       z-index: 11;
-      border: 0px solid rgba(255,0,0,0);
-      box-shadow: inset 0 0 0px rgba(255,0,0,0);
-      transition: box-shadow 0.06s linear;
+      background: rgba(255,0,0,0);
+      transition: background 0.08s linear;
+    }
+    #shield-flash.hit {
+      background: rgba(255,0,0,0.32);
+      transition: none;   /* snap on, fade off */
     }
 
     /* ── Chromatic aberration edge overlay ───────────────────────── */
@@ -499,7 +502,7 @@ Integrated (°)
   //  RENDERER
   // ─────────────────────────────────────────────────────────────────
   const renderer = new THREE.WebGLRenderer({
-    antialias: true,                  // reduces aliasing on beam edges + ship geometry
+    antialias: false,               // MSAA is ~40% GPU cost on mobile — keep off
     powerPreference: 'high-performance',
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -1042,7 +1045,7 @@ Integrated (°)
     e.group.visible   = true;
     es.shaken         = false;
     es.fadeIn         = 0;
-    es.fireCooldown   = 2.0 + Math.random() * 1.5;
+    es.fireCooldown   = 0;   // fires on first zone entry — no artificial delay
     es.isCharging     = false;
     es.chargeTimer    = 0;
     e.engineGlow.intensity = 2.2;
@@ -1331,14 +1334,13 @@ Integrated (°)
 
   const _beamPool = Array.from({ length: 16 }, () => {
     // ── Outer cylinder — neon purple glow envelope ─────────────────
-    const outerMat = new THREE.MeshStandardMaterial({
-      color:             0xbf00ff,
-      emissive:          0xbf00ff,
-      emissiveIntensity: 2.5,
-      transparent:       true,
-      opacity:           0,
-      blending:          THREE.AdditiveBlending,
-      depthWrite:        false,
+    //  MeshBasicMaterial: no PBR lighting calc — glow comes from AdditiveBlending
+    const outerMat = new THREE.MeshBasicMaterial({
+      color:      0xbf00ff,
+      transparent: true,
+      opacity:     0,
+      blending:   THREE.AdditiveBlending,
+      depthWrite: false,
     });
     const outerMesh = new THREE.Mesh(_beamOuterGeo, outerMat);
     outerMesh.frustumCulled = false;
@@ -1392,8 +1394,7 @@ Integrated (°)
 
       // Outer: purple glow envelope — pulses with heat
       sl.outerMesh.scale.set(thickness, sl.len, thickness);
-      sl.outerMat.opacity           = life * 0.60 * pulse;
-      sl.outerMat.emissiveIntensity = 2.5 * pulse;
+      sl.outerMat.opacity = life * 0.60 * pulse;
 
       // Inner: white-hot core — brighter, less affected by pulse
       sl.innerMesh.scale.set(thickness, sl.len, thickness);
@@ -1792,35 +1793,37 @@ Integrated (°)
   //  pointerdown → snap crosshair to touch position
   //  pointermove → crosshair follows finger in real-time
   //  pointerup   → fire at current crosshair, then drift back to center
+  // ── Touch / pointer aim ─────────────────────────────────────────
+  //  pointerdown  — always accepts (never guard on old ID — avoids stuck state)
+  //  pointermove  — ev.buttons > 0 means a finger/stylus is actively touching
+  //  pointerup    — fire, then drift crosshair back to center after 450 ms
   let touchPointerId = -1;
 
   renderer.domElement.addEventListener('pointerdown', (ev) => {
-    if (touchPointerId !== -1) return;
     ev.preventDefault();
-    touchPointerId = ev.pointerId;
+    touchPointerId = ev.pointerId;   // always update — clears any stuck state
     clearTimeout(aimReturnTimer);
-    setCrosshair(ev.clientX, ev.clientY);
+    aimX = ev.clientX;
+    aimY = ev.clientY;
   }, { passive: false });
 
   renderer.domElement.addEventListener('pointermove', (ev) => {
-    if (ev.pointerId !== touchPointerId) return;
+    if (ev.buttons === 0) return;    // no touch/button active — ignore hover
     ev.preventDefault();
-    // Direct assignment — no queuing, zero latency between finger and aim
     aimX = ev.clientX;
     aimY = ev.clientY;
   }, { passive: false });
 
   renderer.domElement.addEventListener('pointerup', (ev) => {
-    if (ev.pointerId !== touchPointerId) return;
     touchPointerId = -1;
-    triggerShoot();   // fires at wherever the finger lifted
+    triggerShoot();
     aimReturnTimer = setTimeout(() => {
       setCrosshair(window.innerWidth / 2, window.innerHeight / 2);
     }, 450);
   }, { passive: false });
 
-  renderer.domElement.addEventListener('pointercancel', (ev) => {
-    if (ev.pointerId === touchPointerId) touchPointerId = -1;
+  renderer.domElement.addEventListener('pointercancel', () => {
+    touchPointerId = -1;
   });
 
   document.getElementById('start-btn').addEventListener('click', async () => {
@@ -2040,9 +2043,9 @@ Integrated (°)
       e.group.rotation.z += (rollTgt  - e.group.rotation.z) * Math.min(1, 7.0 * dt);
       e.group.rotation.x += (pitchTgt - e.group.rotation.x) * Math.min(1, 4.5 * dt);
 
-      // ── Enemy firing behavior — dogfight zone Z: -50 … -150 ────────
-      //  30% fire chance every 3 s; 500 ms emissive-red telegraph
-      const inShootZone = pz < -50 && pz > -150;
+      // ── Enemy firing behavior — dogfight zone Z: -20 … -200 ────────
+      //  30% fire chance; 500 ms emissive-red telegraph
+      const inShootZone = pz < -20 && pz > -200;
       if (inShootZone && es.fadeIn >= 1) {
         if (es.isCharging) {
           const cPct = es.chargeTimer / 0.5;          // 0 → 1 over 500 ms
@@ -2064,7 +2067,7 @@ Integrated (°)
             }
             es.isCharging   = false;
             es.chargeTimer  = 0;
-            es.fireCooldown = 3.0 + Math.random() * 0.5;
+            es.fireCooldown = 1.5 + Math.random() * 0.5;
             e.engineGlow.intensity = 2.2;
             e.engineGlow.color.set(0xff6600);
           }
@@ -2075,7 +2078,7 @@ Integrated (°)
               es.isCharging  = true;
               es.chargeTimer = 0;
             } else {
-              es.fireCooldown = 3.0;
+              es.fireCooldown = 1.5;
             }
           }
         }
@@ -2202,14 +2205,14 @@ Integrated (°)
       }
     }
 
-    // ── Shield hit flash ─────────────────────────────────────────────
-    if (now < shieldHitUntil) {
-      const frac = (shieldHitUntil - now) / 700;
-      shieldFlashEl.style.boxShadow =
-        `inset 0 0 ${Math.round(frac * 80)}px rgba(255,0,0,${(frac * 0.50).toFixed(2)})`;
-    } else if (shieldHitUntil > 0 && now >= shieldHitUntil) {
-      shieldFlashEl.style.boxShadow = 'none';
-      shieldHitUntil = 0;
+    // ── Shield hit flash — CSS class toggle, no per-frame style.boxShadow ──
+    if (shieldHitUntil > 0) {
+      if (now < shieldHitUntil) {
+        shieldFlashEl.classList.add('hit');
+      } else {
+        shieldFlashEl.classList.remove('hit');
+        shieldHitUntil = 0;
+      }
     }
 
     // ── Bloom scales with combo (cinematic overload at high streaks) ──
