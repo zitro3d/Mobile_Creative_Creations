@@ -751,6 +751,7 @@ Integrated (°)
           spawnType: 'FRONT',
           shaken: false,
           fadeIn: 1,
+          dodgeTimer: 0,
         });
       }
     },
@@ -956,10 +957,10 @@ Integrated (°)
   //  PILOT STYLES — flight envelope per personality
   // ─────────────────────────────────────────────────────────────────
   const PILOT_STYLES = {
-    // Noticeably distinct speeds + turn radii so each pilot FEELS different
-    AGGRESSIVE: { maxSpeed: 210, accel: 140, turnRate: 3.4, wobbleAmp:  2, wobbleFreq: 0.40 },
-    SMOOTH:     { maxSpeed:  80, accel:  40, turnRate: 0.6, wobbleAmp: 10, wobbleFreq: 0.16 },
-    ERRATIC:    { maxSpeed: 155, accel:  90, turnRate: 2.2, wobbleAmp: 22, wobbleFreq: 0.75 },
+    // Speeds bumped — SMOOTH was too easy to track, AGGRESSIVE now genuinely fast
+    AGGRESSIVE: { maxSpeed: 280, accel: 200, turnRate: 4.0, wobbleAmp:  3, wobbleFreq: 0.45 },
+    SMOOTH:     { maxSpeed: 140, accel:  70, turnRate: 1.1, wobbleAmp:  8, wobbleFreq: 0.18 },
+    ERRATIC:    { maxSpeed: 210, accel: 130, turnRate: 2.8, wobbleAmp: 16, wobbleFreq: 0.85 },
   };
 
   // True when another visible ship is within MIN units of (x,y,z)
@@ -1085,9 +1086,10 @@ Integrated (°)
     e.group.visible   = true;
     es.shaken         = false;
     es.fadeIn         = 0;
-    es.fireCooldown   = 0;   // fires on first zone entry — no artificial delay
+    es.fireCooldown   = 0;
     es.isCharging     = false;
     es.chargeTimer    = 0;
+    es.dodgeTimer     = 0.4 + Math.random() * 0.6;  // first dodge shortly after spawn
     e.engineGlow.intensity = 2.2;
     e.engineGlow.color.set(0xff6600);
   }
@@ -2387,16 +2389,33 @@ Integrated (°)
       const vdZ  = vspd > 0.01 ? es.velZ/vspd : cdZ;
 
       const yawTgt   = Math.atan2(vdZ, -vdX);
-      const rollTgt  = -vdX * 1.3;                                          // ±75° bank — dramatic tilt
+      const rollTgt  = -vdX * 0.45;                                         // ±26° bank — visible turn without looking sideways
       const pitchTgt = -Math.asin(Math.max(-0.55, Math.min(0.55, vdY)));   // follow vertical vel
 
       e.group.rotation.y += (yawTgt   - e.group.rotation.y) * Math.min(1, es.turnRate * 3 * dt);
       e.group.rotation.z += (rollTgt  - e.group.rotation.z) * Math.min(1, 7.0 * dt);
       e.group.rotation.x += (pitchTgt - e.group.rotation.x) * Math.min(1, 4.5 * dt);
 
-      // ── Enemy firing behavior — dogfight zone Z: -40 … -150 ────────
-      //  30% fire chance; 500 ms emissive-red telegraph
-      const inShootZone = pz < -40 && pz > -150;
+      // ── Evasive dodge — combat zone forces lateral side-steps ────────
+      //  Every 0.7–1.6 s while in range, ship snaps to a new waypoint
+      //  offset strongly to the side so the player can't just track straight.
+      if (pz < -80 && pz > -400 && es.fadeIn >= 1) {
+        es.dodgeTimer -= dt;
+        if (es.dodgeTimer <= 0) {
+          es.dodgeTimer = 0.7 + Math.random() * 0.9;
+          const sideDir  = Math.random() < 0.5 ? 1 : -1;
+          const sideAmt  = 70 + Math.random() * 80;  // 70–150 unit strafe
+          const newX     = Math.max(-240, Math.min(240, es.baseX + sideDir * sideAmt));
+          const newY     = 8  + Math.random() * 35;
+          const newZ     = es.baseZ + (Math.random() - 0.3) * 60; // slight forward bias
+          es.targetX = newX; es.targetY = newY; es.targetZ = newZ;
+        }
+      }
+
+      // ── Enemy firing behavior — dogfight zone Z: -100 … -350 ───────
+      //  Ships only fire from a visible distance — never when nearly on screen.
+      //  30% fire chance; 500 ms emissive-red telegraph.
+      const inShootZone = pz < -100 && pz > -350;
       if (inShootZone && es.fadeIn >= 1) {
         if (es.isCharging) {
           const cPct = es.chargeTimer / 0.5;          // 0 → 1 over 500 ms
