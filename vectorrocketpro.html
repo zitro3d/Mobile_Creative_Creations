@@ -1038,13 +1038,13 @@ Integrated (°)
 
     if (es.spawnType === 'FRONT') {
       spawnX = (Math.random() - 0.5) * 160;   // full −80..+80 range, through center
-      spawnZ = -360;                           // close enough to be visible immediately
+      spawnZ = -600;                           // far enough to be visible before shooting zone
     } else if (es.spawnType === 'REAR') {
       spawnX = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 60);
       spawnZ = 180;
     } else {
       spawnX = (Math.random() < 0.5 ? -1 : 1) * 160;
-      spawnZ = -80 - Math.random() * 120;
+      spawnZ = -300 - Math.random() * 200;
     }
 
     if (tooClose(spawnX, spawnY, spawnZ, i)) return;
@@ -2075,9 +2075,9 @@ Integrated (°)
     });
     handsDetector.setOptions({
       maxNumHands:            1,
-      modelComplexity:        0,    // 0 = lite model — faster on mobile
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence:  0.5,
+      modelComplexity:        1,    // 1 = full model — better landmark accuracy in air
+      minDetectionConfidence: 0.55,
+      minTrackingConfidence:  0.45,
     });
 
     handsDetector.onResults((results) => {
@@ -2102,14 +2102,17 @@ Integrated (°)
       if (lmIdx === -1) lmIdx = 0;
 
       const lm       = results.multiHandLandmarks[lmIdx];
-      const thumbTip = lm[4];   // thumb tip
-      const idxTip   = lm[8];   // index finger tip
+      const thumbTip = lm[4];   // thumb tip  — pinch only
+      const idxTip   = lm[8];   // index tip  — pinch only
 
-      // Move crosshair to index finger position.
-      // Front camera is mirrored so MediaPipe x=0 is the right edge on screen — flip X.
+      // Palm centroid from the four knuckle MCPs — far more stable than fingertip.
+      // Front camera: flip X. Knuckles occupy ~[0.2,0.8] of frame; remap to full screen.
+      const palmX = (lm[5].x + lm[9].x + lm[13].x + lm[17].x) * 0.25;
+      const palmY = (lm[5].y + lm[9].y + lm[13].y + lm[17].y) * 0.25;
+      const HM = 0.18;  // hand-margin: ignore outermost 18% of frame each side
       clearTimeout(aimReturnTimer);
-      handRawX = (1 - idxTip.x) * window.innerWidth;
-      handRawY = idxTip.y * window.innerHeight;
+      handRawX = Math.max(0, Math.min(1, ((1 - palmX) - HM) / (1 - 2 * HM))) * window.innerWidth;
+      handRawY = Math.max(0, Math.min(1, (palmY        - HM) / (1 - 2 * HM))) * window.innerHeight;
       isHandTracking = true;
 
       const pinchDist = Math.sqrt(
@@ -2132,7 +2135,7 @@ Integrated (°)
     // MediaPipe Camera utility drives getUserMedia + frame loop
     const mpCam = new Camera(videoEl, {
       onFrame: async () => { await handsDetector.send({ image: videoEl }); },
-      width: 320, height: 240,
+      width: 480, height: 360,
     });
     mpCam.start()
       .then(() => {
@@ -2472,7 +2475,7 @@ Integrated (°)
 
       // ── Fade in on spawn ──────────────────────────────────────────
       if (es.fadeIn < 1) {
-        es.fadeIn = Math.min(1, es.fadeIn + dt * 1.8);  // ~0.55 s to full
+        es.fadeIn = Math.min(1, es.fadeIn + dt * 3.5);  // ~0.28 s to full — visible quickly at spawn
         for (const mesh of e.meshes) mesh.material.opacity = es.fadeIn;
       }
 
@@ -2520,7 +2523,7 @@ Integrated (°)
 
     // ── Hand tracking pre-smooth — tame MediaPipe jitter before DOM lerp ─
     if (isHandTracking) {
-      const hs = Math.min(1, 0.15 * dt * 60);  // ~15% per frame = ~100ms lag, kills jitter
+      const hs = Math.min(1, 0.20 * dt * 60);  // ~20% per frame = ~75ms lag; palm centroid is stable enough
       aimX += (handRawX - aimX) * hs;
       aimY += (handRawY - aimY) * hs;
     }
