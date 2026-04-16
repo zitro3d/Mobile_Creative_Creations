@@ -765,8 +765,8 @@ Integrated (°)
     es.passCount++;
     if (es.passCount > es.maxPasses) return null;
 
-    // Y floor: keep base well above ground (ground=-30, wobble up to ±17)
-    const ty = Math.max(-10, (Math.random() - 0.2) * 70);
+    // Y floor: keep well above ground so ships are visible in sky, not on grid
+    const ty = 5 + Math.random() * 35;  // 5..40 units — always above grid line
     const px = es.baseX, pz = es.baseZ;
 
     if (pz < -200) {
@@ -818,14 +818,16 @@ Integrated (°)
     es.maxPasses  = 2 + Math.floor(Math.random() * 3);  // 2–4 passes
 
     // ── Spawn position ─────────────────────────────────────────────
-    const spawnY  = Math.max(-10, (Math.random() - 0.2) * 70);  // −10..+56
+    // Y kept well above ground (ground=−30) so ships appear in the sky,
+    // not near the grid at the bottom of the screen.
+    const spawnY  = 10 + Math.random() * 30;  // 10..40 — center-to-upper screen
     let spawnX, spawnZ;
     const typeRoll = Math.random();
     es.spawnType   = typeRoll < 0.5 ? 'FRONT' : typeRoll < 0.75 ? 'REAR' : 'SIDE';
 
     if (es.spawnType === 'FRONT') {
-      spawnX = (Math.random() - 0.5) * 160;   // full −80..+80 range, passes through center
-      spawnZ = -480;
+      spawnX = (Math.random() - 0.5) * 160;   // full −80..+80 range, through center
+      spawnZ = -360;                           // close enough to be visible immediately
     } else if (es.spawnType === 'REAR') {
       spawnX = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 60);
       spawnZ = 180;
@@ -840,7 +842,22 @@ Integrated (°)
     es.passCount = 0;
 
     // ── First waypoint ─────────────────────────────────────────────
-    const wp = nextWaypoint(es);
+    // FRONT ships must fly TOWARD the camera, not sideways.
+    // nextWaypoint() uses the perpendicular-arc branch for pz < -200,
+    // which would send a fresh FRONT ship off-screen immediately.
+    // Instead, give FRONT ships a direct aim-point near z=0.
+    let wp;
+    if (es.spawnType === 'FRONT') {
+      wp = {
+        x: (Math.random() - 0.5) * 80,   // aim through center ±40 units
+        y: 8 + Math.random() * 22,        // 8–30 units up: center-screen height
+        z: -20 + Math.random() * 60,      // z: −20..+40 — passes through the player
+      };
+      // passCount stays 0 — the animate loop calls nextWaypoint when ship
+      // reaches this point, picking up normal arc logic at that stage.
+    } else {
+      wp = nextWaypoint(es);
+    }
     if (!wp) return;
     es.targetX = wp.x; es.targetY = wp.y; es.targetZ = wp.z;
 
@@ -1454,8 +1471,8 @@ Integrated (°)
       es.baseX += es.velX * dt;
       es.baseY += es.velY * dt;
       es.baseZ += es.velZ * dt;
-      // Y floor: keep above ground (ground=−30, wobble up to ±17)
-      if (es.baseY < -13) { es.baseY = -13; if (es.velY < 0) es.velY = 0; }
+      // Y floor: keep above grid (ground=−30)
+      if (es.baseY < 3) { es.baseY = 3; if (es.velY < 0) es.velY = 0; }
 
       e.group.position.x = es.baseX + wobX;
       e.group.position.y = es.baseY + wobY;
