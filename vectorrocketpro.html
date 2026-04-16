@@ -263,20 +263,19 @@ Integrated (°)
   import { GLTFLoader }      from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
   import { EffectComposer }  from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js';
   import { RenderPass }      from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/RenderPass.js';
-  import { BokehPass }       from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/BokehPass.js';
-  import { UnrealBloomPass }  from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js';
+  import { UnrealBloomPass } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js';
 
   // ─────────────────────────────────────────────────────────────────
   //  TUNABLE CONSTANTS
   // ─────────────────────────────────────────────────────────────────
-  const STAR_COUNT         = 5000;
-  const STAR_SPREAD_X      = 500;   // wide enough for ±45° camera look-around
+  const STAR_COUNT         = 1500;  // reduced for mobile CPU budget
+  const STAR_SPREAD_X      = 500;
   const STAR_SPREAD_Y      = 350;
   const STAR_DEPTH         = 2000;
   const STAR_FADE_FAR      = 1600;
   const STAR_FADE_NEAR     = 400;
 
-  const NEBULA_COUNT       = 28;    // more sprites → denser colour mixing
+  const NEBULA_COUNT       = 10;    // reduced for mobile GPU budget
   const NEBULA_DEPTH       = 3000;  // pushed way back so ships never fly through them
   const NEBULA_MAX_OP      = 1.0;   // texture is very dim, so allow full opacity multiplier
   const NEBULA_SPREAD_X    = 700;   // wide horizontal spread for full-screen coverage
@@ -317,8 +316,8 @@ Integrated (°)
   const camera = new THREE.PerspectiveCamera(
     BASE_FOV,
     window.innerWidth / window.innerHeight,
-    0.1,   // near clip reduced — avoids model penetration at close range
-    4000
+    0.5,
+    1800   // reduced far plane — less overdraw and depth-buffer work
   );
   // First-person cockpit: camera sits at origin, looks straight ahead
   camera.position.set(0, 0, 0);
@@ -326,26 +325,17 @@ Integrated (°)
   camera.rotation.x = THREE.MathUtils.degToRad(BASE_PITCH_DEG);
 
   // ─────────────────────────────────────────────────────────────────
-  //  POST-PROCESSING — subtle depth of field
-  //  Must come after scene + camera (RenderPass and BokehPass need both).
-  //  Ships at z=-600 → max blur ~1.5%; ships at z=-100 and closer → sharp.
+  //  POST-PROCESSING — bloom only (DoF removed: aperture was ~0, invisible)
+  //  Bloom runs at half resolution to save GPU bandwidth on mobile.
   // ─────────────────────────────────────────────────────────────────
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
 
-  const bokehPass = new BokehPass(scene, camera, {
-    focus:    100,      // world-unit focus distance
-    aperture: 0.00003,
-    maxblur:  0.012,
-  });
-  bokehPass.renderToScreen = false;
-  composer.addPass(bokehPass);
-
   const bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
-    1.4,   // strength
-    0.5,   // radius
-    0.55   // threshold — catches specular highlights, lasers, engine glow
+    new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
+    1.2,   // strength
+    0.45,  // radius
+    0.55   // threshold
   );
   bloomPass.renderToScreen = true;
   composer.addPass(bloomPass);
@@ -1003,59 +993,91 @@ Integrated (°)
   const handStatusEl = document.getElementById('hand-status');
   const FIRE_COOL_MS = 250;   // ms between shots
 
-  // ── Cube-fragment explosion ──────────────────────────────────────
+  // ── Pooled explosion fragments — pre-allocated, never create/dispose ──
+  //  Shared box geometry; per-fragment scale gives size variety.
+  const FRAG_COUNT  = 16;
+  const _fragGeo    = new THREE.BoxGeometry(2, 2, 2);
+  const _fragMats   = Array.from({ length: FRAG_COUNT }, (_, k) =>
+    new THREE.MeshStandardMaterial({
+      color: k % 2 === 0 ? 0xff7722 : 0xffcc44,
+      emissive: k % 2 === 0 ? 0xff4400 : 0xff9900,
+      emissiveIntensity: 3, transparent: true, opacity: 0, depthWrite: false,
+    })
+  );
+  const _fragMeshes = _fragMats.map(mat => {
+    const m = new THREE.Mesh(_fragGeo, mat);
+    m.frustumCulled = true;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  });
+  // Reused velocity/rotation vectors — no per-explosion allocation
+  const _fragVels = Array.from({ length: FRAG_COUNT }, () => new THREE.Vector3());
+  const _fragRots = Array.from({ length: FRAG_COUNT }, () => new THREE.Vector3());
+  const _fragOrigin = new THREE.Vector3();
+
   function spawnExplosion(pos) {
-    const fragments = [];
-    for (let k = 0; k < 16; k++) {
-      const sz  = 1.2 + Math.random() * 2.0;
-      const geo = new THREE.BoxGeometry(sz, sz, sz);
-      const mat = new THREE.MeshStandardMaterial({
-        color:             k % 2 === 0 ? 0xff7722 : 0xffcc44,
-        emissive:          k % 2 === 0 ? 0xff4400 : 0xff9900,
-        emissiveIntensity: 3.0,
-        transparent: true, opacity: 1, depthWrite: false,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.copy(pos);
-      scene.add(mesh);
-      fragments.push({
-        mesh, geo, mat,
-        vel: new THREE.Vector3((Math.random()-.5)*200, (Math.random()-.5)*200, (Math.random()-.5)*200),
-        rot: new THREE.Vector3((Math.random()-.5)*10,  (Math.random()-.5)*10,  (Math.random()-.5)*10),
-      });
+    _fragOrigin.copy(pos);
+    for (let k = 0; k < FRAG_COUNT; k++) {
+      _fragVels[k].set((Math.random()-.5)*200, (Math.random()-.5)*200, (Math.random()-.5)*200);
+      _fragRots[k].set((Math.random()-.5)*10,  (Math.random()-.5)*10,  (Math.random()-.5)*10);
+      _fragMeshes[k].position.copy(pos);
+      _fragMeshes[k].scale.setScalar(0.6 + Math.random() * 1.0);
+      _fragMeshes[k].visible = true;
+      _fragMats[k].opacity = 1;
+      _fragMats[k].emissiveIntensity = 3;
     }
     const t0 = performance.now();
     (function tick() {
       const elapsed = (performance.now() - t0) / 1000;
       if (elapsed >= 1.0) {
-        for (const { mesh, geo, mat } of fragments) { scene.remove(mesh); geo.dispose(); mat.dispose(); }
+        for (let k = 0; k < FRAG_COUNT; k++) _fragMeshes[k].visible = false;
         return;
       }
-      const p = elapsed;
-      for (const { mesh, mat, vel, rot } of fragments) {
-        mesh.position.copy(pos).addScaledVector(vel, elapsed);
-        mesh.rotation.set(rot.x*elapsed, rot.y*elapsed, rot.z*elapsed);
-        mat.opacity = 1 - p*p; mat.emissiveIntensity = 3*(1-p);
+      for (let k = 0; k < FRAG_COUNT; k++) {
+        _fragMeshes[k].position.copy(_fragOrigin).addScaledVector(_fragVels[k], elapsed);
+        _fragMeshes[k].rotation.set(
+          _fragRots[k].x * elapsed, _fragRots[k].y * elapsed, _fragRots[k].z * elapsed
+        );
+        _fragMats[k].opacity = 1 - elapsed * elapsed;
+        _fragMats[k].emissiveIntensity = 3 * (1 - elapsed);
       }
       requestAnimationFrame(tick);
     })();
   }
 
-  // ── Neon-purple laser ────────────────────────────────────────────
-  function spawnLaser(endPos) {
-    const origin = camera.position.clone().add(new THREE.Vector3(0, -3, -2));
-    const geo    = new THREE.BufferGeometry().setFromPoints([origin, endPos.clone()]);
-    const mat    = new THREE.LineBasicMaterial({
-      color: 0xcc00ff, transparent: true, opacity: 1,
+  // ── Pooled lasers — pre-allocated Line objects, reused every shot ──
+  const LASER_POOL_SIZE = 8;
+  const _laserSlots = Array.from({ length: LASER_POOL_SIZE }, () => {
+    const posArr = new Float32Array(6);
+    const geo    = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+    const mat  = new THREE.LineBasicMaterial({
+      color: 0xcc00ff, transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false,
     });
     const line = new THREE.Line(geo, mat);
+    line.frustumCulled = false;
+    line.visible = false;
     scene.add(line);
+    return { line, geo, posArr, mat, free: true };
+  });
+
+  function spawnLaser(endPos) {
+    const slot = _laserSlots.find(s => s.free);
+    if (!slot) return;
+    slot.free = false;
+    const cam = camera.position;
+    slot.posArr[0] = cam.x;     slot.posArr[1] = cam.y - 3; slot.posArr[2] = cam.z - 2;
+    slot.posArr[3] = endPos.x;  slot.posArr[4] = endPos.y;  slot.posArr[5] = endPos.z;
+    slot.geo.attributes.position.needsUpdate = true;
+    slot.mat.opacity = 1;
+    slot.line.visible = true;
     const t0 = performance.now();
     (function fade() {
       const e = (performance.now() - t0) / 1000;
-      if (e > 0.30) { scene.remove(line); geo.dispose(); mat.dispose(); return; }
-      mat.opacity = 1 - e / 0.30;
+      if (e > 0.30) { slot.mat.opacity = 0; slot.line.visible = false; slot.free = true; return; }
+      slot.mat.opacity = 1 - e / 0.30;
       requestAnimationFrame(fade);
     })();
   }
@@ -1306,24 +1328,23 @@ Integrated (°)
     const starTravel   = SPEED * dt;
     const nebulaTravel = SPEED * NEBULA_SPEED_FACTOR * dt;
 
-    // ── Stars: individual Z-wrap ──────────────────────────────────
+    // ── Stars: raw TypedArray access — avoids getter/setter overhead ──
     for (let i = 0; i < STAR_COUNT; i++) {
-      let lz = starAttr.getZ(i) + starTravel;
+      const b3 = i * 3;
+      let lz = starPos[b3 + 2] + starTravel;
 
       if (lz > 50) {
         lz = -STAR_DEPTH;
-        starAttr.setX(i, (Math.random() - 0.5) * STAR_SPREAD_X * 2);
-        starAttr.setY(i, (Math.random() - 0.5) * STAR_SPREAD_Y * 2);
+        starPos[b3]     = (Math.random() - 0.5) * STAR_SPREAD_X * 2;
+        starPos[b3 + 1] = (Math.random() - 0.5) * STAR_SPREAD_Y * 2;
         starBrightness[i] = 0.2 + Math.random() * 0.8;
-        starCol[i * 3] = starCol[i * 3 + 1] = starCol[i * 3 + 2] = 0;
+        starCol[b3] = starCol[b3 + 1] = starCol[b3 + 2] = 0;
       } else {
-        const distAhead = -lz;
-        const fade = smoothstep(STAR_FADE_FAR, STAR_FADE_NEAR, distAhead);
+        const fade = smoothstep(STAR_FADE_FAR, STAR_FADE_NEAR, -lz);
         const b    = fade * starBrightness[i];
-        starCol[i * 3] = starCol[i * 3 + 1] = starCol[i * 3 + 2] = b;
+        starCol[b3] = starCol[b3 + 1] = starCol[b3 + 2] = b;
       }
-
-      starAttr.setZ(i, lz);
+      starPos[b3 + 2] = lz;
     }
     starAttr.needsUpdate    = true;
     starColAttr.needsUpdate = true;
