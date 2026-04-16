@@ -1043,138 +1043,104 @@ Integrated (°)
   }
 
   // ─────────────────────────────────────────────────────────────────
-  //  DEVICE MOTION — rotationRate integration (no absolute-north snap)
+  //  DEVICE MOTION — direct gyro integration
   //
-  //  DeviceOrientationEvent gives absolute angles referenced to magnetic
-  //  North. The sensor periodically recalibrates, causing the camera to
-  //  snap back. DeviceMotionEvent.rotationRate gives angular velocity
-  //  (°/sec) which we integrate manually — motion is 100% relative,
-  //  the camera never snaps to any external reference frame.
+  //  rotationRate.beta/gamma (°/s) are multiplied by dt and accumulated
+  //  into integratedPitch/Yaw.  In the animate loop, camPitch/camYaw
+  //  lerp toward those values and are written straight to camera.rotation.
+  //  No targetQuat, no slerp chain, no exponential smoothing —
+  //  each layer was a place the signal could vanish.
   //
-  //  Pipeline per 'devicemotion' event:
-  //    1. Read rotationRate.beta / .gamma (°/sec)
-  //    2. Remap axes via window.orientation (portrait vs landscape)
-  //    3. Integrate: angle += rate × dt × INPUT_SCALE
-  //    4. Clamp integrated angles to ±MAX_LOOK_DEG
-  //    5. Exponential smooth: smooth = smooth × 0.9 + angle × 0.1
-  //    6. Build targetQuat from smoothed angles (YXZ — no gimbal lock)
-  //
-  //  Animate loop: velocity-based quaternion slerp
-  //    dist  = camera.quaternion.angleTo(targetQuat)     (radians)
-  //    alpha = BASE_ALPHA + dist × VEL_SCALE             (higher gap → faster)
-  //    t     = 1 − (1 − alpha)^(dt × 60)                (dt-corrected)
+  //  dt source priority: wall-clock diff (most reliable) → evt.interval → 16 ms
+  //  Null/NaN axis values: guarded with isFinite() before use
+  //  Orientation: screen.orientation.angle preferred over window.orientation
   // ─────────────────────────────────────────────────────────────────
-  const MAX_LOOK_DEG = 60;    // ±60° — wider range so fast ships don't escape view
-  const INPUT_SCALE  = 0.60;  // rotation rate multiplier
-  const EXP_SMOOTH   = 0.55;  // higher = faster tracking, less lag (was 0.10 — too sluggish)
-  const BASE_ALPHA   = 0.20;  // slerp base — snappier camera follow
-  const VEL_SCALE    = 0.60;  // velocity boost for large angular gaps
+  const MAX_LOOK_DEG = 60;   // ±60° hard clamp on integrated angle
+  const INPUT_SCALE  = 0.60; // overall sensitivity multiplier
 
-  // Integrated camera angles in degrees (purely relative — no North reference)
-  let integratedPitch = 0;
-  let integratedYaw   = 0;
+  let integratedPitch = 0;   // accumulated pitch degrees (never resets mid-session)
+  let integratedYaw   = 0;   // accumulated yaw degrees
+  let camPitch        = 0;   // rendered pitch (lerped toward integrated, in degrees)
+  let camYaw          = 0;   // rendered yaw
+  let _prevMotionMs   = 0;   // timestamp of last motion event for wall-clock dt
 
-  // Exponentially smoothed values — fed to targetQuat each event
-  let smoothedPitch = 0;
-  let smoothedYaw   = 0;
-
-  // Quaternion the camera slerps toward each frame
-  // Initialise with base pitch so neutral hold already looks downward
-  const targetEuler = new THREE.Euler(THREE.MathUtils.degToRad(BASE_PITCH_DEG), 0, 0, 'YXZ');
-  const targetQuat  = new THREE.Quaternion().setFromEuler(targetEuler);
-
-  let motionReady   = false;
-  let motionEvents  = 0;                              // total events received
-  const dbgEl       = document.getElementById('debug');
+  let motionReady  = false;
+  let motionEvents = 0;
+  const dbgEl      = document.getElementById('debug');
 
   function handleMotion(evt) {
     const rate = evt.rotationRate;
     motionEvents++;
 
-    // ── Debug overlay — throttled to every 4th event (~15 fps) ───
+    // ── Debug overlay (every 4th event ≈ 15 fps update) ───────────
     if (motionEvents % 4 === 0) {
-      const a  = rate?.alpha  ?? null;
-      const b  = rate?.beta   ?? null;
-      const g  = rate?.gamma  ?? null;
-      const fmt = v => v === null ? '  null' : v.toFixed(2).padStart(8);
+      const bRaw = rate?.beta,  gRaw = rate?.gamma;
+      const fmt  = v => (v == null || !isFinite(v)) ? '  null' : Number(v).toFixed(2).padStart(8);
       dbgEl.textContent =
-        `SENSOR DEBUG\n` +
-        `────────────────\n` +
+        `SENSOR DEBUG\n────────────────\n` +
         `Status : ${motionReady ? 'ACTIVE ✓' : 'WAITING…'}\n` +
         `Events : ${motionEvents}\n` +
-        `Interval: ${(evt.interval ?? 0).toFixed(1)} ms\n` +
-        `\n` +
+        `Interval: ${(evt.interval ?? 0).toFixed(1)} ms\n\n` +
         `rotationRate (°/s)\n` +
-        `  alpha :${fmt(a)}\n` +
-        `  beta  :${fmt(b)}\n` +
-        `  gamma :${fmt(g)}\n` +
-        `\n` +
+        `  beta  :${fmt(bRaw)}\n` +
+        `  gamma :${fmt(gRaw)}\n\n` +
         `Integrated (°)\n` +
         `  pitch :${integratedPitch.toFixed(2).padStart(8)}\n` +
-        `  yaw   :${integratedYaw.toFixed(2).padStart(8)}`;
+        `  yaw   :${integratedYaw.toFixed(2).padStart(8)}\n\n` +
+        `Camera (°)\n` +
+        `  pitch :${(camPitch).toFixed(2).padStart(8)}\n` +
+        `  yaw   :${(camYaw).toFixed(2).padStart(8)}`;
     }
 
+    // Guard: if rotationRate object itself is missing, skip
     if (!rate) return;
 
-    // evt.interval is ms between events — use it as dt so integration is exact
-    const dt = Math.min((evt.interval || 16) / 1000, 0.05);
+    // ── dt: wall-clock diff is most reliable; evt.interval is often 0 ──
+    const nowMs = performance.now();
+    const rawDt = _prevMotionMs > 0
+      ? (nowMs - _prevMotionMs) / 1000
+      : ((evt.interval > 0 ? evt.interval : 16) / 1000);
+    _prevMotionMs = nowMs;
+    const dt = Math.min(rawDt, 0.05);   // cap at 50 ms to survive tab-blur
 
-    // ── 1. Remap rotationRate axes to camera pitch / yaw ──────────
-    //
-    //  Device axes (right-hand rule):
-    //    rate.beta  — rotation around X (left→right edge), °/sec
-    //                 positive = top of phone tilts toward viewer
-    //    rate.gamma — rotation around Y (bottom→top edge), °/sec
-    //                 positive = right edge tilts toward viewer
-    //
-    //  Portrait   (ori=0):   beta→pitch, gamma→yaw  (standard mapping)
-    //  Landscape-L (ori=90): axes swap — beta→yaw, gamma→pitch
-    //    "tilting like a steering wheel" maps correctly in landscape
-    //  Landscape-R (ori=-90): axes swap with opposing signs
-    let deltaPitch, deltaYaw;
-    const ori = window.orientation ?? 0;
+    // ── Axis values: isFinite() catches null, undefined, NaN, Infinity ──
+    const beta  = isFinite(rate.beta)  ? rate.beta  : 0;   // pitch rate °/s
+    const gamma = isFinite(rate.gamma) ? rate.gamma : 0;   // yaw rate   °/s
 
-    if (ori === 90) {                      // landscape-left (home on left)
-      deltaPitch = -(rate.gamma ?? 0) * dt * INPUT_SCALE;
-      deltaYaw   =  (rate.beta  ?? 0) * dt * INPUT_SCALE;
-    } else if (ori === -90) {              // landscape-right (home on right)
-      deltaPitch =  (rate.gamma ?? 0) * dt * INPUT_SCALE;
-      deltaYaw   = -(rate.beta  ?? 0) * dt * INPUT_SCALE;
-    } else {                               // portrait (0) or inverted (180)
-      deltaPitch = -(rate.beta  ?? 0) * dt * INPUT_SCALE;
-      deltaYaw   = -(rate.gamma ?? 0) * dt * INPUT_SCALE;
+    // ── Orientation remap ─────────────────────────────────────────
+    //  screen.orientation.angle is the modern API (Chrome/Android).
+    //  window.orientation is the legacy API (Safari/iOS), returns 0/90/-90.
+    //  Both give 0 = portrait, 90 = landscape-left, 270/-90 = landscape-right.
+    const ori =
+      (typeof screen !== 'undefined' && screen.orientation?.angle != null)
+        ? screen.orientation.angle
+        : (window.orientation ?? 0);
+
+    let dPitch, dYaw;
+    if (ori === 90) {                          // landscape-left
+      dPitch = -gamma * dt * INPUT_SCALE;
+      dYaw   =  beta  * dt * INPUT_SCALE;
+    } else if (ori === 270 || ori === -90) {   // landscape-right
+      dPitch =  gamma * dt * INPUT_SCALE;
+      dYaw   = -beta  * dt * INPUT_SCALE;
+    } else {                                   // portrait (0 or 180)
+      dPitch = -beta  * dt * INPUT_SCALE;
+      dYaw   = -gamma * dt * INPUT_SCALE;
     }
 
-    // ── 2. Integrate and clamp ────────────────────────────────────
-    integratedPitch = THREE.MathUtils.clamp(
-      integratedPitch + deltaPitch, -MAX_LOOK_DEG, MAX_LOOK_DEG
-    );
-    integratedYaw = THREE.MathUtils.clamp(
-      integratedYaw + deltaYaw, -MAX_LOOK_DEG, MAX_LOOK_DEG
-    );
+    // ── Integrate — clamp so the camera never spins past ±MAX_LOOK_DEG ──
+    integratedPitch = Math.max(-MAX_LOOK_DEG, Math.min(MAX_LOOK_DEG, integratedPitch + dPitch));
+    integratedYaw   = Math.max(-MAX_LOOK_DEG, Math.min(MAX_LOOK_DEG, integratedYaw   + dYaw));
 
-    // ── 3. Exponential smoothing — kills high-frequency spikes ────
-    // Formula: currentValue = (lastValue × 0.9) + (newValue × 0.1)
-    // Low EXP_SMOOTH weight means fast shakes contribute little per frame;
-    // sustained tilts accumulate naturally through the integration above.
-    smoothedPitch = smoothedPitch * (1 - EXP_SMOOTH) + integratedPitch * EXP_SMOOTH;
-    smoothedYaw   = smoothedYaw   * (1 - EXP_SMOOTH) + integratedYaw   * EXP_SMOOTH;
-
-    // ── 4. Build target quaternion — BASE_PITCH_DEG is the neutral rest angle
-    targetEuler.x = THREE.MathUtils.degToRad(smoothedPitch + BASE_PITCH_DEG);
-    targetEuler.y = THREE.MathUtils.degToRad(smoothedYaw);
-    targetQuat.setFromEuler(targetEuler);
     motionReady = true;
   }
 
-  // On device rotation: reset integrated angles so the camera re-centres
-  // in the new orientation rather than jumping to a stale integrated value.
+  // On orientation flip: clear integrated angles so the view re-centres.
   window.addEventListener('orientationchange', () => {
-    integratedPitch = 0;
-    integratedYaw   = 0;
-    smoothedPitch   = 0;
-    smoothedYaw     = 0;
-    motionReady     = false;
+    integratedPitch = 0; integratedYaw = 0;
+    camPitch = 0; camYaw = 0;
+    _prevMotionMs = 0;
+    motionReady   = false;
   });
 
   // ─────────────────────────────────────────────────────────────────
@@ -2083,12 +2049,17 @@ Integrated (°)
       camera.position.lerp(CAM_BASE_POS, Math.min(1, 8 * dt));
     }
 
-    // ── Camera slerp — velocity-based alpha + quaternion interpolation ─
+    // ── Camera rotation — direct integration, no quaternion chain ───
+    //  camPitch/camYaw lerp toward the integrated target at ~18%/frame
+    //  (smooth but responsive), then assigned straight to camera.rotation.
+    //  camera.rotation.order = 'YXZ' ensures yaw applied before pitch
+    //  (no gimbal lock in normal play range).
     if (motionReady) {
-      const dist   = camera.quaternion.angleTo(targetQuat);
-      const alpha  = Math.min(0.92, BASE_ALPHA + dist * VEL_SCALE);
-      const slerpT = 1 - Math.pow(1 - alpha, dt * 60);
-      camera.quaternion.slerp(targetQuat, slerpT);
+      const lerpT  = Math.min(1, 0.18 * dt * 60);   // ~18 % per frame @ 60 fps
+      camPitch += (integratedPitch - camPitch) * lerpT;
+      camYaw   += (integratedYaw   - camYaw)   * lerpT;
+      camera.rotation.x = camPitch * (Math.PI / 180);
+      camera.rotation.y = camYaw   * (Math.PI / 180);
     }
 
     // ── Crosshair lerp + DOM update ──────────────────────────────────
