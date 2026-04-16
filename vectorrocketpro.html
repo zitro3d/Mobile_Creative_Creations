@@ -1560,10 +1560,10 @@ Integrated (°)
   //  Interception: player laser hits hitbox → Implode + 50 pt Counter-Fire bonus
   // ═══════════════════════════════════════════════════════════════════
   const EBOLT_COUNT    = 12;
-  const _epCoreGeo     = new THREE.IcosahedronGeometry(0.5, 2);
-  const _epShellGeo    = new THREE.IcosahedronGeometry(0.85, 2);
-  const _trailPartGeo  = new THREE.SphereGeometry(0.12, 3, 2);
-  const _hitboxSphGeo  = new THREE.SphereGeometry(1.1, 4, 3);
+  const _epCoreGeo     = new THREE.IcosahedronGeometry(1.8, 2);   // was 0.5 — too small to see at z=-100
+  const _epShellGeo    = new THREE.IcosahedronGeometry(3.0, 2);   // was 0.85
+  const _trailPartGeo  = new THREE.SphereGeometry(0.55, 3, 2);   // was 0.12
+  const _hitboxSphGeo  = new THREE.SphereGeometry(3.5, 4, 3);    // was 1.1 — scales with visual
   const _fovVec        = new THREE.Vector3();
   const shieldFlashEl  = document.getElementById('shield-flash');
   const whooshLeftEl   = document.getElementById('whoosh-left');
@@ -1592,8 +1592,8 @@ Integrated (°)
     shellMesh.frustumCulled = false; shellMesh.visible = false;
     scene.add(shellMesh);
 
-    // Orange point light — lights cockpit interior as ball approaches
-    const light = new THREE.PointLight(0xffa500, 0, 10);
+    // Orange point light — illuminates surrounding hull + cockpit as ball approaches
+    const light = new THREE.PointLight(0xffa500, 0, 60);
     scene.add(light);
 
     // Invisible raycaster hitbox — larger than visual shell for easier shooting
@@ -1652,7 +1652,7 @@ Integrated (°)
 
   // ── Implode effect pool — 6 slots (white→cyan shrink on interception) ─
   const IMPLODE_COUNT  = 6;
-  const _implodeSphGeo = new THREE.IcosahedronGeometry(0.8, 2);
+  const _implodeSphGeo = new THREE.IcosahedronGeometry(3.0, 2);   // matches shell geo
   const _implodeSlots  = Array.from({ length: IMPLODE_COUNT }, () => {
     const mat = new THREE.MeshBasicMaterial({
       color: 0xffffff, transparent: true, opacity: 0,
@@ -1661,7 +1661,7 @@ Integrated (°)
     const mesh = new THREE.Mesh(_implodeSphGeo, mat);
     mesh.frustumCulled = false; mesh.visible = false;
     scene.add(mesh);
-    const light = new THREE.PointLight(0x88aaff, 0, 30);
+    const light = new THREE.PointLight(0x88aaff, 0, 60);
     scene.add(light);
     return { mesh, mat, light, free: true, t0: 0 };
   });
@@ -1671,12 +1671,12 @@ Integrated (°)
     if (!slot) return;
     slot.free = false; slot.t0 = nowMs;
     slot.mesh.position.set(px, py, pz);
-    slot.mesh.scale.setScalar(1.8);
+    slot.mesh.scale.setScalar(1.5);   // starts at visual shell size, then shrinks
     slot.mesh.visible = true;
     slot.mat.opacity  = 1.0;
     slot.mat.color.setHex(0xffffff);
     slot.light.position.set(px, py, pz);
-    slot.light.intensity = 35;
+    slot.light.intensity = 50;
   }
 
   function updateImplodeEffects(nowMs) {
@@ -1695,7 +1695,7 @@ Integrated (°)
       // White → cyan-blue implosion colour shift
       slot.mat.color.setRGB(1 - prog * 0.6, 1 - prog * 0.3, 1.0);
       slot.mat.opacity     = (1 - prog) * (1 - prog);   // quadratic fade
-      slot.light.intensity = 35 * (1 - prog);
+      slot.light.intensity = 50 * (1 - prog);
     }
   }
 
@@ -1761,7 +1761,7 @@ Integrated (°)
     // hitboxMesh stays invisible — raycaster finds it regardless of .visible
 
     sl.light.position.set(fromX, fromY, fromZ);
-    sl.light.intensity = 1;
+    sl.light.intensity = 5;
 
     for (const tp of sl.trailMeshes) { tp.active = false; tp.mesh.visible = false; }
     sl.trailTimer = 0;
@@ -1796,7 +1796,7 @@ Integrated (°)
 
       // Orange point light — PointLight(0xFFA500) warms cockpit interior
       sl.light.position.set(sl.px, sl.py, sl.pz);
-      sl.light.intensity = 1.0 + Math.sin(nowMs * 0.007 + sl.wobblePhase) * 0.30;
+      sl.light.intensity = 5.0 + Math.sin(nowMs * 0.007 + sl.wobblePhase) * 2.0;
 
       // Trail particles — spawn every ~40 ms
       sl.trailTimer -= dt;
@@ -1822,14 +1822,14 @@ Integrated (°)
       }
 
       // ── Collision + near-miss detection at cockpit plane ──────────
-      //  Hit radius 0.7 is SMALLER than visual shell radius 0.85
-      //  so the ball appears to graze the cockpit without triggering a hit.
-      if (sl.pz >= -0.5) {
+      //  Visual shell r=3.0; hit r=2.0 (smaller) → ball appears to graze
+      //  cockpit without triggering damage — the near-miss feel.
+      if (sl.pz >= -1.5) {
         const r2 = sl.px * sl.px + sl.py * sl.py;
-        if (r2 < 0.49) {                        // hit: r < 0.7
+        if (r2 < 4.0) {                          // hit: r < 2.0 (smaller than shell 3.0)
           _deactivateBolt(sl);
           triggerShieldHit(nowMs);
-        } else if (!sl.whooshed && r2 < 9.0) {  // near-miss: 0.7 ≤ r < 3.0
+        } else if (!sl.whooshed && r2 < 49.0) {  // near-miss: 2.0 ≤ r < 7.0
           sl.whooshed = true;
           _triggerWhoosh(sl.px);
         }
