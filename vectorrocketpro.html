@@ -1208,6 +1208,9 @@ Integrated (°)
   let   aimY            = window.innerHeight / 2;
   let   lerpX           = aimX;                      // visual crosshair (lerped toward aim)
   let   lerpY           = aimY;
+  let   handRawX        = aimX;  // raw MediaPipe position (smoothed separately)
+  let   handRawY        = aimY;
+  let   isHandTracking  = false;
   let   aimReturnTimer  = null;
   let   _prevOnTarget   = false;
   const _projVec        = new THREE.Vector3();        // reused for screen-space projection
@@ -2081,6 +2084,7 @@ Integrated (°)
       // No hand detected — return crosshair to center after brief delay
       if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
         wasPinching = false;
+        isHandTracking = false;
         handStatusEl.dataset.state = 'none';
         clearTimeout(aimReturnTimer);
         aimReturnTimer = setTimeout(() => {
@@ -2104,10 +2108,9 @@ Integrated (°)
       // Move crosshair to index finger position.
       // Front camera is mirrored so MediaPipe x=0 is the right edge on screen — flip X.
       clearTimeout(aimReturnTimer);
-      setCrosshair(
-        (1 - idxTip.x) * window.innerWidth,
-        idxTip.y * window.innerHeight
-      );
+      handRawX = (1 - idxTip.x) * window.innerWidth;
+      handRawY = idxTip.y * window.innerHeight;
+      isHandTracking = true;
 
       const pinchDist = Math.sqrt(
         (thumbTip.x - idxTip.x) ** 2 +
@@ -2156,6 +2159,7 @@ Integrated (°)
   renderer.domElement.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
     touchPointerId = ev.pointerId;   // always update — clears any stuck state
+    isHandTracking = false;
     clearTimeout(aimReturnTimer);
     aimX = ev.clientX;
     aimY = ev.clientY;
@@ -2164,6 +2168,7 @@ Integrated (°)
   renderer.domElement.addEventListener('pointermove', (ev) => {
     if (ev.buttons === 0) return;    // no touch/button active — ignore hover
     ev.preventDefault();
+    isHandTracking = false;
     aimX = ev.clientX;
     aimY = ev.clientY;
   }, { passive: false });
@@ -2511,6 +2516,13 @@ Integrated (°)
       camYaw   += (integratedYaw   - camYaw)   * lerpT;
       camera.rotation.x = camPitch * (Math.PI / 180);
       camera.rotation.y = camYaw   * (Math.PI / 180);
+    }
+
+    // ── Hand tracking pre-smooth — tame MediaPipe jitter before DOM lerp ─
+    if (isHandTracking) {
+      const hs = Math.min(1, 0.15 * dt * 60);  // ~15% per frame = ~100ms lag, kills jitter
+      aimX += (handRawX - aimX) * hs;
+      aimY += (handRawY - aimY) * hs;
     }
 
     // ── Crosshair lerp + DOM update — 0.5 alpha = half the gap per frame ──
