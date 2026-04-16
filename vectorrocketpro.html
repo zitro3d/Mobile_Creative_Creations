@@ -171,12 +171,6 @@
       pointer-events: none;
       overflow: hidden;
     }
-    #cockpit-frame {
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(ellipse 70% 58% at 50% 50%,
-        transparent 48%, rgba(0,3,18,0.72) 74%, rgba(0,2,14,0.97) 100%);
-    }
     #cockpit-border {
       position: absolute;
       inset: 3%;
@@ -247,7 +241,6 @@ Integrated (°)
 
   <!-- Cockpit HUD — pointer-events: none so it never blocks input -->
   <div id="hud">
-    <div id="cockpit-frame"></div>
     <div id="cockpit-border"></div>
     <div id="crosshair"><div id="crosshair-ring"></div></div>
   </div>
@@ -388,37 +381,6 @@ Integrated (°)
   ptRight.position.set( 15, 5, -10);
   scene.add(ptRight);
 
-  // ─────────────────────────────────────────────────────────────────
-  //  GROUND PLANE — dark canyon floor gives the eye a reference point
-  // ─────────────────────────────────────────────────────────────────
-  (function buildGround() {
-    // Canvas-generated subtle cyan grid — no external texture file needed
-    const SZ   = 512;
-    const cvs  = document.createElement('canvas');
-    cvs.width  = cvs.height = SZ;
-    const ctx  = cvs.getContext('2d');
-    ctx.fillStyle = '#06060f';
-    ctx.fillRect(0, 0, SZ, SZ);
-    ctx.strokeStyle = 'rgba(0,220,255,0.07)';
-    ctx.lineWidth   = 1;
-    const cells = 16;
-    for (let i = 0; i <= cells; i++) {
-      const p = (i / cells) * SZ;
-      ctx.beginPath(); ctx.moveTo(p, 0);  ctx.lineTo(p, SZ); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0,  p); ctx.lineTo(SZ, p); ctx.stroke();
-    }
-    const tex        = new THREE.CanvasTexture(cvs);
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(24, 24);
-
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(4000, 4000),
-      new THREE.MeshStandardMaterial({ map: tex, roughness: 1.0, metalness: 0.0 })
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -30;   // deeper below ships so top-deck view has clearance
-    scene.add(ground);
-  })();
 
   // ─────────────────────────────────────────────────────────────────
   //  FIGHTER JET GLB MODEL — LoadingManager drives the loading bar
@@ -755,49 +717,38 @@ Integrated (°)
     return false;
   }
 
-  // Pick the next 3-D waypoint based on where the ship currently is.
-  // Increments passCount; returns null when maxPasses is exhausted.
-  //
-  // Key rule: never assign a waypoint that requires > ~100° of turning.
-  // For deep-ahead ships (flying in -Z), arc them SIDEWAYS first so the
-  // ship banks naturally rather than decelerating and pivoting in place.
+  // Pick the next 3-D waypoint.
+  // ALWAYS arcs ≈90° from the ship's current heading — never assigns a
+  // target that would require a U-turn (180°) or sharp pivot (>120°).
   function nextWaypoint(es) {
     es.passCount++;
     if (es.passCount > es.maxPasses) return null;
 
-    // Y floor: keep base well above ground (ground=-30, wobble up to ±17)
-    const ty = Math.max(-10, (Math.random() - 0.2) * 70);
+    const ty = 5 + Math.random() * 35;   // 5..40 — ships stay in sky
     const px = es.baseX, pz = es.baseZ;
 
-    if (pz < -200) {
-      // Deep ahead, flying roughly in −Z. Avoid reverse waypoints.
-      // Instead: arc perpendicular to current heading (≈ 90° turn).
-      const hspd   = Math.sqrt(es.velX*es.velX + es.velZ*es.velZ);
-      const hdgX   = hspd > 1 ? es.velX/hspd : 0;
-      const hdgZ   = hspd > 1 ? es.velZ/hspd : -1;
-      const pSign  = Math.random() < 0.5 ? 1 : -1;
-      // Perpendicular: rotate heading 90° in XZ → (-hdgZ, hdgX)
-      return {
-        x: px + (-hdgZ * pSign) * (130 + Math.random() * 90),
-        y: ty,
-        z: pz  + (70  + Math.random() * 110),   // slight forward arc
-      };
-    } else if (pz > 60) {
-      // Behind camera — bank diagonally back toward the front
-      return {
-        x: (Math.random() - 0.5) * 200,
-        y: ty,
-        z: -240 - Math.random() * 200,
-      };
-    } else {
-      // Mid-arena — sweep to opposite quadrant (≤ ~90° turn)
-      const side = px > 0 ? -1 : 1;
-      return {
-        x: side * (60 + Math.random() * 80),
-        y: ty,
-        z: pz > -80 ? -360 : 120,
-      };
-    }
+    // Horizontal heading unit vector — fallback to -Z if nearly stopped
+    const hspd = Math.sqrt(es.velX * es.velX + es.velZ * es.velZ);
+    const hdgX = hspd > 1 ? es.velX / hspd : 0;
+    const hdgZ = hspd > 1 ? es.velZ / hspd : -1;
+
+    // Rotate heading 90° left or right in the XZ plane
+    const pSign = Math.random() < 0.5 ? 1 : -1;
+    const perpX = -hdgZ * pSign;   // perpendicular direction X
+    const perpZ =  hdgX * pSign;   // perpendicular direction Z
+
+    // Target = sideways arc + slight forward nudge so ships don't loop in place
+    const sideDist = 130 + Math.random() * 90;
+    const fwdDist  =  50 + Math.random() * 80;
+
+    let tx = px + perpX * sideDist + hdgX * fwdDist;
+    let tz = pz + perpZ * sideDist + hdgZ * fwdDist;
+
+    // Clamp to arena so ships can't wander off into infinity
+    tx = Math.max(-270, Math.min(270, tx));
+    tz = Math.max(-500, Math.min(160, tz));
+
+    return { x: tx, y: ty, z: tz };
   }
 
   function activateEnemy(i) {
@@ -815,18 +766,19 @@ Integrated (°)
     es.wobbleAmp  = style.wobbleAmp;
     es.wobbleFreq = style.wobbleFreq + Math.random() * 0.15;
     es.wobblePhase = Math.random() * Math.PI * 2;
-    es.maxPasses  = 2 + Math.floor(Math.random() * 3);  // 2–4 passes
+    es.maxPasses  = 4 + Math.floor(Math.random() * 3);  // 4–6 passes — more time in arena
 
     // ── Spawn position ─────────────────────────────────────────────
-    const spawnY  = Math.max(-10, (Math.random() - 0.2) * 70);  // −10..+56
+    // Y kept well above ground (ground=−30) so ships appear in the sky,
+    // not near the grid at the bottom of the screen.
+    const spawnY  = 10 + Math.random() * 30;  // 10..40 — center-to-upper screen
     let spawnX, spawnZ;
     const typeRoll = Math.random();
     es.spawnType   = typeRoll < 0.5 ? 'FRONT' : typeRoll < 0.75 ? 'REAR' : 'SIDE';
 
     if (es.spawnType === 'FRONT') {
-      const side = Math.random() < 0.5 ? 1 : -1;
-      spawnX = side * (40 + Math.random() * 60);
-      spawnZ = -480;
+      spawnX = (Math.random() - 0.5) * 160;   // full −80..+80 range, through center
+      spawnZ = -360;                           // close enough to be visible immediately
     } else if (es.spawnType === 'REAR') {
       spawnX = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 60);
       spawnZ = 180;
@@ -841,7 +793,22 @@ Integrated (°)
     es.passCount = 0;
 
     // ── First waypoint ─────────────────────────────────────────────
-    const wp = nextWaypoint(es);
+    // FRONT ships must fly TOWARD the camera, not sideways.
+    // nextWaypoint() uses the perpendicular-arc branch for pz < -200,
+    // which would send a fresh FRONT ship off-screen immediately.
+    // Instead, give FRONT ships a direct aim-point near z=0.
+    let wp;
+    if (es.spawnType === 'FRONT') {
+      wp = {
+        x: (Math.random() - 0.5) * 80,   // aim through center ±40 units
+        y: 8 + Math.random() * 22,        // 8–30 units up: center-screen height
+        z: -20 + Math.random() * 60,      // z: −20..+40 — passes through the player
+      };
+      // passCount stays 0 — the animate loop calls nextWaypoint when ship
+      // reaches this point, picking up normal arc logic at that stage.
+    } else {
+      wp = nextWaypoint(es);
+    }
     if (!wp) return;
     es.targetX = wp.x; es.targetY = wp.y; es.targetZ = wp.z;
 
@@ -882,11 +849,11 @@ Integrated (°)
   //    alpha = BASE_ALPHA + dist × VEL_SCALE             (higher gap → faster)
   //    t     = 1 − (1 − alpha)^(dt × 60)                (dt-corrected)
   // ─────────────────────────────────────────────────────────────────
-  const MAX_LOOK_DEG = 55;    // ±55° integrated angle hard clamp
-  const INPUT_SCALE  = 0.85;  // rotationRate multiplier — higher = more responsive tilt
-  const EXP_SMOOTH   = 0.20;  // exponential filter weight — 0.20 = snappy but smooth
-  const BASE_ALPHA   = 0.14;  // slerp base fraction — camera tracks phone tilt directly
-  const VEL_SCALE    = 0.65;  // extra alpha per radian of angular distance
+  const MAX_LOOK_DEG = 45;    // ±45° integrated angle hard clamp
+  const INPUT_SCALE  = 0.85;  // rotationRate multiplier — increased for snappy tracking
+  const EXP_SMOOTH   = 0.10;  // exponential filter weight (lower = heavier)
+  const BASE_ALPHA   = 0.14;  // raised — camera catches fast-moving ships
+  const VEL_SCALE    = 0.65;  // velocity boost so wide swings are fast
 
   // Integrated camera angles in degrees (purely relative — no North reference)
   let integratedPitch = 0;
@@ -902,18 +869,12 @@ Integrated (°)
   const targetQuat  = new THREE.Quaternion().setFromEuler(targetEuler);
 
   let motionReady   = false;
-  let motionEvents  = 0;
-  let lastMotionMs  = 0;   // tracks real time between events — evt.interval unreliable
+  let motionEvents  = 0;                              // total events received
   const dbgEl       = document.getElementById('debug');
 
   function handleMotion(evt) {
     const rate = evt.rotationRate;
     motionEvents++;
-    const nowMs = performance.now();
-    const dt    = lastMotionMs > 0
-                    ? Math.min((nowMs - lastMotionMs) / 1000, 0.05)
-                    : 0.016;
-    lastMotionMs = nowMs;
 
     // ── Debug overlay — throttled to every 4th event (~15 fps) ───
     if (motionEvents % 4 === 0) {
@@ -939,6 +900,9 @@ Integrated (°)
     }
 
     if (!rate) return;
+
+    // evt.interval is ms between events — use it as dt so integration is exact
+    const dt = Math.min((evt.interval || 16) / 1000, 0.05);
 
     // ── 1. Remap rotationRate axes to camera pitch / yaw ──────────
     //
@@ -997,6 +961,29 @@ Integrated (°)
     smoothedYaw     = 0;
     motionReady     = false;
   });
+
+  // ─────────────────────────────────────────────────────────────────
+  //  CROSSHAIR AIM STATE — finger drag or hand-index tracking moves it
+  //
+  //  setCrosshair(x, y)        — immediate jump (finger drag)
+  //  setCrosshair(x, y, true)  — smooth CSS transition (return-to-center)
+  // ─────────────────────────────────────────────────────────────────
+  const crosshairEl  = document.getElementById('crosshair');
+  let   aimX         = window.innerWidth  / 2;
+  let   aimY         = window.innerHeight / 2;
+  let   aimReturnTimer = null;
+
+  function setCrosshair(x, y, smooth = false) {
+    aimX = x;
+    aimY = y;
+    crosshairEl.style.transition = smooth
+      ? 'left 0.45s ease-out, top 0.45s ease-out'
+      : 'none';
+    crosshairEl.style.left = x + 'px';
+    crosshairEl.style.top  = y + 'px';
+  }
+  // Set initial pixel position (overrides the CSS 50%/50%)
+  setCrosshair(aimX, aimY);
 
   // ─────────────────────────────────────────────────────────────────
   //  COMBAT — shared state, effects, and triggerShoot()
@@ -1075,7 +1062,11 @@ Integrated (°)
     if (nowMs - lastFireMs < FIRE_COOL_MS) return;
     lastFireMs = nowMs;
 
-    raycaster.setFromCamera(ndcVec || new THREE.Vector2(0, 0), camera);
+    const ndc = ndcVec || new THREE.Vector2(
+      (aimX / window.innerWidth ) *  2 - 1,
+      (aimY / window.innerHeight) * -2 + 1
+    );
+    raycaster.setFromCamera(ndc, camera);
 
     const hits = [];
     for (const en of enemies) {
@@ -1143,10 +1134,14 @@ Integrated (°)
     });
 
     handsDetector.onResults((results) => {
-      // No hand detected
+      // No hand detected — return crosshair to center after brief delay
       if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
         wasPinching = false;
         handStatusEl.dataset.state = 'none';
+        clearTimeout(aimReturnTimer);
+        aimReturnTimer = setTimeout(() => {
+          setCrosshair(window.innerWidth / 2, window.innerHeight / 2, true);
+        }, 400);
         return;
       }
 
@@ -1162,6 +1157,14 @@ Integrated (°)
       const thumbTip = lm[4];   // thumb tip
       const idxTip   = lm[8];   // index finger tip
 
+      // Move crosshair to index finger position.
+      // Front camera is mirrored so MediaPipe x=0 is the right edge on screen — flip X.
+      clearTimeout(aimReturnTimer);
+      setCrosshair(
+        (1 - idxTip.x) * window.innerWidth,
+        idxTip.y * window.innerHeight
+      );
+
       const pinchDist = Math.sqrt(
         (thumbTip.x - idxTip.x) ** 2 +
         (thumbTip.y - idxTip.y) ** 2
@@ -1174,7 +1177,7 @@ Integrated (°)
       handStatusEl.dataset.state = isPinching ? 'pinch' : 'open';
 
       if (isPinching && !wasPinching) {
-        triggerShoot();   // fire at crosshair — aiming is done via gyroscope
+        triggerShoot();   // fires at current aimX/aimY (where index finger points)
       }
       wasPinching = isPinching;
     });
@@ -1196,36 +1199,37 @@ Integrated (°)
       });
   }
 
-  // ── Touch fallback — fires if hand tracking isn't running ────────
-  //  Simple tap (no flick required) since aiming is via gyro
-  let   flickStart    = null;
-  let   flickPointerId = -1;
-  const FLICK_MIN     = 30;
-  const FLICK_MAX_T   = 300;
+  // ── Touch / pointer aim — drag finger to move crosshair, release fires ─
+  //  pointerdown → snap crosshair to touch position
+  //  pointermove → crosshair follows finger in real-time
+  //  pointerup   → fire at current crosshair, then drift back to center
+  let touchPointerId = -1;
 
   renderer.domElement.addEventListener('pointerdown', (ev) => {
-    if (flickPointerId !== -1) return;
+    if (touchPointerId !== -1) return;
     ev.preventDefault();
-    flickPointerId = ev.pointerId;
-    flickStart = { x: ev.clientX, y: ev.clientY, t: performance.now() };
+    touchPointerId = ev.pointerId;
+    clearTimeout(aimReturnTimer);
+    setCrosshair(ev.clientX, ev.clientY);
+  }, { passive: false });
+
+  renderer.domElement.addEventListener('pointermove', (ev) => {
+    if (ev.pointerId !== touchPointerId) return;
+    ev.preventDefault();
+    setCrosshair(ev.clientX, ev.clientY);
   }, { passive: false });
 
   renderer.domElement.addEventListener('pointerup', (ev) => {
-    if (ev.pointerId !== flickPointerId) return;
-    flickPointerId = -1;
-    if (!flickStart) return;
-    const dx = ev.clientX - flickStart.x, dy = ev.clientY - flickStart.y;
-    const dist = Math.sqrt(dx*dx + dy*dy), elapsed = performance.now() - flickStart.t;
-    flickStart = null;
-    if (dist < FLICK_MIN || elapsed > FLICK_MAX_T) return;
-    // Fire through the flick endpoint
-    const ndcX = (ev.clientX / window.innerWidth ) * 2 - 1;
-    const ndcY = -(ev.clientY / window.innerHeight) * 2 + 1;
-    triggerShoot(new THREE.Vector2(ndcX, ndcY));
+    if (ev.pointerId !== touchPointerId) return;
+    touchPointerId = -1;
+    triggerShoot();   // fires at wherever the finger lifted
+    aimReturnTimer = setTimeout(() => {
+      setCrosshair(window.innerWidth / 2, window.innerHeight / 2, true);
+    }, 450);
   }, { passive: false });
 
   renderer.domElement.addEventListener('pointercancel', (ev) => {
-    if (ev.pointerId === flickPointerId) { flickPointerId = -1; flickStart = null; }
+    if (ev.pointerId === touchPointerId) touchPointerId = -1;
   });
 
   document.getElementById('start-btn').addEventListener('click', async () => {
@@ -1418,8 +1422,8 @@ Integrated (°)
       es.baseX += es.velX * dt;
       es.baseY += es.velY * dt;
       es.baseZ += es.velZ * dt;
-      // Y floor: keep above ground (ground=−30, wobble up to ±17)
-      if (es.baseY < -13) { es.baseY = -13; if (es.velY < 0) es.velY = 0; }
+      // Y floor: keep above grid (ground=−30)
+      if (es.baseY < 3) { es.baseY = 3; if (es.velY < 0) es.velY = 0; }
 
       e.group.position.x = es.baseX + wobX;
       e.group.position.y = es.baseY + wobY;
