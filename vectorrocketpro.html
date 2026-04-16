@@ -824,8 +824,7 @@ Integrated (°)
     es.spawnType   = typeRoll < 0.5 ? 'FRONT' : typeRoll < 0.75 ? 'REAR' : 'SIDE';
 
     if (es.spawnType === 'FRONT') {
-      const side = Math.random() < 0.5 ? 1 : -1;
-      spawnX = side * (40 + Math.random() * 60);
+      spawnX = (Math.random() - 0.5) * 160;   // full −80..+80 range, passes through center
       spawnZ = -480;
     } else if (es.spawnType === 'REAR') {
       spawnX = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 60);
@@ -883,10 +882,10 @@ Integrated (°)
   //    t     = 1 − (1 − alpha)^(dt × 60)                (dt-corrected)
   // ─────────────────────────────────────────────────────────────────
   const MAX_LOOK_DEG = 45;    // ±45° integrated angle hard clamp
-  const INPUT_SCALE  = 0.35;  // rotationRate multiplier — tune movement feel
+  const INPUT_SCALE  = 0.85;  // rotationRate multiplier — increased for snappy tracking
   const EXP_SMOOTH   = 0.10;  // exponential filter weight (lower = heavier)
-  const BASE_ALPHA   = 0.05;  // reduced — camera drifts into position like a heavy vessel
-  const VEL_SCALE    = 0.45;  // velocity boost capped lower for smoother feel
+  const BASE_ALPHA   = 0.14;  // raised — camera catches fast-moving ships
+  const VEL_SCALE    = 0.65;  // velocity boost so wide swings are fast
 
   // Integrated camera angles in degrees (purely relative — no North reference)
   let integratedPitch = 0;
@@ -996,6 +995,29 @@ Integrated (°)
   });
 
   // ─────────────────────────────────────────────────────────────────
+  //  CROSSHAIR AIM STATE — finger drag or hand-index tracking moves it
+  //
+  //  setCrosshair(x, y)        — immediate jump (finger drag)
+  //  setCrosshair(x, y, true)  — smooth CSS transition (return-to-center)
+  // ─────────────────────────────────────────────────────────────────
+  const crosshairEl  = document.getElementById('crosshair');
+  let   aimX         = window.innerWidth  / 2;
+  let   aimY         = window.innerHeight / 2;
+  let   aimReturnTimer = null;
+
+  function setCrosshair(x, y, smooth = false) {
+    aimX = x;
+    aimY = y;
+    crosshairEl.style.transition = smooth
+      ? 'left 0.45s ease-out, top 0.45s ease-out'
+      : 'none';
+    crosshairEl.style.left = x + 'px';
+    crosshairEl.style.top  = y + 'px';
+  }
+  // Set initial pixel position (overrides the CSS 50%/50%)
+  setCrosshair(aimX, aimY);
+
+  // ─────────────────────────────────────────────────────────────────
   //  COMBAT — shared state, effects, and triggerShoot()
   //  Two input sources call triggerShoot():
   //    1. MediaPipe hand tracking  — pinch gesture on right hand
@@ -1072,7 +1094,11 @@ Integrated (°)
     if (nowMs - lastFireMs < FIRE_COOL_MS) return;
     lastFireMs = nowMs;
 
-    raycaster.setFromCamera(ndcVec || new THREE.Vector2(0, 0), camera);
+    const ndc = ndcVec || new THREE.Vector2(
+      (aimX / window.innerWidth ) *  2 - 1,
+      (aimY / window.innerHeight) * -2 + 1
+    );
+    raycaster.setFromCamera(ndc, camera);
 
     const hits = [];
     for (const en of enemies) {
@@ -1140,10 +1166,14 @@ Integrated (°)
     });
 
     handsDetector.onResults((results) => {
-      // No hand detected
+      // No hand detected — return crosshair to center after brief delay
       if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
         wasPinching = false;
         handStatusEl.dataset.state = 'none';
+        clearTimeout(aimReturnTimer);
+        aimReturnTimer = setTimeout(() => {
+          setCrosshair(window.innerWidth / 2, window.innerHeight / 2, true);
+        }, 400);
         return;
       }
 
@@ -1159,6 +1189,14 @@ Integrated (°)
       const thumbTip = lm[4];   // thumb tip
       const idxTip   = lm[8];   // index finger tip
 
+      // Move crosshair to index finger position.
+      // Front camera is mirrored so MediaPipe x=0 is the right edge on screen — flip X.
+      clearTimeout(aimReturnTimer);
+      setCrosshair(
+        (1 - idxTip.x) * window.innerWidth,
+        idxTip.y * window.innerHeight
+      );
+
       const pinchDist = Math.sqrt(
         (thumbTip.x - idxTip.x) ** 2 +
         (thumbTip.y - idxTip.y) ** 2
@@ -1171,7 +1209,7 @@ Integrated (°)
       handStatusEl.dataset.state = isPinching ? 'pinch' : 'open';
 
       if (isPinching && !wasPinching) {
-        triggerShoot();   // fire at crosshair — aiming is done via gyroscope
+        triggerShoot();   // fires at current aimX/aimY (where index finger points)
       }
       wasPinching = isPinching;
     });
@@ -1193,36 +1231,37 @@ Integrated (°)
       });
   }
 
-  // ── Touch fallback — fires if hand tracking isn't running ────────
-  //  Simple tap (no flick required) since aiming is via gyro
-  let   flickStart    = null;
-  let   flickPointerId = -1;
-  const FLICK_MIN     = 30;
-  const FLICK_MAX_T   = 300;
+  // ── Touch / pointer aim — drag finger to move crosshair, release fires ─
+  //  pointerdown → snap crosshair to touch position
+  //  pointermove → crosshair follows finger in real-time
+  //  pointerup   → fire at current crosshair, then drift back to center
+  let touchPointerId = -1;
 
   renderer.domElement.addEventListener('pointerdown', (ev) => {
-    if (flickPointerId !== -1) return;
+    if (touchPointerId !== -1) return;
     ev.preventDefault();
-    flickPointerId = ev.pointerId;
-    flickStart = { x: ev.clientX, y: ev.clientY, t: performance.now() };
+    touchPointerId = ev.pointerId;
+    clearTimeout(aimReturnTimer);
+    setCrosshair(ev.clientX, ev.clientY);
+  }, { passive: false });
+
+  renderer.domElement.addEventListener('pointermove', (ev) => {
+    if (ev.pointerId !== touchPointerId) return;
+    ev.preventDefault();
+    setCrosshair(ev.clientX, ev.clientY);
   }, { passive: false });
 
   renderer.domElement.addEventListener('pointerup', (ev) => {
-    if (ev.pointerId !== flickPointerId) return;
-    flickPointerId = -1;
-    if (!flickStart) return;
-    const dx = ev.clientX - flickStart.x, dy = ev.clientY - flickStart.y;
-    const dist = Math.sqrt(dx*dx + dy*dy), elapsed = performance.now() - flickStart.t;
-    flickStart = null;
-    if (dist < FLICK_MIN || elapsed > FLICK_MAX_T) return;
-    // Fire through the flick endpoint
-    const ndcX = (ev.clientX / window.innerWidth ) * 2 - 1;
-    const ndcY = -(ev.clientY / window.innerHeight) * 2 + 1;
-    triggerShoot(new THREE.Vector2(ndcX, ndcY));
+    if (ev.pointerId !== touchPointerId) return;
+    touchPointerId = -1;
+    triggerShoot();   // fires at wherever the finger lifted
+    aimReturnTimer = setTimeout(() => {
+      setCrosshair(window.innerWidth / 2, window.innerHeight / 2, true);
+    }, 450);
   }, { passive: false });
 
   renderer.domElement.addEventListener('pointercancel', (ev) => {
-    if (ev.pointerId === flickPointerId) { flickPointerId = -1; flickStart = null; }
+    if (ev.pointerId === touchPointerId) touchPointerId = -1;
   });
 
   document.getElementById('start-btn').addEventListener('click', async () => {
