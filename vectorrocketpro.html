@@ -1546,24 +1546,48 @@ Integrated (°)
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  //  PLASMA BALL POOL — IcosahedronGeometry projectiles from enemy ships
+  //  PLASMA BALL POOL — sprite glow + IcosahedronGeometry core + beam trail
   //
-  //  Core:    white MeshBasicMaterial, IcosahedronGeometry(0.5, 2)
-  //  Shell:   pulsating orange/yellow IcosahedronGeometry(0.85, 2), AdditiveBlending
-  //  Speed:   90 units/s (1.5 units/frame at 60fps)
-  //  Trail:   8 pre-allocated tiny sphere sprites per bolt, fade over ~0.25 s
-  //  Light:   PointLight(0xFFA500, 1, 10) — warms cockpit interior
-  //  Hitbox:  invisible SphereGeometry(1.1) — larger than visual, easier to intercept
+  //  Primary visual: canvas-gradient Sprite (20×20 units, always faces camera)
+  //    white core → yellow → orange → dark red edge — VERY visible at all ranges.
   //
-  //  Player hit:   pz >= -0.5, r < 0.7   (SMALLER than visual shell r=0.85 → near-miss feel)
-  //  Near-miss:    pz >= -0.5, 0.7 ≤ r < 3.0 → whoosh edge-blur on the passing side
-  //  Interception: player laser hits hitbox → Implode + 50 pt Counter-Fire bonus
+  //  Beam trail: cylinder from ship spawn to ball tip — shows the path/direction.
+  //
+  //  Core: IcosahedronGeometry(1.5) wobbles 0.9–1.1 for organic 3-D feel.
+  //  Speed: 90 u/s. PointLight(0xFF6600) range 80 lights hull orange.
+  //  Hitbox: SphereGeometry(3.5) invisible, raycaster only.
+  //
+  //  Player hit:  pz >= -1.5, r < 2.0  (smaller than sprite ~10 u → near-miss)
+  //  Near-miss:   r < 7.0 → whoosh edge-glow
+  //  Interception: laser hits hitbox → implode + 50 pt Counter-Fire bonus
   // ═══════════════════════════════════════════════════════════════════
+
+  // ── Plasma sprite texture — white-hot core → orange → dark red ────
+  function _makePlasmaSpriteTex() {
+    const SZ  = 128;
+    const cvs = document.createElement('canvas');
+    cvs.width = cvs.height = SZ;
+    const ctx = cvs.getContext('2d');
+    const grd = ctx.createRadialGradient(SZ/2,SZ/2,0, SZ/2,SZ/2,SZ/2);
+    grd.addColorStop(0.00, 'rgba(255,255,255,1.0)');
+    grd.addColorStop(0.12, 'rgba(255,240,150,0.95)');
+    grd.addColorStop(0.28, 'rgba(255,160,20,0.80)');
+    grd.addColorStop(0.50, 'rgba(255,80,0,0.45)');
+    grd.addColorStop(0.72, 'rgba(200,20,0,0.15)');
+    grd.addColorStop(1.00, 'rgba(0,0,0,0.00)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, SZ, SZ);
+    return new THREE.CanvasTexture(cvs);
+  }
+  const _plasmaTex     = _makePlasmaSpriteTex();
+
   const EBOLT_COUNT    = 12;
-  const _epCoreGeo     = new THREE.IcosahedronGeometry(1.8, 2);   // was 0.5 — too small to see at z=-100
-  const _epShellGeo    = new THREE.IcosahedronGeometry(3.0, 2);   // was 0.85
-  const _trailPartGeo  = new THREE.SphereGeometry(0.55, 3, 2);   // was 0.12
-  const _hitboxSphGeo  = new THREE.SphereGeometry(3.5, 4, 3);    // was 1.1 — scales with visual
+  const _epCoreGeo     = new THREE.IcosahedronGeometry(1.5, 2);
+  const _trailPartGeo  = new THREE.SphereGeometry(0.55, 3, 2);
+  const _hitboxSphGeo  = new THREE.SphereGeometry(3.5, 4, 3);
+  const _beamTrailGeo  = new THREE.CylinderGeometry(0.18, 0.18, 1, 6, 1);
+  const _beamTrailAxis = new THREE.Vector3(0, 1, 0);
+  const _beamTrailDir  = new THREE.Vector3();
   const _fovVec        = new THREE.Vector3();
   const shieldFlashEl  = document.getElementById('shield-flash');
   const whooshLeftEl   = document.getElementById('whoosh-left');
@@ -1574,7 +1598,17 @@ Integrated (°)
   const TRAIL_PER_BOLT = 8;
 
   const _eboltPool = Array.from({ length: EBOLT_COUNT }, () => {
-    // White core
+    // ── Primary: billboard sprite glow ────────────────────────────
+    const spriteMat = new THREE.SpriteMaterial({
+      map: _plasmaTex, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0,
+    });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.scale.set(18, 18, 1);
+    sprite.visible = false;
+    scene.add(sprite);
+
+    // ── IcosahedronGeometry core — wobbles for 3-D feel ───────────
     const coreMat  = new THREE.MeshBasicMaterial({
       color: 0xffffff, transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false,
@@ -1583,20 +1617,20 @@ Integrated (°)
     coreMesh.frustumCulled = false; coreMesh.visible = false;
     scene.add(coreMesh);
 
-    // Orange/yellow pulsating shell
-    const shellMat  = new THREE.MeshBasicMaterial({
-      color: 0xff8800, transparent: true, opacity: 0,
+    // ── Beam trail: cylinder from spawn to ball ────────────────────
+    const beamMat  = new THREE.MeshBasicMaterial({
+      color: 0xff7700, transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false,
     });
-    const shellMesh = new THREE.Mesh(_epShellGeo, shellMat);
-    shellMesh.frustumCulled = false; shellMesh.visible = false;
-    scene.add(shellMesh);
+    const trailBeam = new THREE.Mesh(_beamTrailGeo, beamMat);
+    trailBeam.frustumCulled = false; trailBeam.visible = false;
+    scene.add(trailBeam);
 
-    // Orange point light — illuminates surrounding hull + cockpit as ball approaches
-    const light = new THREE.PointLight(0xffa500, 0, 60);
+    // ── Orange point light ─────────────────────────────────────────
+    const light = new THREE.PointLight(0xff6600, 0, 80);
     scene.add(light);
 
-    // Invisible raycaster hitbox — larger than visual shell for easier shooting
+    // ── Invisible hitbox for raycaster interception ────────────────
     const hitboxMat  = new THREE.MeshBasicMaterial({
       transparent: true, opacity: 0, depthWrite: false,
     });
@@ -1604,10 +1638,10 @@ Integrated (°)
     hitboxMesh.frustumCulled = false; hitboxMesh.visible = false;
     scene.add(hitboxMesh);
 
-    // Trail particles
+    // ── Particle trail ────────────────────────────────────────────
     const trailMeshes = Array.from({ length: TRAIL_PER_BOLT }, () => {
       const tMat = new THREE.MeshBasicMaterial({
-        color: 0xff6600, transparent: true, opacity: 0,
+        color: 0xff8800, transparent: true, opacity: 0,
         blending: THREE.AdditiveBlending, depthWrite: false,
       });
       const tMesh = new THREE.Mesh(_trailPartGeo, tMat);
@@ -1617,10 +1651,14 @@ Integrated (°)
     });
 
     return {
-      coreMesh, coreMat, shellMesh, shellMat,
-      hitboxMesh, hitboxMat, light, trailMeshes,
+      sprite, spriteMat,
+      coreMesh, coreMat,
+      trailBeam, beamMat,
+      hitboxMesh, hitboxMat,
+      light, trailMeshes,
       free: true, t0: 0,
       px: 0, py: 0, pz: 0, vx: 0, vy: 0, vz: 0,
+      spawnX: 0, spawnY: 0, spawnZ: 0,
       wobblePhase: Math.random() * Math.PI * 2,
       trailTimer: 0, whooshed: false,
     };
@@ -1671,7 +1709,7 @@ Integrated (°)
     if (!slot) return;
     slot.free = false; slot.t0 = nowMs;
     slot.mesh.position.set(px, py, pz);
-    slot.mesh.scale.setScalar(1.5);   // starts at visual shell size, then shrinks
+    slot.mesh.scale.setScalar(2.0);   // starts bigger than sprite core, shrinks to point
     slot.mesh.visible = true;
     slot.mat.opacity  = 1.0;
     slot.mat.color.setHex(0xffffff);
@@ -1702,11 +1740,11 @@ Integrated (°)
   // ── Helpers — bolt deactivation, implode trigger, whoosh, HUD msg ─
 
   function _deactivateBolt(sl) {
+    sl.sprite.visible    = false;
+    sl.spriteMat.opacity = 0;
     sl.coreMesh.visible  = false;
-    sl.shellMesh.visible = false;
+    sl.trailBeam.visible = false;
     sl.light.intensity   = 0;
-    sl.coreMat.opacity   = 0;
-    sl.shellMat.opacity  = 0;
     for (const tp of sl.trailMeshes) { tp.mesh.visible = false; tp.active = false; }
     sl.free = true;
   }
@@ -1721,7 +1759,7 @@ Integrated (°)
     interceptMsgEl.textContent = text;
     interceptMsgEl.style.display = 'block';
     interceptMsgEl.classList.remove('show');
-    void interceptMsgEl.offsetWidth;   // reflow to restart animation
+    void interceptMsgEl.offsetWidth;
     interceptMsgEl.classList.add('show');
     clearTimeout(_interceptTimer);
     _interceptTimer = setTimeout(() => {
@@ -1742,26 +1780,33 @@ Integrated (°)
     if (!sl) return;
     sl.free = false; sl.t0 = performance.now();
     sl.px = fromX; sl.py = fromY; sl.pz = fromZ;
+    sl.spawnX = fromX; sl.spawnY = fromY; sl.spawnZ = fromZ;
     sl.whooshed = false;
 
     const dx = -fromX, dy = -fromY, dz = -fromZ;
     const d  = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
-    const spd = 90;   // 1.5 units/frame at 60fps — slow enough to dodge
-    sl.vx = (dx/d) * spd; sl.vy = (dy/d) * spd; sl.vz = (dz/d) * spd;
+    sl.vx = (dx/d) * 90; sl.vy = (dy/d) * 90; sl.vz = (dz/d) * 90;
 
+    // Show sprite immediately
+    sl.sprite.position.set(fromX, fromY, fromZ);
+    sl.spriteMat.opacity = 1.0;
+    sl.sprite.scale.set(18, 18, 1);
+    sl.sprite.visible = true;
+
+    // Core
     sl.coreMesh.position.set(fromX, fromY, fromZ);
     sl.coreMesh.scale.setScalar(1);
-    sl.coreMat.opacity  = 0.95; sl.coreMesh.visible = true;
+    sl.coreMat.opacity = 0.95;
+    sl.coreMesh.visible = true;
 
-    sl.shellMesh.position.set(fromX, fromY, fromZ);
-    sl.shellMesh.scale.setScalar(1);
-    sl.shellMat.opacity  = 0.75; sl.shellMesh.visible = true;
+    // Beam trail starts collapsed
+    sl.trailBeam.visible = false;
+    sl.beamMat.opacity   = 0;
 
     sl.hitboxMesh.position.set(fromX, fromY, fromZ);
-    // hitboxMesh stays invisible — raycaster finds it regardless of .visible
 
     sl.light.position.set(fromX, fromY, fromZ);
-    sl.light.intensity = 5;
+    sl.light.intensity = 6;
 
     for (const tp of sl.trailMeshes) { tp.active = false; tp.mesh.visible = false; }
     sl.trailTimer = 0;
@@ -1777,28 +1822,44 @@ Integrated (°)
 
       sl.px += sl.vx * dt; sl.py += sl.vy * dt; sl.pz += sl.vz * dt;
 
-      // Wobbling core (scale 0.9–1.1)
+      // ── Sprite glow — primary visible element ─────────────────────
+      const pulse      = 1.0 + Math.sin(nowMs * 0.007 + sl.wobblePhase) * 0.12;
+      const spriteSize = 18 * pulse;
+      sl.sprite.position.set(sl.px, sl.py, sl.pz);
+      sl.sprite.scale.set(spriteSize, spriteSize, 1);
+      sl.spriteMat.opacity = 0.95;
+
+      // ── IcosahedronGeometry core — wobbles 0.9–1.1 ────────────────
       const wobble = 0.9 + Math.sin(nowMs * 0.008 + sl.wobblePhase) * 0.10;
       sl.coreMesh.position.set(sl.px, sl.py, sl.pz);
       sl.coreMesh.scale.setScalar(wobble);
       sl.coreMat.opacity = 0.95;
 
-      // Pulsating orange ↔ yellow shell
-      const shellPulse = 1.0 + Math.sin(nowMs * 0.006 + sl.wobblePhase + 1.5) * 0.15;
-      const hueShift   = 0.5 + Math.sin(nowMs * 0.005 + sl.wobblePhase) * 0.5;
-      sl.shellMesh.position.set(sl.px, sl.py, sl.pz);
-      sl.shellMesh.scale.setScalar(shellPulse);
-      sl.shellMat.color.setRGB(1.0, 0.40 + hueShift * 0.50, 0.0);
-      sl.shellMat.opacity = 0.50 + Math.sin(nowMs * 0.007 + sl.wobblePhase) * 0.20;
+      // ── Beam trail: cylinder from spawn point to ball ─────────────
+      //  This is the "laser coming from the ship" the player sees.
+      _beamTrailDir.set(
+        sl.px - sl.spawnX, sl.py - sl.spawnY, sl.pz - sl.spawnZ
+      );
+      const trailLen = _beamTrailDir.length();
+      if (trailLen > 0.5) {
+        const midX = (sl.spawnX + sl.px) * 0.5;
+        const midY = (sl.spawnY + sl.py) * 0.5;
+        const midZ = (sl.spawnZ + sl.pz) * 0.5;
+        sl.trailBeam.position.set(midX, midY, midZ);
+        sl.trailBeam.scale.set(1, trailLen, 1);
+        sl.trailBeam.quaternion.setFromUnitVectors(
+          _beamTrailAxis, _beamTrailDir.normalize()
+        );
+        sl.beamMat.opacity = 0.65;
+        sl.trailBeam.visible = true;
+      }
 
-      // Hitbox follows silently
+      // Hitbox + light follow ball
       sl.hitboxMesh.position.set(sl.px, sl.py, sl.pz);
-
-      // Orange point light — PointLight(0xFFA500) warms cockpit interior
       sl.light.position.set(sl.px, sl.py, sl.pz);
-      sl.light.intensity = 5.0 + Math.sin(nowMs * 0.007 + sl.wobblePhase) * 2.0;
+      sl.light.intensity = 6 + Math.sin(nowMs * 0.007 + sl.wobblePhase) * 2;
 
-      // Trail particles — spawn every ~40 ms
+      // ── Particle trail — spawn every ~40 ms ───────────────────────
       sl.trailTimer -= dt;
       if (sl.trailTimer <= 0) {
         sl.trailTimer = 0.04;
@@ -1821,12 +1882,10 @@ Integrated (°)
         tp.mesh.scale.setScalar(0.3 + fade * 0.4);
       }
 
-      // ── Collision + near-miss detection at cockpit plane ──────────
-      //  Visual shell r=3.0; hit r=2.0 (smaller) → ball appears to graze
-      //  cockpit without triggering damage — the near-miss feel.
+      // ── Collision + near-miss at cockpit plane ─────────────────────
       if (sl.pz >= -1.5) {
         const r2 = sl.px * sl.px + sl.py * sl.py;
-        if (r2 < 4.0) {                          // hit: r < 2.0 (smaller than shell 3.0)
+        if (r2 < 4.0) {                          // hit: r < 2.0
           _deactivateBolt(sl);
           triggerShieldHit(nowMs);
         } else if (!sl.whooshed && r2 < 49.0) {  // near-miss: 2.0 ≤ r < 7.0
