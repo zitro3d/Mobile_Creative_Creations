@@ -380,6 +380,56 @@
       background: rgba(0,242,255,0.22);
       box-shadow: 0 0 36px rgba(0,242,255,0.42);
     }
+
+    /* ── Whoosh edge-blur — plasma near-miss ─────────────────────── */
+    #whoosh-left, #whoosh-right {
+      position: fixed;
+      top: 0; bottom: 0;
+      width: 42%;
+      pointer-events: none;
+      z-index: 13;
+      opacity: 0;
+      transition: opacity 0.40s ease-out;
+    }
+    #whoosh-left  { left: 0;  background: radial-gradient(ellipse at left center,  rgba(255,140,0,0.55) 0%, transparent 70%); }
+    #whoosh-right { right: 0; background: radial-gradient(ellipse at right center, rgba(255,140,0,0.55) 0%, transparent 70%); }
+
+    /* ── Intercept / Counter-Fire HUD message ────────────────────── */
+    #intercept-msg {
+      position: absolute;
+      top: 36%; left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Orbitron', monospace;
+      font-size: clamp(0.65rem, 2.8vw, 0.95rem);
+      letter-spacing: 0.28em;
+      color: #00eeff;
+      text-shadow: 0 0 20px rgba(0,238,255,0.95), 0 0 40px rgba(0,238,255,0.40);
+      display: none;
+      white-space: nowrap;
+      z-index: 15;
+      pointer-events: none;
+    }
+    #intercept-msg.show { animation: interceptFlash 0.28s ease-out forwards; }
+    @keyframes interceptFlash {
+      0%   { opacity: 0; transform: translateX(-50%) scale(0.80); }
+      40%  { opacity: 1; transform: translateX(-50%) scale(1.18); }
+      100% { opacity: 1; transform: translateX(-50%) scale(1.00); }
+    }
+
+    /* ── Kill explosion screen flash ─────────────────────────────── */
+    #explosion-flash {
+      position: fixed; inset: 0; pointer-events: none; z-index: 11; opacity: 0;
+      background: radial-gradient(ellipse at center,
+        rgba(255,200,80,0.55) 0%, rgba(255,80,0,0.25) 35%, transparent 70%);
+    }
+    #explosion-flash.burst {
+      animation: explBurst 0.55s ease-out forwards;
+    }
+    @keyframes explBurst {
+      0%   { opacity: 1; }
+      18%  { opacity: 0.85; }
+      100% { opacity: 0; }
+    }
   </style>
 </head>
 <body>
@@ -426,6 +476,10 @@ Integrated (°)
   <div id="chroma-overlay"></div>
   <!-- Shield hit red flash overlay -->
   <div id="shield-flash"></div>
+  <!-- Plasma near-miss whoosh edge overlays -->
+  <div id="whoosh-left"></div>
+  <div id="whoosh-right"></div>
+  <div id="explosion-flash"></div>
 
   <!-- Cockpit HUD — pointer-events: none so it never blocks input -->
   <div id="hud">
@@ -442,6 +496,8 @@ Integrated (°)
     <div id="combo-display"></div>
     <!-- Mission countdown timer -->
     <div id="mission-timer">1:30</div>
+    <!-- Intercept / Counter-Fire HUD message -->
+    <div id="intercept-msg"></div>
   </div>
 
   <!-- Mission summary overlay (shown at session end) -->
@@ -483,9 +539,9 @@ Integrated (°)
   const STAR_FADE_FAR      = 1600;
   const STAR_FADE_NEAR     = 400;
 
-  const NEBULA_COUNT       = 10;    // reduced for mobile GPU budget
-  const NEBULA_DEPTH       = 3000;  // pushed way back so ships never fly through them
-  const NEBULA_MAX_OP      = 1.0;   // texture is very dim, so allow full opacity multiplier
+  const NEBULA_COUNT       = 22;    // enough for dense coverage
+  const NEBULA_DEPTH       = 900;   // spawn z=-700 to -1600; all within visible range
+  const NEBULA_MAX_OP      = 1.0;
   const NEBULA_SPREAD_X    = 700;   // wide horizontal spread for full-screen coverage
   const NEBULA_SPREAD_Y    = 420;   // tall vertical spread
 
@@ -507,7 +563,7 @@ Integrated (°)
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setClearColor(0x00000a, 1);
+  renderer.setClearColor(0x02000e, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;  // correct gamma — kills banding
   document.body.appendChild(renderer.domElement);
   // Critical for mobile: tell browser this canvas handles its own touches
@@ -711,6 +767,7 @@ Integrated (°)
           spawnType: 'FRONT',
           shaken: false,
           fadeIn: 1,
+          dodgeTimer: 0,
         });
       }
     },
@@ -772,7 +829,7 @@ Integrated (°)
 
   const starMat = new THREE.PointsMaterial({
     map:             makeStarTexture(),
-    size:            0.7,
+    size:            1.6,
     sizeAttenuation: true,
     vertexColors:    true,
     transparent:     true,
@@ -796,35 +853,33 @@ Integrated (°)
   // sx/sy kept close to 1 so the shape is gently non-circular, not a streak.
   // 6 tiny wisps at random positions break symmetry without drawing lines.
   function makeNebulaTexture(r, g, b, sx = 1.0, sy = 1.0) {
-    const SZ  = 512;
+    const SZ  = 256;   // 256 sufficient for soft blobs; saves GPU memory vs 512
     const cvs = document.createElement('canvas');
     cvs.width = cvs.height = SZ;
     const ctx = cvs.getContext('2d');
 
-    // ── Main body — gently elliptical, very soft core ─────────────
+    // ── Main body — gently elliptical, rich glowing core ──────────
     ctx.save();
     ctx.translate(SZ / 2, SZ / 2);
     ctx.scale(sx, sy);
     const gMain = ctx.createRadialGradient(0, 0, 0, 0, 0, SZ / 2);
-    gMain.addColorStop(0.00, `rgba(${r},${g},${b},0.11)`);
-    gMain.addColorStop(0.12, `rgba(${r},${g},${b},0.08)`);
-    gMain.addColorStop(0.28, `rgba(${r},${g},${b},0.04)`);
-    gMain.addColorStop(0.48, `rgba(${r},${g},${b},0.014)`);
-    gMain.addColorStop(0.68, `rgba(${r},${g},${b},0.003)`);
-    gMain.addColorStop(0.85, `rgba(${r},${g},${b},0.001)`);
+    gMain.addColorStop(0.00, `rgba(${r},${g},${b},0.45)`);
+    gMain.addColorStop(0.12, `rgba(${r},${g},${b},0.32)`);
+    gMain.addColorStop(0.28, `rgba(${r},${g},${b},0.16)`);
+    gMain.addColorStop(0.48, `rgba(${r},${g},${b},0.06)`);
+    gMain.addColorStop(0.68, `rgba(${r},${g},${b},0.018)`);
+    gMain.addColorStop(0.85, `rgba(${r},${g},${b},0.004)`);
     gMain.addColorStop(1.00, `rgba(${r},${g},${b},0.000)`);
     ctx.fillStyle = gMain;
     ctx.fillRect(-SZ, -SZ, SZ * 2, SZ * 2);
     ctx.restore();
 
-    // ── Micro-wisps — tiny dim blobs scattered across canvas ──────
-    // Each is a small circular gradient so individually none looks like
-    // a line. Together they give the cloud an organic, irregular silhouette.
+    // ── Micro-wisps — organic irregular silhouette ─────────────────
     for (let w = 0; w < 6; w++) {
       const wx = SZ * (0.15 + Math.random() * 0.70);
       const wy = SZ * (0.15 + Math.random() * 0.70);
-      const wr = SZ * (0.06 + Math.random() * 0.11); // small radius
-      const wa = 0.015 + Math.random() * 0.030;       // very dim
+      const wr = SZ * (0.06 + Math.random() * 0.11);
+      const wa = 0.06 + Math.random() * 0.10;
 
       const gw = ctx.createRadialGradient(wx, wy, 0, wx, wy, wr);
       gw.addColorStop(0.0, `rgba(${r},${g},${b},${wa.toFixed(3)})`);
@@ -837,13 +892,14 @@ Integrated (°)
     return new THREE.CanvasTexture(cvs);
   }
 
-  // Subtle ratios — max 1.35× in either direction, never a visible streak
   const nebTextures = [
-    makeNebulaTexture(  0, 242, 255, 1.30, 0.78), // electric blue
-    makeNebulaTexture(255,   0, 255, 0.78, 1.30), // deep magenta
-    makeNebulaTexture(  0, 200, 255, 1.20, 0.85), // lighter blue
-    makeNebulaTexture(220,   0, 255, 0.85, 1.20), // magenta-violet
-    makeNebulaTexture(  0, 242, 200, 1.35, 0.74), // electric teal
+    makeNebulaTexture(  0, 180, 255, 1.30, 0.78), // electric blue
+    makeNebulaTexture(200,   0, 255, 0.78, 1.30), // deep violet
+    makeNebulaTexture( 80,   0, 220, 1.20, 0.85), // indigo
+    makeNebulaTexture(255,   0, 180, 0.85, 1.20), // hot magenta
+    makeNebulaTexture(  0, 220, 255, 1.35, 0.74), // electric cyan
+    makeNebulaTexture(160,   0, 255, 1.00, 1.25), // rich purple
+    makeNebulaTexture(255,  40, 120, 0.90, 1.10), // crimson-pink
   ];
 
   // Helper — random non-uniform scale so sprites aren't all the same shape
@@ -916,10 +972,10 @@ Integrated (°)
   //  PILOT STYLES — flight envelope per personality
   // ─────────────────────────────────────────────────────────────────
   const PILOT_STYLES = {
-    // Noticeably distinct speeds + turn radii so each pilot FEELS different
-    AGGRESSIVE: { maxSpeed: 210, accel: 140, turnRate: 3.4, wobbleAmp:  2, wobbleFreq: 0.40 },
-    SMOOTH:     { maxSpeed:  80, accel:  40, turnRate: 0.6, wobbleAmp: 10, wobbleFreq: 0.16 },
-    ERRATIC:    { maxSpeed: 155, accel:  90, turnRate: 2.2, wobbleAmp: 22, wobbleFreq: 0.75 },
+    // Speeds bumped — SMOOTH was too easy to track, AGGRESSIVE now genuinely fast
+    AGGRESSIVE: { maxSpeed: 280, accel: 200, turnRate: 4.0, wobbleAmp:  3, wobbleFreq: 0.45 },
+    SMOOTH:     { maxSpeed: 140, accel:  70, turnRate: 1.1, wobbleAmp:  8, wobbleFreq: 0.18 },
+    ERRATIC:    { maxSpeed: 210, accel: 130, turnRate: 2.8, wobbleAmp: 16, wobbleFreq: 0.85 },
   };
 
   // True when another visible ship is within MIN units of (x,y,z)
@@ -997,13 +1053,13 @@ Integrated (°)
 
     if (es.spawnType === 'FRONT') {
       spawnX = (Math.random() - 0.5) * 160;   // full −80..+80 range, through center
-      spawnZ = -360;                           // close enough to be visible immediately
+      spawnZ = -600;                           // far enough to be visible before shooting zone
     } else if (es.spawnType === 'REAR') {
       spawnX = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 60);
       spawnZ = 180;
     } else {
       spawnX = (Math.random() < 0.5 ? -1 : 1) * 160;
-      spawnZ = -80 - Math.random() * 120;
+      spawnZ = -300 - Math.random() * 200;
     }
 
     if (tooClose(spawnX, spawnY, spawnZ, i)) return;
@@ -1039,15 +1095,17 @@ Integrated (°)
     es.curSpeed = v0;
 
     e.group.position.set(spawnX, spawnY, spawnZ);
-    e.group.rotation.set(0, Math.atan2(dz, -dx), 0);
+    e.group.rotation.order = 'YXZ';
+    e.group.rotation.set(0, Math.atan2(dz, dx), 0);
 
     for (const mesh of e.meshes) mesh.material.opacity = 0;  // fade in
     e.group.visible   = true;
     es.shaken         = false;
     es.fadeIn         = 0;
-    es.fireCooldown   = 0;   // fires on first zone entry — no artificial delay
+    es.fireCooldown   = 0;
     es.isCharging     = false;
     es.chargeTimer    = 0;
+    es.dodgeTimer     = 0.4 + Math.random() * 0.6;  // first dodge shortly after spawn
     e.engineGlow.intensity = 2.2;
     e.engineGlow.color.set(0xff6600);
   }
@@ -1165,6 +1223,9 @@ Integrated (°)
   let   aimY            = window.innerHeight / 2;
   let   lerpX           = aimX;                      // visual crosshair (lerped toward aim)
   let   lerpY           = aimY;
+  let   handRawX        = aimX;  // raw MediaPipe position (smoothed separately)
+  let   handRawY        = aimY;
+  let   isHandTracking  = false;
   let   aimReturnTimer  = null;
   let   _prevOnTarget   = false;
   const _projVec        = new THREE.Vector3();        // reused for screen-space projection
@@ -1243,54 +1304,147 @@ Integrated (°)
 
   document.getElementById('summary-btn').addEventListener('click', () => location.reload());
 
-  // ── Pooled explosion fragments — pre-allocated, never create/dispose ──
-  //  Shared box geometry; per-fragment scale gives size variety.
-  const FRAG_COUNT  = 16;
+  // ═══════════════════════════════════════════════════════════════════
+  //  EXPLOSION SYSTEM — fireball + shockwave + debris + screen flash
+  // ═══════════════════════════════════════════════════════════════════
+
+  // ── Fireball texture ─────────────────────────────────────────────
+  function _makeFireballTex() {
+    const SZ = 128, cvs = document.createElement('canvas');
+    cvs.width = cvs.height = SZ;
+    const ctx = cvs.getContext('2d');
+    const g = ctx.createRadialGradient(SZ/2,SZ/2,0, SZ/2,SZ/2,SZ/2);
+    g.addColorStop(0.00, 'rgba(255,255,255,1.0)');
+    g.addColorStop(0.08, 'rgba(255,255,180,0.95)');
+    g.addColorStop(0.22, 'rgba(255,160,30,0.80)');
+    g.addColorStop(0.42, 'rgba(255,60,0,0.50)');
+    g.addColorStop(0.62, 'rgba(180,10,0,0.20)');
+    g.addColorStop(1.00, 'rgba(0,0,0,0.00)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SZ, SZ);
+    return new THREE.CanvasTexture(cvs);
+  }
+
+  // ── Shockwave ring texture ────────────────────────────────────────
+  function _makeShockwaveTex() {
+    const SZ = 128, cvs = document.createElement('canvas');
+    cvs.width = cvs.height = SZ;
+    const ctx = cvs.getContext('2d');
+    const g = ctx.createRadialGradient(SZ/2,SZ/2, SZ*0.30, SZ/2,SZ/2, SZ*0.50);
+    g.addColorStop(0.00, 'rgba(255,240,160,0.00)');
+    g.addColorStop(0.30, 'rgba(255,220,100,0.90)');
+    g.addColorStop(0.60, 'rgba(255,100,20,0.70)');
+    g.addColorStop(1.00, 'rgba(255,40,0,0.00)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SZ, SZ);
+    return new THREE.CanvasTexture(cvs);
+  }
+
+  const _fbTex = _makeFireballTex();
+  const _swTex = _makeShockwaveTex();
+
+  // ── Per-explosion overlay pool (3 simultaneous max) ──────────────
+  const EXPL_SLOTS = 3;
+  const _explPool = Array.from({ length: EXPL_SLOTS }, () => {
+    const fbMat = new THREE.SpriteMaterial({ map: _fbTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 });
+    const fbSp  = new THREE.Sprite(fbMat); fbSp.visible = false; scene.add(fbSp);
+
+    const swMat = new THREE.SpriteMaterial({ map: _swTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 });
+    const swSp  = new THREE.Sprite(swMat); swSp.visible = false; scene.add(swSp);
+
+    const lt = new THREE.PointLight(0xff8833, 0, 280);
+    lt.visible = false; scene.add(lt);
+
+    return { fbSp, fbMat, swSp, swMat, lt };
+  });
+  let _explSlot = 0;
+
+  // ── Fragment debris pool ─────────────────────────────────────────
+  const FRAG_COUNT  = 24;
   const _fragGeo    = new THREE.BoxGeometry(2, 2, 2);
-  const _fragMats   = Array.from({ length: FRAG_COUNT }, (_, k) =>
-    new THREE.MeshStandardMaterial({
-      color: k % 2 === 0 ? 0xff7722 : 0xffcc44,
-      emissive: k % 2 === 0 ? 0xff4400 : 0xff9900,
-      emissiveIntensity: 3, transparent: true, opacity: 0, depthWrite: false,
-    })
-  );
+  const _fragMats   = Array.from({ length: FRAG_COUNT }, (_, k) => {
+    // Thirds: white-hot chunks, yellow mid-pieces, orange embers
+    const col = k < 8 ? 0xffffff : k < 16 ? 0xffcc44 : 0xff6600;
+    const emi = k < 8 ? 0xffffff : k < 16 ? 0xff9900 : 0xff3300;
+    return new THREE.MeshStandardMaterial({
+      color: col, emissive: emi,
+      emissiveIntensity: 6, transparent: true, opacity: 0, depthWrite: false,
+    });
+  });
   const _fragMeshes = _fragMats.map(mat => {
     const m = new THREE.Mesh(_fragGeo, mat);
-    m.frustumCulled = true;
-    m.visible = false;
-    scene.add(m);
-    return m;
+    m.frustumCulled = false; m.visible = false; scene.add(m); return m;
   });
-  // Reused velocity/rotation vectors — no per-explosion allocation
-  const _fragVels = Array.from({ length: FRAG_COUNT }, () => new THREE.Vector3());
-  const _fragRots = Array.from({ length: FRAG_COUNT }, () => new THREE.Vector3());
+  const _fragVels   = Array.from({ length: FRAG_COUNT }, () => new THREE.Vector3());
+  const _fragRots   = Array.from({ length: FRAG_COUNT }, () => new THREE.Vector3());
   const _fragOrigin = new THREE.Vector3();
 
+  const _explFlashEl = document.getElementById('explosion-flash');
+
   function spawnExplosion(pos) {
+    // ── Screen flash ─────────────────────────────────────────────
+    _explFlashEl.classList.remove('burst');
+    void _explFlashEl.offsetWidth; // reflow to restart animation
+    _explFlashEl.classList.add('burst');
+
+    // ── Grab overlay slot ────────────────────────────────────────
+    const sl = _explPool[_explSlot % EXPL_SLOTS]; _explSlot++;
+    sl.fbSp.position.copy(pos); sl.fbSp.visible = true;
+    sl.swSp.position.copy(pos); sl.swSp.visible = true;
+    sl.lt.position.copy(pos);   sl.lt.visible = true;
+    sl.lt.color.set(0xff9944);  sl.lt.intensity = 150;
+
+    // ── Debris — spherical velocity distribution + gravity arc ───
     _fragOrigin.copy(pos);
     for (let k = 0; k < FRAG_COUNT; k++) {
-      _fragVels[k].set((Math.random()-.5)*200, (Math.random()-.5)*200, (Math.random()-.5)*200);
-      _fragRots[k].set((Math.random()-.5)*10,  (Math.random()-.5)*10,  (Math.random()-.5)*10);
+      const theta = Math.random() * Math.PI * 2;
+      const phi   = Math.acos(2 * Math.random() - 1);
+      const spd   = 100 + Math.random() * 240;
+      _fragVels[k].set(
+        Math.sin(phi) * Math.cos(theta) * spd,
+        Math.sin(phi) * Math.sin(theta) * spd,
+        Math.cos(phi) * spd
+      );
+      _fragRots[k].set((Math.random()-.5)*14, (Math.random()-.5)*14, (Math.random()-.5)*14);
       _fragMeshes[k].position.copy(pos);
-      _fragMeshes[k].scale.setScalar(0.6 + Math.random() * 1.0);
+      _fragMeshes[k].scale.setScalar(0.3 + Math.random() * 1.8);
       _fragMeshes[k].visible = true;
-      _fragMats[k].opacity = 1;
-      _fragMats[k].emissiveIntensity = 3;
+      _fragMats[k].opacity   = 1;
+      _fragMats[k].emissiveIntensity = 6;
     }
+
     const t0 = performance.now();
     (function tick() {
-      const elapsed = (performance.now() - t0) / 1000;
-      if (elapsed >= 1.0) {
+      const e = (performance.now() - t0) / 1000;
+      const LIFE = 1.5;
+      if (e >= LIFE) {
         for (let k = 0; k < FRAG_COUNT; k++) _fragMeshes[k].visible = false;
+        sl.fbSp.visible = false; sl.fbMat.opacity = 0;
+        sl.swSp.visible = false; sl.swMat.opacity = 0;
+        sl.lt.visible = false;   sl.lt.intensity  = 0;
         return;
       }
+
+      // Fireball: expands fast, fades after 0.7s
+      const fbFade = Math.max(0, 1 - e / 0.70);
+      sl.fbMat.opacity = fbFade * fbFade;
+      sl.fbSp.scale.setScalar(4 + e * 80);
+
+      // Shockwave: blazing ring expands and vanishes by 0.40s
+      const swFade = Math.max(0, 1 - e / 0.40);
+      sl.swMat.opacity = swFade * 0.95;
+      sl.swSp.scale.setScalar(8 + e * 380);
+
+      // Light: peak flash then smooth decay
+      sl.lt.intensity = e < 0.06 ? 150 : Math.max(0, 130 * (1 - e / 0.55));
+
+      // Debris: arc with gravity, cool emissive intensity, fade at end
+      const gravY = 35 * e * e;
       for (let k = 0; k < FRAG_COUNT; k++) {
-        _fragMeshes[k].position.copy(_fragOrigin).addScaledVector(_fragVels[k], elapsed);
-        _fragMeshes[k].rotation.set(
-          _fragRots[k].x * elapsed, _fragRots[k].y * elapsed, _fragRots[k].z * elapsed
-        );
-        _fragMats[k].opacity = 1 - elapsed * elapsed;
-        _fragMats[k].emissiveIntensity = 3 * (1 - elapsed);
+        _fragMeshes[k].position.copy(_fragOrigin).addScaledVector(_fragVels[k], e);
+        _fragMeshes[k].position.y -= gravY;
+        _fragMeshes[k].rotation.set(_fragRots[k].x * e, _fragRots[k].y * e, _fragRots[k].z * e);
+        const life = Math.max(0, 1 - e / LIFE);
+        _fragMats[k].opacity           = life * life;
+        _fragMats[k].emissiveIntensity = 6 * Math.max(0, 1 - e / 0.9);
       }
       requestAnimationFrame(tick);
     })();
@@ -1506,87 +1660,366 @@ Integrated (°)
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  //  ENEMY BOLT POOL — 12 pooled orange-red bolts (distinct from player plasma)
-  //  Pool pre-allocated; no allocation at runtime.
+  //  PLASMA BALL POOL — sprite glow + IcosahedronGeometry core + beam trail
+  //
+  //  Primary visual: canvas-gradient Sprite (20×20 units, always faces camera)
+  //    white core → yellow → orange → dark red edge — VERY visible at all ranges.
+  //
+  //  Beam trail: cylinder from ship spawn to ball tip — shows the path/direction.
+  //
+  //  Core: IcosahedronGeometry(1.5) wobbles 0.9–1.1 for organic 3-D feel.
+  //  Speed: 90 u/s. PointLight(0xFF6600) range 80 lights hull orange.
+  //  Hitbox: SphereGeometry(3.5) invisible, raycaster only.
+  //
+  //  Player hit:  pz >= -1.5, r < 2.0  (smaller than sprite ~10 u → near-miss)
+  //  Near-miss:   r < 7.0 → whoosh edge-glow
+  //  Interception: laser hits hitbox → implode + 50 pt Counter-Fire bonus
   // ═══════════════════════════════════════════════════════════════════
-  const EBOLT_COUNT  = 12;
-  const _eboltGeo    = new THREE.CylinderGeometry(0.20, 0.20, 1, 6, 1);
-  const _eboltYAxis  = new THREE.Vector3(0, 1, 0);
-  const _eboltDirV   = new THREE.Vector3();
-  const shieldFlashEl = document.getElementById('shield-flash');
+
+  // ── Plasma sprite texture — white-hot core → orange → dark red ────
+  function _makePlasmaSpriteTex() {
+    const SZ  = 128;
+    const cvs = document.createElement('canvas');
+    cvs.width = cvs.height = SZ;
+    const ctx = cvs.getContext('2d');
+    const grd = ctx.createRadialGradient(SZ/2,SZ/2,0, SZ/2,SZ/2,SZ/2);
+    grd.addColorStop(0.00, 'rgba(255,255,255,1.0)');
+    grd.addColorStop(0.12, 'rgba(255,240,150,0.95)');
+    grd.addColorStop(0.28, 'rgba(255,160,20,0.80)');
+    grd.addColorStop(0.50, 'rgba(255,80,0,0.45)');
+    grd.addColorStop(0.72, 'rgba(200,20,0,0.15)');
+    grd.addColorStop(1.00, 'rgba(0,0,0,0.00)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, SZ, SZ);
+    return new THREE.CanvasTexture(cvs);
+  }
+  const _plasmaTex     = _makePlasmaSpriteTex();
+
+  const EBOLT_COUNT    = 12;
+  const _epCoreGeo     = new THREE.IcosahedronGeometry(1.5, 2);
+  const _trailPartGeo  = new THREE.SphereGeometry(0.55, 3, 2);
+  const _hitboxSphGeo  = new THREE.SphereGeometry(3.5, 4, 3);
+  const _beamTrailGeo  = new THREE.CylinderGeometry(0.18, 0.18, 1, 6, 1);
+  const _beamTrailAxis = new THREE.Vector3(0, 1, 0);
+  const _beamTrailDir  = new THREE.Vector3();
+  const _fovVec        = new THREE.Vector3();
+  const shieldFlashEl  = document.getElementById('shield-flash');
+  const whooshLeftEl   = document.getElementById('whoosh-left');
+  const whooshRightEl  = document.getElementById('whoosh-right');
+  const interceptMsgEl = document.getElementById('intercept-msg');
+  let   _interceptTimer = null;
+
+  const TRAIL_PER_BOLT = 8;
 
   const _eboltPool = Array.from({ length: EBOLT_COUNT }, () => {
-    const mat  = new THREE.MeshBasicMaterial({
-      color: 0xff4500, transparent: true, opacity: 0,   // neon orange per spec
+    // ── Primary: billboard sprite glow ────────────────────────────
+    const spriteMat = new THREE.SpriteMaterial({
+      map: _plasmaTex, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0,
+    });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.scale.set(18, 18, 1);
+    sprite.visible = false;
+    scene.add(sprite);
+
+    // ── IcosahedronGeometry core — wobbles for 3-D feel ───────────
+    const coreMat  = new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false,
     });
-    const mesh = new THREE.Mesh(_eboltGeo, mat);
-    mesh.frustumCulled = false;
-    mesh.visible = false;
-    scene.add(mesh);
-    const light = new THREE.PointLight(0xff4500, 0, 70);
+    const coreMesh = new THREE.Mesh(_epCoreGeo, coreMat);
+    coreMesh.frustumCulled = false; coreMesh.visible = false;
+    scene.add(coreMesh);
+
+    // ── Beam trail: cylinder from spawn to ball ────────────────────
+    const beamMat  = new THREE.MeshBasicMaterial({
+      color: 0xff7700, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const trailBeam = new THREE.Mesh(_beamTrailGeo, beamMat);
+    trailBeam.frustumCulled = false; trailBeam.visible = false;
+    scene.add(trailBeam);
+
+    // ── Orange point light ─────────────────────────────────────────
+    const light = new THREE.PointLight(0xff6600, 0, 80);
     scene.add(light);
-    return { mesh, mat, light, free: true, t0: 0,
-             px: 0, py: 0, pz: 0, vx: 0, vy: 0, vz: 0, len: 28 };
+
+    // ── Invisible hitbox for raycaster interception ────────────────
+    const hitboxMat  = new THREE.MeshBasicMaterial({
+      transparent: true, opacity: 0, depthWrite: false,
+    });
+    const hitboxMesh = new THREE.Mesh(_hitboxSphGeo, hitboxMat);
+    hitboxMesh.frustumCulled = false; hitboxMesh.visible = false;
+    scene.add(hitboxMesh);
+
+    // ── Particle trail ────────────────────────────────────────────
+    const trailMeshes = Array.from({ length: TRAIL_PER_BOLT }, () => {
+      const tMat = new THREE.MeshBasicMaterial({
+        color: 0xff8800, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+      const tMesh = new THREE.Mesh(_trailPartGeo, tMat);
+      tMesh.frustumCulled = false; tMesh.visible = false;
+      scene.add(tMesh);
+      return { mesh: tMesh, mat: tMat, active: false, age: 0, maxAge: 0.25 };
+    });
+
+    return {
+      sprite, spriteMat,
+      coreMesh, coreMat,
+      trailBeam, beamMat,
+      hitboxMesh, hitboxMat,
+      light, trailMeshes,
+      free: true, t0: 0,
+      px: 0, py: 0, pz: 0, vx: 0, vy: 0, vz: 0,
+      spawnX: 0, spawnY: 0, spawnZ: 0,
+      wobblePhase: Math.random() * Math.PI * 2,
+      trailTimer: 0, whooshed: false,
+    };
   });
+
+  // ── Muzzle flash pool — 6 PointLights, 100 ms orange burst ────────
+  const _muzzlePool = Array.from({ length: 6 }, () => {
+    const light = new THREE.PointLight(0xff8800, 0, 30);
+    scene.add(light);
+    return { light, free: true, t0: 0 };
+  });
+
+  function _spawnMuzzleFlash(x, y, z) {
+    const mf = _muzzlePool.find(m => m.free);
+    if (!mf) return;
+    mf.free = false; mf.t0 = performance.now();
+    mf.light.position.set(x, y, z);
+    mf.light.intensity = 20;
+  }
+
+  function updateMuzzleFlashes(nowMs) {
+    for (const mf of _muzzlePool) {
+      if (mf.free) continue;
+      const e = (nowMs - mf.t0) / 1000;
+      if (e >= 0.10) { mf.light.intensity = 0; mf.free = true; continue; }
+      mf.light.intensity = 20 * (1 - e / 0.10);
+    }
+  }
+
+  // ── Implode effect pool — 6 slots (white→cyan shrink on interception) ─
+  const IMPLODE_COUNT  = 6;
+  const _implodeSphGeo = new THREE.IcosahedronGeometry(3.0, 2);   // matches shell geo
+  const _implodeSlots  = Array.from({ length: IMPLODE_COUNT }, () => {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(_implodeSphGeo, mat);
+    mesh.frustumCulled = false; mesh.visible = false;
+    scene.add(mesh);
+    const light = new THREE.PointLight(0x88aaff, 0, 60);
+    scene.add(light);
+    return { mesh, mat, light, free: true, t0: 0 };
+  });
+
+  function _spawnImplodeEffect(px, py, pz, nowMs) {
+    const slot = _implodeSlots.find(s => s.free);
+    if (!slot) return;
+    slot.free = false; slot.t0 = nowMs;
+    slot.mesh.position.set(px, py, pz);
+    slot.mesh.scale.setScalar(2.0);   // starts bigger than sprite core, shrinks to point
+    slot.mesh.visible = true;
+    slot.mat.opacity  = 1.0;
+    slot.mat.color.setHex(0xffffff);
+    slot.light.position.set(px, py, pz);
+    slot.light.intensity = 50;
+  }
+
+  function updateImplodeEffects(nowMs) {
+    for (const slot of _implodeSlots) {
+      if (slot.free) continue;
+      const e = (nowMs - slot.t0) / 1000;
+      const DURATION = 0.22;
+      if (e >= DURATION) {
+        slot.mesh.visible    = false;
+        slot.light.intensity = 0;
+        slot.free = true; continue;
+      }
+      const prog  = e / DURATION;
+      const scale = 1.8 * (1 - prog * 0.95);   // shrinks to near-zero
+      slot.mesh.scale.setScalar(Math.max(0.01, scale));
+      // White → cyan-blue implosion colour shift
+      slot.mat.color.setRGB(1 - prog * 0.6, 1 - prog * 0.3, 1.0);
+      slot.mat.opacity     = (1 - prog) * (1 - prog);   // quadratic fade
+      slot.light.intensity = 50 * (1 - prog);
+    }
+  }
+
+  // ── Helpers — bolt deactivation, implode trigger, whoosh, HUD msg ─
+
+  function _deactivateBolt(sl) {
+    sl.sprite.visible    = false;
+    sl.spriteMat.opacity = 0;
+    sl.coreMesh.visible  = false;
+    sl.trailBeam.visible = false;
+    sl.light.intensity   = 0;
+    for (const tp of sl.trailMeshes) { tp.mesh.visible = false; tp.active = false; }
+    sl.free = true;
+  }
+
+  function _implodePlasmaBall(sl, nowMs) {
+    const px = sl.px, py = sl.py, pz = sl.pz;
+    _deactivateBolt(sl);
+    _spawnImplodeEffect(px, py, pz, nowMs);
+  }
+
+  function _showHUDMessage(text) {
+    interceptMsgEl.textContent = text;
+    interceptMsgEl.style.display = 'block';
+    interceptMsgEl.classList.remove('show');
+    void interceptMsgEl.offsetWidth;
+    interceptMsgEl.classList.add('show');
+    clearTimeout(_interceptTimer);
+    _interceptTimer = setTimeout(() => {
+      interceptMsgEl.style.display = 'none';
+      interceptMsgEl.classList.remove('show');
+    }, 1800);
+  }
+
+  function _triggerWhoosh(bx) {
+    const el = bx < 0 ? whooshLeftEl : whooshRightEl;
+    el.style.opacity = '1';
+    clearTimeout(el._wTimer);
+    el._wTimer = setTimeout(() => { el.style.opacity = '0'; }, 80);
+  }
 
   function _fireEnemyBolt(fromX, fromY, fromZ) {
     const sl = _eboltPool.find(s => s.free);
     if (!sl) return;
-    sl.free = false;
-    sl.t0   = performance.now();
+    sl.free = false; sl.t0 = performance.now();
     sl.px = fromX; sl.py = fromY; sl.pz = fromZ;
-    // Aim directly at camera origin
+    sl.spawnX = fromX; sl.spawnY = fromY; sl.spawnZ = fromZ;
+    sl.whooshed = false;
+
     const dx = -fromX, dy = -fromY, dz = -fromZ;
     const d  = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
-    const spd = 300;
-    sl.vx = (dx/d) * spd; sl.vy = (dy/d) * spd; sl.vz = (dz/d) * spd;
-    sl.len = 28;
-    _eboltDirV.set(dx/d, dy/d, dz/d);
-    sl.mesh.position.set(fromX, fromY, fromZ);
-    sl.mesh.scale.set(1, sl.len, 1);
-    sl.mesh.quaternion.setFromUnitVectors(_eboltYAxis, _eboltDirV);
-    sl.mat.opacity = 0.9;
+    sl.vx = (dx/d) * 90; sl.vy = (dy/d) * 90; sl.vz = (dz/d) * 90;
+
+    // Show sprite immediately
+    sl.sprite.position.set(fromX, fromY, fromZ);
+    sl.spriteMat.opacity = 1.0;
+    sl.sprite.scale.set(18, 18, 1);
+    sl.sprite.visible = true;
+
+    // Core
+    sl.coreMesh.position.set(fromX, fromY, fromZ);
+    sl.coreMesh.scale.setScalar(1);
+    sl.coreMat.opacity = 0.95;
+    sl.coreMesh.visible = true;
+
+    // Beam trail starts collapsed
+    sl.trailBeam.visible = false;
+    sl.beamMat.opacity   = 0;
+
+    sl.hitboxMesh.position.set(fromX, fromY, fromZ);
+
     sl.light.position.set(fromX, fromY, fromZ);
     sl.light.intensity = 6;
-    sl.mesh.visible = true;
+
+    for (const tp of sl.trailMeshes) { tp.active = false; tp.mesh.visible = false; }
+    sl.trailTimer = 0;
+
+    _spawnMuzzleFlash(fromX, fromY, fromZ);
   }
 
   function updateEnemyBolts(nowMs, dt) {
     for (const sl of _eboltPool) {
       if (sl.free) continue;
       const e = (nowMs - sl.t0) / 1000;
-      if (e > 2.2) {
-        sl.mat.opacity = 0; sl.light.intensity = 0;
-        sl.mesh.visible = false; sl.free = true;
-        continue;
-      }
-      sl.px += sl.vx * dt; sl.py += sl.vy * dt; sl.pz += sl.vz * dt;
-      sl.mesh.position.set(sl.px, sl.py, sl.pz);
-      sl.light.position.set(sl.px, sl.py, sl.pz);
-      const fade = Math.max(0, 1 - e * 0.55);
-      sl.mat.opacity   = fade * 0.9;
-      sl.light.intensity = fade * 7;
+      if (e > 4.0) { _deactivateBolt(sl); continue; }
 
-      // Collision: bolt crosses the cockpit plane (z ≥ 0) within 2.5 unit radius
-      if (sl.pz >= 0) {
-        const dist2 = sl.px * sl.px + sl.py * sl.py;
-        if (dist2 < 6.25) {   // 2.5² = 6.25
-          sl.mat.opacity = 0; sl.light.intensity = 0;
-          sl.mesh.visible = false; sl.free = true;
-          triggerShieldHit(nowMs);
+      sl.px += sl.vx * dt; sl.py += sl.vy * dt; sl.pz += sl.vz * dt;
+
+      // ── Sprite glow — primary visible element ─────────────────────
+      const pulse      = 1.0 + Math.sin(nowMs * 0.007 + sl.wobblePhase) * 0.12;
+      const spriteSize = 18 * pulse;
+      sl.sprite.position.set(sl.px, sl.py, sl.pz);
+      sl.sprite.scale.set(spriteSize, spriteSize, 1);
+      sl.spriteMat.opacity = 0.95;
+
+      // ── IcosahedronGeometry core — wobbles 0.9–1.1 ────────────────
+      const wobble = 0.9 + Math.sin(nowMs * 0.008 + sl.wobblePhase) * 0.10;
+      sl.coreMesh.position.set(sl.px, sl.py, sl.pz);
+      sl.coreMesh.scale.setScalar(wobble);
+      sl.coreMat.opacity = 0.95;
+
+      // ── Beam trail: cylinder from spawn point to ball ─────────────
+      //  This is the "laser coming from the ship" the player sees.
+      _beamTrailDir.set(
+        sl.px - sl.spawnX, sl.py - sl.spawnY, sl.pz - sl.spawnZ
+      );
+      const trailLen = _beamTrailDir.length();
+      if (trailLen > 0.5) {
+        const midX = (sl.spawnX + sl.px) * 0.5;
+        const midY = (sl.spawnY + sl.py) * 0.5;
+        const midZ = (sl.spawnZ + sl.pz) * 0.5;
+        sl.trailBeam.position.set(midX, midY, midZ);
+        sl.trailBeam.scale.set(1, trailLen, 1);
+        sl.trailBeam.quaternion.setFromUnitVectors(
+          _beamTrailAxis, _beamTrailDir.normalize()
+        );
+        sl.beamMat.opacity = 0.65;
+        sl.trailBeam.visible = true;
+      }
+
+      // Hitbox + light follow ball
+      sl.hitboxMesh.position.set(sl.px, sl.py, sl.pz);
+      sl.light.position.set(sl.px, sl.py, sl.pz);
+      sl.light.intensity = 6 + Math.sin(nowMs * 0.007 + sl.wobblePhase) * 2;
+
+      // ── Particle trail — spawn every ~40 ms ───────────────────────
+      sl.trailTimer -= dt;
+      if (sl.trailTimer <= 0) {
+        sl.trailTimer = 0.04;
+        const tp = sl.trailMeshes.find(t => !t.active);
+        if (tp) {
+          tp.active = true; tp.age = 0;
+          tp.maxAge = 0.20 + Math.random() * 0.10;
+          tp.mesh.position.set(sl.px, sl.py, sl.pz);
+          tp.mesh.scale.setScalar(0.8);
+          tp.mesh.visible = true;
+          tp.mat.opacity  = 0.7;
         }
       }
+      for (const tp of sl.trailMeshes) {
+        if (!tp.active) continue;
+        tp.age += dt;
+        if (tp.age >= tp.maxAge) { tp.mesh.visible = false; tp.active = false; continue; }
+        const fade = 1 - tp.age / tp.maxAge;
+        tp.mat.opacity = fade * 0.60;
+        tp.mesh.scale.setScalar(0.3 + fade * 0.4);
+      }
+
+      // ── Collision + near-miss at cockpit plane ─────────────────────
+      if (sl.pz >= -1.5) {
+        const r2 = sl.px * sl.px + sl.py * sl.py;
+        if (r2 < 4.0) {                          // hit: r < 2.0
+          _deactivateBolt(sl);
+          triggerShieldHit(nowMs);
+        } else if (!sl.whooshed && r2 < 49.0) {  // near-miss: 2.0 ≤ r < 7.0
+          sl.whooshed = true;
+          _triggerWhoosh(sl.px);
+        }
+      }
+      if (sl.pz > 5) { _deactivateBolt(sl); }
     }
   }
 
   function triggerShieldHit(nowMs) {
-    shakeTimer     = 0.20;           // 200 ms heavy shake per spec
-    weaponHeat     = Math.min(100, weaponHeat + 10);  // +10 heat penalty per spec
-    comboCount     = 0;
+    shakeTimer = 0.20;
+    weaponHeat = Math.min(100, weaponHeat + 10);
+    comboCount = 0;
     clearTimeout(comboTimerId);
     _updateComboDisplay();
-    shieldHitUntil = nowMs + 700;    // red vignette flash
+    shieldHitUntil = nowMs + 700;
+    cockpitBorderEl.style.filter = 'drop-shadow(0 0 22px #ff2200)';
+    setTimeout(() => { cockpitBorderEl.style.filter = ''; }, 150);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1635,6 +2068,38 @@ Integrated (°)
     }
 
     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+
+    // ── Plasma ball interception — checked before enemy ship hits ───
+    //  Uses the invisible hitboxMesh (SphereGeometry r=1.1) which is
+    //  larger than the visual shell (r=0.85) so interceptions feel fair.
+    {
+      const _plasmaBoxes = [];
+      for (const sl of _eboltPool) { if (!sl.free) _plasmaBoxes.push(sl.hitboxMesh); }
+      if (_plasmaBoxes.length > 0) {
+        const _pHits = raycaster.intersectObjects(_plasmaBoxes, false);
+        if (_pHits.length > 0) {
+          const _hitBolt = _eboltPool.find(sl => sl.hitboxMesh === _pHits[0].object);
+          if (_hitBolt) {
+            spawnLaser(_hitBolt.coreMesh.position.clone());
+            const _inDanger = _hitBolt.pz > -10;   // very close → "CLEAN SAVE"
+            _implodePlasmaBall(_hitBolt, nowMs);
+            hitShots++;
+            comboCount++;
+            if (comboCount > highestCombo) highestCombo = comboCount;
+            clearTimeout(comboTimerId);
+            comboTimerId = setTimeout(() => { comboCount = 0; _updateComboDisplay(); }, COMBO_TIMEOUT);
+            const pts = 50 * Math.max(1, comboCount);   // Counter-Fire bonus, scaled by combo
+            score += pts;
+            scoreEl.textContent = score;
+            _updateComboDisplay();
+            hitStopUntil = nowMs + 30;
+            _showHUDMessage(_inDanger ? 'CLEAN SAVE' : 'INTERCEPTED');
+            return;   // don't also hit a ship behind it
+          }
+        }
+      }
+    }
+
     const hits = [];
     for (const en of enemies) {
       if (!en.group.visible) continue;
@@ -1667,7 +2132,7 @@ Integrated (°)
         if (idx !== -1) deactivateEnemy(idx);
         spawnExplosion(point);
         spawnSparks(point, es?.velX, es?.velY, es?.velZ);
-        shakeTimer = 0.12;
+        shakeTimer = 0.22;
         score += pts;
         scoreEl.textContent = score;
       }, 30);
@@ -1718,15 +2183,16 @@ Integrated (°)
     });
     handsDetector.setOptions({
       maxNumHands:            1,
-      modelComplexity:        0,    // 0 = lite model — faster on mobile
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence:  0.5,
+      modelComplexity:        1,    // 1 = full model — better landmark accuracy in air
+      minDetectionConfidence: 0.55,
+      minTrackingConfidence:  0.45,
     });
 
     handsDetector.onResults((results) => {
       // No hand detected — return crosshair to center after brief delay
       if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
         wasPinching = false;
+        isHandTracking = false;
         handStatusEl.dataset.state = 'none';
         clearTimeout(aimReturnTimer);
         aimReturnTimer = setTimeout(() => {
@@ -1744,16 +2210,18 @@ Integrated (°)
       if (lmIdx === -1) lmIdx = 0;
 
       const lm       = results.multiHandLandmarks[lmIdx];
-      const thumbTip = lm[4];   // thumb tip
-      const idxTip   = lm[8];   // index finger tip
+      const thumbTip = lm[4];   // thumb tip  — pinch only
+      const idxTip   = lm[8];   // index tip  — pinch only
 
-      // Move crosshair to index finger position.
-      // Front camera is mirrored so MediaPipe x=0 is the right edge on screen — flip X.
+      // Palm centroid from the four knuckle MCPs — far more stable than fingertip.
+      // Front camera: flip X. Knuckles occupy ~[0.2,0.8] of frame; remap to full screen.
+      const palmX = (lm[5].x + lm[9].x + lm[13].x + lm[17].x) * 0.25;
+      const palmY = (lm[5].y + lm[9].y + lm[13].y + lm[17].y) * 0.25;
+      const HM = 0.18;  // hand-margin: ignore outermost 18% of frame each side
       clearTimeout(aimReturnTimer);
-      setCrosshair(
-        (1 - idxTip.x) * window.innerWidth,
-        idxTip.y * window.innerHeight
-      );
+      handRawX = Math.max(0, Math.min(1, ((1 - palmX) - HM) / (1 - 2 * HM))) * window.innerWidth;
+      handRawY = Math.max(0, Math.min(1, (palmY        - HM) / (1 - 2 * HM))) * window.innerHeight;
+      isHandTracking = true;
 
       const pinchDist = Math.sqrt(
         (thumbTip.x - idxTip.x) ** 2 +
@@ -1775,7 +2243,7 @@ Integrated (°)
     // MediaPipe Camera utility drives getUserMedia + frame loop
     const mpCam = new Camera(videoEl, {
       onFrame: async () => { await handsDetector.send({ image: videoEl }); },
-      width: 320, height: 240,
+      width: 480, height: 360,
     });
     mpCam.start()
       .then(() => {
@@ -1802,6 +2270,7 @@ Integrated (°)
   renderer.domElement.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
     touchPointerId = ev.pointerId;   // always update — clears any stuck state
+    isHandTracking = false;
     clearTimeout(aimReturnTimer);
     aimX = ev.clientX;
     aimY = ev.clientY;
@@ -1810,6 +2279,7 @@ Integrated (°)
   renderer.domElement.addEventListener('pointermove', (ev) => {
     if (ev.buttons === 0) return;    // no touch/button active — ignore hover
     ev.preventDefault();
+    isHandTracking = false;
     aimX = ev.clientX;
     aimY = ev.clientY;
   }, { passive: false });
@@ -1940,7 +2410,7 @@ Integrated (°)
       }
 
       const closeFade = Math.min(1, Math.abs(neb.position.z) / 200);
-      const farFade   = smoothstep(NEBULA_DEPTH, NEBULA_DEPTH * 0.65, -neb.position.z);
+      const farFade   = smoothstep(1600, 900, -neb.position.z); // fade in from max depth to mid
       neb.material.opacity = NEBULA_MAX_OP * closeFade * farFade;
     }
 
@@ -2035,17 +2505,34 @@ Integrated (°)
       const vdY  = vspd > 0.01 ? es.velY/vspd : cdY;
       const vdZ  = vspd > 0.01 ? es.velZ/vspd : cdZ;
 
-      const yawTgt   = Math.atan2(vdZ, -vdX);
-      const rollTgt  = -vdX * 1.3;                                          // ±75° bank — dramatic tilt
-      const pitchTgt = -Math.asin(Math.max(-0.55, Math.min(0.55, vdY)));   // follow vertical vel
+      const yawTgt   = Math.atan2(vdZ, vdX);
+      const rollTgt  = -vdX * 0.45;                                         // ±26° bank — visible turn without looking sideways
+      const pitchTgt = -Math.asin(Math.max(-0.35, Math.min(0.35, vdY)));   // follow vertical vel
 
       e.group.rotation.y += (yawTgt   - e.group.rotation.y) * Math.min(1, es.turnRate * 3 * dt);
       e.group.rotation.z += (rollTgt  - e.group.rotation.z) * Math.min(1, 7.0 * dt);
       e.group.rotation.x += (pitchTgt - e.group.rotation.x) * Math.min(1, 4.5 * dt);
 
-      // ── Enemy firing behavior — dogfight zone Z: -20 … -200 ────────
-      //  30% fire chance; 500 ms emissive-red telegraph
-      const inShootZone = pz < -20 && pz > -200;
+      // ── Evasive dodge — combat zone forces lateral side-steps ────────
+      //  Every 0.7–1.6 s while in range, ship snaps to a new waypoint
+      //  offset strongly to the side so the player can't just track straight.
+      if (pz < -80 && pz > -400 && es.fadeIn >= 1) {
+        es.dodgeTimer -= dt;
+        if (es.dodgeTimer <= 0) {
+          es.dodgeTimer = 0.7 + Math.random() * 0.9;
+          const sideDir  = Math.random() < 0.5 ? 1 : -1;
+          const sideAmt  = 70 + Math.random() * 80;  // 70–150 unit strafe
+          const newX     = Math.max(-240, Math.min(240, es.baseX + sideDir * sideAmt));
+          const newY     = 8  + Math.random() * 35;
+          const newZ     = es.baseZ + (Math.random() - 0.3) * 60; // slight forward bias
+          es.targetX = newX; es.targetY = newY; es.targetZ = newZ;
+        }
+      }
+
+      // ── Enemy firing behavior — dogfight zone Z: -100 … -350 ───────
+      //  Ships only fire from a visible distance — never when nearly on screen.
+      //  30% fire chance; 500 ms emissive-red telegraph.
+      const inShootZone = pz < -100 && pz > -350;
       if (inShootZone && es.fadeIn >= 1) {
         if (es.isCharging) {
           const cPct = es.chargeTimer / 0.5;          // 0 → 1 over 500 ms
@@ -2067,7 +2554,7 @@ Integrated (°)
             }
             es.isCharging   = false;
             es.chargeTimer  = 0;
-            es.fireCooldown = 1.5 + Math.random() * 0.5;
+            es.fireCooldown = 2.0 + Math.random() * 2.0;
             e.engineGlow.intensity = 2.2;
             e.engineGlow.color.set(0xff6600);
           }
@@ -2096,7 +2583,7 @@ Integrated (°)
 
       // ── Fade in on spawn ──────────────────────────────────────────
       if (es.fadeIn < 1) {
-        es.fadeIn = Math.min(1, es.fadeIn + dt * 1.8);  // ~0.55 s to full
+        es.fadeIn = Math.min(1, es.fadeIn + dt * 3.5);  // ~0.28 s to full — visible quickly at spawn
         for (const mesh of e.meshes) mesh.material.opacity = es.fadeIn;
       }
 
@@ -2142,6 +2629,13 @@ Integrated (°)
       camera.rotation.y = camYaw   * (Math.PI / 180);
     }
 
+    // ── Hand tracking pre-smooth — tame MediaPipe jitter before DOM lerp ─
+    if (isHandTracking) {
+      const hs = Math.min(1, 0.20 * dt * 60);  // ~20% per frame = ~75ms lag; palm centroid is stable enough
+      aimX += (handRawX - aimX) * hs;
+      aimY += (handRawY - aimY) * hs;
+    }
+
     // ── Crosshair lerp + DOM update — 0.5 alpha = half the gap per frame ──
     lerpX += (aimX - lerpX) * Math.min(1, 0.50 * dt * 60);
     lerpY += (aimY - lerpY) * Math.min(1, 0.50 * dt * 60);
@@ -2170,10 +2664,12 @@ Integrated (°)
     const prlxY = (lerpY / window.innerHeight - 0.5) * -12;
     cockpitBorderEl.style.transform = `translate(${prlxX}px,${prlxY}px)`;
 
-    // ── Beam + spark + enemy bolt updates ────────────────────────────
+    // ── Beam + spark + plasma ball + effect updates ──────────────────
     updateBeams(now, weaponHeat / 100);
     updateSparks(now);
     updateEnemyBolts(now, dt);
+    updateMuzzleFlashes(now);
+    updateImplodeEffects(now);
 
     // ── Heat dissipation ─────────────────────────────────────────────
     if (overheated) {
