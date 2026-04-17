@@ -874,21 +874,6 @@ Integrated (°)
     ctx.fillRect(-SZ, -SZ, SZ * 2, SZ * 2);
     ctx.restore();
 
-    // ── Micro-wisps — organic irregular silhouette ─────────────────
-    for (let w = 0; w < 6; w++) {
-      const wx = SZ * (0.15 + Math.random() * 0.70);
-      const wy = SZ * (0.15 + Math.random() * 0.70);
-      const wr = SZ * (0.06 + Math.random() * 0.11);
-      const wa = 0.06 + Math.random() * 0.10;
-
-      const gw = ctx.createRadialGradient(wx, wy, 0, wx, wy, wr);
-      gw.addColorStop(0.0, `rgba(${r},${g},${b},${wa.toFixed(3)})`);
-      gw.addColorStop(0.5, `rgba(${r},${g},${b},${(wa * 0.25).toFixed(3)})`);
-      gw.addColorStop(1.0, `rgba(${r},${g},${b},0.000)`);
-      ctx.fillStyle = gw;
-      ctx.fillRect(wx - wr, wy - wr, wr * 2, wr * 2);
-    }
-
     return new THREE.CanvasTexture(cvs);
   }
 
@@ -997,33 +982,23 @@ Integrated (°)
     es.passCount++;
     if (es.passCount > es.maxPasses) return null;
 
-    const ty = 5 + Math.random() * 35;   // 5..40 — ships stay in sky
-    const px = es.baseX, pz = es.baseZ;
+    const ty = 5 + Math.random() * 35;
+    const px = es.baseX;
 
-    // Horizontal heading unit vector — fallback to -Z if nearly stopped
-    const hspd = Math.sqrt(es.velX * es.velX + es.velZ * es.velZ);
-    const hdgX = hspd > 1 ? es.velX / hspd : 0;
-    const hdgZ = hspd > 1 ? es.velZ / hspd : -1;
+    // Always place next waypoint IN FRONT of camera (z always negative).
+    // The old perpendicular-arc formula sent ships behind the camera after
+    // the first pass — they'd spend passes invisible and off-screen.
+    //
+    // Center-pull: ships at the edges bias back toward center-screen.
+    const centerBias = px / 120;                         // –1..+1 based on how far off-axis
+    const tx = (Math.random() - 0.5) * 130 - centerBias * 50;  // pull toward 0
+    const tz = -70 - Math.random() * 260;                // always z: –70..–330 (in front)
 
-    // Rotate heading 90° left or right in the XZ plane
-    const pSign = Math.random() < 0.5 ? 1 : -1;
-    const perpX = -hdgZ * pSign;   // perpendicular direction X
-    const perpZ =  hdgX * pSign;   // perpendicular direction Z
-
-    // Arc radius scales with pilot agility: SMOOTH = wide sweeping arcs,
-    // AGGRESSIVE = tight rapid turns, ERRATIC = anything in between.
-    const agility  = Math.min(1, es.turnRate / 3.4);        // 0 (slowest) → 1 (fastest)
-    const sideDist = THREE.MathUtils.lerp(240, 90, agility) + Math.random() * 60;
-    const fwdDist  =  40 + Math.random() * 90;
-
-    let tx = px + perpX * sideDist + hdgX * fwdDist;
-    let tz = pz + perpZ * sideDist + hdgZ * fwdDist;
-
-    // Clamp to arena so ships can't wander off into infinity
-    tx = Math.max(-270, Math.min(270, tx));
-    tz = Math.max(-500, Math.min(160, tz));
-
-    return { x: tx, y: ty, z: tz };
+    return {
+      x: Math.max(-160, Math.min(160, tx)),
+      y: ty,
+      z: Math.max(-500, Math.min(-40, tz)),
+    };
   }
 
   function activateEnemy(i) {
@@ -1049,10 +1024,10 @@ Integrated (°)
     const spawnY  = 10 + Math.random() * 30;  // 10..40 — center-to-upper screen
     let spawnX, spawnZ;
     const typeRoll = Math.random();
-    es.spawnType   = typeRoll < 0.5 ? 'FRONT' : typeRoll < 0.75 ? 'REAR' : 'SIDE';
+    es.spawnType   = typeRoll < 0.65 ? 'FRONT' : typeRoll < 0.82 ? 'REAR' : 'SIDE';
 
     if (es.spawnType === 'FRONT') {
-      spawnX = (Math.random() - 0.5) * 160;   // full −80..+80 range, through center
+      spawnX = (Math.random() - 0.5) * 80;    // ±40 — aimed through screen center
       spawnZ = -600;                           // far enough to be visible before shooting zone
     } else if (es.spawnType === 'REAR') {
       spawnX = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 60);
@@ -2521,8 +2496,8 @@ Integrated (°)
         if (es.dodgeTimer <= 0) {
           es.dodgeTimer = 0.7 + Math.random() * 0.9;
           const sideDir  = Math.random() < 0.5 ? 1 : -1;
-          const sideAmt  = 70 + Math.random() * 80;  // 70–150 unit strafe
-          const newX     = Math.max(-240, Math.min(240, es.baseX + sideDir * sideAmt));
+          const sideAmt  = 30 + Math.random() * 50;  // 30–80 unit strafe — keep ships on screen
+          const newX     = Math.max(-130, Math.min(130, es.baseX + sideDir * sideAmt));
           const newY     = 8  + Math.random() * 35;
           const newZ     = es.baseZ + (Math.random() - 0.3) * 60; // slight forward bias
           es.targetX = newX; es.targetY = newY; es.targetZ = newZ;
