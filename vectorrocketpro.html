@@ -523,9 +523,9 @@ Integrated (°)
   const STAR_FADE_FAR      = 1600;
   const STAR_FADE_NEAR     = 400;
 
-  const NEBULA_COUNT       = 10;    // reduced for mobile GPU budget
-  const NEBULA_DEPTH       = 3000;  // pushed way back so ships never fly through them
-  const NEBULA_MAX_OP      = 1.0;   // texture is very dim, so allow full opacity multiplier
+  const NEBULA_COUNT       = 22;    // enough for dense coverage
+  const NEBULA_DEPTH       = 900;   // spawn z=-700 to -1600; all within visible range
+  const NEBULA_MAX_OP      = 1.0;
   const NEBULA_SPREAD_X    = 700;   // wide horizontal spread for full-screen coverage
   const NEBULA_SPREAD_Y    = 420;   // tall vertical spread
 
@@ -547,7 +547,7 @@ Integrated (°)
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setClearColor(0x00000a, 1);
+  renderer.setClearColor(0x02000e, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;  // correct gamma — kills banding
   document.body.appendChild(renderer.domElement);
   // Critical for mobile: tell browser this canvas handles its own touches
@@ -813,7 +813,7 @@ Integrated (°)
 
   const starMat = new THREE.PointsMaterial({
     map:             makeStarTexture(),
-    size:            0.7,
+    size:            1.6,
     sizeAttenuation: true,
     vertexColors:    true,
     transparent:     true,
@@ -837,35 +837,33 @@ Integrated (°)
   // sx/sy kept close to 1 so the shape is gently non-circular, not a streak.
   // 6 tiny wisps at random positions break symmetry without drawing lines.
   function makeNebulaTexture(r, g, b, sx = 1.0, sy = 1.0) {
-    const SZ  = 512;
+    const SZ  = 256;   // 256 sufficient for soft blobs; saves GPU memory vs 512
     const cvs = document.createElement('canvas');
     cvs.width = cvs.height = SZ;
     const ctx = cvs.getContext('2d');
 
-    // ── Main body — gently elliptical, very soft core ─────────────
+    // ── Main body — gently elliptical, rich glowing core ──────────
     ctx.save();
     ctx.translate(SZ / 2, SZ / 2);
     ctx.scale(sx, sy);
     const gMain = ctx.createRadialGradient(0, 0, 0, 0, 0, SZ / 2);
-    gMain.addColorStop(0.00, `rgba(${r},${g},${b},0.11)`);
-    gMain.addColorStop(0.12, `rgba(${r},${g},${b},0.08)`);
-    gMain.addColorStop(0.28, `rgba(${r},${g},${b},0.04)`);
-    gMain.addColorStop(0.48, `rgba(${r},${g},${b},0.014)`);
-    gMain.addColorStop(0.68, `rgba(${r},${g},${b},0.003)`);
-    gMain.addColorStop(0.85, `rgba(${r},${g},${b},0.001)`);
+    gMain.addColorStop(0.00, `rgba(${r},${g},${b},0.45)`);
+    gMain.addColorStop(0.12, `rgba(${r},${g},${b},0.32)`);
+    gMain.addColorStop(0.28, `rgba(${r},${g},${b},0.16)`);
+    gMain.addColorStop(0.48, `rgba(${r},${g},${b},0.06)`);
+    gMain.addColorStop(0.68, `rgba(${r},${g},${b},0.018)`);
+    gMain.addColorStop(0.85, `rgba(${r},${g},${b},0.004)`);
     gMain.addColorStop(1.00, `rgba(${r},${g},${b},0.000)`);
     ctx.fillStyle = gMain;
     ctx.fillRect(-SZ, -SZ, SZ * 2, SZ * 2);
     ctx.restore();
 
-    // ── Micro-wisps — tiny dim blobs scattered across canvas ──────
-    // Each is a small circular gradient so individually none looks like
-    // a line. Together they give the cloud an organic, irregular silhouette.
+    // ── Micro-wisps — organic irregular silhouette ─────────────────
     for (let w = 0; w < 6; w++) {
       const wx = SZ * (0.15 + Math.random() * 0.70);
       const wy = SZ * (0.15 + Math.random() * 0.70);
-      const wr = SZ * (0.06 + Math.random() * 0.11); // small radius
-      const wa = 0.015 + Math.random() * 0.030;       // very dim
+      const wr = SZ * (0.06 + Math.random() * 0.11);
+      const wa = 0.06 + Math.random() * 0.10;
 
       const gw = ctx.createRadialGradient(wx, wy, 0, wx, wy, wr);
       gw.addColorStop(0.0, `rgba(${r},${g},${b},${wa.toFixed(3)})`);
@@ -878,13 +876,14 @@ Integrated (°)
     return new THREE.CanvasTexture(cvs);
   }
 
-  // Subtle ratios — max 1.35× in either direction, never a visible streak
   const nebTextures = [
-    makeNebulaTexture(  0, 242, 255, 1.30, 0.78), // electric blue
-    makeNebulaTexture(255,   0, 255, 0.78, 1.30), // deep magenta
-    makeNebulaTexture(  0, 200, 255, 1.20, 0.85), // lighter blue
-    makeNebulaTexture(220,   0, 255, 0.85, 1.20), // magenta-violet
-    makeNebulaTexture(  0, 242, 200, 1.35, 0.74), // electric teal
+    makeNebulaTexture(  0, 180, 255, 1.30, 0.78), // electric blue
+    makeNebulaTexture(200,   0, 255, 0.78, 1.30), // deep violet
+    makeNebulaTexture( 80,   0, 220, 1.20, 0.85), // indigo
+    makeNebulaTexture(255,   0, 180, 0.85, 1.20), // hot magenta
+    makeNebulaTexture(  0, 220, 255, 1.35, 0.74), // electric cyan
+    makeNebulaTexture(160,   0, 255, 1.00, 1.25), // rich purple
+    makeNebulaTexture(255,  40, 120, 0.90, 1.10), // crimson-pink
   ];
 
   // Helper — random non-uniform scale so sprites aren't all the same shape
@@ -2302,7 +2301,7 @@ Integrated (°)
       }
 
       const closeFade = Math.min(1, Math.abs(neb.position.z) / 200);
-      const farFade   = smoothstep(NEBULA_DEPTH, NEBULA_DEPTH * 0.65, -neb.position.z);
+      const farFade   = smoothstep(1600, 900, -neb.position.z); // fade in from max depth to mid
       neb.material.opacity = NEBULA_MAX_OP * closeFade * farFade;
     }
 
