@@ -552,7 +552,7 @@ Integrated (°)
   const BASE_PITCH_DEG     = 0;    // first-person: look straight ahead
 
   // ── Enemy combat sphere ────────────────────────────────────────────
-  const ENEMY_COUNT        = 5;    // active slots in pool
+  const ENEMY_COUNT        = 8;    // active slots in pool
 
   // ─────────────────────────────────────────────────────────────────
   //  RENDERER
@@ -1353,8 +1353,11 @@ Integrated (°)
   const _fragOrigin = new THREE.Vector3();
 
   const _explFlashEl = document.getElementById('explosion-flash');
+  let _fragGen = 0;  // incremented each explosion so old RAF loops self-terminate
 
   function spawnExplosion(pos) {
+    _fragGen++;
+    const myGen = _fragGen;
     // ── Screen flash ─────────────────────────────────────────────
     _explFlashEl.classList.remove('burst');
     void _explFlashEl.offsetWidth; // reflow to restart animation
@@ -1388,6 +1391,7 @@ Integrated (°)
 
     const t0 = performance.now();
     (function tick() {
+      if (_fragGen !== myGen) return;  // newer explosion took over fragment pool
       const e = (performance.now() - t0) / 1000;
       const LIFE = 1.5;
       if (e >= LIFE) {
@@ -2158,9 +2162,9 @@ Integrated (°)
     });
     handsDetector.setOptions({
       maxNumHands:            1,
-      modelComplexity:        1,    // 1 = full model — better landmark accuracy in air
-      minDetectionConfidence: 0.55,
-      minTrackingConfidence:  0.45,
+      modelComplexity:        0,    // lite model — consistent 30fps detection on mobile
+      minDetectionConfidence: 0.60,
+      minTrackingConfidence:  0.50,
     });
 
     handsDetector.onResults((results) => {
@@ -2218,7 +2222,7 @@ Integrated (°)
     // MediaPipe Camera utility drives getUserMedia + frame loop
     const mpCam = new Camera(videoEl, {
       onFrame: async () => { await handsDetector.send({ image: videoEl }); },
-      width: 480, height: 360,
+      width: 320, height: 240,
     });
     mpCam.start()
       .then(() => {
@@ -2395,7 +2399,7 @@ Integrated (°)
       if (spawnCountdown <= 0) {
         const idx = enemies.findIndex(e => !e.group.visible);
         if (idx !== -1) activateEnemy(idx);
-        spawnCountdown = 0.8 + Math.random() * 1.4;
+        spawnCountdown = 0.5 + Math.random() * 0.8;
       }
     }
 
@@ -2480,7 +2484,7 @@ Integrated (°)
       const vdY  = vspd > 0.01 ? es.velY/vspd : cdY;
       const vdZ  = vspd > 0.01 ? es.velZ/vspd : cdZ;
 
-      const yawTgt   = Math.atan2(vdZ, vdX);
+      const yawTgt   = Math.atan2(vdZ, -vdX);  // model nose = local -X axis
       const rollTgt  = -vdX * 0.45;                                         // ±26° bank — visible turn without looking sideways
       const pitchTgt = -Math.asin(Math.max(-0.35, Math.min(0.35, vdY)));   // follow vertical vel
 
