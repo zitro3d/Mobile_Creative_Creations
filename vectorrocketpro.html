@@ -415,6 +415,21 @@
       40%  { opacity: 1; transform: translateX(-50%) scale(1.18); }
       100% { opacity: 1; transform: translateX(-50%) scale(1.00); }
     }
+
+    /* ── Kill explosion screen flash ─────────────────────────────── */
+    #explosion-flash {
+      position: fixed; inset: 0; pointer-events: none; z-index: 11; opacity: 0;
+      background: radial-gradient(ellipse at center,
+        rgba(255,200,80,0.55) 0%, rgba(255,80,0,0.25) 35%, transparent 70%);
+    }
+    #explosion-flash.burst {
+      animation: explBurst 0.55s ease-out forwards;
+    }
+    @keyframes explBurst {
+      0%   { opacity: 1; }
+      18%  { opacity: 0.85; }
+      100% { opacity: 0; }
+    }
   </style>
 </head>
 <body>
@@ -464,6 +479,7 @@ Integrated (°)
   <!-- Plasma near-miss whoosh edge overlays -->
   <div id="whoosh-left"></div>
   <div id="whoosh-right"></div>
+  <div id="explosion-flash"></div>
 
   <!-- Cockpit HUD — pointer-events: none so it never blocks input -->
   <div id="hud">
@@ -1288,54 +1304,147 @@ Integrated (°)
 
   document.getElementById('summary-btn').addEventListener('click', () => location.reload());
 
-  // ── Pooled explosion fragments — pre-allocated, never create/dispose ──
-  //  Shared box geometry; per-fragment scale gives size variety.
-  const FRAG_COUNT  = 16;
+  // ═══════════════════════════════════════════════════════════════════
+  //  EXPLOSION SYSTEM — fireball + shockwave + debris + screen flash
+  // ═══════════════════════════════════════════════════════════════════
+
+  // ── Fireball texture ─────────────────────────────────────────────
+  function _makeFireballTex() {
+    const SZ = 128, cvs = document.createElement('canvas');
+    cvs.width = cvs.height = SZ;
+    const ctx = cvs.getContext('2d');
+    const g = ctx.createRadialGradient(SZ/2,SZ/2,0, SZ/2,SZ/2,SZ/2);
+    g.addColorStop(0.00, 'rgba(255,255,255,1.0)');
+    g.addColorStop(0.08, 'rgba(255,255,180,0.95)');
+    g.addColorStop(0.22, 'rgba(255,160,30,0.80)');
+    g.addColorStop(0.42, 'rgba(255,60,0,0.50)');
+    g.addColorStop(0.62, 'rgba(180,10,0,0.20)');
+    g.addColorStop(1.00, 'rgba(0,0,0,0.00)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SZ, SZ);
+    return new THREE.CanvasTexture(cvs);
+  }
+
+  // ── Shockwave ring texture ────────────────────────────────────────
+  function _makeShockwaveTex() {
+    const SZ = 128, cvs = document.createElement('canvas');
+    cvs.width = cvs.height = SZ;
+    const ctx = cvs.getContext('2d');
+    const g = ctx.createRadialGradient(SZ/2,SZ/2, SZ*0.30, SZ/2,SZ/2, SZ*0.50);
+    g.addColorStop(0.00, 'rgba(255,240,160,0.00)');
+    g.addColorStop(0.30, 'rgba(255,220,100,0.90)');
+    g.addColorStop(0.60, 'rgba(255,100,20,0.70)');
+    g.addColorStop(1.00, 'rgba(255,40,0,0.00)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SZ, SZ);
+    return new THREE.CanvasTexture(cvs);
+  }
+
+  const _fbTex = _makeFireballTex();
+  const _swTex = _makeShockwaveTex();
+
+  // ── Per-explosion overlay pool (3 simultaneous max) ──────────────
+  const EXPL_SLOTS = 3;
+  const _explPool = Array.from({ length: EXPL_SLOTS }, () => {
+    const fbMat = new THREE.SpriteMaterial({ map: _fbTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 });
+    const fbSp  = new THREE.Sprite(fbMat); fbSp.visible = false; scene.add(fbSp);
+
+    const swMat = new THREE.SpriteMaterial({ map: _swTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 });
+    const swSp  = new THREE.Sprite(swMat); swSp.visible = false; scene.add(swSp);
+
+    const lt = new THREE.PointLight(0xff8833, 0, 280);
+    lt.visible = false; scene.add(lt);
+
+    return { fbSp, fbMat, swSp, swMat, lt };
+  });
+  let _explSlot = 0;
+
+  // ── Fragment debris pool ─────────────────────────────────────────
+  const FRAG_COUNT  = 24;
   const _fragGeo    = new THREE.BoxGeometry(2, 2, 2);
-  const _fragMats   = Array.from({ length: FRAG_COUNT }, (_, k) =>
-    new THREE.MeshStandardMaterial({
-      color: k % 2 === 0 ? 0xff7722 : 0xffcc44,
-      emissive: k % 2 === 0 ? 0xff4400 : 0xff9900,
-      emissiveIntensity: 3, transparent: true, opacity: 0, depthWrite: false,
-    })
-  );
+  const _fragMats   = Array.from({ length: FRAG_COUNT }, (_, k) => {
+    // Thirds: white-hot chunks, yellow mid-pieces, orange embers
+    const col = k < 8 ? 0xffffff : k < 16 ? 0xffcc44 : 0xff6600;
+    const emi = k < 8 ? 0xffffff : k < 16 ? 0xff9900 : 0xff3300;
+    return new THREE.MeshStandardMaterial({
+      color: col, emissive: emi,
+      emissiveIntensity: 6, transparent: true, opacity: 0, depthWrite: false,
+    });
+  });
   const _fragMeshes = _fragMats.map(mat => {
     const m = new THREE.Mesh(_fragGeo, mat);
-    m.frustumCulled = true;
-    m.visible = false;
-    scene.add(m);
-    return m;
+    m.frustumCulled = false; m.visible = false; scene.add(m); return m;
   });
-  // Reused velocity/rotation vectors — no per-explosion allocation
-  const _fragVels = Array.from({ length: FRAG_COUNT }, () => new THREE.Vector3());
-  const _fragRots = Array.from({ length: FRAG_COUNT }, () => new THREE.Vector3());
+  const _fragVels   = Array.from({ length: FRAG_COUNT }, () => new THREE.Vector3());
+  const _fragRots   = Array.from({ length: FRAG_COUNT }, () => new THREE.Vector3());
   const _fragOrigin = new THREE.Vector3();
 
+  const _explFlashEl = document.getElementById('explosion-flash');
+
   function spawnExplosion(pos) {
+    // ── Screen flash ─────────────────────────────────────────────
+    _explFlashEl.classList.remove('burst');
+    void _explFlashEl.offsetWidth; // reflow to restart animation
+    _explFlashEl.classList.add('burst');
+
+    // ── Grab overlay slot ────────────────────────────────────────
+    const sl = _explPool[_explSlot % EXPL_SLOTS]; _explSlot++;
+    sl.fbSp.position.copy(pos); sl.fbSp.visible = true;
+    sl.swSp.position.copy(pos); sl.swSp.visible = true;
+    sl.lt.position.copy(pos);   sl.lt.visible = true;
+    sl.lt.color.set(0xff9944);  sl.lt.intensity = 150;
+
+    // ── Debris — spherical velocity distribution + gravity arc ───
     _fragOrigin.copy(pos);
     for (let k = 0; k < FRAG_COUNT; k++) {
-      _fragVels[k].set((Math.random()-.5)*200, (Math.random()-.5)*200, (Math.random()-.5)*200);
-      _fragRots[k].set((Math.random()-.5)*10,  (Math.random()-.5)*10,  (Math.random()-.5)*10);
+      const theta = Math.random() * Math.PI * 2;
+      const phi   = Math.acos(2 * Math.random() - 1);
+      const spd   = 100 + Math.random() * 240;
+      _fragVels[k].set(
+        Math.sin(phi) * Math.cos(theta) * spd,
+        Math.sin(phi) * Math.sin(theta) * spd,
+        Math.cos(phi) * spd
+      );
+      _fragRots[k].set((Math.random()-.5)*14, (Math.random()-.5)*14, (Math.random()-.5)*14);
       _fragMeshes[k].position.copy(pos);
-      _fragMeshes[k].scale.setScalar(0.6 + Math.random() * 1.0);
+      _fragMeshes[k].scale.setScalar(0.3 + Math.random() * 1.8);
       _fragMeshes[k].visible = true;
-      _fragMats[k].opacity = 1;
-      _fragMats[k].emissiveIntensity = 3;
+      _fragMats[k].opacity   = 1;
+      _fragMats[k].emissiveIntensity = 6;
     }
+
     const t0 = performance.now();
     (function tick() {
-      const elapsed = (performance.now() - t0) / 1000;
-      if (elapsed >= 1.0) {
+      const e = (performance.now() - t0) / 1000;
+      const LIFE = 1.5;
+      if (e >= LIFE) {
         for (let k = 0; k < FRAG_COUNT; k++) _fragMeshes[k].visible = false;
+        sl.fbSp.visible = false; sl.fbMat.opacity = 0;
+        sl.swSp.visible = false; sl.swMat.opacity = 0;
+        sl.lt.visible = false;   sl.lt.intensity  = 0;
         return;
       }
+
+      // Fireball: expands fast, fades after 0.7s
+      const fbFade = Math.max(0, 1 - e / 0.70);
+      sl.fbMat.opacity = fbFade * fbFade;
+      sl.fbSp.scale.setScalar(4 + e * 80);
+
+      // Shockwave: blazing ring expands and vanishes by 0.40s
+      const swFade = Math.max(0, 1 - e / 0.40);
+      sl.swMat.opacity = swFade * 0.95;
+      sl.swSp.scale.setScalar(8 + e * 380);
+
+      // Light: peak flash then smooth decay
+      sl.lt.intensity = e < 0.06 ? 150 : Math.max(0, 130 * (1 - e / 0.55));
+
+      // Debris: arc with gravity, cool emissive intensity, fade at end
+      const gravY = 35 * e * e;
       for (let k = 0; k < FRAG_COUNT; k++) {
-        _fragMeshes[k].position.copy(_fragOrigin).addScaledVector(_fragVels[k], elapsed);
-        _fragMeshes[k].rotation.set(
-          _fragRots[k].x * elapsed, _fragRots[k].y * elapsed, _fragRots[k].z * elapsed
-        );
-        _fragMats[k].opacity = 1 - elapsed * elapsed;
-        _fragMats[k].emissiveIntensity = 3 * (1 - elapsed);
+        _fragMeshes[k].position.copy(_fragOrigin).addScaledVector(_fragVels[k], e);
+        _fragMeshes[k].position.y -= gravY;
+        _fragMeshes[k].rotation.set(_fragRots[k].x * e, _fragRots[k].y * e, _fragRots[k].z * e);
+        const life = Math.max(0, 1 - e / LIFE);
+        _fragMats[k].opacity           = life * life;
+        _fragMats[k].emissiveIntensity = 6 * Math.max(0, 1 - e / 0.9);
       }
       requestAnimationFrame(tick);
     })();
@@ -2023,7 +2132,7 @@ Integrated (°)
         if (idx !== -1) deactivateEnemy(idx);
         spawnExplosion(point);
         spawnSparks(point, es?.velX, es?.velY, es?.velZ);
-        shakeTimer = 0.12;
+        shakeTimer = 0.22;
         score += pts;
         scoreEl.textContent = score;
       }, 30);
