@@ -1676,7 +1676,7 @@ Integrated (°)
   const _plasmaTex     = _makePlasmaSpriteTex();
 
   const EBOLT_COUNT    = 12;
-  const _epCoreGeo     = new THREE.IcosahedronGeometry(1.5, 2);
+  const _epCoreGeo     = new THREE.IcosahedronGeometry(0.8, 2);
   const _trailPartGeo  = new THREE.SphereGeometry(0.55, 3, 2);
   const _hitboxSphGeo  = new THREE.SphereGeometry(3.5, 4, 3);
   const _beamTrailGeo  = new THREE.CylinderGeometry(0.18, 0.18, 1, 6, 1);
@@ -1703,9 +1703,14 @@ Integrated (°)
     sprite.visible = false;
     scene.add(sprite);
 
-    // ── IcosahedronGeometry core — wobbles for 3-D feel ───────────
-    const coreMat  = new THREE.MeshBasicMaterial({
-      color: 0xffffff, transparent: true, opacity: 0,
+    // ── IcosahedronGeometry core — PBR plasma sphere, hot orange-red ───
+    const coreMat  = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: 0xff4500,
+      emissiveIntensity: 2.5,
+      roughness: 0.4,
+      metalness: 0.0,
+      transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false,
     });
     const coreMesh = new THREE.Mesh(_epCoreGeo, coreMat);
@@ -1721,8 +1726,8 @@ Integrated (°)
     trailBeam.frustumCulled = false; trailBeam.visible = false;
     scene.add(trailBeam);
 
-    // ── Orange point light ─────────────────────────────────────────
-    const light = new THREE.PointLight(0xff6600, 0, 80);
+    // ── Plasma point light — casts orange-red onto cockpit/debris as it passes
+    const light = new THREE.PointLight(0xff4500, 2, 15);
     scene.add(light);
 
     // ── Invisible hitbox for raycaster interception ────────────────
@@ -1903,7 +1908,7 @@ Integrated (°)
     sl.hitboxMesh.position.set(fromX, fromY, fromZ);
 
     sl.light.position.set(fromX, fromY, fromZ);
-    sl.light.intensity = 6;
+    sl.light.intensity = 2;
 
     for (const tp of sl.trailMeshes) { tp.active = false; tp.mesh.visible = false; }
     sl.trailTimer = 0;
@@ -1957,7 +1962,7 @@ Integrated (°)
       // Hitbox + light follow ball
       sl.hitboxMesh.position.set(sl.px, sl.py, sl.pz);
       sl.light.position.set(sl.px, sl.py, sl.pz);
-      sl.light.intensity = 6 + Math.sin(nowMs * 0.007 + sl.wobblePhase) * 2;
+      sl.light.intensity = 2 + Math.sin(nowMs * 0.007 + sl.wobblePhase) * 0.6;
 
       // ── Particle trail — spawn every ~40 ms ───────────────────────
       sl.trailTimer -= dt;
@@ -1998,7 +2003,9 @@ Integrated (°)
   }
 
   function triggerShieldHit(nowMs) {
-    shakeTimer = 0.20;
+    shakeTimer       = 0.20;
+    hitShakeTimer    = HIT_SHAKE_DURATION;     // physical sine-wave kick
+    chromaHitUntil   = nowMs + 250;            // chromatic aberration burst
     weaponHeat = Math.min(100, weaponHeat + 10);
     comboCount = 0;
     clearTimeout(comboTimerId);
@@ -2341,6 +2348,12 @@ Integrated (°)
   let shakeTimer = 0;
   const SHAKE_DURATION = 0.20;
   const SHAKE_MAG      = 0.014;
+  // High-frequency physical sine-wave shake on player hit — 300 ms decaying rumble
+  let   hitShakeTimer = 0;
+  const HIT_SHAKE_DURATION = 0.30;
+  const HIT_SHAKE_MAG      = 0.085;
+  const HIT_SHAKE_FREQ     = 60;     // rad/s
+  let   chromaHitUntil = 0;          // ms — chromatic aberration flash window
 
   let prevTime = performance.now();
 
@@ -2518,26 +2531,25 @@ Integrated (°)
 
       // ── Enemy firing behavior — dogfight zone Z: -100 … -350 ───────
       //  Ships only fire from a visible distance — never when nearly on screen.
-      //  30% fire chance; 500 ms emissive-red telegraph.
-      const inShootZone = false; // firing temporarily disabled
+      //  30% fire chance; 500 ms overload telegraph (emissive ramps 1→10).
+      const inShootZone = pz < -100 && pz > -350;
       if (inShootZone && es.fadeIn >= 1) {
         if (es.isCharging) {
-          const cPct = es.chargeTimer / 0.5;          // 0 → 1 over 500 ms
-          // Hull flashes red — emissive on every mesh for maximum visibility
+          const cPct        = es.chargeTimer / 0.5;          // 0 → 1 over 500 ms
+          const overload    = cPct * cPct;                   // ease-in: slow build, sharp peak
+          const emiInten    = 1 + overload * 9;              // 1 → 10
           for (const m of e.meshes) {
-            m.material.emissive.setRGB(cPct, 0, 0);
-            m.material.emissiveIntensity = cPct * 6;
-            m.material.needsUpdate = false;            // emissive colour change, no shader recompile
+            m.material.emissive.setRGB(1, 0.18, 0.05);       // hot orange-red overload
+            m.material.emissiveIntensity = emiInten;
           }
-          e.engineGlow.intensity = 2.2 + cPct * 22;
-          e.engineGlow.color.set(0xff1100);
+          e.engineGlow.intensity = 2.2 + overload * 22;
+          e.engineGlow.color.set(0xff2200);
           es.chargeTimer += dt;
           if (es.chargeTimer >= 0.5) {
             // Fire from nose tip — model nose is local -X axis, offset 14 units forward
             _boltNoseDir.set(-1, 0, 0).applyQuaternion(e.group.quaternion);
             _boltFirePos.copy(e.group.position).addScaledVector(_boltNoseDir, 14);
             _fireEnemyBolt(_boltFirePos.x, _boltFirePos.y, _boltFirePos.z);
-            // Restore hull materials
             for (const m of e.meshes) {
               m.material.emissive.setRGB(0, 0, 0);
               m.material.emissiveIntensity = 1;
@@ -2604,6 +2616,18 @@ Integrated (°)
     } else {
       // Lerp back to base — camera drifts like a heavy vessel, never snaps
       camera.position.lerp(CAM_BASE_POS, Math.min(1, 8 * dt));
+    }
+
+    // ── Physical hit-shake — high-freq sine on top of base position ──
+    //  Decays quadratically over 300 ms; X and Y use offset frequencies
+    //  so the cockpit jolts in a chaotic-feeling oscillation, not a circle.
+    if (hitShakeTimer > 0) {
+      hitShakeTimer -= dt;
+      const env  = Math.max(0, hitShakeTimer / HIT_SHAKE_DURATION);
+      const env2 = env * env;
+      const t    = HIT_SHAKE_DURATION - hitShakeTimer;
+      camera.position.x += Math.sin(t * HIT_SHAKE_FREQ * 1.7) * HIT_SHAKE_MAG * env2;
+      camera.position.y += Math.sin(t * HIT_SHAKE_FREQ * 1.3 + 1.5) * HIT_SHAKE_MAG * env2;
     }
 
     // ── Camera rotation — direct integration, no quaternion chain ───
@@ -2705,9 +2729,13 @@ Integrated (°)
     const bloomTarget = 1.2 + Math.min(comboCount, 30) / 30 * 0.9;
     bloomPass.strength += (bloomTarget - bloomPass.strength) * Math.min(1, 2.5 * dt);
 
-    // ── Chromatic aberration scales with combo ────────────────────────
+    // ── Chromatic aberration: combo glow + hit flash burst ────────────
     if (chromaEl) {
-      const chromaTarget = Math.min(comboCount, 20) / 20 * 0.65;
+      let chromaTarget = Math.min(comboCount, 20) / 20 * 0.65;
+      if (now < chromaHitUntil) {
+        const k = (chromaHitUntil - now) / 250;   // 1 → 0 over 250 ms
+        chromaTarget = Math.max(chromaTarget, k);
+      }
       chromaEl.style.opacity = chromaTarget.toFixed(3);
     }
 
