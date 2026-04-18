@@ -945,10 +945,10 @@ Integrated (°)
       enemyState[i].isCharging  = false;
       enemyState[i].chargeTimer = 0;
     }
-    // Always restore hull emissive + engine glow on deactivation
+    // Restore hull emissive glow + engine glow on deactivation
     for (const m of enemies[i].meshes) {
-      m.material.emissive.setRGB(0, 0, 0);
-      m.material.emissiveIntensity = 1;
+      m.material.emissive.setRGB(0x22/255, 0x33/255, 0x55/255);
+      m.material.emissiveIntensity = 1.2;
     }
     enemies[i].engineGlow.intensity = 2.2;
     enemies[i].engineGlow.color.set(0xff6600);
@@ -1072,7 +1072,7 @@ Integrated (°)
 
     e.group.position.set(spawnX, spawnY, spawnZ);
     e.group.rotation.order = 'YXZ';
-    e.group.rotation.set(0, Math.atan2(dz, dx), 0);
+    e.group.rotation.set(0, Math.atan2(dz, -dx), 0);  // match yaw formula: nose = local -X
 
     for (const mesh of e.meshes) mesh.material.opacity = 0;  // fade in
     e.group.visible   = true;
@@ -2170,8 +2170,8 @@ Integrated (°)
     handsDetector.setOptions({
       maxNumHands:            1,
       modelComplexity:        0,    // lite model — consistent 30fps detection on mobile
-      minDetectionConfidence: 0.60,
-      minTrackingConfidence:  0.50,
+      minDetectionConfidence: 0.50,
+      minTrackingConfidence:  0.45,
     });
 
     handsDetector.onResults((results) => {
@@ -2230,6 +2230,7 @@ Integrated (°)
     const mpCam = new Camera(videoEl, {
       onFrame: async () => { await handsDetector.send({ image: videoEl }); },
       width: 320, height: 240,
+      facingMode: 'user',  // explicitly request front camera
     });
     mpCam.start()
       .then(() => {
@@ -2620,14 +2621,14 @@ Integrated (°)
 
     // ── Hand tracking pre-smooth — tame MediaPipe jitter before DOM lerp ─
     if (isHandTracking) {
-      const hs = Math.min(1, 0.20 * dt * 60);  // ~20% per frame = ~75ms lag; palm centroid is stable enough
+      const hs = Math.min(1, 0.30 * dt * 60);  // ~30% per frame — palm centroid is stable, needs responsiveness
       aimX += (handRawX - aimX) * hs;
       aimY += (handRawY - aimY) * hs;
     }
 
-    // ── Crosshair lerp + DOM update — 0.5 alpha = half the gap per frame ──
-    lerpX += (aimX - lerpX) * Math.min(1, 0.50 * dt * 60);
-    lerpY += (aimY - lerpY) * Math.min(1, 0.50 * dt * 60);
+    // ── Crosshair lerp + DOM update — 0.65 alpha = snappier crosshair ──
+    lerpX += (aimX - lerpX) * Math.min(1, 0.65 * dt * 60);
+    lerpY += (aimY - lerpY) * Math.min(1, 0.65 * dt * 60);
     crosshairEl.style.left = lerpX + 'px';
     crosshairEl.style.top  = lerpY + 'px';
 
