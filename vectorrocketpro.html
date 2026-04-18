@@ -1681,7 +1681,8 @@ Integrated (°)
   const _beamTrailGeo  = new THREE.CylinderGeometry(0.18, 0.18, 1, 6, 1);
   const _beamTrailAxis = new THREE.Vector3(0, 1, 0);
   const _beamTrailDir  = new THREE.Vector3();
-  const _fovVec        = new THREE.Vector3();
+  const _boltNoseDir   = new THREE.Vector3();   // reused: ship nose world direction
+  const _boltFirePos   = new THREE.Vector3();   // reused: world position of gun muzzle
   const shieldFlashEl  = document.getElementById('shield-flash');
   const whooshLeftEl   = document.getElementById('whoosh-left');
   const whooshRightEl  = document.getElementById('whoosh-right');
@@ -1878,7 +1879,9 @@ Integrated (°)
 
     const dx = -fromX, dy = -fromY, dz = -fromZ;
     const d  = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
-    sl.vx = (dx/d) * 90; sl.vy = (dy/d) * 90; sl.vz = (dz/d) * 90;
+    const spd = 160;
+    sl.vx = (dx/d) * spd; sl.vy = (dy/d) * spd; sl.vz = (dz/d) * spd;
+    sl.vnx = dx/d; sl.vny = dy/d; sl.vnz = dz/d;  // normalized dir for trail
 
     // Show sprite immediately
     sl.sprite.position.set(fromX, fromY, fromZ);
@@ -1928,22 +1931,25 @@ Integrated (°)
       sl.coreMesh.scale.setScalar(wobble);
       sl.coreMat.opacity = 0.95;
 
-      // ── Beam trail: cylinder from spawn point to ball ─────────────
-      //  This is the "laser coming from the ship" the player sees.
-      _beamTrailDir.set(
-        sl.px - sl.spawnX, sl.py - sl.spawnY, sl.pz - sl.spawnZ
-      );
+      // ── Beam trail: fixed-length pulse behind the ball ────────────
+      //  45 units long, moves with the bolt — looks like a laser shot.
+      const TRAIL = 45;
+      const tailX = sl.px - sl.vnx * TRAIL;
+      const tailY = sl.py - sl.vny * TRAIL;
+      const tailZ = sl.pz - sl.vnz * TRAIL;
+      _beamTrailDir.set(sl.px - tailX, sl.py - tailY, sl.pz - tailZ);
       const trailLen = _beamTrailDir.length();
       if (trailLen > 0.5) {
-        const midX = (sl.spawnX + sl.px) * 0.5;
-        const midY = (sl.spawnY + sl.py) * 0.5;
-        const midZ = (sl.spawnZ + sl.pz) * 0.5;
-        sl.trailBeam.position.set(midX, midY, midZ);
+        sl.trailBeam.position.set(
+          (tailX + sl.px) * 0.5,
+          (tailY + sl.py) * 0.5,
+          (tailZ + sl.pz) * 0.5
+        );
         sl.trailBeam.scale.set(1, trailLen, 1);
         sl.trailBeam.quaternion.setFromUnitVectors(
           _beamTrailAxis, _beamTrailDir.normalize()
         );
-        sl.beamMat.opacity = 0.65;
+        sl.beamMat.opacity = 0.70;
         sl.trailBeam.visible = true;
       }
 
@@ -2525,7 +2531,10 @@ Integrated (°)
           e.engineGlow.color.set(0xff1100);
           es.chargeTimer += dt;
           if (es.chargeTimer >= 0.5) {
-            _fireEnemyBolt(e.group.position.x, e.group.position.y, e.group.position.z);
+            // Fire from nose tip — model nose is local -X axis, offset 14 units forward
+            _boltNoseDir.set(-1, 0, 0).applyQuaternion(e.group.quaternion);
+            _boltFirePos.copy(e.group.position).addScaledVector(_boltNoseDir, 14);
+            _fireEnemyBolt(_boltFirePos.x, _boltFirePos.y, _boltFirePos.z);
             // Restore hull materials
             for (const m of e.meshes) {
               m.material.emissive.setRGB(0, 0, 0);
