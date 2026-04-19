@@ -842,28 +842,39 @@ Integrated (°)
     return m;
   }
 
-  // Dashboard bar — bottom-center, spans full width
-  _mkCkp(new THREE.BoxGeometry(58, 2.2, 3.2),  _ckpDarkMat,  0,    -11.8, -19.5);
-  // Cyan emissive trim strip along dashboard top edge
-  _mkCkp(new THREE.BoxGeometry(48, 0.28, 0.5), _ckpGlowMat,  0,    -10.7, -18.4);
+  // Compute frustum extents at cockpit plane depth — correct for any screen orientation
+  const CKP_D    = 17;
+  const _tanHFov = Math.tan(THREE.MathUtils.degToRad(BASE_FOV * 0.5));
+  const _ckpHH   = CKP_D * _tanHFov;        // world-unit half-height at depth CKP_D
+  const _ckpHW   = _ckpHH * camera.aspect;  // world-unit half-width  (portrait ≈ 0.46×HH)
+  const _pX      = _ckpHW + 1.0;            // pillar X centre (1 unit outside screen edge)
+  const _dY      = -(_ckpHH + 1.1);         // dashboard Y (below screen)
+  const _aY      =   _ckpHH + 1.1;          // arch Y      (above screen)
+  const _span    = _ckpHW * 2 + 4.5;        // bar width (screen + overhang)
+  const _pilH    = _ckpHH * 2 + 5.0;        // pillar height
+
+  // Dashboard bottom bar
+  _mkCkp(new THREE.BoxGeometry(_span, 2.0, 2.6),           _ckpDarkMat,  0,          _dY,       -CKP_D);
+  // Emissive cyan trim strip on top of dashboard
+  _mkCkp(new THREE.BoxGeometry(_span*0.80, 0.22, 0.40),    _ckpGlowMat,  0,          _dY+1.1,   -(CKP_D-0.7));
   // Left canopy pillar
-  _mkCkp(new THREE.BoxGeometry(2.6, 28, 3.2),  _ckpDarkMat, -28.2,  2,    -19.5);
+  _mkCkp(new THREE.BoxGeometry(1.8, _pilH, 2.6),           _ckpDarkMat, -_pX,        0,         -CKP_D);
   // Right canopy pillar
-  _mkCkp(new THREE.BoxGeometry(2.6, 28, 3.2),  _ckpDarkMat,  28.2,  2,    -19.5);
+  _mkCkp(new THREE.BoxGeometry(1.8, _pilH, 2.6),           _ckpDarkMat,  _pX,        0,         -CKP_D);
   // Upper arch
-  _mkCkp(new THREE.BoxGeometry(58, 2.2, 3.2),  _ckpDarkMat,  0,    15.5,  -19.5);
-  // Left pillar accent trim
-  _mkCkp(new THREE.BoxGeometry(0.4, 22, 0.6),  _ckpTrimMat, -27.0,  2,    -18.2);
-  // Right pillar accent trim
-  _mkCkp(new THREE.BoxGeometry(0.4, 22, 0.6),  _ckpTrimMat,  27.0,  2,    -18.2);
-  // Upper-left corner bracket
-  _mkCkp(new THREE.BoxGeometry(2.6, 5.5, 3.0), _ckpTrimMat, -28.2, 14,    -19.5);
-  // Upper-right corner bracket
-  _mkCkp(new THREE.BoxGeometry(2.6, 5.5, 3.0), _ckpTrimMat,  28.2, 14,    -19.5);
-  // Bottom-left corner bracket
-  _mkCkp(new THREE.BoxGeometry(8.0, 2.2, 3.2), _ckpTrimMat, -24.5, -11.8, -19.5);
-  // Bottom-right corner bracket
-  _mkCkp(new THREE.BoxGeometry(8.0, 2.2, 3.2), _ckpTrimMat,  24.5, -11.8, -19.5);
+  _mkCkp(new THREE.BoxGeometry(_span, 2.0, 2.6),           _ckpDarkMat,  0,          _aY,       -CKP_D);
+  // Left pillar inner accent trim
+  _mkCkp(new THREE.BoxGeometry(0.28, _ckpHH*1.6, 0.45),   _ckpTrimMat, -(_pX-0.65), 0,         -(CKP_D-0.7));
+  // Right pillar inner accent trim
+  _mkCkp(new THREE.BoxGeometry(0.28, _ckpHH*1.6, 0.45),   _ckpTrimMat,  (_pX-0.65), 0,         -(CKP_D-0.7));
+  // Lower-left corner bracket
+  _mkCkp(new THREE.BoxGeometry(_ckpHW*0.45, 2.0, 2.5),    _ckpTrimMat, -_pX*0.55,   _dY,       -CKP_D);
+  // Lower-right corner bracket
+  _mkCkp(new THREE.BoxGeometry(_ckpHW*0.45, 2.0, 2.5),    _ckpTrimMat,  _pX*0.55,   _dY,       -CKP_D);
+  // Upper-left corner accent
+  _mkCkp(new THREE.BoxGeometry(1.8, _ckpHH*0.38, 2.5),    _ckpTrimMat, -_pX,        _aY-0.5,   -CKP_D);
+  // Upper-right corner accent
+  _mkCkp(new THREE.BoxGeometry(1.8, _ckpHH*0.38, 2.5),    _ckpTrimMat,  _pX,        _aY-0.5,   -CKP_D);
 
   // ─────────────────────────────────────────────────────────────────
   //  DIEGETIC HUD — canvas-rendered panels floating in cockpit space
@@ -887,11 +898,17 @@ Integrated (°)
   _hudHeatCvs.width = 512; _hudHeatCvs.height = 80;
   const _hudHeatCtx = _hudHeatCvs.getContext('2d');
   const _hudHeatTex = new THREE.CanvasTexture(_hudHeatCvs);
+  // HUD positions derived from the same frustum calc — guaranteed on-screen
+  const _hudZ    = -(CKP_D - 0.4);
+  const _hHeatY  = -(_ckpHH * 0.80);   // 80% toward bottom
+  const _hComboX =  _ckpHW  * 0.55;    // right-of-center
+  const _hComboY =  _ckpHH  * 0.84;    // 84% toward top
+
   const _hudHeatMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(13, 2.0),
+    new THREE.PlaneGeometry(_ckpHW * 1.80, _ckpHH * 0.20),
     new THREE.MeshBasicMaterial({ map: _hudHeatTex, transparent: true, depthWrite: false })
   );
-  _hudHeatMesh.position.set(0, -9.6, -18.3);
+  _hudHeatMesh.position.set(0, _hHeatY, _hudZ);
   _hudHeatMesh.frustumCulled = false;
   camera.add(_hudHeatMesh);
 
@@ -901,16 +918,16 @@ Integrated (°)
   const _hudComboCtx = _hudComboCvs.getContext('2d');
   const _hudComboTex = new THREE.CanvasTexture(_hudComboCvs);
   const _hudComboMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(9.5, 2.4),
+    new THREE.PlaneGeometry(_ckpHW * 1.0, _ckpHH * 0.22),
     new THREE.MeshBasicMaterial({ map: _hudComboTex, transparent: true, depthWrite: false })
   );
-  _hudComboMesh.position.set(12.5, 11.8, -18.3);
+  _hudComboMesh.position.set(_hComboX, _hComboY, _hudZ);
   _hudComboMesh.frustumCulled = false;
   camera.add(_hudComboMesh);
 
   let _hudHeatPrev = -1, _hudOverheatPrev = false, _hudScorePrev = -1, _hudComboPrev = -1;
-  const _hudBaseHeat  = new THREE.Vector3(0, -9.6, -18.3);
-  const _hudBaseCombo = new THREE.Vector3(12.5, 11.8, -18.3);
+  const _hudBaseHeat  = new THREE.Vector3(0, _hHeatY, _hudZ);
+  const _hudBaseCombo = new THREE.Vector3(_hComboX, _hComboY, _hudZ);
 
   function _drawHeatGauge(heat, isOverheat) {
     const W = 512, H = 80, cx = _hudHeatCtx;
