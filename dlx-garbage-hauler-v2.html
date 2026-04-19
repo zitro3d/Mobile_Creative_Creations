@@ -603,7 +603,7 @@
         antennaMetal: '#2a3820', antennaLed: '#a4ee40',
       },
       debrisSet: ['lilypad','fishbone','rubberboot','oldtire','algae_bottle','slimecan','oar'],
-      obstacleTypes: ['mushroom', 'swamptree'],
+      obstacleTypes: ['reeds', 'swamptree'],
     },
     city: {
       label: 'CITY',
@@ -640,7 +640,7 @@
         antennaMetal: '#7a7080', antennaLed: '#ff4040',
       },
       debrisSet: ['pizzabox','coffeecup','brokenphone','newspaper','trafficcone','brick','sodacan','cd'],
-      obstacleTypes: ['skyscraper', 'billboard'],
+      obstacleTypes: ['skyscraper', 'pillar'],
     },
     volcano: {
       label: 'VOLCANO',
@@ -2297,8 +2297,19 @@
 
   const DEBRIS_DRAWERS = {};
   function drawDebrisItem(kind) {
-    ctx.shadowBlur = 6;
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    // Warm backing halo so every item reads clearly against dark themes
+    ctx.save();
+    const halo = ctx.createRadialGradient(0, 0, 2, 0, 0, 18);
+    halo.addColorStop(0, 'rgba(255, 230, 180, 0.22)');
+    halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(0, 0, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // Subtle dark drop shadow for depth
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
     const fn = DEBRIS_DRAWERS[kind];
     if (fn) fn();
   }
@@ -2942,18 +2953,19 @@
   const OBSTACLE_DRAWERS = {
     cargo: function(x, y, w, h, isTop, p) { drawCargo(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
     junk:  function(x, y, w, h, isTop, p) { drawJunk(x, y, w, h, isTop, isTop ? p.topShape : p.botShape, p.seed + (isTop ? 0 : 13), p.antennas); },
-    mushroom: function(x, y, w, h, isTop, p) { drawMushroom(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
-    swamptree:function(x, y, w, h, isTop, p) { drawSwampTree(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    reeds:     function(x, y, w, h, isTop, p) { drawReeds(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    swamptree: function(x, y, w, h, isTop, p) { drawSwampTree(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
     skyscraper: function(x, y, w, h, isTop, p) { drawSkyscraper(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
-    billboard:  function(x, y, w, h, isTop, p) { drawBillboard(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
-    lavaspire: function(x, y, w, h, isTop, p) { drawLavaSpire(x, y, w, h, isTop, isTop ? p.topShape : p.botShape, p.seed + (isTop ? 0 : 13)); },
-    vent:      function(x, y, w, h, isTop, p) { drawVent(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    pillar:     function(x, y, w, h, isTop, p) { drawPillar(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    lavaspire:  function(x, y, w, h, isTop, p) { drawLavaSpire(x, y, w, h, isTop, isTop ? p.topShape : p.botShape, p.seed + (isTop ? 0 : 13)); },
+    vent:       function(x, y, w, h, isTop, p) { drawVent(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
   };
 
   // ---------- Thematic obstacle structures ----------
 
   // Swamp: giant fleshy mushroom with a bulbous cap facing the gap
-  function drawMushroom(x, y, w, h, isTop, seed) {
+  // Swamp: cluster of cattail reeds rising from a mossy mud mound
+  function drawReeds(x, y, w, h, isTop, seed) {
     if (h <= 0) return;
     ctx.save();
     ctx.translate(x, y);
@@ -2961,75 +2973,138 @@
     const tipY = isTop ? h : 0;
     const baseY = isTop ? 0 : h;
     const sign = isTop ? 1 : -1;
-    const stalkBaseW = w + 4;
-    const stalkTipW  = w * 0.55;
-    const capOvershoot = 10;    // cap extends past the logical tip into the gap
-    const capH = 22;
-    const stalkTipY = tipY - capH * sign;
 
-    // Tapered stalk
-    const stalkGrad = ctx.createLinearGradient(0, baseY, 0, stalkTipY);
-    stalkGrad.addColorStop(0, '#c8bea4');
-    stalkGrad.addColorStop(1, '#9a907a');
-    ctx.fillStyle = stalkGrad;
-    ctx.beginPath();
-    ctx.moveTo(cx - stalkBaseW / 2, baseY);
-    ctx.lineTo(cx - stalkTipW / 2,  stalkTipY);
-    ctx.lineTo(cx + stalkTipW / 2,  stalkTipY);
-    ctx.lineTo(cx + stalkBaseW / 2, baseY);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = '#2a2a1a'; ctx.lineWidth = 1.2;
-    ctx.stroke();
+    // Dark muddy backfill so gaps between reeds read as solid
+    ctx.fillStyle = 'rgba(6, 14, 6, 0.88)';
+    ctx.fillRect(-3, Math.min(baseY, baseY + 18 * sign), w + 6, Math.abs(18));
 
-    // Ring (skirt) just below cap
-    ctx.fillStyle = '#e0d0a6';
-    const ringY = stalkTipY + 2 * sign;
-    ctx.beginPath();
-    ctx.ellipse(cx, ringY, stalkTipW * 0.7 + 4, 3, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#3a2a1a';
-    ctx.stroke();
-
-    // Cap — half ellipse arcing past tipY into the gap
-    const capCx = cx;
-    const capCy = tipY;
-    const capRx = w * 0.85 + 4;
-    const capRy = capH + capOvershoot;
+    // Mossy mud mound across the base edge
     ctx.save();
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = 'rgba(0,0,0,0.55)';
-    const capGrad = ctx.createRadialGradient(capCx - capRx * 0.3, capCy - capRy * 0.3 * sign, 2, capCx, capCy, capRx);
-    capGrad.addColorStop(0, '#c43e4a');
-    capGrad.addColorStop(0.6, '#8a1a2a');
-    capGrad.addColorStop(1, '#3a0812');
-    ctx.fillStyle = capGrad;
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    const moundGrad = ctx.createRadialGradient(cx, baseY + 2 * sign, 2, cx, baseY + 2 * sign, w);
+    moundGrad.addColorStop(0, '#36521c');
+    moundGrad.addColorStop(0.7, '#121f0c');
+    moundGrad.addColorStop(1, '#060d04');
+    ctx.fillStyle = moundGrad;
     ctx.beginPath();
-    // Upper half-ellipse when isTop (cap points down into gap)
-    if (isTop) ctx.ellipse(capCx, capCy, capRx, capRy, 0, Math.PI, 2 * Math.PI);
-    else       ctx.ellipse(capCx, capCy, capRx, capRy, 0, 0, Math.PI);
-    ctx.closePath();
+    ctx.ellipse(cx, baseY + 2 * sign, w * 0.72, 10, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#2a040a'; ctx.lineWidth = 1.3; ctx.stroke();
+    // Moss highlight
+    ctx.fillStyle = 'rgba(120, 180, 60, 0.65)';
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY - 1 * sign, w * 0.55, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
 
-    // Glowing spore spots on cap
+    // Reed stalks — 8 of varying lengths, some with cattail heads
+    const stalkCount = 8;
+    for (let i = 0; i < stalkCount; i++) {
+      const t = i / (stalkCount - 1);
+      const sBaseX = cx + (t - 0.5) * (w * 0.85) + (srand(seed + i * 13) - 0.5) * 4;
+      const sBaseY = baseY + 4 * sign;
+      const lenFrac = 0.6 + srand(seed + i * 7) * 0.45;
+      const reach = (h - 14) * lenFrac;
+      const sTipY = baseY + reach * sign;
+      const sway = Math.sin(frame * 0.05 + i * 0.7 + seed * 0.03) * 3.2;
+      const sTipX = sBaseX + (srand(seed + i * 23) - 0.5) * 10 + sway;
+      const bent = srand(seed + i * 31) < 0.3;
+      const cpSway = sway * (bent ? 1.8 : 0.8);
+
+      // Stalk body
+      ctx.strokeStyle = '#2e5018';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(sBaseX, sBaseY);
+      ctx.quadraticCurveTo(
+        (sBaseX + sTipX) / 2 + cpSway,
+        (sBaseY + sTipY) / 2,
+        sTipX, sTipY
+      );
+      ctx.stroke();
+      // Lighter stripe
+      ctx.strokeStyle = '#5a9030';
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(sBaseX - 0.4, sBaseY);
+      ctx.quadraticCurveTo(
+        (sBaseX + sTipX) / 2 + cpSway - 0.4,
+        (sBaseY + sTipY) / 2,
+        sTipX - 0.4, sTipY
+      );
+      ctx.stroke();
+
+      // Narrow leaf mid-stalk
+      if (srand(seed + i * 37) < 0.5) {
+        const leafY = sBaseY + (sTipY - sBaseY) * 0.5;
+        const leafX = (sBaseX + sTipX) / 2 + cpSway * 0.5;
+        const leafSide = (i % 2 === 0) ? -1 : 1;
+        ctx.strokeStyle = '#3a6a22';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(leafX, leafY);
+        ctx.quadraticCurveTo(
+          leafX + leafSide * 8, leafY - 4 * sign,
+          leafX + leafSide * 12, leafY - 2 * sign
+        );
+        ctx.stroke();
+      }
+
+      // Cattail head on ~65% of stalks
+      if (srand(seed + i * 41) > 0.35) {
+        const headX = sTipX;
+        const headY = sTipY + 5 * sign;
+        ctx.save();
+        ctx.shadowBlur = 4; ctx.shadowColor = 'rgba(0,0,0,0.6)';
+        // Head body
+        ctx.fillStyle = '#3a2010';
+        ctx.beginPath();
+        ctx.ellipse(headX, headY, 2.6, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#5a3018';
+        ctx.beginPath();
+        ctx.ellipse(headX - 0.8, headY, 1, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Horizontal fluff lines (brown hairy texture)
+        ctx.strokeStyle = 'rgba(100, 60, 30, 0.7)';
+        ctx.lineWidth = 0.5;
+        for (let k = -5; k <= 5; k += 2) {
+          ctx.beginPath();
+          ctx.moveTo(headX - 2.8, headY + k);
+          ctx.lineTo(headX + 2.8, headY + k);
+          ctx.stroke();
+        }
+        // Spike at top
+        ctx.strokeStyle = '#3a6018';
+        ctx.lineWidth = 0.9;
+        ctx.beginPath();
+        ctx.moveTo(headX, headY + 7 * sign);
+        ctx.lineTo(headX + (srand(seed + i * 67) - 0.5) * 2, headY + 12 * sign);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // Slime drips hanging into the gap
     ctx.save();
     ctx.shadowBlur = 8;
-    ctx.shadowColor = '#b6ff6a';
-    ctx.fillStyle = '#e0ffa0';
-    const spotCount = 5 + Math.floor(srand(seed) * 3);
-    for (let i = 0; i < spotCount; i++) {
-      const t = (i + 0.5) / spotCount;
-      const angle = Math.PI + t * Math.PI; // across the visible dome
-      const r = capRx * (0.4 + srand(seed + i * 7) * 0.55);
-      const sx = capCx + Math.cos(angle) * r;
-      const sy = capCy + Math.sin(angle) * capRy * 0.75 * sign * (isTop ? 1 : -1) * -1; // mirror for bottom
-      const adjustedY = isTop
-        ? capCy - Math.abs(Math.sin(angle)) * capRy * 0.75
-        : capCy + Math.abs(Math.sin(angle)) * capRy * 0.75;
-      const sr = 2 + srand(seed + i * 11) * 2;
-      ctx.beginPath(); ctx.arc(sx, adjustedY, sr, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowColor = 'rgba(140, 220, 60, 0.7)';
+    for (let i = 0; i < 3; i++) {
+      const dx = cx + (srand(seed + 300 + i * 5) - 0.5) * (w * 0.75);
+      const dy = tipY + (2 + srand(seed + 310 + i) * 6) * sign;
+      const dlen = 4 + srand(seed + 320 + i) * 4;
+      const dg = ctx.createLinearGradient(dx, dy - dlen * sign, dx, dy + dlen * sign);
+      dg.addColorStop(0, 'rgba(80, 140, 40, 0)');
+      dg.addColorStop(1, 'rgba(160, 240, 60, 0.9)');
+      ctx.fillStyle = dg;
+      ctx.beginPath();
+      ctx.ellipse(dx, dy, 1.1, dlen, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Droplet
+      ctx.fillStyle = 'rgba(180, 240, 80, 0.95)';
+      ctx.beginPath();
+      ctx.arc(dx, dy + dlen * sign, 1.5, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.restore();
 
@@ -3122,11 +3197,11 @@
     const baseY = isTop ? 0 : h;
     const sign = isTop ? 1 : -1;
 
-    // Body gradient
+    // Body gradient — lighter so the silhouette pops against the dark sky
     const grad = ctx.createLinearGradient(0, 0, w, 0);
-    grad.addColorStop(0,   '#5a5866');
-    grad.addColorStop(0.5, '#2a2836');
-    grad.addColorStop(1,   '#141420');
+    grad.addColorStop(0,   '#6a6276');
+    grad.addColorStop(0.5, '#322e42');
+    grad.addColorStop(1,   '#1a1828');
     ctx.fillStyle = grad;
     ctx.fillRect(-2, Math.min(baseY, tipY), w + 4, Math.abs(tipY - baseY));
 
@@ -3143,41 +3218,243 @@
     ctx.lineTo(w + 2, tipY);
     ctx.closePath();
     ctx.fill();
-    // Rebar sticking up
-    ctx.strokeStyle = '#3a2a12'; ctx.lineWidth = 1;
-    for (let i = 0; i < 3; i++) {
-      const rx = 6 + srand(seed + 40 + i * 7) * (w - 12);
-      const ry1 = tipY + sign * (6 + srand(seed + 50 + i) * 12);
-      const ry2 = tipY + sign * (18 + srand(seed + 60 + i) * 10);
+    // Rebar sticking up (more, bent)
+    ctx.strokeStyle = '#6a4a22'; ctx.lineWidth = 1.2;
+    for (let i = 0; i < 5; i++) {
+      const rx = 4 + srand(seed + 40 + i * 7) * (w - 8);
+      const ry1 = tipY + sign * (6 + srand(seed + 50 + i) * 10);
+      const ry2 = tipY + sign * (22 + srand(seed + 60 + i) * 14);
       ctx.beginPath();
-      ctx.moveTo(rx, ry1); ctx.lineTo(rx + (srand(seed + 70 + i) - 0.5) * 4, ry2);
+      ctx.moveTo(rx, ry1);
+      ctx.quadraticCurveTo(rx + (srand(seed + 65 + i) - 0.5) * 12, (ry1 + ry2) / 2,
+                           rx + (srand(seed + 70 + i) - 0.5) * 18, ry2);
       ctx.stroke();
     }
 
-    // Window grid
+    // Cracks across the facade — zig-zagging slashes
+    ctx.strokeStyle = 'rgba(8, 5, 12, 0.85)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      const cx0 = srand(seed + 100 + i * 11) * w;
+      const cy0 = srand(seed + 110 + i * 13) * h;
+      ctx.beginPath();
+      ctx.moveTo(cx0, cy0);
+      for (let j = 1; j < 4; j++) {
+        const nx = cx0 + (srand(seed + 120 + i * 17 + j) - 0.5) * 16;
+        const ny = cy0 + (srand(seed + 130 + i * 19 + j) - 0.5) * 12 + j * 4;
+        ctx.lineTo(nx, ny);
+      }
+      ctx.stroke();
+    }
+
+    // Burning holes — darkened gaps in the wall with fire licking out
+    for (let i = 0; i < 2; i++) {
+      const hx = 6 + srand(seed + 200 + i * 13) * (w - 18);
+      const hy = 8 + srand(seed + 210 + i * 17) * (h - 20);
+      const hw = 9 + srand(seed + 220 + i) * 4;
+      const hh = 6 + srand(seed + 230 + i) * 3;
+      // Dark interior
+      ctx.fillStyle = '#040208';
+      ctx.fillRect(hx, hy, hw, hh);
+      // Fire glow inside
+      ctx.save();
+      ctx.shadowBlur = 14; ctx.shadowColor = '#ff5010';
+      const flick = 0.7 + Math.sin(frame * 0.4 + i * 3) * 0.3;
+      const fg = ctx.createRadialGradient(hx + hw / 2, hy + hh / 2, 0, hx + hw / 2, hy + hh / 2, hw);
+      fg.addColorStop(0, 'rgba(255, 210, 120, ' + (0.9 * flick) + ')');
+      fg.addColorStop(0.5, 'rgba(255, 90, 20, ' + (0.75 * flick) + ')');
+      fg.addColorStop(1, 'rgba(180, 30, 10, 0)');
+      ctx.fillStyle = fg;
+      ctx.fillRect(hx - 4, hy - 4, hw + 8, hh + 8);
+      ctx.restore();
+    }
+
+    // Window grid — sparse amber lit windows (most broken)
     const winW = 5, winH = 6, gap = 3;
     const cols = Math.floor((w - 6) / (winW + gap));
     const yStart = isTop ? 6 : h - 6 - winH;
     const yEnd   = isTop ? h - 20 : 20;
     const yStep  = isTop ? (winH + gap) : -(winH + gap);
     const xStart = (w - (cols * winW + (cols - 1) * gap)) / 2;
-    const lightChance = 0.22;
     for (let yy = yStart; (isTop ? yy < yEnd : yy > yEnd); yy += yStep) {
       for (let c = 0; c < cols; c++) {
         const wx = xStart + c * (winW + gap);
-        const lit = srand(seed + Math.abs(yy) * 3.3 + c * 1.7) < lightChance;
-        ctx.fillStyle = lit ? '#ffe08a' : '#0a0a12';
-        ctx.fillRect(wx, yy, winW, winH);
-        if (lit) {
-          ctx.save(); ctx.shadowBlur = 5; ctx.shadowColor = '#ffb347';
+        const roll = srand(seed + Math.abs(yy) * 3.3 + c * 1.7);
+        if (roll < 0.12) {
+          // Lit amber
+          ctx.fillStyle = '#ff9a30';
+          ctx.fillRect(wx, yy, winW, winH);
+          ctx.save(); ctx.shadowBlur = 6; ctx.shadowColor = '#ff6020';
           ctx.fillRect(wx, yy, winW, winH); ctx.restore();
+        } else if (roll < 0.55) {
+          // Broken (dark void)
+          ctx.fillStyle = '#020408';
+          ctx.fillRect(wx, yy, winW, winH);
+        } else {
+          // Boarded / reflective
+          ctx.fillStyle = '#1a1a26';
+          ctx.fillRect(wx, yy, winW, winH);
         }
       }
     }
 
-    // Outer edge
-    ctx.strokeStyle = '#050510'; ctx.lineWidth = 1.2;
+    // Bent antenna on top of the top-facing tip (only for top obstacle)
+    if (isTop && h > 30) {
+      const ax = w / 2 + (srand(seed + 400) - 0.5) * (w * 0.3);
+      const ay = 0;
+      ctx.strokeStyle = '#7a7080'; ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.quadraticCurveTo(ax + 4, -8, ax + 10, -16);
+      ctx.stroke();
+      // Red beacon
+      if ((Math.floor(frame / 20) + Math.floor(seed)) & 1) {
+        ctx.save(); ctx.shadowBlur = 6; ctx.shadowColor = '#ff4040';
+        ctx.fillStyle = '#ff4040';
+        ctx.beginPath(); ctx.arc(ax + 10, -16, 1.6, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // Outer edge — lighter to read against the smoky sky
+    ctx.strokeStyle = '#0f0b1a'; ctx.lineWidth = 1.2;
     ctx.strokeRect(-1.5, Math.min(baseY, tipY) + 0.5, w + 3, Math.abs(tipY - baseY) - 1);
+    // Secondary highlight stroke for contrast
+    ctx.strokeStyle = 'rgba(200, 130, 80, 0.35)';
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(-1.5, Math.min(baseY, tipY) + 0.5, w + 3, Math.abs(tipY - baseY) - 1);
+
+    ctx.restore();
+  }
+
+  // City: broken concrete overpass pillar with exposed rebar and hazard tape
+  function drawPillar(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const tipY = isTop ? h : 0;
+    const baseY = isTop ? 0 : h;
+    const sign = isTop ? 1 : -1;
+    const padX = 3;
+    const colX = -padX;
+    const colW = w + padX * 2;
+
+    // Concrete body
+    const grad = ctx.createLinearGradient(colX, 0, colX + colW, 0);
+    grad.addColorStop(0,   '#6a626e');
+    grad.addColorStop(0.5, '#2e2a34');
+    grad.addColorStop(1,   '#1a1620');
+    ctx.fillStyle = grad;
+    ctx.fillRect(colX, 0, colW, h);
+
+    // Horizontal seam lines (concrete pour joints)
+    ctx.strokeStyle = 'rgba(14, 10, 18, 0.7)';
+    ctx.lineWidth = 0.8;
+    const seamCount = 3;
+    for (let i = 1; i <= seamCount; i++) {
+      const sy = (h / (seamCount + 1)) * i;
+      ctx.beginPath();
+      ctx.moveTo(colX + 2, sy); ctx.lineTo(colX + colW - 2, sy);
+      ctx.stroke();
+    }
+
+    // Zigzag cracks
+    ctx.strokeStyle = 'rgba(8, 5, 10, 0.85)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++) {
+      const ox = srand(seed + i * 17) * colW + colX;
+      const oy = srand(seed + i * 23) * h;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      for (let j = 1; j < 4; j++) {
+        const nx = ox + (srand(seed + i * 29 + j) - 0.5) * 14;
+        const ny = oy + (srand(seed + i * 31 + j) - 0.5) * 8 + j * 4;
+        ctx.lineTo(nx, ny);
+      }
+      ctx.stroke();
+    }
+
+    // Chunks knocked out of the facade (negative gaps showing dark interior)
+    for (let i = 0; i < 3; i++) {
+      const cxH = colX + 4 + srand(seed + 50 + i * 11) * (colW - 12);
+      const cyH = 12 + srand(seed + 60 + i * 13) * (h - 28);
+      const cwH = 7 + srand(seed + 70 + i) * 7;
+      const chH = 5 + srand(seed + 80 + i) * 6;
+      ctx.fillStyle = '#06030a';
+      ctx.beginPath();
+      ctx.moveTo(cxH, cyH);
+      ctx.lineTo(cxH + cwH, cyH);
+      ctx.lineTo(cxH + cwH - 3, cyH + chH);
+      ctx.lineTo(cxH - 2, cyH + chH);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Graffiti splash — faded neon tag
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    ctx.shadowBlur = 5; ctx.shadowColor = '#ff4080';
+    ctx.fillStyle = '#ff4080';
+    ctx.font = 'bold 10px "Courier New", monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const tagY = isTop ? h * 0.38 : h * 0.62;
+    ctx.save();
+    ctx.translate(colX + colW / 2, tagY);
+    ctx.rotate(-0.18);
+    ctx.fillText('RUN', 0, 0);
+    ctx.restore();
+    ctx.restore();
+
+    // Yellow/black hazard band wrapped near the gap end
+    const bandH = 14;
+    const bandY = isTop ? h - bandH : 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(colX, bandY, colW, bandH);
+    ctx.clip();
+    const stripeW = 10;
+    for (let sx = colX - bandH; sx < colX + colW + bandH; sx += stripeW) {
+      ctx.fillStyle = (Math.floor((sx - colX) / stripeW) % 2 === 0) ? '#ffa020' : '#0a0606';
+      ctx.beginPath();
+      ctx.moveTo(sx, bandY);
+      ctx.lineTo(sx + stripeW, bandY);
+      ctx.lineTo(sx + stripeW - bandH, bandY + bandH);
+      ctx.lineTo(sx - bandH, bandY + bandH);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.strokeStyle = '#0a0606'; ctx.lineWidth = 1.2;
+    ctx.strokeRect(colX + 0.5, bandY + 0.5, colW - 1, bandH - 1);
+
+    // Exposed rebar sticking out of the gap-facing end
+    ctx.strokeStyle = '#3a2010'; ctx.lineWidth = 1.6;
+    const rebarCount = 5;
+    for (let i = 0; i < rebarCount; i++) {
+      const rx = colX + 4 + (colW - 8) * (i / (rebarCount - 1));
+      const bend = (srand(seed + 150 + i) - 0.5) * 0.7;
+      const len = 14 + srand(seed + 160 + i) * 10;
+      ctx.beginPath();
+      ctx.moveTo(rx, tipY);
+      ctx.quadraticCurveTo(rx + bend * 12, tipY + len * 0.5 * sign,
+                           rx + bend * 22, tipY + len * sign);
+      ctx.stroke();
+      // highlight shine
+      ctx.strokeStyle = 'rgba(160, 110, 60, 0.6)'; ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(rx - 0.4, tipY);
+      ctx.quadraticCurveTo(rx + bend * 12 - 0.4, tipY + len * 0.5 * sign,
+                           rx + bend * 22 - 0.4, tipY + len * sign);
+      ctx.stroke();
+      ctx.strokeStyle = '#3a2010'; ctx.lineWidth = 1.6;
+    }
+
+    // Outer edge (dark) + secondary warm highlight so the silhouette pops
+    ctx.strokeStyle = '#05020a'; ctx.lineWidth = 1.4;
+    ctx.strokeRect(colX + 0.5, 0.5, colW - 1, h - 1);
+    ctx.strokeStyle = 'rgba(200, 110, 60, 0.3)';
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(colX + 0.5, 0.5, colW - 1, h - 1);
 
     ctx.restore();
   }
