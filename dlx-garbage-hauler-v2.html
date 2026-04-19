@@ -859,6 +859,60 @@
   let combo         = 0;   // consecutive pickups without miss
   let comboMax      = 0;
   let missiles      = [];  // active missile shots
+
+  // ---------- Campaign progression ----------
+  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'swamp'];
+  const LEVEL_STEP  = 15;                    // advance every N score
+  let levelIndex    = 0;
+  let levelBanner   = { text: '', life: 0 };
+  let boss          = null;                   // active boss state, populated in swamp
+
+  function themeToLevelIndex(key) {
+    const i = LEVEL_ORDER.indexOf(key);
+    return i < 0 ? 0 : i;
+  }
+  function maybeAdvanceLevel() {
+    const next = Math.min(LEVEL_ORDER.length - 1, Math.floor(score / LEVEL_STEP) + levelStartOffset);
+    if (next > levelIndex) advanceLevel(next);
+  }
+  function advanceLevel(idx) {
+    levelIndex = idx;
+    selectedTheme = LEVEL_ORDER[levelIndex];
+    buildBgCache();
+    setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
+    if (levelIndex === 3) spawnBoss();
+    playSound('powerup');
+  }
+  function setLevelBanner(text) {
+    levelBanner.text = text;
+    levelBanner.life = 120;   // ~2s at 60fps
+  }
+  let levelStartOffset = 0;   // set when launching (selected biome = starting level)
+
+  // ---------- Boss state (swamp) ----------
+  function spawnBoss() {
+    boss = {
+      cx: W / 2,
+      baseY: PLAY_H + 18,
+      tentacles: [
+        { phaseX: 0,          phaseY: 0,          len: PLAY_H * 0.65, ampX: W * 0.38, speed: 0.04, tipX: 0, tipY: 0 },
+        { phaseX: Math.PI,    phaseY: Math.PI / 2, len: PLAY_H * 0.55, ampX: W * 0.32, speed: 0.055, tipX: 0, tipY: 0 },
+        { phaseX: Math.PI / 2, phaseY: Math.PI,    len: PLAY_H * 0.5,  ampX: W * 0.42, speed: 0.045, tipX: 0, tipY: 0 },
+      ],
+    };
+  }
+  function bossTipHits() {
+    if (!boss) return false;
+    const r = BIRD_R - 2;
+    const reach = r + 7;
+    for (const t of boss.tentacles) {
+      const dx = bird.x - t.tipX;
+      const dy = bird.y - t.tipY;
+      if (dx * dx + dy * dy < reach * reach) return true;
+    }
+    return false;
+  }
+
   best = parseInt(localStorage.getItem('flappy_best_ios_v2') || '0', 10);
 
   function reset() {
@@ -881,6 +935,11 @@
     thrusterFrames = 0;
     flapCount = 0;
     pipeSpawnCount = 0;
+    levelIndex = themeToLevelIndex(selectedTheme);
+    levelStartOffset = levelIndex;
+    levelBanner = { text: '', life: 0 };
+    boss = null;
+    if (levelIndex === 3) spawnBoss();
     shieldCharges = 0;
     slowFrames = 0;
     doubleFrames = 0;
@@ -1391,6 +1450,7 @@
         if (bird.y - r < p.top + dy || bird.y + r > p.top + p.gap + dy) return true;
       }
     }
+    if (boss && bossTipHits()) return true;
     return false;
   }
 
@@ -1598,6 +1658,7 @@
   function grantScore(n) {
     const mul = (doubleFrames > 0 ? 2 : 1) * comboMultiplier();
     score += n * mul;
+    maybeAdvanceLevel();
   }
 
   // Combo chain: pickups raise combo; a pipe passing with an uncollected
@@ -4212,9 +4273,11 @@
       shakeFrames--;
     }
     drawBackground();
+    drawBoss();              // boss silhouette sits behind the debris field
     drawAllDebris();
     drawPipes();
     drawGround();
+    drawBossTentacles();     // tentacles render above ground so tips are visible
     drawExhaust();
     drawSparks();
     drawPickupSparks();
@@ -4222,7 +4285,144 @@
     drawBird();
     drawScore();
     drawComboHud();
+    drawLevelBanner();
     drawFlash();
+    ctx.restore();
+  }
+
+  // ---------- Boss rendering ----------
+  function drawBoss() {
+    if (!boss) return;
+    const t = frame * 0.04;
+    // Dark body silhouette, mostly submerged
+    ctx.save();
+    ctx.fillStyle = 'rgba(6, 20, 10, 0.95)';
+    ctx.beginPath();
+    ctx.ellipse(boss.cx, boss.baseY, 130, 58, 0, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    // Spines on back
+    ctx.fillStyle = 'rgba(12, 34, 16, 0.95)';
+    for (let i = -3; i <= 3; i++) {
+      const sx = boss.cx + i * 22;
+      const sy = boss.baseY - 55 + Math.abs(i) * 6;
+      ctx.beginPath();
+      ctx.moveTo(sx - 4, sy + 12);
+      ctx.lineTo(sx, sy - 8);
+      ctx.lineTo(sx + 4, sy + 12);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Eyes
+    const open = Math.sin(frame * 0.04) > -0.7;
+    if (open) {
+      ctx.shadowBlur = 16; ctx.shadowColor = '#ffef50';
+      ctx.fillStyle = '#ffef50';
+      ctx.beginPath(); ctx.arc(boss.cx - 30, boss.baseY - 30, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(boss.cx + 30, boss.baseY - 30, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#000';
+      const pupilShift = Math.sin(t * 0.5) * 1.5;
+      ctx.beginPath(); ctx.arc(boss.cx - 30 + pupilShift, boss.baseY - 30, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(boss.cx + 30 + pupilShift, boss.baseY - 30, 2, 0, Math.PI * 2); ctx.fill();
+    }
+    // Mouth slit with teeth
+    ctx.fillStyle = '#1a0208';
+    ctx.beginPath();
+    ctx.moveTo(boss.cx - 22, boss.baseY - 10);
+    ctx.lineTo(boss.cx + 22, boss.baseY - 10);
+    ctx.lineTo(boss.cx + 18, boss.baseY - 6);
+    ctx.lineTo(boss.cx - 18, boss.baseY - 6);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#d8d0a0'; ctx.lineWidth = 1;
+    for (let k = -3; k <= 3; k++) {
+      const tx = boss.cx + k * 6;
+      ctx.beginPath();
+      ctx.moveTo(tx - 1, boss.baseY - 10);
+      ctx.lineTo(tx, boss.baseY - 7);
+      ctx.lineTo(tx + 1, boss.baseY - 10);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawBossTentacles() {
+    if (!boss) return;
+    const t = frame * 0.04;
+    for (const tc of boss.tentacles) {
+      const segs = 18;
+      const pts = [];
+      for (let s = 0; s <= segs; s++) {
+        const f = s / segs;
+        const y = boss.baseY - tc.len * f;
+        const horizSweep = Math.sin(t * tc.speed * 12 + tc.phaseX) * tc.ampX * f;
+        const wiggle = Math.sin(t * 2.2 + f * 6 + tc.phaseY) * 8 * f;
+        pts.push({ x: boss.cx + horizSweep + wiggle, y: y });
+      }
+      // Record tip for collision
+      const tip = pts[segs];
+      tc.tipX = tip.x; tc.tipY = tip.y;
+
+      // Thick dark body
+      ctx.save();
+      ctx.strokeStyle = 'rgba(10, 40, 20, 0.95)';
+      ctx.lineWidth = 10;
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let s = 1; s < pts.length; s++) ctx.lineTo(pts[s].x, pts[s].y);
+      ctx.stroke();
+      // Lighter spine
+      ctx.strokeStyle = 'rgba(60, 140, 40, 0.7)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      // Suckers
+      ctx.fillStyle = 'rgba(160, 220, 100, 0.55)';
+      for (let s = 2; s < segs - 1; s += 2) {
+        ctx.beginPath();
+        ctx.arc(pts[s].x, pts[s].y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Claw tip (the killer)
+      ctx.shadowBlur = 10; ctx.shadowColor = '#80ff40';
+      ctx.fillStyle = '#b8ff60';
+      ctx.beginPath();
+      ctx.arc(tip.x, tip.y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#081208';
+      ctx.beginPath();
+      ctx.arc(tip.x, tip.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function drawLevelBanner() {
+    if (levelBanner.life <= 0 || !levelBanner.text) return;
+    levelBanner.life--;
+    const life = levelBanner.life;
+    // Fade in/out
+    let alpha = 1;
+    if (life > 90) alpha = (120 - life) / 30;
+    else if (life < 30) alpha = life / 30;
+    alpha = Math.max(0, Math.min(1, alpha));
+    const size = Math.round(H * 0.045);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold ' + size + 'px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const y = H * 0.3;
+    const tw = ctx.measureText(levelBanner.text).width + 32;
+    // Panel
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.fillRect(W / 2 - tw / 2, y - size, tw, size * 2);
+    ctx.strokeStyle = '#ffd280';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(W / 2 - tw / 2, y - size, tw, size * 2);
+    // Text
+    ctx.shadowBlur = 14; ctx.shadowColor = '#ffb347';
+    ctx.fillStyle = '#ffd280';
+    ctx.fillText(levelBanner.text, W / 2, y);
     ctx.restore();
   }
 
@@ -4316,11 +4516,13 @@
 
   function launchWithSelected() {
     applyShipStats(selectedShip);
+    buildBgCache();       // make sure the starting biome is cached before reset
     reset();
     state = STATE_PLAY;
     bird.x = Math.round(W * BIRD_X_FRAC);
     bird.vy = FLAP;
     thrusterFrames = 5;
+    setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
     hideOverlay();
   }
 
