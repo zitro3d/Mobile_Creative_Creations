@@ -566,6 +566,7 @@
         antennaMetal: '#88807a', antennaLed: '#d04840',
       },
       debrisSet: ['burger','fries','headphones','toilet','duck','tv','pizza','bottle','shoe'],
+      obstacleTypes: ['cargo', 'junk'],
     },
     swamp: {
       label: 'SWAMP',
@@ -602,6 +603,7 @@
         antennaMetal: '#5a6a4a', antennaLed: '#b8e850',
       },
       debrisSet: ['lilypad','fishbone','rubberboot','oldtire','algae_bottle','slimecan','oar'],
+      obstacleTypes: ['mushroom', 'swamptree'],
     },
     city: {
       label: 'CITY',
@@ -638,6 +640,7 @@
         antennaMetal: '#9a98a6', antennaLed: '#e040a8',
       },
       debrisSet: ['pizzabox','coffeecup','brokenphone','newspaper','trafficcone','brick','sodacan','cd'],
+      obstacleTypes: ['skyscraper', 'billboard'],
     },
     volcano: {
       label: 'VOLCANO',
@@ -674,6 +677,7 @@
         antennaMetal: '#6a4840', antennaLed: '#ff6020',
       },
       debrisSet: ['charredcan','emberrock','molten_tire','burntbook','skullbone','ashheap','lavashard'],
+      obstacleTypes: ['lavaspire', 'vent'],
     },
   };
   let selectedTheme = 'sunset';
@@ -871,7 +875,8 @@
   function addPipe(x) {
     const gap = currentPipeGap();
     const top = PIPE_MIN_TOP + Math.random() * (PLAY_H - gap - PIPE_MIN_TOP * 2);
-    const type = Math.random() < 0.5 ? 'cargo' : 'junk';
+    const pool = theme().obstacleTypes || ['cargo', 'junk'];
+    const type = pool[Math.floor(Math.random() * pool.length)];
     // Every ~5th pipe swaps its debris for a glowing power-up capsule
     const spawnPowerUp = pipeSpawnCount > 2 && Math.random() < 0.22;
     pipeSpawnCount++;
@@ -1627,10 +1632,68 @@
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+
+    // Theme-specific atmospherics over the back layers
+    drawThemeAtmosphere();
+  }
+
+  let lightningAt = -999;   // frame when last lightning bolt fired
+  function drawThemeAtmosphere() {
+    if (selectedTheme === 'volcano') {
+      // Falling ash flakes, slow
+      ctx.save();
+      ctx.fillStyle = 'rgba(220, 210, 200, 0.5)';
+      for (let i = 0; i < 34; i++) {
+        const seed = i * 9.73;
+        const x = ((seed * 47 + frame * 0.6 + Math.sin(frame * 0.02 + i) * 8) % (W + 20) - 10 + W) % W;
+        const y = ((seed * 23 + frame * 0.4) % PLAY_H + PLAY_H) % PLAY_H;
+        ctx.fillRect(x, y, 1.5, 1.5);
+      }
+      // Occasional lightning flash from volcanic plume
+      if (Math.random() < 0.008 && frame - lightningAt > 40) lightningAt = frame;
+      const since = frame - lightningAt;
+      if (since < 6) {
+        const a = (6 - since) / 6 * 0.45;
+        ctx.fillStyle = 'rgba(255, 200, 140, ' + a + ')';
+        ctx.fillRect(0, 0, W, PLAY_H);
+      }
+      ctx.restore();
+    } else if (selectedTheme === 'city') {
+      // Low smog haze across the middle of the sky
+      ctx.save();
+      const g = ctx.createLinearGradient(0, PLAY_H * 0.45, 0, PLAY_H * 0.78);
+      g.addColorStop(0, 'rgba(90, 60, 140, 0)');
+      g.addColorStop(0.5, 'rgba(50, 35, 90, 0.22)');
+      g.addColorStop(1, 'rgba(30, 20, 60, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, PLAY_H * 0.45, W, PLAY_H * 0.33);
+      ctx.restore();
+    } else if (selectedTheme === 'swamp') {
+      // Thin drifting fog streaks mid-air
+      ctx.save();
+      ctx.fillStyle = 'rgba(180, 220, 140, 0.14)';
+      for (let i = 0; i < 4; i++) {
+        const y = PLAY_H * (0.35 + i * 0.12);
+        const x = ((frame * 0.2 + i * 200) % (W + 200)) - 100;
+        ctx.beginPath();
+        ctx.ellipse(x, y, 110, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
   }
 
   // Jagged distant mountain/ruin silhouette along the horizon
+  // ---------- Theme-specific horizons ----------
   function drawDesertRidge() {
+    // Dispatches to the right horizon based on selected theme
+    if (selectedTheme === 'swamp')   return drawSwampHorizon();
+    if (selectedTheme === 'city')    return drawCitySkyline();
+    if (selectedTheme === 'volcano') return drawVolcanoHorizon();
+    return drawSunsetMountains();
+  }
+
+  function drawSunsetMountains() {
     ctx.save();
     ctx.fillStyle = theme().ridge;
     ctx.beginPath();
@@ -1640,7 +1703,6 @@
     const peaks = 14;
     for (let i = 0; i <= peaks; i++) {
       const x = (W / peaks) * i;
-      // Deterministic jagged profile via sine hash
       const h = 12 + Math.abs(Math.sin(i * 1.7) * 28) + (i % 3) * 4;
       ctx.lineTo(x, baseY - h);
       if (i < peaks) {
@@ -1653,6 +1715,230 @@
     ctx.lineTo(W, PLAY_H);
     ctx.closePath();
     ctx.fill();
+    ctx.restore();
+  }
+
+  function drawSwampHorizon() {
+    // Low fog band
+    ctx.save();
+    const fogY = PLAY_H * 0.76;
+    const fogGrad = ctx.createLinearGradient(0, fogY, 0, PLAY_H);
+    fogGrad.addColorStop(0, 'rgba(160, 200, 120, 0)');
+    fogGrad.addColorStop(0.4, 'rgba(140, 180, 90, 0.28)');
+    fogGrad.addColorStop(1, 'rgba(60, 90, 40, 0.15)');
+    ctx.fillStyle = fogGrad;
+    ctx.fillRect(0, fogY, W, PLAY_H - fogY);
+    ctx.restore();
+
+    // Gnarled dead trees along the horizon
+    ctx.save();
+    ctx.fillStyle = theme().ridge;
+    const baseY = PLAY_H * 0.82;
+    // Ground band
+    ctx.fillRect(0, baseY, W, PLAY_H - baseY);
+
+    const treeCount = 6;
+    for (let i = 0; i < treeCount; i++) {
+      const hx = (W / treeCount) * (i + 0.5);
+      const heightScale = 0.7 + ((i * 37 + 13) % 100) / 160;
+      const trunkH = 52 * heightScale;
+      const trunkW = 5 + (i % 2) * 2;
+      // Trunk
+      ctx.fillRect(hx - trunkW / 2, baseY - trunkH, trunkW, trunkH);
+      // Branches
+      ctx.strokeStyle = theme().ridge;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(hx, baseY - trunkH * 0.6);
+      ctx.lineTo(hx - 14 * heightScale, baseY - trunkH * 0.85);
+      ctx.moveTo(hx, baseY - trunkH * 0.72);
+      ctx.lineTo(hx + 16 * heightScale, baseY - trunkH * 0.95);
+      ctx.moveTo(hx, baseY - trunkH * 0.5);
+      ctx.lineTo(hx - 10 * heightScale, baseY - trunkH * 0.6);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Fireflies — slow floating dots that drift and blink
+    ctx.save();
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = '#b6ff6a';
+    for (let i = 0; i < 12; i++) {
+      const seed = i * 7.3;
+      const x = (seed * 53 % W + Math.sin(frame * 0.01 + i) * 18 + W) % W;
+      const y = PLAY_H * 0.4 + (seed * 19 % (PLAY_H * 0.3)) + Math.cos(frame * 0.02 + i) * 10;
+      const tw = 0.4 + 0.6 * Math.abs(Math.sin(frame * 0.05 + i));
+      ctx.globalAlpha = tw;
+      ctx.fillStyle = '#e0ffa0';
+      ctx.beginPath();
+      ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawCitySkyline() {
+    ctx.save();
+    const baseY = PLAY_H * 0.82;
+    // Ground strip
+    ctx.fillStyle = theme().ridge;
+    ctx.fillRect(0, baseY, W, PLAY_H - baseY);
+
+    // Far buildings (faded)
+    ctx.fillStyle = 'rgba(20, 18, 32, 0.7)';
+    const farCount = 10;
+    for (let i = 0; i < farCount; i++) {
+      const bx = (W / farCount) * i;
+      const bw = W / farCount + 2;
+      const bh = 36 + ((i * 17 + 7) % 28);
+      ctx.fillRect(bx, baseY - bh, bw, bh);
+    }
+
+    // Nearer broken skyline (stronger)
+    ctx.fillStyle = theme().ridge;
+    const nearCount = 7;
+    for (let i = 0; i < nearCount; i++) {
+      const bx = (W / nearCount) * i + ((i * 11) % 6);
+      const bw = (W / nearCount) - 6;
+      let bh = 50 + ((i * 31 + 17) % 50);
+      // Some buildings have a jagged broken top
+      const broken = i % 3 === 0;
+      if (broken) {
+        ctx.beginPath();
+        ctx.moveTo(bx, baseY);
+        ctx.lineTo(bx, baseY - bh);
+        const jags = 4;
+        for (let j = 0; j <= jags; j++) {
+          const jx = bx + (bw / jags) * j;
+          const jy = baseY - bh + ((j * 13) % 14) - 4;
+          ctx.lineTo(jx, jy);
+        }
+        ctx.lineTo(bx + bw, baseY);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.fillRect(bx, baseY - bh, bw, bh);
+      }
+
+      // Pepper tiny lit windows
+      ctx.fillStyle = 'rgba(255, 220, 130, 0.55)';
+      for (let wy = 6; wy < bh - 6; wy += 7) {
+        for (let wx = 3; wx < bw - 3; wx += 6) {
+          if (((wx * 13 + wy * 7 + i * 3) % 11) < 3) {
+            ctx.fillRect(bx + wx, baseY - bh + wy, 2, 2);
+          }
+        }
+      }
+      ctx.fillStyle = theme().ridge;
+    }
+
+    // Radio tower with blinking red light
+    const towerX = W * 0.72;
+    const towerY = baseY - 90;
+    ctx.strokeStyle = theme().ridge;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(towerX, baseY);
+    ctx.lineTo(towerX, towerY);
+    ctx.moveTo(towerX - 8, baseY - 30);
+    ctx.lineTo(towerX + 8, baseY - 30);
+    ctx.moveTo(towerX - 5, baseY - 50);
+    ctx.lineTo(towerX + 5, baseY - 50);
+    ctx.stroke();
+    // Blinking tip
+    if (Math.floor(frame / 30) & 1) {
+      ctx.save();
+      ctx.shadowBlur = 10; ctx.shadowColor = '#ff4040';
+      ctx.fillStyle = '#ff4040';
+      ctx.beginPath(); ctx.arc(towerX, towerY, 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+
+    // Thick smog band just above the skyline
+    const smogGrad = ctx.createLinearGradient(0, baseY - 60, 0, baseY);
+    smogGrad.addColorStop(0, 'rgba(40, 30, 70, 0)');
+    smogGrad.addColorStop(1, 'rgba(70, 50, 120, 0.35)');
+    ctx.fillStyle = smogGrad;
+    ctx.fillRect(0, baseY - 60, W, 60);
+
+    ctx.restore();
+  }
+
+  function drawVolcanoHorizon() {
+    ctx.save();
+    const baseY = PLAY_H * 0.82;
+    // Burning ground
+    ctx.fillStyle = theme().ridge;
+    ctx.fillRect(0, baseY, W, PLAY_H - baseY);
+
+    // Distant ranges
+    ctx.fillStyle = 'rgba(30, 8, 4, 0.8)';
+    ctx.beginPath();
+    ctx.moveTo(0, baseY);
+    const peaks = 10;
+    for (let i = 0; i <= peaks; i++) {
+      const x = (W / peaks) * i;
+      const h = 20 + ((i * 17 + 5) % 30);
+      ctx.lineTo(x, baseY - h);
+    }
+    ctx.lineTo(W, baseY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Two big volcanic cones
+    function cone(cx, scale) {
+      const topH = 90 * scale;
+      const topW = 14 * scale;
+      ctx.fillStyle = theme().ridge;
+      ctx.beginPath();
+      ctx.moveTo(cx - 70 * scale, baseY);
+      ctx.lineTo(cx - topW, baseY - topH);
+      ctx.lineTo(cx + topW, baseY - topH);
+      ctx.lineTo(cx + 70 * scale, baseY);
+      ctx.closePath();
+      ctx.fill();
+      // Glowing crater
+      ctx.save();
+      ctx.shadowBlur = 14; ctx.shadowColor = '#ff5a10';
+      const lavaGrad = ctx.createRadialGradient(cx, baseY - topH + 3, 0, cx, baseY - topH + 3, topW * 1.2);
+      lavaGrad.addColorStop(0, '#ffd870');
+      lavaGrad.addColorStop(0.5, '#ff5a10');
+      lavaGrad.addColorStop(1, 'rgba(200,40,10,0)');
+      ctx.fillStyle = lavaGrad;
+      ctx.beginPath();
+      ctx.ellipse(cx, baseY - topH + 2, topW * 1.3, 3.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // Smoke plume
+      ctx.save();
+      const plumeGrad = ctx.createLinearGradient(0, baseY - topH - 80 * scale, 0, baseY - topH);
+      plumeGrad.addColorStop(0, 'rgba(40, 20, 15, 0)');
+      plumeGrad.addColorStop(1, 'rgba(60, 30, 20, 0.75)');
+      ctx.fillStyle = plumeGrad;
+      ctx.beginPath();
+      const plumeWT = 10 * scale, plumeWB = 20 * scale;
+      ctx.moveTo(cx - plumeWB, baseY - topH);
+      ctx.quadraticCurveTo(cx - plumeWT * 1.8, baseY - topH - 40 * scale, cx - plumeWT, baseY - topH - 80 * scale);
+      ctx.lineTo(cx + plumeWT, baseY - topH - 80 * scale);
+      ctx.quadraticCurveTo(cx + plumeWT * 1.8, baseY - topH - 40 * scale, cx + plumeWB, baseY - topH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      // Lava dribbles down the flank
+      ctx.save();
+      ctx.shadowBlur = 6; ctx.shadowColor = '#ff5a10';
+      ctx.strokeStyle = '#ff7a1a';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(cx + topW * 0.4, baseY - topH + 2);
+      ctx.lineTo(cx + topW * 2, baseY - topH * 0.4);
+      ctx.lineTo(cx + topW * 3, baseY - 6);
+      ctx.stroke();
+      ctx.restore();
+    }
+    cone(W * 0.3, 1.0);
+    cone(W * 0.76, 0.75);
+
     ctx.restore();
   }
 
@@ -2477,13 +2763,447 @@
   function drawPipe(p) {
     const dy = p.driftY || 0;
     const botH = PLAY_H - (p.top + p.gap);
-    if (p.type === 'cargo') {
-      drawCargo(p.x, dy,                   PIPE_W, p.top, true,  p.seed);
-      drawCargo(p.x, p.top + p.gap + dy,   PIPE_W, botH,  false, p.seed + 13);
-    } else {
-      drawJunk(p.x, dy,                    PIPE_W, p.top, true,  p.topShape, p.seed, p.antennas);
-      drawJunk(p.x, p.top + p.gap + dy,    PIPE_W, botH,  false, p.botShape, p.seed + 13, p.antennas);
+    const drawer = OBSTACLE_DRAWERS[p.type] || OBSTACLE_DRAWERS.cargo;
+    drawer(p.x, dy,                  PIPE_W, p.top, true,  p);
+    drawer(p.x, p.top + p.gap + dy,  PIPE_W, botH,  false, p);
+  }
+
+  const OBSTACLE_DRAWERS = {
+    cargo: function(x, y, w, h, isTop, p) { drawCargo(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    junk:  function(x, y, w, h, isTop, p) { drawJunk(x, y, w, h, isTop, isTop ? p.topShape : p.botShape, p.seed + (isTop ? 0 : 13), p.antennas); },
+    mushroom: function(x, y, w, h, isTop, p) { drawMushroom(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    swamptree:function(x, y, w, h, isTop, p) { drawSwampTree(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    skyscraper: function(x, y, w, h, isTop, p) { drawSkyscraper(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    billboard:  function(x, y, w, h, isTop, p) { drawBillboard(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    lavaspire: function(x, y, w, h, isTop, p) { drawLavaSpire(x, y, w, h, isTop, isTop ? p.topShape : p.botShape, p.seed + (isTop ? 0 : 13)); },
+    vent:      function(x, y, w, h, isTop, p) { drawVent(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+  };
+
+  // ---------- Thematic obstacle structures ----------
+
+  // Swamp: giant fleshy mushroom with a bulbous cap facing the gap
+  function drawMushroom(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const cx = w / 2;
+    const tipY = isTop ? h : 0;
+    const baseY = isTop ? 0 : h;
+    const sign = isTop ? 1 : -1;
+    const stalkBaseW = w + 4;
+    const stalkTipW  = w * 0.55;
+    const capOvershoot = 10;    // cap extends past the logical tip into the gap
+    const capH = 22;
+    const stalkTipY = tipY - capH * sign;
+
+    // Tapered stalk
+    const stalkGrad = ctx.createLinearGradient(0, baseY, 0, stalkTipY);
+    stalkGrad.addColorStop(0, '#c8bea4');
+    stalkGrad.addColorStop(1, '#9a907a');
+    ctx.fillStyle = stalkGrad;
+    ctx.beginPath();
+    ctx.moveTo(cx - stalkBaseW / 2, baseY);
+    ctx.lineTo(cx - stalkTipW / 2,  stalkTipY);
+    ctx.lineTo(cx + stalkTipW / 2,  stalkTipY);
+    ctx.lineTo(cx + stalkBaseW / 2, baseY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#2a2a1a'; ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // Ring (skirt) just below cap
+    ctx.fillStyle = '#e0d0a6';
+    const ringY = stalkTipY + 2 * sign;
+    ctx.beginPath();
+    ctx.ellipse(cx, ringY, stalkTipW * 0.7 + 4, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#3a2a1a';
+    ctx.stroke();
+
+    // Cap — half ellipse arcing past tipY into the gap
+    const capCx = cx;
+    const capCy = tipY;
+    const capRx = w * 0.85 + 4;
+    const capRy = capH + capOvershoot;
+    ctx.save();
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    const capGrad = ctx.createRadialGradient(capCx - capRx * 0.3, capCy - capRy * 0.3 * sign, 2, capCx, capCy, capRx);
+    capGrad.addColorStop(0, '#c43e4a');
+    capGrad.addColorStop(0.6, '#8a1a2a');
+    capGrad.addColorStop(1, '#3a0812');
+    ctx.fillStyle = capGrad;
+    ctx.beginPath();
+    // Upper half-ellipse when isTop (cap points down into gap)
+    if (isTop) ctx.ellipse(capCx, capCy, capRx, capRy, 0, Math.PI, 2 * Math.PI);
+    else       ctx.ellipse(capCx, capCy, capRx, capRy, 0, 0, Math.PI);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#2a040a'; ctx.lineWidth = 1.3; ctx.stroke();
+    ctx.restore();
+
+    // Glowing spore spots on cap
+    ctx.save();
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = '#b6ff6a';
+    ctx.fillStyle = '#e0ffa0';
+    const spotCount = 5 + Math.floor(srand(seed) * 3);
+    for (let i = 0; i < spotCount; i++) {
+      const t = (i + 0.5) / spotCount;
+      const angle = Math.PI + t * Math.PI; // across the visible dome
+      const r = capRx * (0.4 + srand(seed + i * 7) * 0.55);
+      const sx = capCx + Math.cos(angle) * r;
+      const sy = capCy + Math.sin(angle) * capRy * 0.75 * sign * (isTop ? 1 : -1) * -1; // mirror for bottom
+      const adjustedY = isTop
+        ? capCy - Math.abs(Math.sin(angle)) * capRy * 0.75
+        : capCy + Math.abs(Math.sin(angle)) * capRy * 0.75;
+      const sr = 2 + srand(seed + i * 11) * 2;
+      ctx.beginPath(); ctx.arc(sx, adjustedY, sr, 0, Math.PI * 2); ctx.fill();
     }
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  // Swamp: gnarled dead tree trunk with side branches
+  function drawSwampTree(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const cx = w / 2;
+    const sign = isTop ? 1 : -1;
+    const tipY = isTop ? h : 0;
+    const baseY = isTop ? 0 : h;
+
+    // Trunk — slightly irregular tapered polygon
+    const trunkPts = [];
+    const segs = 8;
+    const wideBase = w + 6;
+    const wideTip  = w + 2;
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const py = baseY + (tipY - baseY) * t;
+      const px = cx - wideBase / 2 + (wideBase - wideTip) * t * 0.5 + (srand(seed + i) - 0.5) * 3;
+      trunkPts.push([px, py]);
+    }
+    for (let i = segs; i >= 0; i--) {
+      const t = i / segs;
+      const py = baseY + (tipY - baseY) * t;
+      const px = cx + wideBase / 2 - (wideBase - wideTip) * t * 0.5 + (srand(seed + 100 + i) - 0.5) * 3;
+      trunkPts.push([px, py]);
+    }
+
+    const trunkGrad = ctx.createLinearGradient(0, 0, w, 0);
+    trunkGrad.addColorStop(0, '#3a2a18');
+    trunkGrad.addColorStop(0.5, '#1f140a');
+    trunkGrad.addColorStop(1, '#100a05');
+    ctx.fillStyle = trunkGrad;
+    ctx.beginPath();
+    ctx.moveTo(trunkPts[0][0], trunkPts[0][1]);
+    for (let i = 1; i < trunkPts.length; i++) ctx.lineTo(trunkPts[i][0], trunkPts[i][1]);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#0a0a05'; ctx.lineWidth = 1.3;
+    ctx.stroke();
+
+    // Bark lines
+    ctx.strokeStyle = 'rgba(30, 20, 10, 0.7)';
+    ctx.lineWidth = 0.9;
+    for (let i = 0; i < 3; i++) {
+      const bx = 4 + srand(seed + 200 + i * 7) * (w - 8);
+      ctx.beginPath();
+      ctx.moveTo(bx, baseY);
+      ctx.lineTo(bx + (srand(seed + 210 + i) - 0.5) * 4, tipY);
+      ctx.stroke();
+    }
+
+    // Branches — 2 sticking out sideways near tip
+    const bYs = [tipY - 28 * sign, tipY - 14 * sign];
+    for (let i = 0; i < bYs.length; i++) {
+      const by = bYs[i];
+      const side = i % 2 === 0 ? -1 : 1;
+      ctx.strokeStyle = '#1f140a'; ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx + side * (w * 0.25), by);
+      ctx.lineTo(cx + side * (w * 0.85), by + (srand(seed + 300 + i) - 0.5) * 6);
+      ctx.stroke();
+      ctx.strokeStyle = '#3a2a18'; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+
+    // Moss clumps
+    ctx.fillStyle = 'rgba(100, 160, 50, 0.8)';
+    ctx.beginPath();
+    ctx.ellipse(cx - w * 0.25, baseY + 12 * sign, 8, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx + w * 0.15, tipY - 22 * sign, 6, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // City: broken skyscraper slab with a window grid and jagged crumbled top
+  function drawSkyscraper(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const tipY = isTop ? h : 0;
+    const baseY = isTop ? 0 : h;
+    const sign = isTop ? 1 : -1;
+
+    // Body gradient
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0,   '#5a5866');
+    grad.addColorStop(0.5, '#2a2836');
+    grad.addColorStop(1,   '#141420');
+    ctx.fillStyle = grad;
+    ctx.fillRect(-2, Math.min(baseY, tipY), w + 4, Math.abs(tipY - baseY));
+
+    // Jagged crumbled edge at the gap-facing side
+    ctx.fillStyle = '#050510';
+    ctx.beginPath();
+    const segs = 6;
+    ctx.moveTo(-2, tipY);
+    for (let i = 0; i <= segs; i++) {
+      const sx = -2 + (w + 4) * (i / segs);
+      const sy = tipY + sign * (6 + srand(seed + i * 5) * 14);
+      ctx.lineTo(sx, sy);
+    }
+    ctx.lineTo(w + 2, tipY);
+    ctx.closePath();
+    ctx.fill();
+    // Rebar sticking up
+    ctx.strokeStyle = '#3a2a12'; ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      const rx = 6 + srand(seed + 40 + i * 7) * (w - 12);
+      const ry1 = tipY + sign * (6 + srand(seed + 50 + i) * 12);
+      const ry2 = tipY + sign * (18 + srand(seed + 60 + i) * 10);
+      ctx.beginPath();
+      ctx.moveTo(rx, ry1); ctx.lineTo(rx + (srand(seed + 70 + i) - 0.5) * 4, ry2);
+      ctx.stroke();
+    }
+
+    // Window grid
+    const winW = 5, winH = 6, gap = 3;
+    const cols = Math.floor((w - 6) / (winW + gap));
+    const yStart = isTop ? 6 : h - 6 - winH;
+    const yEnd   = isTop ? h - 20 : 20;
+    const yStep  = isTop ? (winH + gap) : -(winH + gap);
+    const xStart = (w - (cols * winW + (cols - 1) * gap)) / 2;
+    const lightChance = 0.22;
+    for (let yy = yStart; (isTop ? yy < yEnd : yy > yEnd); yy += yStep) {
+      for (let c = 0; c < cols; c++) {
+        const wx = xStart + c * (winW + gap);
+        const lit = srand(seed + Math.abs(yy) * 3.3 + c * 1.7) < lightChance;
+        ctx.fillStyle = lit ? '#ffe08a' : '#0a0a12';
+        ctx.fillRect(wx, yy, winW, winH);
+        if (lit) {
+          ctx.save(); ctx.shadowBlur = 5; ctx.shadowColor = '#ffb347';
+          ctx.fillRect(wx, yy, winW, winH); ctx.restore();
+        }
+      }
+    }
+
+    // Outer edge
+    ctx.strokeStyle = '#050510'; ctx.lineWidth = 1.2;
+    ctx.strokeRect(-1.5, Math.min(baseY, tipY) + 0.5, w + 3, Math.abs(tipY - baseY) - 1);
+
+    ctx.restore();
+  }
+
+  // City: thin concrete post with a wide billboard near the gap
+  function drawBillboard(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const cx = w / 2;
+    const tipY = isTop ? h : 0;
+    const baseY = isTop ? 0 : h;
+    const sign = isTop ? 1 : -1;
+    const postW = w * 0.32;
+    const signH = 36;
+    const signW = w + 14;
+
+    // Post
+    const postGrad = ctx.createLinearGradient(cx - postW / 2, 0, cx + postW / 2, 0);
+    postGrad.addColorStop(0, '#6a6878');
+    postGrad.addColorStop(1, '#2a2830');
+    ctx.fillStyle = postGrad;
+    ctx.fillRect(cx - postW / 2, Math.min(baseY, tipY - signH * sign), postW, Math.abs((tipY - signH * sign) - baseY));
+    ctx.strokeStyle = '#12121c'; ctx.lineWidth = 1;
+    ctx.strokeRect(cx - postW / 2 + 0.5, Math.min(baseY, tipY - signH * sign) + 0.5, postW - 1, Math.abs((tipY - signH * sign) - baseY) - 1);
+
+    // Billboard panel at the gap end
+    const signCx = cx;
+    const signTop = isTop ? tipY - signH : tipY;
+    ctx.fillStyle = '#1a1a22';
+    ctx.fillRect(signCx - signW / 2, signTop, signW, signH);
+    // Inner sign bg
+    const bgGrad = ctx.createLinearGradient(0, signTop, 0, signTop + signH);
+    bgGrad.addColorStop(0, '#e9418a');
+    bgGrad.addColorStop(1, '#6a1850');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(signCx - signW / 2 + 3, signTop + 3, signW - 6, signH - 6);
+
+    // Flicker label
+    const onOff = Math.floor(frame * 0.08 + seed * 0.1) & 1 ? 1 : 0.35;
+    ctx.save();
+    ctx.globalAlpha = onOff;
+    ctx.shadowBlur = 10; ctx.shadowColor = '#ffd7ff';
+    ctx.font = 'bold 11px "Courier New", monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DLX', signCx, signTop + signH / 2);
+    ctx.restore();
+
+    // Support brackets
+    ctx.strokeStyle = '#12121c'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(signCx - postW * 0.5, signTop + (isTop ? signH : 0));
+    ctx.lineTo(signCx - postW * 0.5, signTop + (isTop ? signH + 6 : -6));
+    ctx.moveTo(signCx + postW * 0.5, signTop + (isTop ? signH : 0));
+    ctx.lineTo(signCx + postW * 0.5, signTop + (isTop ? signH + 6 : -6));
+    ctx.stroke();
+
+    // Frame outline
+    ctx.strokeStyle = '#05050a'; ctx.lineWidth = 1.4;
+    ctx.strokeRect(signCx - signW / 2 + 0.5, signTop + 0.5, signW - 1, signH - 1);
+
+    ctx.restore();
+  }
+
+  // Volcano: jagged obsidian spire with glowing lava cracks
+  function drawLavaSpire(x, y, w, h, isTop, pts, seed) {
+    if (h <= 0 || !pts) return;
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Base fill — charred basalt
+    const g = ctx.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0,   '#1a0808');
+    g.addColorStop(0.5, '#0a0302');
+    g.addColorStop(1,   '#050000');
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = '#2a0804'; ctx.lineWidth = 1.3;
+    ctx.stroke();
+
+    // Lava cracks — glowing orange veins over the rock
+    ctx.save();
+    ctx.clip();
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = '#ff5a10';
+    ctx.strokeStyle = '#ff7a1a';
+    ctx.lineWidth = 1.4;
+    for (let i = 0; i < 5; i++) {
+      const startX = srand(seed + i * 13) * w;
+      const startY = srand(seed + i * 17) * h;
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      let cx = startX, cy = startY;
+      for (let j = 0; j < 3; j++) {
+        cx += (srand(seed + i * 31 + j) - 0.5) * 16;
+        cy += (srand(seed + i * 47 + j) - 0.5) * 22;
+        ctx.lineTo(cx, cy);
+      }
+      ctx.stroke();
+    }
+    // Molten nodes
+    ctx.shadowBlur = 12;
+    for (let i = 0; i < 3; i++) {
+      const nx = 6 + srand(seed + 200 + i) * (w - 12);
+      const ny = 6 + srand(seed + 220 + i) * (h - 12);
+      ctx.fillStyle = '#ffb046';
+      ctx.beginPath(); ctx.arc(nx, ny, 1.4 + srand(seed + 240 + i) * 1.6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  // Volcano: tall volcanic vent cylinder belching ember smoke
+  function drawVent(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const cx = w / 2;
+    const tipY = isTop ? h : 0;
+    const baseY = isTop ? 0 : h;
+    const sign = isTop ? 1 : -1;
+    const ventW = w;
+    const flareW = w + 10;
+    const flareH = 12;
+    const bodyTop    = isTop ? 0 : h;
+    const bodyBottom = isTop ? h - flareH : flareH;
+
+    // Body — dark lava rock
+    const bodyGrad = ctx.createLinearGradient(0, 0, w, 0);
+    bodyGrad.addColorStop(0,   '#3a140a');
+    bodyGrad.addColorStop(0.5, '#1a0504');
+    bodyGrad.addColorStop(1,   '#0a0000');
+    ctx.fillStyle = bodyGrad;
+    ctx.fillRect(0, Math.min(bodyTop, bodyBottom), ventW, Math.abs(bodyTop - bodyBottom));
+    ctx.strokeStyle = '#0a0000'; ctx.lineWidth = 1.2;
+    ctx.strokeRect(0.5, Math.min(bodyTop, bodyBottom) + 0.5, ventW - 1, Math.abs(bodyTop - bodyBottom) - 1);
+
+    // Molten seams
+    ctx.save();
+    ctx.shadowBlur = 8; ctx.shadowColor = '#ff5a1a';
+    ctx.strokeStyle = '#ff7020'; ctx.lineWidth = 1.2;
+    for (let i = 0; i < 3; i++) {
+      const sx = 4 + srand(seed + i * 9) * (w - 8);
+      ctx.beginPath();
+      ctx.moveTo(sx, baseY);
+      ctx.lineTo(sx + (srand(seed + 10 + i) - 0.5) * 4, tipY - flareH * sign);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Flared crater/lip at the gap-facing end
+    const flareGrad = ctx.createLinearGradient(0, tipY - flareH * sign, 0, tipY + 6 * sign);
+    flareGrad.addColorStop(0, '#4a1a0a');
+    flareGrad.addColorStop(1, '#200806');
+    ctx.fillStyle = flareGrad;
+    ctx.beginPath();
+    ctx.moveTo(0, tipY - flareH * sign);
+    ctx.lineTo(ventW, tipY - flareH * sign);
+    ctx.lineTo(ventW + 5, tipY + 2 * sign);
+    ctx.lineTo(ventW * 0.5, tipY + 6 * sign);
+    ctx.lineTo(-5, tipY + 2 * sign);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#0a0000'; ctx.lineWidth = 1.2; ctx.stroke();
+
+    // Inside crater — glowing magma pool
+    ctx.save();
+    ctx.shadowBlur = 18; ctx.shadowColor = '#ff4a10';
+    const poolGrad = ctx.createRadialGradient(cx, tipY, 1, cx, tipY, flareW * 0.45);
+    poolGrad.addColorStop(0, '#ffd070');
+    poolGrad.addColorStop(0.4, '#ff5a1a');
+    poolGrad.addColorStop(1, 'rgba(200,40,10,0)');
+    ctx.fillStyle = poolGrad;
+    ctx.beginPath();
+    ctx.ellipse(cx, tipY - (flareH * 0.4) * sign, flareW * 0.4, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Rising ember sparks near the mouth
+    ctx.save();
+    ctx.shadowBlur = 8; ctx.shadowColor = '#ff9040';
+    ctx.fillStyle = '#ffb860';
+    for (let i = 0; i < 4; i++) {
+      const ex = cx + Math.sin(frame * 0.08 + seed + i) * (flareW * 0.3);
+      const ey = tipY + (i * 3 + (frame * 0.5 + seed * i) % 20) * sign;
+      ctx.beginPath(); ctx.arc(ex, ey, 0.9, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+
+    ctx.restore();
   }
 
   // Rectangular cargo container — theme-tinted hull + hazard band
