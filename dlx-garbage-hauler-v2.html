@@ -416,9 +416,10 @@
 
   // iPhone caps the play column at a phone-shaped width and letterboxes
   // anything wider; iPad uses the full viewport so landscape gets a
-  // proper widescreen play area.
+  // proper widescreen play area. iPad uses a smaller logical H so the
+  // ship and obstacles render larger on screen.
   const STAGE_MAX_W = 540;
-  const IPAD_TARGET_H = 640;     // logical world height when scaling for iPad
+  const IPAD_TARGET_H = 480;     // logical world height when scaling for iPad
 
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -897,7 +898,9 @@
   const PIPE_GAP_MIN     = 110;         // tightest after ramp + level mult
   const PIPE_SPEED_BASE  = 2.0;
   const PIPE_SPEED_MAX   = 5.0;         // raised so per-level mult can scale
-  const PIPE_SPACING     = 200;
+  const PIPE_SPACING_PHONE = 200;
+  const PIPE_SPACING_IPAD  = 280;
+  function pipeSpacing() { return isIPad ? PIPE_SPACING_IPAD : PIPE_SPACING_PHONE; }
   const PIPE_MIN_TOP     = 60;
 
   // Difficulty scales with score
@@ -1042,7 +1045,7 @@
     initNebula();
     initJunkSats();
     buildBgCache();   // rebuild gradients now that nebula has fresh coords
-    for (let i = 0; i < 4; i++) addPipe(W + 120 + i * PIPE_SPACING);
+    for (let i = 0; i < 4; i++) addPipe(W + 120 + i * pipeSpacing());
     refreshHud();
   }
 
@@ -1402,8 +1405,9 @@
       }
       while (pipes.length && pipes[0].x + PIPE_W < -10) pipes.shift();
       const last = pipes[pipes.length - 1];
-      if (!last || last.x < W - PIPE_SPACING) {
-        addPipe((last ? last.x : W) + PIPE_SPACING);
+      const sp = pipeSpacing();
+      if (!last || last.x < W - sp) {
+        addPipe((last ? last.x : W) + sp);
       }
 
       // Collectibles and power-ups
@@ -2034,22 +2038,19 @@
     }
     ctx.restore();
 
-    // Hanging vines drooping from the top of the screen
+    // Hanging vines — fewer (6), single stroke, no per-vine leaf ellipse
     ctx.save();
     ctx.strokeStyle = 'rgba(18, 40, 14, 0.85)';
     ctx.lineWidth = 2;
-    for (let i = 0; i < 10; i++) {
-      const vx = ((i * 79 + frame * 0.05) % W + W) % W;
+    for (let i = 0; i < 6; i++) {
+      const vx = ((i * 121 + frame * 0.05) % W + W) % W;
       const len = 30 + ((i * 17) % 40);
+      const swayMid = Math.sin(frame * 0.01 + i) * 4;
+      const swayEnd = Math.sin(frame * 0.02 + i) * 7;
       ctx.beginPath();
       ctx.moveTo(vx, 0);
-      ctx.quadraticCurveTo(vx + Math.sin(frame * 0.01 + i) * 4, len * 0.5, vx + Math.sin(frame * 0.02 + i) * 7, len);
+      ctx.quadraticCurveTo(vx + swayMid, len * 0.5, vx + swayEnd, len);
       ctx.stroke();
-      // Vine leaves
-      ctx.fillStyle = 'rgba(60, 120, 30, 0.75)';
-      ctx.beginPath();
-      ctx.ellipse(vx + Math.sin(frame * 0.02 + i) * 7, len, 3, 1.4, 0, 0, Math.PI * 2);
-      ctx.fill();
     }
     ctx.restore();
 
@@ -3162,8 +3163,15 @@
     ctx.ellipse(cx, baseY - 1 * sign, w * 0.55, 4, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Reed stalks — 8 of varying lengths, some with cattail heads
-    const stalkCount = 8;
+    // Reed stalks — fewer stalks, single stroke per stalk, simpler cattails.
+    // Previous version was the worst hot path on the swamp level: 8 stalks
+    // per pipe × 2 strokes each + 6-segment cattail fluff loop × 5 cattails
+    // per pipe meant ~70 stroke ops per pipe segment, and with 6 reed
+    // segments visible it was ~420 strokes per frame just for reeds.
+    const stalkCount = 5;
+    ctx.strokeStyle = '#2e5018';
+    ctx.lineWidth = 1.8;
+    const stalksData = [];
     for (let i = 0; i < stalkCount; i++) {
       const t = i / (stalkCount - 1);
       const sBaseX = cx + (t - 0.5) * (w * 0.85) + (srand(seed + i * 13) - 0.5) * 4;
@@ -3173,81 +3181,38 @@
       const sTipY = baseY + reach * sign;
       const sway = Math.sin(frame * 0.05 + i * 0.7 + seed * 0.03) * 3.2;
       const sTipX = sBaseX + (srand(seed + i * 23) - 0.5) * 10 + sway;
-      const bent = srand(seed + i * 31) < 0.3;
-      const cpSway = sway * (bent ? 1.8 : 0.8);
-
-      // Stalk body
-      ctx.strokeStyle = '#2e5018';
-      ctx.lineWidth = 1.8;
+      stalksData.push({ sBaseX, sBaseY, sTipX, sTipY });
+      // Single stroke per stalk
       ctx.beginPath();
       ctx.moveTo(sBaseX, sBaseY);
       ctx.quadraticCurveTo(
-        (sBaseX + sTipX) / 2 + cpSway,
+        (sBaseX + sTipX) / 2 + sway,
         (sBaseY + sTipY) / 2,
         sTipX, sTipY
       );
       ctx.stroke();
-      // Lighter stripe
-      ctx.strokeStyle = '#5a9030';
-      ctx.lineWidth = 0.6;
+    }
+
+    // Cattail heads — drawn in a single pass with shared style; the heavy
+    // 6-line fluff loop is gone in favour of one inner stripe.
+    ctx.fillStyle = '#3a2010';
+    for (let i = 0; i < stalkCount; i++) {
+      if (srand(seed + i * 41) <= 0.4) continue;     // ~60% of stalks
+      const sd = stalksData[i];
+      const headY = sd.sTipY + 5 * sign;
       ctx.beginPath();
-      ctx.moveTo(sBaseX - 0.4, sBaseY);
-      ctx.quadraticCurveTo(
-        (sBaseX + sTipX) / 2 + cpSway - 0.4,
-        (sBaseY + sTipY) / 2,
-        sTipX - 0.4, sTipY
-      );
-      ctx.stroke();
-
-      // Narrow leaf mid-stalk
-      if (srand(seed + i * 37) < 0.5) {
-        const leafY = sBaseY + (sTipY - sBaseY) * 0.5;
-        const leafX = (sBaseX + sTipX) / 2 + cpSway * 0.5;
-        const leafSide = (i % 2 === 0) ? -1 : 1;
-        ctx.strokeStyle = '#3a6a22';
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.moveTo(leafX, leafY);
-        ctx.quadraticCurveTo(
-          leafX + leafSide * 8, leafY - 4 * sign,
-          leafX + leafSide * 12, leafY - 2 * sign
-        );
-        ctx.stroke();
-      }
-
-      // Cattail head on ~65% of stalks
-      if (srand(seed + i * 41) > 0.35) {
-        const headX = sTipX;
-        const headY = sTipY + 5 * sign;
-        ctx.save();
-        ctx.shadowBlur = 4; ctx.shadowColor = 'rgba(0,0,0,0.6)';
-        // Head body
-        ctx.fillStyle = '#3a2010';
-        ctx.beginPath();
-        ctx.ellipse(headX, headY, 2.6, 7, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#5a3018';
-        ctx.beginPath();
-        ctx.ellipse(headX - 0.8, headY, 1, 6, 0, 0, Math.PI * 2);
-        ctx.fill();
-        // Horizontal fluff lines (brown hairy texture)
-        ctx.strokeStyle = 'rgba(100, 60, 30, 0.7)';
-        ctx.lineWidth = 0.5;
-        for (let k = -5; k <= 5; k += 2) {
-          ctx.beginPath();
-          ctx.moveTo(headX - 2.8, headY + k);
-          ctx.lineTo(headX + 2.8, headY + k);
-          ctx.stroke();
-        }
-        // Spike at top
-        ctx.strokeStyle = '#3a6018';
-        ctx.lineWidth = 0.9;
-        ctx.beginPath();
-        ctx.moveTo(headX, headY + 7 * sign);
-        ctx.lineTo(headX + (srand(seed + i * 67) - 0.5) * 2, headY + 12 * sign);
-        ctx.stroke();
-        ctx.restore();
-      }
+      ctx.ellipse(sd.sTipX, headY, 2.6, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Single highlight stripe across all cattail heads
+    ctx.fillStyle = '#5a3018';
+    for (let i = 0; i < stalkCount; i++) {
+      if (srand(seed + i * 41) <= 0.4) continue;
+      const sd = stalksData[i];
+      const headY = sd.sTipY + 5 * sign;
+      ctx.beginPath();
+      ctx.ellipse(sd.sTipX - 0.8, headY, 1, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // Slime drips — solid-colour fills, no per-drip gradient allocation
@@ -4395,22 +4360,19 @@
       const tip = pts[segs];
       tc.tipX = tip.x; tc.tipY = tip.y;
 
-      // Thick dark body
+      // Thick dark body — single stroke (lighter spine and per-segment
+      // suckers were the heaviest part of swamp render budget).
       ctx.save();
-      ctx.strokeStyle = 'rgba(10, 40, 20, 0.95)';
-      ctx.lineWidth = 10;
+      ctx.strokeStyle = 'rgba(20, 70, 30, 0.95)';
+      ctx.lineWidth = 9;
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
       for (let s = 1; s < pts.length; s++) ctx.lineTo(pts[s].x, pts[s].y);
       ctx.stroke();
-      // Lighter spine
-      ctx.strokeStyle = 'rgba(60, 140, 40, 0.7)';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      // Suckers
+      // Suckers — 3 per tentacle, not every-other segment
       ctx.fillStyle = 'rgba(160, 220, 100, 0.55)';
-      for (let s = 2; s < segs - 1; s += 2) {
+      for (let s = 4; s < segs - 1; s += 4) {
         ctx.beginPath();
         ctx.arc(pts[s].x, pts[s].y, 2, 0, Math.PI * 2);
         ctx.fill();
@@ -4421,6 +4383,7 @@
       ctx.beginPath();
       ctx.arc(tip.x, tip.y, 7, 0, Math.PI * 2);
       ctx.fill();
+      ctx.shadowBlur = 0;
       ctx.fillStyle = '#081208';
       ctx.beginPath();
       ctx.arc(tip.x, tip.y, 3, 0, Math.PI * 2);
