@@ -862,18 +862,20 @@
 
   const PIPE_W = 56;
   const PIPE_GAP_BASE    = 170;         // baseline gap
-  const PIPE_GAP_MIN     = 130;         // tightest after ramp
+  const PIPE_GAP_MIN     = 110;         // tightest after ramp + level mult
   const PIPE_SPEED_BASE  = 2.0;
-  const PIPE_SPEED_MAX   = 3.6;
+  const PIPE_SPEED_MAX   = 5.0;         // raised so per-level mult can scale
   const PIPE_SPACING     = 200;
   const PIPE_MIN_TOP     = 60;
 
   // Difficulty scales with score
   function currentPipeSpeed() {
-    return Math.min(PIPE_SPEED_MAX, PIPE_SPEED_BASE + score * 0.03);
+    const d = (typeof LEVEL_DIFF !== 'undefined' && LEVEL_DIFF[levelIndex]) || { speedMul: 1 };
+    return Math.min(PIPE_SPEED_MAX, (PIPE_SPEED_BASE + score * 0.02) * d.speedMul);
   }
   function currentPipeGap() {
-    return Math.max(PIPE_GAP_MIN, PIPE_GAP_BASE - score * 0.5);
+    const d = (typeof LEVEL_DIFF !== 'undefined' && LEVEL_DIFF[levelIndex]) || { gapMul: 1 };
+    return Math.max(PIPE_GAP_MIN, (PIPE_GAP_BASE - score * 0.35) * d.gapMul);
   }
 
   const BIRD_X_FRAC = 0.28;
@@ -901,21 +903,37 @@
 
   // ---------- Campaign progression ----------
   const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'swamp'];
-  const LEVEL_STEP  = 40;                    // advance every N score
-  let levelIndex    = 0;
-  let levelBanner   = { text: '', life: 0 };
-  let boss          = null;                   // active boss state, populated in swamp
+  // Score gap required to leave each level (level i → level i+1).
+  // Level 1→2 needs 50 points, each subsequent transition adds +10:
+  //   sunset → city : 50
+  //   city → volcano : 60
+  //   volcano → swamp: 70
+  // (last entry unused — no advancement past swamp)
+  const LEVEL_GAPS  = [50, 60, 70, 0];
+  // Per-level difficulty multipliers stack on top of the score-based ramp.
+  const LEVEL_DIFF = [
+    { speedMul: 1.00, gapMul: 1.00 },   // sunset
+    { speedMul: 1.18, gapMul: 0.92 },   // city
+    { speedMul: 1.34, gapMul: 0.86 },   // volcano
+    { speedMul: 1.50, gapMul: 0.80 },   // swamp / boss
+  ];
+  let levelIndex      = 0;
+  let levelScoreStart = 0;   // score at the moment current level began
+  let levelBanner     = { text: '', life: 0 };
+  let boss            = null;
 
   function themeToLevelIndex(key) {
     const i = LEVEL_ORDER.indexOf(key);
     return i < 0 ? 0 : i;
   }
   function maybeAdvanceLevel() {
-    const next = Math.min(LEVEL_ORDER.length - 1, Math.floor(score / LEVEL_STEP) + levelStartOffset);
-    if (next > levelIndex) advanceLevel(next);
+    if (levelIndex >= LEVEL_ORDER.length - 1) return;
+    const need = LEVEL_GAPS[levelIndex];
+    if (score - levelScoreStart >= need) advanceLevel(levelIndex + 1);
   }
   function advanceLevel(idx) {
     levelIndex = idx;
+    levelScoreStart = score;
     selectedTheme = LEVEL_ORDER[levelIndex];
     buildBgCache();
     setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
@@ -924,9 +942,8 @@
   }
   function setLevelBanner(text) {
     levelBanner.text = text;
-    levelBanner.life = 120;   // ~2s at 60fps
+    levelBanner.life = 120;
   }
-  let levelStartOffset = 0;   // set when launching (selected biome = starting level)
 
   // ---------- Boss state (swamp) ----------
   function spawnBoss() {
@@ -974,7 +991,7 @@
     flapCount = 0;
     pipeSpawnCount = 0;
     levelIndex = themeToLevelIndex(selectedTheme);
-    levelStartOffset = levelIndex;
+    levelScoreStart = 0;
     levelBanner = { text: '', life: 0 };
     boss = null;
     lightningAt = -999;   // reset volcano flicker timer so since stays valid
