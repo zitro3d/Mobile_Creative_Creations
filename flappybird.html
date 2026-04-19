@@ -196,9 +196,9 @@
   <canvas id="game"></canvas>
   <div id="overlay" class="show">
     <div id="startScreen">
-      <div id="title">ETHEREAL EYE</div>
-      <div id="subtitle">Drift through the Void Fractures</div>
-      <div class="tapHint">TAP TO BEGIN</div>
+      <div id="title">SHATTERED PLANET</div>
+      <div id="subtitle">Navigate the debris field</div>
+      <div class="tapHint">TAP TO LAUNCH</div>
     </div>
     <div id="gameOverScreen" class="hidden">
       <div class="panel">
@@ -265,7 +265,7 @@
     GROUND_H = Math.max(60, Math.round(H * 0.11));
     PLAY_H = H - GROUND_H;
     // Reposition stars to fit new dimensions
-    if (stars.length) initStars();
+    if (stars.length) { initStars(); initDust(); initNebula(); }
   }
 
   // ---------- Physics / constants ----------
@@ -289,10 +289,10 @@
   const STATE_OVER = 2;
   let state = STATE_READY;
 
-  let bird, pipes, sparks, trail, score, best, frame, flashAlpha, burstFrames, wingImpulse, shakeFrames, scorePulse, blinkFrames, blinkTimer;
+  let bird, pipes, sparks, exhaust, score, best, frame, flashAlpha, burstFrames, shakeFrames, scorePulse, thrusterFrames;
   let stars = [];
-  const BLINK_PERIOD = 240;         // ~4s at 60fps
-  const BLINK_LEN = 6;              // ~100ms at 60fps
+  let dust  = [];                  // fast white speed-dust specks
+  let nebula;                       // static far-background cloud
   best = parseInt(localStorage.getItem('flappy_best_ios') || '0', 10);
 
   function reset() {
@@ -300,23 +300,20 @@
       x: Math.round(W * BIRD_X_FRAC),
       y: PLAY_H / 2,
       vy: 0,
-      rot: 0,
-      width: BIRD_W,
-      height: BIRD_H,
     };
     pipes = [];
     sparks = [];
-    trail = [];
+    exhaust = [];
     score = 0;
     frame = 0;
     flashAlpha = 0;
     burstFrames = 0;
-    wingImpulse = 0;
     shakeFrames = 0;
     scorePulse = 0;
-    blinkFrames = 0;
-    blinkTimer = BLINK_PERIOD + Math.floor(Math.random() * 60);
+    thrusterFrames = 0;
     initStars();
+    initDust();
+    initNebula();
     for (let i = 0; i < 4; i++) addPipe(W + 120 + i * PIPE_SPACING);
   }
 
@@ -358,6 +355,39 @@
         s.next = frame + 3 + Math.floor(Math.random() * 5);
       }
     }
+  }
+
+  // Fast speed-dust specks that streak right-to-left constantly
+  function initDust() {
+    dust = [];
+    for (let i = 0; i < 40; i++) {
+      dust.push({
+        x: Math.random() * W,
+        y: Math.random() * PLAY_H,
+        speed: 4 + Math.random() * 4,   // much faster than parallax stars
+        len:   3 + Math.random() * 5,   // streak length
+        a: 0.5 + Math.random() * 0.5,
+      });
+    }
+  }
+
+  function updateDust() {
+    for (const d of dust) {
+      d.x -= d.speed;
+      if (d.x < -d.len - 2) {
+        d.x = W + Math.random() * 8;
+        d.y = Math.random() * PLAY_H;
+      }
+    }
+  }
+
+  // Static nebula cloud in the far background
+  function initNebula() {
+    nebula = {
+      x: W * (0.55 + Math.random() * 0.2),
+      y: PLAY_H * (0.35 + Math.random() * 0.2),
+      r: Math.max(W, PLAY_H) * 0.6,
+    };
   }
 
   function addPipe(x) {
@@ -433,8 +463,7 @@
     }
     if (state === STATE_PLAY) {
       bird.vy = FLAP;
-      bird.rot = -0.5;
-      wingImpulse = 1;
+      thrusterFrames = 5;   // blue flame visible for 5 frames after a burn
       haptic();
     }
   }
@@ -448,44 +477,28 @@
     frame++;
 
     updateStars();
+    updateDust();
 
-    // Wing impulse snaps to 1 on flap, slowly resets
-    if (wingImpulse > 0) wingImpulse = Math.max(0, wingImpulse - 0.028);
+    if (thrusterFrames > 0) thrusterFrames--;
     if (burstFrames > 0) burstFrames--;
     if (scorePulse > 0) scorePulse = Math.max(0, scorePulse - 0.1);
 
-    // Blink cadence: every ~4s the eye briefly closes
-    if (blinkFrames > 0) blinkFrames--;
-    blinkTimer--;
-    if (blinkTimer <= 0) {
-      blinkFrames = BLINK_LEN;
-      blinkTimer = BLINK_PERIOD + Math.floor(Math.random() * 60);
+    // Engine exhaust: emit expanding/fading grey smoke puff behind the ship
+    if (state !== STATE_OVER && frame % 2 === 0) {
+      exhaust.push({
+        x: bird.x - BIRD_R * 0.8,
+        y: bird.y + (Math.random() - 0.5) * 5,
+        r: 2.5 + Math.random() * 1.5,
+        a: 0.55,
+      });
+      if (exhaust.length > 60) exhaust.shift();
     }
-
-    // Squash/stretch: compute target dimensions, lerp toward them, clamp to ±20%
-    const VEL_THRESHOLD = 2.0;
-    let targetWidth = BIRD_W;
-    let targetHeight = BIRD_H;
-    if (bird.vy < -VEL_THRESHOLD) {
-      // Rising fast — stretch vertically
-      targetWidth = BIRD_W * 0.85;
-      targetHeight = BIRD_H * 1.15;
-    } else if (bird.vy > VEL_THRESHOLD) {
-      // Falling — squash horizontally
-      targetWidth = BIRD_W * 1.12;
-      targetHeight = BIRD_H * 0.9;
-    }
-    const SMOOTH = 0.12;
-    bird.width += (targetWidth - bird.width) * SMOOTH;
-    bird.height += (targetHeight - bird.height) * SMOOTH;
-    // Hard clamp so deformation never exceeds ±20% of the original
-    bird.width = Math.max(BIRD_W * 0.8, Math.min(BIRD_W * 1.2, bird.width));
-    bird.height = Math.max(BIRD_H * 0.8, Math.min(BIRD_H * 1.2, bird.height));
-
-    // Trail: last 10 positions of the eye
-    if (state !== STATE_OVER) {
-      trail.push({ x: bird.x, y: bird.y });
-      if (trail.length > 10) trail.shift();
+    for (let i = exhaust.length - 1; i >= 0; i--) {
+      const p = exhaust[i];
+      p.r *= 1.06;                            // expand
+      p.a -= 0.02;                            // fade
+      p.x -= PIPE_SPEED * 0.45;               // drift backward
+      if (p.a <= 0) exhaust.splice(i, 1);
     }
 
     if (state === STATE_READY) {
@@ -621,15 +634,32 @@
 
   // ---------- Rendering ----------
   function drawBackground() {
-    // Deep radial violet → black ether
-    const cx = W / 2;
-    const cy = H / 2;
-    const rad = Math.max(W, H) * 0.75;
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
-    g.addColorStop(0, '#0a001a');
-    g.addColorStop(1, '#000000');
-    ctx.fillStyle = g;
+    // Deep space base
+    ctx.fillStyle = '#02010a';
     ctx.fillRect(0, 0, W, H);
+
+    // Static nebula — big blurred purple/pink cloud way in the back
+    if (nebula) {
+      ctx.save();
+      const ng = ctx.createRadialGradient(nebula.x, nebula.y, 0, nebula.x, nebula.y, nebula.r);
+      ng.addColorStop(0,    'rgba(200, 90, 180, 0.22)');
+      ng.addColorStop(0.35, 'rgba(120, 60, 180, 0.16)');
+      ng.addColorStop(0.7,  'rgba(60, 30, 110, 0.08)');
+      ng.addColorStop(1,    'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = ng;
+      ctx.fillRect(0, 0, W, H);
+
+      // Secondary pink wisp offset for more organic cloud shape
+      const ng2 = ctx.createRadialGradient(
+        nebula.x - nebula.r * 0.3, nebula.y + nebula.r * 0.15, 0,
+        nebula.x - nebula.r * 0.3, nebula.y + nebula.r * 0.15, nebula.r * 0.6
+      );
+      ng2.addColorStop(0, 'rgba(255, 150, 200, 0.14)');
+      ng2.addColorStop(1, 'rgba(255, 150, 200, 0)');
+      ctx.fillStyle = ng2;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
 
     // Unified 3-layer parallax starfield
     for (const s of stars) {
@@ -652,20 +682,33 @@
         ctx.restore();
       }
     }
+
+    // Fast space-dust specks — short streaks for extreme-speed illusion
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineCap = 'round';
+    for (const d of dust) {
+      ctx.globalAlpha = d.a;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x + d.len, d.y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawGround() {
-    // Spectral void floor — subtle horizon with glowing crack
+    // Dark rocky crust with a glowing orange magma seam as horizon
     const gr = ctx.createLinearGradient(0, PLAY_H, 0, H);
-    gr.addColorStop(0, 'rgba(40, 10, 60, 0.85)');
+    gr.addColorStop(0, 'rgba(40, 20, 15, 0.9)');
     gr.addColorStop(1, '#000000');
     ctx.fillStyle = gr;
     ctx.fillRect(0, PLAY_H, W, GROUND_H);
 
     ctx.save();
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = '#9f6cff';
-    ctx.strokeStyle = 'rgba(190,140,255,0.6)';
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = '#ff4500';
+    ctx.strokeStyle = 'rgba(255, 90, 30, 0.7)';
     ctx.lineWidth = 1.2;
     ctx.beginPath();
     ctx.moveTo(0, PLAY_H + 0.5);
@@ -675,12 +718,7 @@
   }
 
   function drawPipes() {
-    ctx.save();
-    ctx.globalAlpha = 0.8; // spectral
     for (const p of pipes) drawPipe(p);
-    ctx.restore();
-    // Magic circles rendered at full alpha on top
-    for (const p of pipes) drawMagicCircle(p);
   }
 
   function drawPipe(p) {
@@ -702,15 +740,12 @@
     ctx.save();
     ctx.translate(x, y);
 
-    // Raw-energy linear gradient
+    // Craggy grey rock fill with subtle gradient for volume
     const g = ctx.createLinearGradient(0, 0, w, 0);
-    g.addColorStop(0,    '#bc13fe');
-    g.addColorStop(0.5,  '#1a0033');
-    g.addColorStop(1,    '#bc13fe');
+    g.addColorStop(0,   '#555555');
+    g.addColorStop(0.5, '#444444');
+    g.addColorStop(1,   '#333333');
 
-    // Polygon fill with purple outer glow
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = '#bc13fe';
     ctx.beginPath();
     ctx.moveTo(pts[0][0], pts[0][1]);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
@@ -718,41 +753,51 @@
     ctx.fillStyle = g;
     ctx.fill();
 
-    // Flickering jagged outline (raw energy)
-    const edgeAlpha = 0.6 + Math.random() * 0.35;
-    ctx.shadowBlur = 10;
-    ctx.strokeStyle = 'rgba(230,180,255,' + edgeAlpha + ')';
-    ctx.lineWidth = 1.5;
+    // Glowing orange magma edge — hot debris look
+    ctx.save();
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = '#ff4500';
+    ctx.strokeStyle = '#ff4500';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.restore();
+
+    // Inner dark rim for depth
+    ctx.strokeStyle = 'rgba(20, 10, 10, 0.7)';
+    ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Two inner glow lines following the jagged contour
-    const cx = w / 2;
-    const cy = (baseY + tipY) / 2;
-    drawInnerContour(pts, cx, cy, 4, 'rgba(255,200,255,0.85)', '#e9b8ff');
-    drawInnerContour(pts, cx, cy, 10, 'rgba(200,120,255,0.4)', '#bc13fe');
-
-    // Pulsing runes in the dark core
-    ctx.shadowBlur = 0;
-    const runeCount = 3 + Math.floor(srand(seed + 101) * 2);
+    // Craters — 3-4 darker grey lines inside the rock
+    const craterCount = 3 + Math.floor(srand(seed + 101) * 2);
     const coreCx = w / 2;
-    const runeStart = isTop ? baseY + 14 : tipY + 14;
-    const runeEnd   = isTop ? tipY - 14 : baseY - 14;
+    const runeStart = isTop ? baseY + 12 : tipY + 12;
+    const runeEnd   = isTop ? tipY - 12 : baseY - 12;
     const span = runeEnd - runeStart;
-    if (span > 30) {
-      ctx.lineWidth = 1;
+    if (span > 20) {
       ctx.lineCap = 'round';
-      for (let i = 0; i < runeCount; i++) {
-        const t = (i + 0.5) / runeCount;
-        const ry = runeStart + span * t;
-        const len = 6 + srand(seed + 200 + i * 3) * 8;
-        const offset = (srand(seed + 300 + i) - 0.5) * 4;
-        const phase = srand(seed + 400 + i) * Math.PI * 2;
-        const pulse = 0.45 + Math.sin(frame * 0.08 + phase) * 0.25;
-        ctx.strokeStyle = 'rgba(200,150,255,' + pulse + ')';
+      for (let i = 0; i < craterCount; i++) {
+        const t = (i + 0.5) / craterCount;
+        const cy = runeStart + span * t;
+        const len = 8 + srand(seed + 200 + i * 3) * 10;
+        const offset = (srand(seed + 300 + i) - 0.5) * 6;
+        const tilt = (srand(seed + 400 + i) - 0.5) * 0.4; // slight tilt for irregularity
+        ctx.save();
+        ctx.translate(coreCx + offset, cy);
+        ctx.rotate(tilt);
+        ctx.strokeStyle = '#2a2a2a';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(coreCx - len / 2 + offset, ry);
-        ctx.lineTo(coreCx + len / 2 + offset, ry);
+        ctx.moveTo(-len / 2, 0);
+        ctx.lineTo(len / 2, 0);
         ctx.stroke();
+        // small crater highlight
+        ctx.strokeStyle = 'rgba(90, 90, 90, 0.4)';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(-len / 2, 1);
+        ctx.lineTo(len / 2, 1);
+        ctx.stroke();
+        ctx.restore();
       }
     }
     ctx.restore();
@@ -782,55 +827,17 @@
     ctx.restore();
   }
 
-  function drawMagicCircle(p) {
-    const cx = p.x + PIPE_W / 2;
-    const cy = p.top + PIPE_GAP / 2;
-    const r = Math.min(PIPE_GAP, 90) * 0.28;
-    const pulse = 1 + Math.sin(frame * 0.12 + p.pulse) * 0.08;
-
+  function drawExhaust() {
+    if (exhaust.length === 0) return;
     ctx.save();
-    ctx.shadowBlur = 18;
-    ctx.shadowColor = '#9be3ff';
-    ctx.strokeStyle = 'rgba(170,235,255,0.85)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * pulse, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Inner ring
-    ctx.strokeStyle = 'rgba(200,160,255,0.55)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * pulse * 0.6, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Runic ticks
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + frame * 0.02;
-      const ix = cx + Math.cos(a) * r * pulse;
-      const iy = cy + Math.sin(a) * r * pulse;
-      ctx.fillStyle = 'rgba(200,240,255,0.9)';
+    for (const p of exhaust) {
+      ctx.globalAlpha = Math.max(0, p.a);
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+      g.addColorStop(0, 'rgba(200,200,200,0.7)');
+      g.addColorStop(1, 'rgba(80,80,80,0)');
+      ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(ix, iy, 1.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  function drawTrail() {
-    if (trail.length === 0) return;
-    ctx.save();
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = '#ffffff';
-    ctx.fillStyle = '#ffffff';
-    const n = trail.length;
-    for (let i = 0; i < n; i++) {
-      const t = trail[i];
-      const k = (i + 1) / n;               // oldest → 1/n, newest → 1
-      ctx.globalAlpha = k * 0.55;
-      const r = BIRD_R * 0.55 * k;
-      ctx.beginPath();
-      ctx.arc(t.x, t.y, r, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
@@ -862,159 +869,152 @@
   }
 
   function drawBird() {
-    // Ethereal Magical Eye — glowing cyan sclera, gold iris, cat-eye pupil
+    // Metallic triangular spacecraft — nose pointing right (direction of travel)
     ctx.save();
     ctx.translate(bird.x, bird.y);
 
-    // Body tilt — down when falling, up when rising (already computed)
-    const bodyTilt = Math.max(-0.35, Math.min(0.9, bird.vy * 0.09));
-    ctx.rotate(bodyTilt);
+    // Rotational lean: -20° rising, +20° falling, smooth between
+    const tilt = Math.max(-0.349, Math.min(0.349, bird.vy * 0.1));
+    ctx.rotate(tilt);
 
-    // Wisp wings (rendered outside the squash so they flow naturally)
-    drawWisps(-1);
-    drawWisps(1);
+    // Thruster flame: flickering blue plume out the back for 5 frames post-flap
+    if (thrusterFrames > 0) drawThruster();
 
-    // Apply eased squash/stretch. Scale from the tilted origin so the eye
-    // stays centered on its coordinates while deforming.
+    // Ship body — triangle pointing in +x direction
+    const nose = BIRD_R * 1.1;
+    const tailX = -BIRD_R * 0.85;
+    const wingY = BIRD_R * 0.75;
+
+    // Drop shadow for lift
     ctx.save();
-    ctx.scale(bird.width / BIRD_W, bird.height / BIRD_H);
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
 
-    // --- Sclera: luminous pale cyan with outer glow ---
-    const burstT = burstFrames / 14;
-    ctx.shadowBlur = 30 + burstT * 30;
-    ctx.shadowColor = '#00ffff';
-    ctx.fillStyle = '#e0ffff';
+    // Metallic body gradient (top bright → bottom dark)
+    const bodyGrad = ctx.createLinearGradient(0, -wingY, 0, wingY);
+    bodyGrad.addColorStop(0,   '#e8eaed');
+    bodyGrad.addColorStop(0.4, '#9aa0a6');
+    bodyGrad.addColorStop(1,   '#3c4043');
+    ctx.fillStyle = bodyGrad;
     ctx.beginPath();
-    ctx.arc(0, 0, BIRD_R, 0, Math.PI * 2);
-    ctx.fill();
-
-    // --- Iris: radial gradient gold → bronze ---
-    ctx.shadowBlur = 0;
-    const irisR = BIRD_R * 0.58;
-    const irisGrad = ctx.createRadialGradient(0, 0, irisR * 0.1, 0, 0, irisR);
-    irisGrad.addColorStop(0, '#ffd700');
-    irisGrad.addColorStop(1, '#cd7f32');
-    ctx.fillStyle = irisGrad;
-    ctx.beginPath();
-    ctx.arc(0, 0, irisR, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Iris spokes (8 thin radial lines for texture)
-    ctx.strokeStyle = 'rgba(70, 35, 10, 0.45)';
-    ctx.lineWidth = 0.8;
-    const spokes = 8;
-    for (let i = 0; i < spokes; i++) {
-      const a = (i / spokes) * Math.PI * 2;
-      const c = Math.cos(a), s = Math.sin(a);
-      ctx.beginPath();
-      ctx.moveTo(c * irisR * 0.22, s * irisR * 0.22);
-      ctx.lineTo(c * irisR * 0.92, s * irisR * 0.92);
-      ctx.stroke();
-    }
-
-    // --- Pupil: cat-eye diamond slit with a soft glow behind it ---
-    ctx.save();
-    ctx.shadowBlur = 6;
-    ctx.shadowColor = 'rgba(0, 10, 20, 0.9)';
-    ctx.fillStyle = '#000';
-    const pupH = BIRD_R * 0.58;
-    const pupW = BIRD_R * 0.14;
-    ctx.beginPath();
-    ctx.moveTo(0, -pupH);
-    ctx.lineTo(pupW, 0);
-    ctx.lineTo(0, pupH);
-    ctx.lineTo(-pupW, 0);
+    ctx.moveTo(nose, 0);
+    ctx.lineTo(tailX, -wingY);
+    ctx.lineTo(tailX + 4, 0);
+    ctx.lineTo(tailX, wingY);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
 
-    // --- Glints / glacial highlight ---
-    // Large warm glint in the top-left of the iris
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.beginPath();
-    ctx.arc(-BIRD_R * 0.22, -BIRD_R * 0.28, BIRD_R * 0.08, 0, Math.PI * 2);
-    ctx.fill();
-    // Small secondary glint in the bottom-right
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    ctx.beginPath();
-    ctx.arc(BIRD_R * 0.26, BIRD_R * 0.22, BIRD_R * 0.045, 0, Math.PI * 2);
-    ctx.fill();
-    // Sharp specular dot at the top-right (glass-like finish)
-    ctx.shadowBlur = 4;
-    ctx.shadowColor = '#ffffff';
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(BIRD_R * 0.42, -BIRD_R * 0.42, BIRD_R * 0.05, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // --- Eyelids: thin dark purple arcs framing top and bottom ---
-    ctx.strokeStyle = 'rgba(60, 20, 90, 0.55)';
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    ctx.arc(0, 0, BIRD_R - 0.5, Math.PI * 1.12, Math.PI * 1.88);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(0, 0, BIRD_R - 0.5, Math.PI * 0.12, Math.PI * 0.88);
+    // Hull outline
+    ctx.strokeStyle = '#1a1d21';
+    ctx.lineWidth = 1.2;
     ctx.stroke();
 
-    // --- Blink: dark purple slit over the iris ---
-    if (blinkFrames > 0) {
-      ctx.fillStyle = '#3a1055';
+    // Cockpit window — cyan glass
+    ctx.save();
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = '#00d4ff';
+    ctx.fillStyle = '#0ff';
+    ctx.beginPath();
+    ctx.ellipse(BIRD_R * 0.2, 0, BIRD_R * 0.3, BIRD_R * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Cockpit highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.beginPath();
+    ctx.ellipse(BIRD_R * 0.12, -BIRD_R * 0.06, BIRD_R * 0.12, BIRD_R * 0.05, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Center spine line
+    ctx.strokeStyle = 'rgba(20, 20, 25, 0.8)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(nose - 2, 0);
+    ctx.lineTo(tailX + 4, 0);
+    ctx.stroke();
+
+    // Red wingtip marker lights
+    ctx.fillStyle = '#ff3b30';
+    ctx.beginPath();
+    ctx.arc(tailX + 2, -wingY + 2, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(tailX + 2, wingY - 2, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Score burst halo (kept as a general "powered up" glow when passing debris)
+    if (burstFrames > 0) {
+      const burstT = burstFrames / 14;
+      ctx.save();
+      ctx.globalAlpha = burstT * 0.5;
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = '#00ffff';
+      ctx.strokeStyle = '#00e5ff';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.ellipse(0, 0, BIRD_R * 0.96, BIRD_R * 0.18, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.arc(0, 0, BIRD_R * (1.3 + (1 - burstT) * 0.4), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
 
-    ctx.restore();
     ctx.restore();
   }
 
-  // Ethereal wisp wings — 4 curved Bezier strokes per side, fluttering on a sine wave
-  function drawWisps(side) {
-    const t = Date.now() * 0.003;
-    const flap = wingImpulse;             // 0..1 just after a flap
+  function drawThruster() {
+    // Flickering blue plume behind the ship
+    const flick = 0.75 + Math.random() * 0.25;
+    const len = (BIRD_R * 1.0 + Math.random() * 6) * flick;
+    const tailX = -BIRD_R * 0.85;
+
     ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-    ctx.lineCap = 'round';
-    const count = 4;
-    for (let i = 0; i < count; i++) {
-      const length = 28 + i * 6;
-      const phase = i * 0.7 + (side > 0 ? 0.4 : 0);
-      const wave = Math.sin(t + phase) * (6 + flap * 8);
-      const wave2 = Math.cos(t * 1.3 + phase) * (8 + flap * 6);
-      const startX = side * BIRD_R * 0.85;
-      const startY = (i - (count - 1) / 2) * 3;
-      const cp1x = side * (BIRD_R + length * 0.3);
-      const cp1y = startY + wave;
-      const cp2x = side * (BIRD_R + length * 0.7);
-      const cp2y = startY + wave2 - flap * 4;
-      const endX = side * (BIRD_R + length);
-      const endY = startY + Math.sin(t + phase * 1.4) * (10 + flap * 10);
-      ctx.lineWidth = 2.2 - i * 0.35;
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
-      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, endX, endY);
-      ctx.stroke();
-    }
+    ctx.shadowBlur = 18;
+    ctx.shadowColor = '#00b0ff';
+
+    // Outer flame
+    const g = ctx.createLinearGradient(tailX, 0, tailX - len, 0);
+    g.addColorStop(0,   'rgba(255,255,255,0.95)');
+    g.addColorStop(0.3, 'rgba(80,200,255,0.85)');
+    g.addColorStop(1,   'rgba(0,100,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(tailX, -BIRD_R * 0.35);
+    ctx.lineTo(tailX - len, 0);
+    ctx.lineTo(tailX, BIRD_R * 0.35);
+    ctx.closePath();
+    ctx.fill();
+
+    // Inner white-hot core
+    const g2 = ctx.createLinearGradient(tailX, 0, tailX - len * 0.6, 0);
+    g2.addColorStop(0, 'rgba(255,255,255,1)');
+    g2.addColorStop(1, 'rgba(180,230,255,0)');
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.moveTo(tailX, -BIRD_R * 0.15);
+    ctx.lineTo(tailX - len * 0.6, 0);
+    ctx.lineTo(tailX, BIRD_R * 0.15);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 
   function drawScore() {
     if (state === STATE_OVER) return;
-    const text = String(score);
-    const size = Math.round(H * 0.08);
+    const text = String(score).padStart(3, '0');
+    const size = Math.round(H * 0.075);
     const y = Math.max(80, H * 0.14);
-    const pulseScale = 1 + scorePulse * 0.5; // 1.5x → 1 over 10 frames
+    const pulseScale = 1 + scorePulse * 0.5;
 
     ctx.save();
     ctx.translate(W / 2, y);
     ctx.scale(pulseScale, pulseScale);
-    ctx.font = '900 ' + size + 'px -apple-system, "SF Pro Display", Helvetica, sans-serif';
+    ctx.font = 'bold ' + size + 'px "Courier New", "Lucida Console", monospace';
     ctx.textAlign = 'center';
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = '#000';
-    ctx.fillStyle = '#fff';
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = '#00ff88';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#003318';
+    ctx.fillStyle = '#00ff88';
     ctx.strokeText(text, 0, 0);
     ctx.fillText(text, 0, 0);
     ctx.restore();
@@ -1039,7 +1039,7 @@
     drawBackground();
     drawPipes();
     drawGround();
-    drawTrail();
+    drawExhaust();
     drawSparks();
     drawBird();
     drawScore();
