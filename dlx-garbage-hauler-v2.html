@@ -487,6 +487,8 @@
 
     // Theme-specific extras
     bgCache.swampFog = null;
+    bgCache.ventBody = null;
+    bgCache.lavaspireBody = null;
     if (selectedTheme === 'swamp') {
       const fogY = PLAY_H * 0.62;
       const fg = ctx.createLinearGradient(0, fogY, 0, PLAY_H);
@@ -494,6 +496,20 @@
       fg.addColorStop(0.5, 'rgba(40, 70, 30, 0.35)');
       fg.addColorStop(1, 'rgba(10, 25, 10, 0.55)');
       bgCache.swampFog = fg;
+    }
+    if (selectedTheme === 'volcano') {
+      // Vent body gradient — same colour every frame, only ctx position changes
+      const vb = ctx.createLinearGradient(0, 0, PIPE_W, 0);
+      vb.addColorStop(0,   '#3a140a');
+      vb.addColorStop(0.5, '#1a0504');
+      vb.addColorStop(1,   '#0a0000');
+      bgCache.ventBody = vb;
+      // Lava spire body gradient
+      const lb = ctx.createLinearGradient(0, 0, PIPE_W, 0);
+      lb.addColorStop(0,   '#1a0808');
+      lb.addColorStop(0.5, '#0a0302');
+      lb.addColorStop(1,   '#050000');
+      bgCache.lavaspireBody = lb;
     }
 
     // Per-theme static horizon layout
@@ -1829,13 +1845,14 @@
         const y = ((seed * 23 + frame * 0.4) % PLAY_H + PLAY_H) % PLAY_H;
         ctx.fillRect(x, y, 1.5, 1.5);
       }
-      // Occasional lightning flash from volcanic plume
-      if (Math.random() < 0.008 && frame - lightningAt > 40) lightningAt = frame;
+      // Subtle ember-flicker glow on the horizon — much softer than a full
+      // lightning flash so it never reads as a UI flash bug
+      if (Math.random() < 0.004 && frame - lightningAt > 90) lightningAt = frame;
       const since = frame - lightningAt;
-      if (since < 6) {
-        const a = (6 - since) / 6 * 0.45;
-        ctx.fillStyle = 'rgba(255, 200, 140, ' + a + ')';
-        ctx.fillRect(0, 0, W, PLAY_H);
+      if (since < 8) {
+        const a = (8 - since) / 8 * 0.12;
+        ctx.fillStyle = 'rgba(255, 160, 80, ' + a + ')';
+        ctx.fillRect(0, PLAY_H * 0.5, W, PLAY_H * 0.5);
       }
       ctx.restore();
     } else if (selectedTheme === 'city') {
@@ -3614,16 +3631,12 @@
     ctx.save();
     ctx.translate(x, y);
 
-    // Base fill — charred basalt
-    const g = ctx.createLinearGradient(0, 0, w, 0);
-    g.addColorStop(0,   '#1a0808');
-    g.addColorStop(0.5, '#0a0302');
-    g.addColorStop(1,   '#050000');
+    // Base fill — charred basalt; cached body gradient when on volcano theme
     ctx.beginPath();
     ctx.moveTo(pts[0][0], pts[0][1]);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
     ctx.closePath();
-    ctx.fillStyle = g;
+    ctx.fillStyle = bgCache.lavaspireBody || '#0a0302';
     ctx.fill();
     ctx.strokeStyle = '#2a0804'; ctx.lineWidth = 1.3;
     ctx.stroke();
@@ -3676,19 +3689,14 @@
     const bodyTop    = isTop ? 0 : h;
     const bodyBottom = isTop ? h - flareH : flareH;
 
-    // Body — dark lava rock
-    const bodyGrad = ctx.createLinearGradient(0, 0, w, 0);
-    bodyGrad.addColorStop(0,   '#3a140a');
-    bodyGrad.addColorStop(0.5, '#1a0504');
-    bodyGrad.addColorStop(1,   '#0a0000');
-    ctx.fillStyle = bodyGrad;
+    // Body — cached dark-lava-rock gradient
+    ctx.fillStyle = bgCache.ventBody || '#1a0504';
     ctx.fillRect(0, Math.min(bodyTop, bodyBottom), ventW, Math.abs(bodyTop - bodyBottom));
     ctx.strokeStyle = '#0a0000'; ctx.lineWidth = 1.2;
     ctx.strokeRect(0.5, Math.min(bodyTop, bodyBottom) + 0.5, ventW - 1, Math.abs(bodyTop - bodyBottom) - 1);
 
     // Molten seams
     ctx.save();
-    ctx.shadowBlur = 8; ctx.shadowColor = '#ff5a1a';
     ctx.strokeStyle = '#ff7020'; ctx.lineWidth = 1.2;
     for (let i = 0; i < 3; i++) {
       const sx = 4 + srand(seed + i * 9) * (w - 8);
@@ -3699,11 +3707,8 @@
     }
     ctx.restore();
 
-    // Flared crater/lip at the gap-facing end
-    const flareGrad = ctx.createLinearGradient(0, tipY - flareH * sign, 0, tipY + 6 * sign);
-    flareGrad.addColorStop(0, '#4a1a0a');
-    flareGrad.addColorStop(1, '#200806');
-    ctx.fillStyle = flareGrad;
+    // Flared crater/lip at the gap-facing end — solid fill (gradient was tiny)
+    ctx.fillStyle = '#3a1408';
     ctx.beginPath();
     ctx.moveTo(0, tipY - flareH * sign);
     ctx.lineTo(ventW, tipY - flareH * sign);
@@ -3714,16 +3719,16 @@
     ctx.fill();
     ctx.strokeStyle = '#0a0000'; ctx.lineWidth = 1.2; ctx.stroke();
 
-    // Inside crater — glowing magma pool
+    // Inside crater — glowing magma pool, solid amber + bright core
     ctx.save();
-    ctx.shadowBlur = 18; ctx.shadowColor = '#ff4a10';
-    const poolGrad = ctx.createRadialGradient(cx, tipY, 1, cx, tipY, flareW * 0.45);
-    poolGrad.addColorStop(0, '#ffd070');
-    poolGrad.addColorStop(0.4, '#ff5a1a');
-    poolGrad.addColorStop(1, 'rgba(200,40,10,0)');
-    ctx.fillStyle = poolGrad;
+    ctx.shadowBlur = 12; ctx.shadowColor = '#ff4a10';
+    ctx.fillStyle = '#ff5a1a';
     ctx.beginPath();
     ctx.ellipse(cx, tipY - (flareH * 0.4) * sign, flareW * 0.4, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffd070';
+    ctx.beginPath();
+    ctx.ellipse(cx, tipY - (flareH * 0.4) * sign, flareW * 0.18, 2, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
