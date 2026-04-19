@@ -36,10 +36,10 @@
     inset: 0;
     background: #000000;
   }
-  /* On iPad / wide screens we centre a phone-shaped column instead of
-     stretching the canvas across the full viewport — gameplay was
-     designed around a narrow portrait aspect. The body stays solid black
-     around the column for letterboxing. */
+  /* iPhones get a centred phone-shaped column with letterbox bars on
+     either side; iPad uses the full viewport so landscape gets a true
+     widescreen play area. The `is-ipad` body class is set in the iOS
+     gate. */
   #stage {
     position: absolute;
     top: 0; bottom: 0;
@@ -47,6 +47,12 @@
     transform: translateX(-50%);
     width: 100%;
     max-width: 540px;
+  }
+  body.is-ipad #stage {
+    left: 0;
+    transform: none;
+    max-width: none;
+    width: 100%;
   }
   canvas {
     display: block;
@@ -396,6 +402,7 @@
     document.getElementById('stage').style.display = 'none';
     return;
   }
+  if (isIPad) document.body.classList.add('is-ipad');
 
   // ---------- Canvas sizing (DPR-aware) ----------
   const canvas = document.getElementById('game');
@@ -407,20 +414,32 @@
   let H = 640;
   let scale = 1;
 
-  // Cap the play column at a phone-shaped width even on iPad / wide
-  // screens so the gameplay aspect stays consistent. Anything wider gets
-  // letterboxed black around the centred column (handled by CSS too).
+  // iPhone caps the play column at a phone-shaped width and letterboxes
+  // anything wider; iPad uses the full viewport so landscape gets a
+  // proper widescreen play area.
   const STAGE_MAX_W = 540;
+  const IPAD_TARGET_H = 640;     // logical world height when scaling for iPad
 
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const cw = Math.min(window.innerWidth, STAGE_MAX_W);
-    const ch = window.innerHeight;
-
-    // Fit logical width to the (possibly letterboxed) stage width
-    scale = cw / BASE_W;
-    W = BASE_W;
-    H = Math.round(ch / scale);
+    let cw, ch;
+    if (isIPad) {
+      // Fill the screen, fix logical height so vertical play room stays
+      // consistent and the world becomes wider in landscape (more pipes
+      // visible, longer travel time per pipe).
+      cw = window.innerWidth;
+      ch = window.innerHeight;
+      scale = ch / IPAD_TARGET_H;
+      H = IPAD_TARGET_H;
+      W = Math.round(cw / scale);
+    } else {
+      // iPhone: fix logical width to BASE_W, letterbox anything > 540
+      cw = Math.min(window.innerWidth, STAGE_MAX_W);
+      ch = window.innerHeight;
+      scale = cw / BASE_W;
+      W = BASE_W;
+      H = Math.round(ch / scale);
+    }
 
     canvas.width = Math.round(cw * dpr);
     canvas.height = Math.round(ch * dpr);
