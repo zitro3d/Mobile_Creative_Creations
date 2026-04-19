@@ -294,7 +294,7 @@
   best = parseInt(localStorage.getItem('flappy_best_ios') || '0', 10);
 
   function reset() {
-    bird = { x: Math.round(W * BIRD_X_FRAC), y: PLAY_H / 2, vy: 0, rot: 0 };
+    bird = { x: Math.round(W * BIRD_X_FRAC), y: PLAY_H / 2, vy: 0, rot: 0, sx: 1, sy: 1 };
     pipes = [];
     sparks = [];
     trail = [];
@@ -387,6 +387,13 @@
     if (wingImpulse > 0) wingImpulse = Math.max(0, wingImpulse - 0.028);
     if (burstFrames > 0) burstFrames--;
     if (scorePulse > 0) scorePulse = Math.max(0, scorePulse - 0.1);
+
+    // Smoothly lerp the eye's squash/stretch toward its target pose
+    const targetSx = bird.vy < 0 ? 0.8 : 1.1;
+    const targetSy = bird.vy < 0 ? 1.2 : 0.8;
+    const LERP = 0.35;
+    bird.sx += (targetSx - bird.sx) * LERP;
+    bird.sy += (targetSy - bird.sy) * LERP;
 
     // Trail: last 10 positions of the eye
     if (state !== STATE_OVER) {
@@ -800,12 +807,9 @@
     drawWing(-1, wingAngle);
     drawWing(1, wingAngle);
 
-    // Squash/stretch based on vertical velocity
-    let sx, sy;
-    if (bird.vy < 0) { sx = 0.8; sy = 1.2; } // stretch upward on flap
-    else { sx = 1.1; sy = 0.8; }             // squash on fall
+    // Squash/stretch eased toward target each frame
     ctx.save();
-    ctx.scale(sx, sy);
+    ctx.scale(bird.sx, bird.sy);
 
     // White eye core
     ctx.fillStyle = '#ffffff';
