@@ -2046,7 +2046,7 @@
   const hudSlow   = document.getElementById('pwSlow');
   const hudDouble = document.getElementById('pwDouble');
 
-  // Render miniature ship icons inside the picker buttons
+  // Miniature ship thumbnails inside the picker buttons
   function drawShipThumbs() {
     for (const btn of shipBtns) {
       const key = btn.dataset.ship;
@@ -2058,24 +2058,16 @@
       const s = SHIPS[key];
       const scl = 0.75 + (s.r - 15) * 0.03;
       c.scale(scl, scl);
-      // Simple boxy profile: main body + engine block + cockpit
-      c.fillStyle = s.accentA;
-      c.fillRect(-18, -10, 28, 20);
-      c.fillStyle = s.accentB;
-      c.fillRect(-30, -6, 12, 14);
-      c.fillRect(-2, -16, 10, 6);         // roof cargo
-      c.fillStyle = '#e0a020';            // cockpit
-      c.fillRect(5, -5, 5, 7);
-      c.strokeStyle = '#1a0a05';
-      c.lineWidth = 1.2;
+      c.fillStyle = s.accentA;     c.fillRect(-18, -10, 28, 20);
+      c.fillStyle = s.accentB;     c.fillRect(-30, -6, 12, 14);
+                                   c.fillRect(-2, -16, 10, 6);
+      c.fillStyle = '#e0a020';     c.fillRect(5, -5, 5, 7);
+      c.strokeStyle = '#1a0a05'; c.lineWidth = 1.2;
       c.strokeRect(-18, -10, 28, 20);
       c.strokeRect(-30, -6, 12, 14);
       c.strokeRect(-2, -16, 10, 6);
-      // exhaust glow
-      c.shadowBlur = 6;
-      c.shadowColor = '#ff7a00';
-      c.fillStyle = '#ffb347';
-      c.fillRect(-36, -1, 5, 3);
+      c.shadowBlur = 6; c.shadowColor = '#ff7a00';
+      c.fillStyle = '#ffb347';     c.fillRect(-36, -1, 5, 3);
       c.restore();
     }
   }
@@ -2088,23 +2080,29 @@
     }
   }
 
+  function launchWithSelected() {
+    applyShipStats(selectedShip);
+    reset();
+    state = STATE_PLAY;
+    bird.x = Math.round(W * BIRD_X_FRAC);
+    bird.vy = FLAP;
+    thrusterFrames = 5;
+    hideOverlay();
+  }
+
+  // IMPORTANT: hook on touchstart and stop propagation so the stage's
+  // touchstart (which launches the game) never sees the tap. Otherwise the
+  // stage handler fires first with selectedShip unchanged → you'd always
+  // launch as the previously-selected ship (Hauler by default).
   for (const btn of shipBtns) {
     const handler = function(e) {
       e.stopPropagation();
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       const key = btn.dataset.ship;
       setSelectedShip(key);
-      if (state === STATE_READY) {
-        applyShipStats(key);
-        reset();
-        state = STATE_PLAY;
-        bird.x = Math.round(W * BIRD_X_FRAC);
-        bird.vy = FLAP;
-        thrusterFrames = 5;
-        hideOverlay();
-      }
+      if (state === STATE_READY) launchWithSelected();
     };
-    btn.addEventListener('touchend', handler, { passive: false });
+    btn.addEventListener('touchstart', handler, { passive: false });
     btn.addEventListener('click', handler);
   }
 
@@ -2147,18 +2145,15 @@
   }
 
   function handleTouchStart(e) {
-    if (e.cancelable) e.preventDefault();
+    // Let ship buttons handle themselves (they stopPropagation on touchstart,
+    // but check target defensively so the click fallback works too)
+    if (e && e.target && e.target.closest && e.target.closest('.shipBtn')) return;
+    if (e && e.cancelable) e.preventDefault();
     if (state === STATE_OVER) return;
     if (state === STATE_READY) {
-      // From the start screen, tapping the background also launches with the
-      // currently highlighted ship (same as tapping its button).
-      applyShipStats(selectedShip);
-      reset();
-      state = STATE_PLAY;
-      bird.x = Math.round(W * BIRD_X_FRAC);
-      bird.vy = FLAP;
-      thrusterFrames = 5;
-      hideOverlay();
+      // Tapping anywhere outside the ship buttons launches with the
+      // currently highlighted ship (default HAULER).
+      launchWithSelected();
       return;
     }
     flap();
