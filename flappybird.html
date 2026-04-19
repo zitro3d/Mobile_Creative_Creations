@@ -34,7 +34,7 @@
   body {
     position: fixed;
     inset: 0;
-    background: #4ec0ca;
+    background: #000000;
   }
   #stage {
     position: absolute;
@@ -46,7 +46,7 @@
     height: 100%;
     image-rendering: pixelated;
     image-rendering: -webkit-optimize-contrast;
-    background: #4ec0ca;
+    background: #000000;
     touch-action: none;
   }
   #overlay {
@@ -70,8 +70,9 @@
   #title {
     font-size: clamp(36px, 9vmin, 72px);
     font-weight: 900;
-    letter-spacing: 3px;
-    color: #ffdd00;
+    letter-spacing: 4px;
+    color: #ffffff;
+    text-shadow: 0 0 18px #9f6cff, 0 0 32px #00d4ff, 2px 2px 0 #000;
     margin-bottom: 8px;
     font-family: "SF Pro Display", -apple-system, sans-serif;
   }
@@ -195,9 +196,9 @@
   <canvas id="game"></canvas>
   <div id="overlay" class="show">
     <div id="startScreen">
-      <div id="title">FLAPPY BIRD</div>
-      <div id="subtitle">Tap the screen to flap</div>
-      <div class="tapHint">TAP TO START</div>
+      <div id="title">ETHEREAL EYE</div>
+      <div id="subtitle">Drift through the Void Fractures</div>
+      <div class="tapHint">TAP TO BEGIN</div>
     </div>
     <div id="gameOverScreen" class="hidden">
       <div class="panel">
@@ -266,41 +267,51 @@
   }
 
   // ---------- Physics / constants ----------
-  const GRAVITY = 0.34;
-  const FLAP = -6.2;
-  const MAX_FALL = 10;
+  const GRAVITY = 0.272; // 20% lower than original 0.34 — floating ether feel
+  const FLAP = -5.6;
+  const MAX_FALL = 9;
 
   const PIPE_W = 56;
-  const PIPE_GAP = 150;
-  const PIPE_SPACING = 190;
-  const PIPE_SPEED = 2.2;
-  const PIPE_MIN_TOP = 50;
+  const PIPE_GAP = 160;
+  const PIPE_SPACING = 200;
+  const PIPE_SPEED = 2.0;
+  const PIPE_MIN_TOP = 60;
 
   const BIRD_X_FRAC = 0.28;
-  const BIRD_W = 34;
-  const BIRD_H = 26;
+  const BIRD_R = 14;          // Ethereal Eye radius
+  const BIRD_W = BIRD_R * 2;
+  const BIRD_H = BIRD_R * 2;
 
   const STATE_READY = 0;
   const STATE_PLAY = 1;
   const STATE_OVER = 2;
   let state = STATE_READY;
 
-  let bird, pipes, score, best, groundOffset, frame, flashAlpha;
+  let bird, pipes, particles, score, best, frame, flashAlpha, burstFrames, wingImpulse;
   best = parseInt(localStorage.getItem('flappy_best_ios') || '0', 10);
 
   function reset() {
     bird = { x: Math.round(W * BIRD_X_FRAC), y: PLAY_H / 2, vy: 0, rot: 0 };
     pipes = [];
+    particles = [];
     score = 0;
-    groundOffset = 0;
     frame = 0;
     flashAlpha = 0;
+    burstFrames = 0;
+    wingImpulse = 0;
+    // Seed crystal shape data for each fracture on spawn
     for (let i = 0; i < 4; i++) addPipe(W + 120 + i * PIPE_SPACING);
   }
 
   function addPipe(x) {
     const top = PIPE_MIN_TOP + Math.random() * (PLAY_H - PIPE_GAP - PIPE_MIN_TOP * 2);
-    pipes.push({ x: x, top: top, passed: false });
+    pipes.push({
+      x: x,
+      top: top,
+      passed: false,
+      seed: Math.random() * 1000,
+      pulse: Math.random() * Math.PI * 2,
+    });
   }
 
   function flap() {
@@ -308,6 +319,7 @@
     if (state === STATE_PLAY) {
       bird.vy = FLAP;
       bird.rot = -0.5;
+      wingImpulse = 1;
       haptic();
     }
   }
@@ -319,15 +331,21 @@
 
   function update() {
     frame++;
+
+    // Wing impulse decays toward rest
+    if (wingImpulse > 0) wingImpulse = Math.max(0, wingImpulse - 0.05);
+    if (burstFrames > 0) burstFrames--;
+
     if (state === STATE_READY) {
-      bird.y = PLAY_H / 2 + Math.sin(frame * 0.1) * 8;
-      groundOffset = (groundOffset + PIPE_SPEED) % 24;
+      bird.y = PLAY_H / 2 + Math.sin(frame * 0.06) * 10;
+      emitTrail();
+      updateParticles();
       return;
     }
     if (state === STATE_PLAY) {
       bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
       bird.y += bird.vy;
-      bird.rot = Math.max(-0.5, Math.min(1.4, bird.vy * 0.11));
+      bird.rot = Math.max(-0.5, Math.min(1.2, bird.vy * 0.09));
 
       for (const p of pipes) p.x -= PIPE_SPEED;
       while (pipes.length && pipes[0].x + PIPE_W < -10) pipes.shift();
@@ -340,10 +358,13 @@
         if (!p.passed && p.x + PIPE_W < bird.x) {
           p.passed = true;
           score++;
+          burstFrames = 10; // Ethereal spell burst
+          if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} }
         }
       }
 
-      groundOffset = (groundOffset + PIPE_SPEED) % 24;
+      emitTrail();
+      updateParticles();
 
       if (collide()) {
         state = STATE_OVER;
@@ -356,29 +377,50 @@
         showGameOver();
       }
     } else if (state === STATE_OVER) {
-      if (bird.y + BIRD_H / 2 < PLAY_H) {
+      if (bird.y + BIRD_R < PLAY_H) {
         bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
         bird.y += bird.vy;
-        bird.rot = Math.min(1.6, bird.rot + 0.06);
+        bird.rot = Math.min(1.6, bird.rot + 0.05);
       } else {
-        bird.y = PLAY_H - BIRD_H / 2;
+        bird.y = PLAY_H - BIRD_R;
       }
+      updateParticles();
       if (flashAlpha > 0) flashAlpha = Math.max(0, flashAlpha - 0.08);
     }
   }
 
-  function collide() {
-    const bx = bird.x - BIRD_W / 2 + 4;
-    const by = bird.y - BIRD_H / 2 + 4;
-    const bw = BIRD_W - 8;
-    const bh = BIRD_H - 8;
+  // ---------- Particle trail ----------
+  function emitTrail() {
+    if (frame % 2 !== 0) return;
+    particles.push({
+      x: bird.x - BIRD_R * 0.6,
+      y: bird.y + (Math.random() - 0.5) * 4,
+      r: 3 + Math.random() * 2,
+      life: 1,
+      decay: 0.035 + Math.random() * 0.025,
+    });
+    if (particles.length > 40) particles.splice(0, particles.length - 40);
+  }
 
-    if (by + bh >= PLAY_H) return true;
-    if (by <= 0) { bird.y = BIRD_H / 2; bird.vy = 0; }
+  function updateParticles() {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.life -= p.decay;
+      p.r *= 0.96;
+      p.x -= PIPE_SPEED * 0.3;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  function collide() {
+    const r = BIRD_R - 3;
+
+    if (bird.y + r >= PLAY_H) return true;
+    if (bird.y - r <= 0) { bird.y = r; bird.vy = 0; }
 
     for (const p of pipes) {
-      if (p.x < bx + bw && p.x + PIPE_W > bx) {
-        if (by < p.top || by + bh > p.top + PIPE_GAP) return true;
+      if (bird.x + r > p.x && bird.x - r < p.x + PIPE_W) {
+        if (bird.y - r < p.top || bird.y + r > p.top + PIPE_GAP) return true;
       }
     }
     return false;
@@ -386,147 +428,253 @@
 
   // ---------- Rendering ----------
   function drawBackground() {
-    const g = ctx.createLinearGradient(0, 0, 0, PLAY_H);
-    g.addColorStop(0, '#70c5ce');
-    g.addColorStop(1, '#bce9f0');
+    // Deep radial violet → black ether
+    const cx = W / 2;
+    const cy = H / 2;
+    const rad = Math.max(W, H) * 0.75;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+    g.addColorStop(0, '#0a001a');
+    g.addColorStop(1, '#000000');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, PLAY_H);
+    ctx.fillRect(0, 0, W, H);
 
-    const cloudOff = (frame * 0.25) % W;
-    drawCloud(20 - cloudOff, 60);
-    drawCloud(140 - cloudOff, 100);
-    drawCloud(260 - cloudOff, 50);
-    drawCloud(W + 20 - cloudOff, 60);
-    drawCloud(W + 140 - cloudOff, 100);
-    drawCloud(W + 260 - cloudOff, 50);
-
-    ctx.fillStyle = '#5fb6a4';
-    for (let x = 0; x < W; x += 14) {
-      const h = 24 + ((x * 13) % 22);
-      ctx.fillRect(x, PLAY_H - 70 - h, 13, h + 70);
+    // Distant drifting star dust
+    const starCount = 40;
+    for (let i = 0; i < starCount; i++) {
+      const seed = i * 97.13;
+      const sx = ((seed * 53 + frame * 0.15) % (W + 20)) - 10;
+      const sy = (seed * 29) % PLAY_H;
+      const tw = 0.4 + 0.6 * Math.abs(Math.sin(frame * 0.04 + i));
+      ctx.fillStyle = 'rgba(200,180,255,' + (0.15 + tw * 0.35) + ')';
+      ctx.fillRect(sx, sy, 1.5, 1.5);
     }
-
-    ctx.fillStyle = '#7ec850';
-    for (let x = 0; x < W; x += 18) {
-      const h = 16 + ((x * 7) % 10);
-      ctx.fillRect(x, PLAY_H - 34, 18, 34);
-      ctx.beginPath();
-      ctx.arc(x + 9, PLAY_H - 34, h / 2 + 2, Math.PI, 0);
-      ctx.fill();
-    }
-  }
-
-  function drawCloud(x, y) {
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.fillRect(x + 6, y, 26, 6);
-    ctx.fillRect(x, y + 6, 40, 6);
-    ctx.fillRect(x + 6, y + 12, 26, 4);
   }
 
   function drawGround() {
-    ctx.fillStyle = '#ded895';
+    // Spectral void floor — subtle horizon with glowing crack
+    const gr = ctx.createLinearGradient(0, PLAY_H, 0, H);
+    gr.addColorStop(0, 'rgba(40, 10, 60, 0.85)');
+    gr.addColorStop(1, '#000000');
+    ctx.fillStyle = gr;
     ctx.fillRect(0, PLAY_H, W, GROUND_H);
-    ctx.fillStyle = '#c0a060';
-    for (let x = -groundOffset; x < W; x += 24) {
-      ctx.fillRect(x, PLAY_H + 8, 12, 6);
-      ctx.fillRect(x + 12, PLAY_H + 22, 12, 6);
-    }
-    ctx.fillStyle = '#7ec850';
-    ctx.fillRect(0, PLAY_H, W, 5);
-    ctx.fillStyle = '#5e9c35';
-    ctx.fillRect(0, PLAY_H + 5, W, 2);
+
+    ctx.save();
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = '#9f6cff';
+    ctx.strokeStyle = 'rgba(190,140,255,0.6)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(0, PLAY_H + 0.5);
+    ctx.lineTo(W, PLAY_H + 0.5);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPipes() {
+    ctx.save();
+    ctx.globalAlpha = 0.8; // spectral
+    for (const p of pipes) drawPipe(p);
+    ctx.restore();
+    // Magic circles rendered at full alpha on top
+    for (const p of pipes) drawMagicCircle(p);
   }
 
   function drawPipe(p) {
-    drawPipeSegment(p.x, 0, PIPE_W, p.top, true);
-    drawPipeSegment(p.x, p.top + PIPE_GAP, PIPE_W, PLAY_H - (p.top + PIPE_GAP), false);
+    drawShard(p.x, 0, PIPE_W, p.top, true, p.seed);
+    drawShard(p.x, p.top + PIPE_GAP, PIPE_W, PLAY_H - (p.top + PIPE_GAP), false, p.seed + 13);
   }
 
-  function drawPipeSegment(x, y, w, h, isTop) {
-    ctx.fillStyle = '#73bf2e';
-    ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = '#9be23a';
-    ctx.fillRect(x + 4, y, 5, h);
-    ctx.fillStyle = '#558b1f';
-    ctx.fillRect(x + w - 9, y, 5, h);
-    ctx.fillStyle = '#3e6b16';
-    ctx.fillRect(x + w - 4, y, 4, h);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(x, y, 1, h);
-    ctx.fillRect(x + w - 1, y, 1, h);
+  // Deterministic pseudo-random from a seed
+  function srand(seed) {
+    let x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+  }
 
-    const capH = 22;
-    const capY = isTop ? y + h - capH : y;
-    const capX = x - 4;
-    const capW = w + 8;
-    ctx.fillStyle = '#73bf2e';
-    ctx.fillRect(capX, capY, capW, capH);
-    ctx.fillStyle = '#9be23a';
-    ctx.fillRect(capX + 4, capY + 3, 6, capH - 6);
-    ctx.fillStyle = '#558b1f';
-    ctx.fillRect(capX + capW - 10, capY + 3, 6, capH - 6);
-    ctx.fillStyle = '#3e6b16';
-    ctx.fillRect(capX + capW - 4, capY, 4, capH);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(capX, capY, 1, capH);
-    ctx.fillRect(capX + capW - 1, capY, 1, capH);
-    ctx.fillRect(capX, capY, capW, 1);
-    ctx.fillRect(capX, capY + capH - 1, capW, 1);
+  function drawShard(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    const tipY = isTop ? y + h : y;             // Pointed end faces the gap
+    const baseY = isTop ? y : y + h;            // Flat end at screen edge
+
+    // Gradient runs from void base to glowing edge (tip)
+    const g = ctx.createLinearGradient(0, baseY, 0, tipY);
+    g.addColorStop(0, '#05000a');
+    g.addColorStop(0.55, '#1a0730');
+    g.addColorStop(1, '#6a2aff');
+
+    // Build jagged zigzag along the gap-facing tip
+    const pts = [];
+    const segs = 5;
+    const tipOvershoot = 14;
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const sx = x + t * w;
+      const jitter = (srand(seed + i) - 0.5) * tipOvershoot;
+      const sy = tipY + (isTop ? jitter : -jitter);
+      pts.push([sx, sy]);
+    }
+
+    ctx.save();
+    ctx.shadowBlur = 14;
+    ctx.shadowColor = '#7a3aff';
+
+    ctx.beginPath();
+    ctx.moveTo(x, baseY);
+    for (const pt of pts) ctx.lineTo(pt[0], pt[1]);
+    ctx.lineTo(x + w, baseY);
+    ctx.closePath();
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    // Glowing edge stroke along the jagged tip only
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.strokeStyle = 'rgba(180,120,255,0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Secondary internal fracture lines
+    ctx.strokeStyle = 'rgba(140,80,220,0.35)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      const t1 = 0.2 + i * 0.3;
+      const ax = x + t1 * w;
+      const ay = baseY;
+      const bx = x + (t1 + 0.05) * w + (srand(seed + i * 7) - 0.5) * 8;
+      const by = tipY + (isTop ? -4 : 4);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawMagicCircle(p) {
+    const cx = p.x + PIPE_W / 2;
+    const cy = p.top + PIPE_GAP / 2;
+    const r = Math.min(PIPE_GAP, 90) * 0.28;
+    const pulse = 1 + Math.sin(frame * 0.12 + p.pulse) * 0.08;
+
+    ctx.save();
+    ctx.shadowBlur = 18;
+    ctx.shadowColor = '#9be3ff';
+    ctx.strokeStyle = 'rgba(170,235,255,0.85)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner ring
+    ctx.strokeStyle = 'rgba(200,160,255,0.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * pulse * 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Runic ticks
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + frame * 0.02;
+      const ix = cx + Math.cos(a) * r * pulse;
+      const iy = cy + Math.sin(a) * r * pulse;
+      ctx.fillStyle = 'rgba(200,240,255,0.9)';
+      ctx.beginPath();
+      ctx.arc(ix, iy, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawTrail() {
+    ctx.save();
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = '#ffffff';
+    for (const p of particles) {
+      ctx.globalAlpha = Math.max(0, p.life) * 0.9;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(0.5, p.r), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   function drawBird() {
+    // Ethereal Eye — circular with aura, rotating triangle wings
     ctx.save();
     ctx.translate(bird.x, bird.y);
-    ctx.rotate(bird.rot);
 
-    const wingPhase = state === STATE_PLAY
-      ? Math.floor(frame / 4) % 3
-      : Math.floor(frame / 8) % 3;
+    // Glow aura — boosted briefly on score (burst)
+    const baseBlur = 20;
+    const blur = burstFrames > 0 ? 40 : baseBlur;
+    ctx.shadowBlur = blur;
+    // Alternate hue between cyan and violet for magical shimmer
+    ctx.shadowColor = (Math.floor(frame / 20) % 2 === 0) ? '#00e5ff' : '#b56bff';
 
-    const px = -BIRD_W / 2;
-    const py = -BIRD_H / 2;
+    // Wings (translucent white triangles)
+    const wingAngle = 0.35 + wingImpulse * 0.9 + Math.sin(frame * 0.15) * 0.08;
+    drawWing(-1, wingAngle);
+    drawWing(1, wingAngle);
 
-    ctx.fillStyle = '#000';
-    ctx.fillRect(px + 3, py + 6, 28, 16);
-    ctx.fillRect(px + 6, py + 3, 22, 22);
-    ctx.fillRect(px + 9, py, 16, 26);
+    // Outer halo
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#b56bff';
+    ctx.beginPath();
+    ctx.arc(0, 0, BIRD_R + 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
 
-    ctx.fillStyle = '#fad05c';
-    ctx.fillRect(px + 6, py + 7, 25, 14);
-    ctx.fillRect(px + 9, py + 4, 19, 20);
-    ctx.fillStyle = '#f7c534';
-    ctx.fillRect(px + 9, py + 13, 19, 9);
+    // Core white circle
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(0, 0, BIRD_R, 0, Math.PI * 2);
+    ctx.fill();
 
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(px + 11, py + 17, 12, 5);
-    ctx.fillRect(px + 14, py + 20, 8, 3);
+    // Iris ring (soft gold)
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255, 220, 140, 0.35)';
+    ctx.beginPath();
+    ctx.arc(0, 0, BIRD_R * 0.75, 0, Math.PI * 2);
+    ctx.fill();
 
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(px + 19, py + 5, 9, 9);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(px + 22, py + 7, 4, 5);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(px + 23, py + 8, 1, 2);
+    // Gold pupil
+    ctx.fillStyle = '#ffc94a';
+    ctx.beginPath();
+    ctx.arc(0, 0, BIRD_R * 0.42, 0, Math.PI * 2);
+    ctx.fill();
 
-    ctx.fillStyle = '#000';
-    ctx.fillRect(px + 26, py + 12, 7, 7);
-    ctx.fillStyle = '#f47b2b';
-    ctx.fillRect(px + 26, py + 13, 6, 5);
-    ctx.fillStyle = '#d65a14';
-    ctx.fillRect(px + 26, py + 17, 6, 1);
+    // Dark pupil core
+    ctx.fillStyle = '#2a1400';
+    ctx.beginPath();
+    ctx.arc(0, 0, BIRD_R * 0.2, 0, Math.PI * 2);
+    ctx.fill();
 
-    let wy;
-    if (wingPhase === 0) wy = -3;
-    else if (wingPhase === 1) wy = 2;
-    else wy = 8;
+    // Highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath();
+    ctx.arc(-BIRD_R * 0.35, -BIRD_R * 0.35, BIRD_R * 0.16, 0, Math.PI * 2);
+    ctx.fill();
 
-    ctx.fillStyle = '#000';
-    ctx.fillRect(px + 6, py + 9 + wy, 14, 8);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(px + 7, py + 10 + wy, 12, 6);
-    ctx.fillStyle = '#dcdcdc';
-    ctx.fillRect(px + 7, py + 13 + wy, 12, 3);
+    ctx.restore();
+  }
 
+  function drawWing(side, angle) {
+    // side = -1 (left) or +1 (right)
+    ctx.save();
+    ctx.translate(side * (BIRD_R + 2), 0);
+    ctx.rotate(side * angle);
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(side * 20, -10);
+    ctx.lineTo(side * 20, 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -553,8 +701,9 @@
 
   function render() {
     drawBackground();
-    for (const p of pipes) drawPipe(p);
+    drawPipes();
     drawGround();
+    drawTrail();
     drawBird();
     drawScore();
     drawFlash();
