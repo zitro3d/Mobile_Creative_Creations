@@ -564,7 +564,9 @@ Integrated (°)
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setClearColor(0x02000e, 1);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;  // correct gamma — kills banding
+  renderer.toneMapping         = THREE.ACESFilmicToneMapping;  // filmic S-curve, kills wash-out
+  renderer.toneMappingExposure = 1.15;
+  renderer.outputColorSpace    = THREE.SRGBColorSpace;
   document.body.appendChild(renderer.domElement);
   // Critical for mobile: tell browser this canvas handles its own touches
   // so it never swallows pointerdown/pointerup for scroll or pinch-zoom.
@@ -588,6 +590,7 @@ Integrated (°)
   camera.position.set(0, 0, 0);
   camera.rotation.order = 'YXZ';
   camera.rotation.x = THREE.MathUtils.degToRad(BASE_PITCH_DEG);
+  scene.add(camera);  // required so camera children (cockpit/HUD) render
 
   // ─────────────────────────────────────────────────────────────────
   //  POST-PROCESSING — bloom only (DoF removed: aperture was ~0, invisible)
@@ -598,9 +601,9 @@ Integrated (°)
 
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
-    1.5,   // strength  — brighter bleed on laser core + engine glows
-    0.4,   // radius    — tighter halo, less milky spill on dark geometry
-    0.8    // threshold  — only white-hot core + engine glow trigger bloom
+    1.6,   // strength  — slightly more with ACES compressing highlights
+    0.32,  // radius    — tight halo for crisp, expensive look
+    0.90   // threshold — ONLY white-hot cores bloom; dark geometry stays dark
   );
   bloomPass.renderToScreen = true;
   composer.addPass(bloomPass);
@@ -685,22 +688,52 @@ Integrated (°)
     (gltf) => {
       const template = gltf.scene;
 
-      // ── Material fix — preserve GLB textures, correct lighting only ─
-      // GLB metals with no env-map render near-black. Cap metalness/roughness
-      // so the three-point lighting rig reads off the original textures.
+      // ── Brushed Titanium PBR maps — generated once, shared across all clones ─
+      // NormalMap: horizontal brush-scratch perturbation stored in RGB(r,128,255)
+      const _brushNormal = (() => {
+        const S = 256, cv = document.createElement('canvas');
+        cv.width = cv.height = S;
+        const cx = cv.getContext('2d');
+        cx.fillStyle = '#8080ff'; cx.fillRect(0, 0, S, S);
+        for (let i = 0; i < 220; i++) {
+          const y = Math.random() * S, a = 0.04 + Math.random() * 0.11;
+          const r = 95 + Math.floor(Math.random() * 55);
+          cx.fillStyle = `rgba(${r},128,255,${a})`;
+          cx.fillRect(0, y, S, 0.4 + Math.random() * 2.2);
+        }
+        return new THREE.CanvasTexture(cv);
+      })();
+      // RoughnessMap: light horizontal streaks = smoother reflection lanes
+      const _brushRough = (() => {
+        const S = 256, cv = document.createElement('canvas');
+        cv.width = cv.height = S;
+        const cx = cv.getContext('2d');
+        cx.fillStyle = '#5c5c5c'; cx.fillRect(0, 0, S, S);  // base ~0.36 roughness
+        for (let i = 0; i < 160; i++) {
+          const y = Math.random() * S, v = 155 + Math.floor(Math.random() * 100);
+          cx.fillStyle = `rgba(${v},${v},${v},${0.09 + Math.random() * 0.18})`;
+          cx.fillRect(0, y, S, 0.4 + Math.random() * 2.5);
+        }
+        return new THREE.CanvasTexture(cv);
+      })();
+
+      // ── Material fix — brushed titanium PBR ─────────────────────────
       template.traverse((child) => {
         if (!child.isMesh) return;
         if (!(child.material instanceof THREE.MeshStandardMaterial)) {
           child.material = new THREE.MeshStandardMaterial({
-            color: child.material.color ?? new THREE.Color(0xcccccc),
+            color: child.material.color ?? new THREE.Color(0xaabbcc),
             map:   child.material.map   ?? null,
           });
         }
         const mat = child.material;
-        mat.metalness        = Math.min(mat.metalness ?? 1, 0.45);
-        mat.roughness        = Math.max(mat.roughness ?? 0, 0.35);
-        mat.emissive         = new THREE.Color(0x223355);  // cool blue self-glow
-        mat.emissiveIntensity = 1.2;                        // always readable vs nebula
+        mat.metalness        = 0.88;             // near-pure metal
+        mat.roughness        = 0.36;             // base; roughnessMap varies this
+        mat.normalMap        = _brushNormal;
+        mat.normalScale      = new THREE.Vector2(0.50, 0.50);
+        mat.roughnessMap     = _brushRough;
+        mat.emissive         = new THREE.Color(0x223355);
+        mat.emissiveIntensity = 0.85;
         mat.needsUpdate = true;
       });
 
@@ -783,6 +816,169 @@ Integrated (°)
       console.error('figherjet.glb failed to load:', error);
     }
   );
+
+  // ─────────────────────────────────────────────────────────────────
+  //  3D COCKPIT FRAME — premium metallic interior
+  //  Geometry lives in camera local space (camera children) so it
+  //  follows all camera rotation and shake automatically.
+  // ─────────────────────────────────────────────────────────────────
+  const _ckpDarkMat = new THREE.MeshStandardMaterial({
+    color: 0x0e1218, metalness: 0.92, roughness: 0.20,
+  });
+  const _ckpTrimMat = new THREE.MeshStandardMaterial({
+    color: 0x18222e, metalness: 0.96, roughness: 0.10,
+    emissive: new THREE.Color(0x001833), emissiveIntensity: 1.2,
+  });
+  const _ckpGlowMat = new THREE.MeshStandardMaterial({
+    color: 0x003344, metalness: 0.4, roughness: 0.6,
+    emissive: new THREE.Color(0x00aadd), emissiveIntensity: 1.8,
+  });
+
+  function _mkCkp(geo, mat, x, y, z) {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.frustumCulled = false;
+    camera.add(m);
+    return m;
+  }
+
+  // Dashboard bar — bottom-center, spans full width
+  _mkCkp(new THREE.BoxGeometry(58, 2.2, 3.2),  _ckpDarkMat,  0,    -11.8, -19.5);
+  // Cyan emissive trim strip along dashboard top edge
+  _mkCkp(new THREE.BoxGeometry(48, 0.28, 0.5), _ckpGlowMat,  0,    -10.7, -18.4);
+  // Left canopy pillar
+  _mkCkp(new THREE.BoxGeometry(2.6, 28, 3.2),  _ckpDarkMat, -28.2,  2,    -19.5);
+  // Right canopy pillar
+  _mkCkp(new THREE.BoxGeometry(2.6, 28, 3.2),  _ckpDarkMat,  28.2,  2,    -19.5);
+  // Upper arch
+  _mkCkp(new THREE.BoxGeometry(58, 2.2, 3.2),  _ckpDarkMat,  0,    15.5,  -19.5);
+  // Left pillar accent trim
+  _mkCkp(new THREE.BoxGeometry(0.4, 22, 0.6),  _ckpTrimMat, -27.0,  2,    -18.2);
+  // Right pillar accent trim
+  _mkCkp(new THREE.BoxGeometry(0.4, 22, 0.6),  _ckpTrimMat,  27.0,  2,    -18.2);
+  // Upper-left corner bracket
+  _mkCkp(new THREE.BoxGeometry(2.6, 5.5, 3.0), _ckpTrimMat, -28.2, 14,    -19.5);
+  // Upper-right corner bracket
+  _mkCkp(new THREE.BoxGeometry(2.6, 5.5, 3.0), _ckpTrimMat,  28.2, 14,    -19.5);
+  // Bottom-left corner bracket
+  _mkCkp(new THREE.BoxGeometry(8.0, 2.2, 3.2), _ckpTrimMat, -24.5, -11.8, -19.5);
+  // Bottom-right corner bracket
+  _mkCkp(new THREE.BoxGeometry(8.0, 2.2, 3.2), _ckpTrimMat,  24.5, -11.8, -19.5);
+
+  // ─────────────────────────────────────────────────────────────────
+  //  DIEGETIC HUD — canvas-rendered panels floating in cockpit space
+  // ─────────────────────────────────────────────────────────────────
+  // Hide DOM elements replaced by 3D panels
+  document.getElementById('heat-bar').style.display     = 'none';
+  document.getElementById('combo-display').style.display = 'none';
+
+  function _roundRect(cx, x, y, w, h, r) {
+    cx.beginPath();
+    cx.moveTo(x + r, y);
+    cx.lineTo(x + w - r, y); cx.arcTo(x + w, y, x + w, y + r, r);
+    cx.lineTo(x + w, y + h - r); cx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    cx.lineTo(x + r, y + h); cx.arcTo(x, y + h, x, y + h - r, r);
+    cx.lineTo(x, y + r); cx.arcTo(x, y, x + r, y, r);
+    cx.closePath();
+  }
+
+  // ── Heat gauge panel ───────────────────────────────────────────────
+  const _hudHeatCvs = document.createElement('canvas');
+  _hudHeatCvs.width = 512; _hudHeatCvs.height = 80;
+  const _hudHeatCtx = _hudHeatCvs.getContext('2d');
+  const _hudHeatTex = new THREE.CanvasTexture(_hudHeatCvs);
+  const _hudHeatMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(13, 2.0),
+    new THREE.MeshBasicMaterial({ map: _hudHeatTex, transparent: true, depthWrite: false })
+  );
+  _hudHeatMesh.position.set(0, -9.6, -18.3);
+  _hudHeatMesh.frustumCulled = false;
+  camera.add(_hudHeatMesh);
+
+  // ── Score + Combo panel ────────────────────────────────────────────
+  const _hudComboCvs = document.createElement('canvas');
+  _hudComboCvs.width = 400; _hudComboCvs.height = 100;
+  const _hudComboCtx = _hudComboCvs.getContext('2d');
+  const _hudComboTex = new THREE.CanvasTexture(_hudComboCvs);
+  const _hudComboMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(9.5, 2.4),
+    new THREE.MeshBasicMaterial({ map: _hudComboTex, transparent: true, depthWrite: false })
+  );
+  _hudComboMesh.position.set(12.5, 11.8, -18.3);
+  _hudComboMesh.frustumCulled = false;
+  camera.add(_hudComboMesh);
+
+  let _hudHeatPrev = -1, _hudOverheatPrev = false, _hudScorePrev = -1, _hudComboPrev = -1;
+  const _hudBaseHeat  = new THREE.Vector3(0, -9.6, -18.3);
+  const _hudBaseCombo = new THREE.Vector3(12.5, 11.8, -18.3);
+
+  function _drawHeatGauge(heat, isOverheat) {
+    const W = 512, H = 80, cx = _hudHeatCtx;
+    cx.clearRect(0, 0, W, H);
+    // Glass panel
+    cx.fillStyle = 'rgba(0,8,20,0.78)';
+    _roundRect(cx, 3, 3, W-6, H-6, 7); cx.fill();
+    // Border — red when overheated, cyan otherwise
+    cx.strokeStyle = isOverheat ? 'rgba(255,35,0,0.90)' : 'rgba(0,210,255,0.60)';
+    cx.lineWidth = 1.8;
+    _roundRect(cx, 3, 3, W-6, H-6, 7); cx.stroke();
+    // Label
+    cx.fillStyle = isOverheat ? 'rgba(255,80,0,0.85)' : 'rgba(0,210,255,0.72)';
+    cx.font = 'bold 12px Orbitron, monospace';
+    cx.fillText('HEAT', 14, 22);
+    // Value readout
+    cx.fillStyle = 'rgba(0,200,255,0.5)';
+    cx.font = '11px monospace';
+    cx.textAlign = 'right';
+    cx.fillText(Math.round(heat) + '%', W - 12, 22);
+    cx.textAlign = 'left';
+    // Track
+    cx.fillStyle = 'rgba(0,30,50,0.7)';
+    cx.fillRect(12, 32, W-24, 28);
+    // Fill
+    const bw = (W - 24) * Math.max(0, Math.min(1, heat / 100));
+    const g = cx.createLinearGradient(12, 0, 12 + bw, 0);
+    if (isOverheat) {
+      g.addColorStop(0, '#ff4400'); g.addColorStop(1, '#ff1100');
+    } else if (heat > 50) {
+      g.addColorStop(0, '#ff8800'); g.addColorStop(1, '#ff4400');
+    } else {
+      g.addColorStop(0, '#00e5ff'); g.addColorStop(1, '#0099cc');
+    }
+    cx.fillStyle = g;
+    cx.fillRect(12, 32, bw, 28);
+    // Shine
+    cx.fillStyle = 'rgba(255,255,255,0.10)';
+    cx.fillRect(12, 32, bw, 8);
+    _hudHeatTex.needsUpdate = true;
+  }
+
+  function _drawComboPanel(sc, combo) {
+    const W = 400, H = 100, cx = _hudComboCtx;
+    cx.clearRect(0, 0, W, H);
+    cx.fillStyle = 'rgba(0,6,18,0.75)';
+    _roundRect(cx, 3, 3, W-6, H-6, 7); cx.fill();
+    const bdrCol = combo >= 10 ? 'rgba(255,220,0,0.65)' : 'rgba(0,210,255,0.50)';
+    cx.strokeStyle = bdrCol; cx.lineWidth = 1.8;
+    _roundRect(cx, 3, 3, W-6, H-6, 7); cx.stroke();
+    // Score
+    cx.fillStyle = '#00f2ff';
+    cx.font = 'bold 30px Orbitron, monospace';
+    cx.textAlign = 'center';
+    cx.fillText(sc, W / 2, 46);
+    // Combo
+    if (combo > 1) {
+      const cc = combo >= 20 ? '#ff00cc' : combo >= 10 ? '#ffee00' : '#ffffff';
+      cx.fillStyle = cc;
+      cx.font = 'bold 14px Orbitron, monospace';
+      cx.fillText('COMBO ×' + combo, W / 2, 78);
+    }
+    cx.textAlign = 'left';
+    _hudComboTex.needsUpdate = true;
+  }
+
+  // Initial draw
+  document.fonts.ready.then(() => { _drawHeatGauge(0, false); _drawComboPanel(0, 0); });
 
   // ─────────────────────────────────────────────────────────────────
   //  UNIVERSE GROUP — all objects live here; group stays at origin
@@ -1195,6 +1391,7 @@ Integrated (°)
   // ─────────────────────────────────────────────────────────────────
   const crosshairEl     = document.getElementById('crosshair');
   const cockpitBorderEl = document.getElementById('cockpit-border');
+  cockpitBorderEl.style.display = 'none';  // replaced by 3D cockpit frame
   let   aimX            = window.innerWidth  / 2;   // raw finger / hand target
   let   aimY            = window.innerHeight / 2;
   let   lerpX           = aimX;                      // visual crosshair (lerped toward aim)
@@ -1726,8 +1923,8 @@ Integrated (°)
     trailBeam.frustumCulled = false; trailBeam.visible = false;
     scene.add(trailBeam);
 
-    // ── Plasma point light — casts orange-red onto cockpit/debris as it passes
-    const light = new THREE.PointLight(0xff4500, 2, 15);
+    // ── Plasma point light — range 45 so it actually hits the cockpit frame
+    const light = new THREE.PointLight(0xff4500, 3.5, 45);
     scene.add(light);
 
     // ── Invisible hitbox for raycaster interception ────────────────
@@ -2085,7 +2282,7 @@ Integrated (°)
             score += pts;
             scoreEl.textContent = score;
             _updateComboDisplay();
-            hitStopUntil = nowMs + 30;
+            hitStopUntil = nowMs + 10;
             _showHUDMessage(_inDanger ? 'CLEAN SAVE' : 'INTERCEPTED');
             return;   // don't also hit a ship behind it
           }
@@ -2110,7 +2307,7 @@ Integrated (°)
       const idx = enemies.indexOf(en);
       const es  = idx >= 0 ? enemyState[idx] : null;
       spawnLaser(point);
-      hitStopUntil = nowMs + 30;
+      hitStopUntil = nowMs + 10;
 
       // Combo bookkeeping
       hitShots++;
@@ -2340,6 +2537,10 @@ Integrated (°)
   // ─────────────────────────────────────────────────────────────────
   // ── Spawn timer — fires every 1–2.5 s to stagger jet arrivals ───
   let spawnCountdown = 1.2;
+
+  // ── Camera sway (roll) state ──────────────────────────────────────
+  let _camRoll    = 0;       // current roll radians
+  let _prevLerpX  = null;    // previous frame's crosshair X for velocity calc
 
   // ── Chase-cam base position — position lerps back here each frame ─
   const CAM_BASE_POS = new THREE.Vector3(0, 0, 0);
@@ -2655,6 +2856,37 @@ Integrated (°)
     lerpY += (aimY - lerpY) * Math.min(1, 0.65 * dt * 60);
     crosshairEl.style.left = lerpX + 'px';
     crosshairEl.style.top  = lerpY + 'px';
+
+    // ── Camera sway — aim velocity induces 2-3° roll (centrifugal sim) ─
+    if (_prevLerpX === null) _prevLerpX = lerpX;
+    const _aimVelX = dt > 0 ? (lerpX - _prevLerpX) / dt : 0;
+    _prevLerpX = lerpX;
+    const _rollTgt = Math.max(-0.052, Math.min(0.052, -_aimVelX * 0.00110));  // ~3° max
+    _camRoll += (_rollTgt - _camRoll) * Math.min(1, 9 * dt);
+    camera.rotation.z = _camRoll;
+
+    // ── Diegetic HUD — redraw on value change ─────────────────────────
+    if (weaponHeat !== _hudHeatPrev || overheated !== _hudOverheatPrev) {
+      _hudHeatPrev = weaponHeat; _hudOverheatPrev = overheated;
+      _drawHeatGauge(weaponHeat, overheated);
+    }
+    if (score !== _hudScorePrev || comboCount !== _hudComboPrev) {
+      _hudScorePrev = score; _hudComboPrev = comboCount;
+      _drawComboPanel(score, comboCount);
+    }
+    // HUD jitter on shield hit — random offset decays over 400ms
+    if (shieldHitUntil > 0 && now < shieldHitUntil + 400) {
+      const jf = Math.max(0, (shieldHitUntil + 400 - now) / 400) * 0.12;
+      _hudHeatMesh.position.x  = _hudBaseHeat.x  + (Math.random() - 0.5) * jf;
+      _hudHeatMesh.position.y  = _hudBaseHeat.y  + (Math.random() - 0.5) * jf;
+      _hudComboMesh.position.x = _hudBaseCombo.x + (Math.random() - 0.5) * jf;
+      _hudComboMesh.position.y = _hudBaseCombo.y + (Math.random() - 0.5) * jf;
+    } else {
+      _hudHeatMesh.position.x  = _hudBaseHeat.x;
+      _hudHeatMesh.position.y  = _hudBaseHeat.y;
+      _hudComboMesh.position.x = _hudBaseCombo.x;
+      _hudComboMesh.position.y = _hudBaseCombo.y;
+    }
 
     // ── Enemy proximity → crosshair color + scale ─────────────────
     let onTarget = false;
