@@ -424,8 +424,135 @@
   function recalcLayout() {
     GROUND_H = Math.max(60, Math.round(H * 0.11));
     PLAY_H = H - GROUND_H;
-    // Reposition stars to fit new dimensions
     if (stars.length) { initStars(); initDust(); initNebula(); initJunkSats(); }
+    buildBgCache();
+  }
+
+  // ---------- Background cache (regenerated on resize or theme switch) ----------
+  // Holds precomputed CanvasGradient objects and static layout arrays so the
+  // per-frame background loop does not allocate gradients, rebuild skyline
+  // positions, or replay deterministic layout math 60 times a second.
+  const bgCache = {
+    theme: null, w: 0, h: 0,
+    sky: null, sun: null, nebA: null, nebB: null, debrisHalo: null,
+    horizon: null,
+  };
+  function buildBgCache() {
+    const T = theme();
+    bgCache.theme = selectedTheme;
+    bgCache.w = W; bgCache.h = H;
+
+    // Sky
+    const sg = ctx.createLinearGradient(0, 0, 0, H);
+    sg.addColorStop(0,    T.sky[0]);
+    sg.addColorStop(0.28, T.sky[1]);
+    sg.addColorStop(0.5,  T.sky[2]);
+    sg.addColorStop(0.72, T.sky[3]);
+    sg.addColorStop(0.9,  T.sky[4]);
+    sg.addColorStop(1,    T.sky[5]);
+    bgCache.sky = sg;
+
+    // Sun
+    const sunX = W * 0.78, sunY = PLAY_H * 0.72;
+    const sunR = Math.min(W, PLAY_H) * 0.22;
+    const sun = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunR);
+    sun.addColorStop(0,   T.sunInner);
+    sun.addColorStop(0.4, T.sunMid);
+    sun.addColorStop(1,   T.sunEdge);
+    bgCache.sun = sun;
+
+    // Nebula — primary and secondary wisp (if nebula is initialised)
+    if (nebula) {
+      const nebA = ctx.createRadialGradient(nebula.x, nebula.y, 0, nebula.x, nebula.y, nebula.r);
+      nebA.addColorStop(0,    T.nebA);
+      nebA.addColorStop(0.45, T.nebB);
+      nebA.addColorStop(0.8,  T.nebC);
+      nebA.addColorStop(1,    'rgba(0, 0, 0, 0)');
+      bgCache.nebA = nebA;
+
+      const nbx = nebula.x - nebula.r * 0.35;
+      const nby = nebula.y + nebula.r * 0.2;
+      const nebB = ctx.createRadialGradient(nbx, nby, 0, nbx, nby, nebula.r * 0.55);
+      const wispAlphaZero = T.nebWisp.replace(/[0-9.]+\)$/, '0)');
+      nebB.addColorStop(0, T.nebWisp);
+      nebB.addColorStop(1, wispAlphaZero);
+      bgCache.nebB = nebB;
+    }
+
+    // Shared debris halo (same every frame, used by every item)
+    const halo = ctx.createRadialGradient(0, 0, 2, 0, 0, 18);
+    halo.addColorStop(0, 'rgba(255, 230, 180, 0.22)');
+    halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    bgCache.debrisHalo = halo;
+
+    // Per-theme static horizon layout
+    bgCache.horizon = buildHorizonLayout();
+  }
+
+  function buildHorizonLayout() {
+    const baseY = PLAY_H * 0.82;
+    if (selectedTheme === 'swamp') {
+      const trees = [];
+      for (let i = 0; i < 8; i++) {
+        const hx = (W / 8) * (i + 0.5) + ((i * 13) % 15) - 7;
+        const s  = 0.85 + ((i * 41 + 7) % 100) / 140;
+        const trunkH = 78 * s;
+        const branches = [];
+        const bn = 3 + (i % 2);
+        for (let b = 0; b < bn; b++) {
+          branches.push({
+            yOff: trunkH * (0.45 + b * 0.15),
+            side: (b % 2 === 0) ? -1 : 1,
+            reach: (14 + b * 5) * s,
+          });
+        }
+        trees.push({ x: hx, trunkH: trunkH, trunkW: 6 + (i % 3), s: s, branches: branches });
+      }
+      return { kind: 'swamp', baseY: baseY, trees: trees };
+    }
+    if (selectedTheme === 'city') {
+      const far = [];
+      for (let i = 0; i < 11; i++) {
+        far.push({
+          x: (W / 11) * i,
+          w: W / 11 + 2,
+          h: (i % 5 === 0) ? 22 + ((i * 17) % 18) : 34 + ((i * 17 + 7) % 34),
+        });
+      }
+      const rubble = [];
+      for (let i = 0; i < 12; i++) rubble.push({ x: (W / 12) * i + ((i * 9) % 10) });
+      const near = [];
+      for (let i = 0; i < 8; i++) {
+        const bx = (W / 8) * i + ((i * 11) % 6);
+        const bw = (W / 8) - 8;
+        const bh = 46 + ((i * 31 + 17) % 70);
+        const kind = (i * 7 + 3) % 4;
+        near.push({ bx: bx, bw: bw, bh: bh, kind: kind, i: i });
+      }
+      return { kind: 'city', baseY: baseY, far: far, rubble: rubble, near: near, towerX: W * 0.72, towerY: baseY - 90 };
+    }
+    if (selectedTheme === 'volcano') {
+      const peaks = [];
+      for (let i = 0; i <= 10; i++) {
+        peaks.push({ x: (W / 10) * i, h: 20 + ((i * 17 + 5) % 30) });
+      }
+      return { kind: 'volcano', baseY: baseY, peaks: peaks, cones: [
+        { cx: W * 0.30, scale: 1.0 },
+        { cx: W * 0.76, scale: 0.75 },
+      ]};
+    }
+    // sunset — simple peak profile
+    const peaks = [];
+    const count = 14;
+    for (let i = 0; i <= count; i++) {
+      const x = (W / count) * i;
+      const h = 12 + Math.abs(Math.sin(i * 1.7) * 28) + (i % 3) * 4;
+      peaks.push({ x: x, h: h });
+      if (i < count) {
+        peaks.push({ x: x + (W / count) * 0.5, h: 6 + Math.abs(Math.cos(i * 2.3) * 14) });
+      }
+    }
+    return { kind: 'sunset', baseY: baseY, peaks: peaks };
   }
 
   // ---------- Audio (Web Audio, synthesised — no asset files) ----------
@@ -767,6 +894,7 @@
     initDust();
     initNebula();
     initJunkSats();
+    buildBgCache();   // rebuild gradients now that nebula has fresh coords
     for (let i = 0; i < 4; i++) addPipe(W + 120 + i * PIPE_SPACING);
     refreshHud();
   }
@@ -1548,48 +1676,17 @@
   // ---------- Rendering ----------
   function drawBackground() {
     const T = theme();
-    // Sky gradient (6 stops)
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0,    T.sky[0]);
-    g.addColorStop(0.28, T.sky[1]);
-    g.addColorStop(0.5,  T.sky[2]);
-    g.addColorStop(0.72, T.sky[3]);
-    g.addColorStop(0.9,  T.sky[4]);
-    g.addColorStop(1,    T.sky[5]);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    // Rebuild cache if dimensions or theme drifted (e.g., resize between frames)
+    if (bgCache.theme !== selectedTheme || bgCache.w !== W || bgCache.h !== H || !bgCache.sky) {
+      buildBgCache();
+    }
 
-    // Sun/focal glow
-    const sunX = W * 0.78;
-    const sunY = PLAY_H * 0.72;
-    const sunR = Math.min(W, PLAY_H) * 0.22;
-    const sg = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunR);
-    sg.addColorStop(0,   T.sunInner);
-    sg.addColorStop(0.4, T.sunMid);
-    sg.addColorStop(1,   T.sunEdge);
-    ctx.fillStyle = sg;
-    ctx.fillRect(0, 0, W, H);
-
-    // Far-background haze/nebula
-    if (nebula) {
-      ctx.save();
-      const ng = ctx.createRadialGradient(nebula.x, nebula.y, 0, nebula.x, nebula.y, nebula.r);
-      ng.addColorStop(0,    T.nebA);
-      ng.addColorStop(0.45, T.nebB);
-      ng.addColorStop(0.8,  T.nebC);
-      ng.addColorStop(1,    'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = ng;
-      ctx.fillRect(0, 0, W, H);
-
-      const ng2 = ctx.createRadialGradient(
-        nebula.x - nebula.r * 0.35, nebula.y + nebula.r * 0.2, 0,
-        nebula.x - nebula.r * 0.35, nebula.y + nebula.r * 0.2, nebula.r * 0.55
-      );
-      ng2.addColorStop(0, T.nebWisp);
-      ng2.addColorStop(1, T.nebWisp.replace(/[0-9.]+\)$/, '0)'));
-      ctx.fillStyle = ng2;
-      ctx.fillRect(0, 0, W, H);
-      ctx.restore();
+    // Sky + sun + nebula — cached gradients, zero per-frame allocation
+    ctx.fillStyle = bgCache.sky; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = bgCache.sun; ctx.fillRect(0, 0, W, H);
+    if (bgCache.nebA) {
+      ctx.fillStyle = bgCache.nebA; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = bgCache.nebB; ctx.fillRect(0, 0, W, H);
     }
 
     // Ruined horizon silhouette
@@ -1729,24 +1826,15 @@
   }
 
   function drawSunsetMountains() {
+    const layout = bgCache.horizon;
+    if (!layout || layout.kind !== 'sunset') return;
     ctx.save();
     ctx.fillStyle = theme().ridge;
     ctx.beginPath();
-    const baseY = PLAY_H * 0.82;
     ctx.moveTo(0, PLAY_H);
-    ctx.lineTo(0, baseY);
-    const peaks = 14;
-    for (let i = 0; i <= peaks; i++) {
-      const x = (W / peaks) * i;
-      const h = 12 + Math.abs(Math.sin(i * 1.7) * 28) + (i % 3) * 4;
-      ctx.lineTo(x, baseY - h);
-      if (i < peaks) {
-        const xm = x + (W / peaks) * 0.5;
-        const hm = 6 + Math.abs(Math.cos(i * 2.3) * 14);
-        ctx.lineTo(xm, baseY - hm);
-      }
-    }
-    ctx.lineTo(W, baseY);
+    ctx.lineTo(0, layout.baseY);
+    for (const p of layout.peaks) ctx.lineTo(p.x, layout.baseY - p.h);
+    ctx.lineTo(W, layout.baseY);
     ctx.lineTo(W, PLAY_H);
     ctx.closePath();
     ctx.fill();
@@ -1754,67 +1842,57 @@
   }
 
   function drawSwampHorizon() {
-    // Thick murky fog layer across the mid-screen
+    const layout = bgCache.horizon;
+    if (!layout || layout.kind !== 'swamp') return;
+    const baseY = layout.baseY;
+
+    // Lighter murky fog — kept softer so the play area stays readable
     ctx.save();
-    const fogY = PLAY_H * 0.60;
+    const fogY = PLAY_H * 0.62;
     const fogGrad = ctx.createLinearGradient(0, fogY, 0, PLAY_H);
     fogGrad.addColorStop(0, 'rgba(50, 80, 40, 0)');
-    fogGrad.addColorStop(0.4, 'rgba(40, 70, 30, 0.55)');
-    fogGrad.addColorStop(1, 'rgba(10, 25, 10, 0.75)');
+    fogGrad.addColorStop(0.5, 'rgba(40, 70, 30, 0.35)');
+    fogGrad.addColorStop(1, 'rgba(10, 25, 10, 0.55)');
     ctx.fillStyle = fogGrad;
     ctx.fillRect(0, fogY, W, PLAY_H - fogY);
     ctx.restore();
 
-    // Dead forest silhouettes — taller, gnarled, arm-like branches reaching out
+    // Forest silhouettes from cached layout
     ctx.save();
     ctx.fillStyle = theme().ridge;
-    const baseY = PLAY_H * 0.82;
     ctx.fillRect(0, baseY, W, PLAY_H - baseY);
-
-    const treeCount = 8;
-    const trees = [];
-    for (let i = 0; i < treeCount; i++) {
-      const hx = (W / treeCount) * (i + 0.5) + ((i * 13) % 15) - 7;
-      const heightScale = 0.85 + ((i * 41 + 7) % 100) / 140;
-      const trunkH = 78 * heightScale;
-      const trunkW = 6 + (i % 3);
-      trees.push({ x: hx, h: trunkH, w: trunkW, s: heightScale });
-      ctx.fillRect(hx - trunkW / 2, baseY - trunkH, trunkW, trunkH);
-      // Gnarled branches (3-4 each)
-      ctx.strokeStyle = theme().ridge;
-      ctx.lineWidth = 3;
-      const n = 3 + (i % 2);
-      for (let b = 0; b < n; b++) {
-        const yt = baseY - trunkH * (0.45 + b * 0.15);
-        const side = (b % 2 === 0) ? -1 : 1;
-        const reach = (14 + (b * 5)) * heightScale;
+    ctx.strokeStyle = theme().ridge;
+    ctx.lineWidth = 3;
+    for (const t of layout.trees) {
+      ctx.fillRect(t.x - t.trunkW / 2, baseY - t.trunkH, t.trunkW, t.trunkH);
+      for (const br of t.branches) {
+        const yt = baseY - br.yOff;
+        const midY = yt - 6 * t.s;
+        const endX = t.x + br.side * br.reach;
+        const endY = yt - 12 * t.s;
         ctx.beginPath();
-        ctx.moveTo(hx, yt);
-        const midY = yt - 6 * heightScale;
-        const endX = hx + side * reach;
-        const endY = yt - 12 * heightScale;
-        ctx.quadraticCurveTo(hx + side * reach * 0.5, midY, endX, endY);
+        ctx.moveTo(t.x, yt);
+        ctx.quadraticCurveTo(t.x + br.side * br.reach * 0.5, midY, endX, endY);
         ctx.stroke();
-        // Twig fork
         ctx.beginPath();
         ctx.moveTo(endX, endY);
-        ctx.lineTo(endX + side * 6, endY - 8);
+        ctx.lineTo(endX + br.side * 6, endY - 8);
         ctx.moveTo(endX, endY);
-        ctx.lineTo(endX + side * 4, endY - 2);
+        ctx.lineTo(endX + br.side * 4, endY - 2);
         ctx.stroke();
       }
     }
     ctx.restore();
 
-    // Creepy glowing eye pairs peeking from the forest
+    // Blinking eye pairs — reference cached tree array
     ctx.save();
     ctx.shadowBlur = 8;
     for (let i = 0; i < 5; i++) {
-      const t = trees[(i * 3) % trees.length];
+      const t = layout.trees[(i * 3) % layout.trees.length];
       const ex = t.x + ((i * 19) % 40) - 20;
-      const ey = baseY - t.h * (0.28 + (i % 3) * 0.1);
+      const ey = baseY - t.trunkH * (0.28 + (i % 3) * 0.1);
       const blink = Math.sin(frame * 0.08 + i * 2.3);
-      if (blink < -0.75) continue; // wink
+      if (blink < -0.75) continue;
       const hue = i % 2 === 0 ? '#ffd400' : '#ff3040';
       ctx.shadowColor = hue;
       ctx.fillStyle = hue;
@@ -1867,44 +1945,27 @@
     ctx.fillStyle = theme().ridge;
     ctx.fillRect(0, baseY, W, PLAY_H - baseY);
 
-    // Far buildings — distant collapsed row
+    // Far buildings from cached layout
     ctx.fillStyle = 'rgba(12, 6, 4, 0.78)';
-    const farCount = 11;
-    for (let i = 0; i < farCount; i++) {
-      const bx = (W / farCount) * i;
-      const bw = W / farCount + 2;
-      const leaning = (i % 5 === 0);
-      let bh = 34 + ((i * 17 + 7) % 34);
-      if (leaning) bh = 22 + ((i * 17) % 18);
-      ctx.fillRect(bx, baseY - bh, bw, bh);
+    for (const b of bgCache.horizon.far) {
+      ctx.fillRect(b.x, baseY - b.h, b.w, b.h);
     }
 
     // Rubble piles at ground line
     ctx.fillStyle = theme().ridge;
-    for (let i = 0; i < 12; i++) {
-      const rx = (W / 12) * i + ((i * 9) % 10);
+    for (const r of bgCache.horizon.rubble) {
       ctx.beginPath();
-      ctx.moveTo(rx, baseY);
-      ctx.lineTo(rx + 8, baseY - 6);
-      ctx.lineTo(rx + 14, baseY - 3);
-      ctx.lineTo(rx + 20, baseY);
+      ctx.moveTo(r.x, baseY);
+      ctx.lineTo(r.x + 8, baseY - 6);
+      ctx.lineTo(r.x + 14, baseY - 3);
+      ctx.lineTo(r.x + 20, baseY);
       ctx.closePath();
       ctx.fill();
     }
 
-    // Near ruined skyline — mostly broken, some leaning, some stumps
-    const nearCount = 8;
-    const buildings = [];
-    for (let i = 0; i < nearCount; i++) {
-      const bx = (W / nearCount) * i + ((i * 11) % 6);
-      const bw = (W / nearCount) - 8;
-      let bh = 46 + ((i * 31 + 17) % 70);
-      const kind = (i * 7 + 3) % 4; // 0 broken, 1 leaning, 2 stump, 3 gutted
-      buildings.push({ bx, bw, bh, kind, i });
-    }
-
+    // Near ruined skyline from cached layout
     ctx.fillStyle = theme().ridge;
-    for (const b of buildings) {
+    for (const b of bgCache.horizon.near) {
       const { bx, bw, bh, kind, i } = b;
       ctx.save();
       if (kind === 1) {
@@ -2001,8 +2062,8 @@
     }
 
     // Collapsed radio tower with blinking red warning
-    const towerX = W * 0.72;
-    const towerY = baseY - 90;
+    const towerX = bgCache.horizon.towerX;
+    const towerY = bgCache.horizon.towerY;
     ctx.save();
     ctx.strokeStyle = theme().ridge;
     ctx.lineWidth = 2;
@@ -2036,22 +2097,18 @@
   }
 
   function drawVolcanoHorizon() {
+    const layout = bgCache.horizon;
+    if (!layout || layout.kind !== 'volcano') return;
     ctx.save();
-    const baseY = PLAY_H * 0.82;
-    // Burning ground
+    const baseY = layout.baseY;
     ctx.fillStyle = theme().ridge;
     ctx.fillRect(0, baseY, W, PLAY_H - baseY);
 
-    // Distant ranges
+    // Cached distant ranges
     ctx.fillStyle = 'rgba(30, 8, 4, 0.8)';
     ctx.beginPath();
     ctx.moveTo(0, baseY);
-    const peaks = 10;
-    for (let i = 0; i <= peaks; i++) {
-      const x = (W / peaks) * i;
-      const h = 20 + ((i * 17 + 5) % 30);
-      ctx.lineTo(x, baseY - h);
-    }
+    for (const p of layout.peaks) ctx.lineTo(p.x, baseY - p.h);
     ctx.lineTo(W, baseY);
     ctx.closePath();
     ctx.fill();
@@ -2107,8 +2164,7 @@
       ctx.stroke();
       ctx.restore();
     }
-    cone(W * 0.3, 1.0);
-    cone(W * 0.76, 0.75);
+    for (const c of layout.cones) cone(c.cx, c.scale);
 
     ctx.restore();
   }
@@ -2228,7 +2284,7 @@
     const pulse = 1 + Math.sin(frame * 0.12) * 0.08;
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.shadowBlur = 20;
+    ctx.shadowBlur = 12;
     ctx.shadowColor = color;
     // Outer ring
     ctx.strokeStyle = color;
@@ -2297,17 +2353,13 @@
 
   const DEBRIS_DRAWERS = {};
   function drawDebrisItem(kind) {
-    // Warm backing halo so every item reads clearly against dark themes
-    ctx.save();
-    const halo = ctx.createRadialGradient(0, 0, 2, 0, 0, 18);
-    halo.addColorStop(0, 'rgba(255, 230, 180, 0.22)');
-    halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = halo;
-    ctx.beginPath();
-    ctx.arc(0, 0, 18, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    // Subtle dark drop shadow for depth
+    // Warm backing halo — cached gradient, single fillStyle assign per item
+    if (bgCache.debrisHalo) {
+      ctx.fillStyle = bgCache.debrisHalo;
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.shadowBlur = 8;
     ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
     const fn = DEBRIS_DRAWERS[kind];
@@ -4297,6 +4349,8 @@
       btn.classList.toggle('selected', btn.dataset.theme === key);
     }
     try { localStorage.setItem('dlx_theme_v2', key); } catch (e) {}
+    // Rebuild cached gradients + static layouts for the new theme
+    buildBgCache();
   }
   try {
     const saved = localStorage.getItem('dlx_theme_v2');
