@@ -435,7 +435,19 @@
       topShape: buildShardShape(PIPE_W, top, true),
       botShape: buildShardShape(PIPE_W, PLAY_H - (top + PIPE_GAP), false),
       antennas: buildAntennas(),
+      debris: makeDebris(),
     });
+  }
+
+  // Random assorted floating garbage item for the gap between obstacles
+  function makeDebris() {
+    return {
+      kind: Math.floor(Math.random() * 9),           // 9 variants
+      offY: (Math.random() - 0.5) * (PIPE_GAP * 0.35),
+      scale: 0.85 + Math.random() * 0.35,
+      spin: (Math.random() - 0.5) * 0.025,
+      phase: Math.random() * Math.PI * 2,
+    };
   }
 
   // Random antenna sticks for junk pipes, deterministic per-pipe
@@ -710,48 +722,68 @@
 
   // ---------- Rendering ----------
   function drawBackground() {
-    // Deep space base
-    ctx.fillStyle = '#02010a';
+    // Apocalyptic sunset-desert gradient
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0,    '#1a0512');   // smoky purple-black zenith
+    g.addColorStop(0.28, '#4a1020');   // bruised red sky
+    g.addColorStop(0.5,  '#923523');   // deep burnt orange
+    g.addColorStop(0.72, '#d97028');   // sunset amber
+    g.addColorStop(0.9,  '#e9a347');   // hazy gold horizon
+    g.addColorStop(1,    '#2a150a');   // dust line at ground
+    ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
 
-    // Static nebula — big blurred purple/pink cloud way in the back
+    // Swollen blood-red sun low on the horizon
+    const sunX = W * 0.78;
+    const sunY = PLAY_H * 0.72;
+    const sunR = Math.min(W, PLAY_H) * 0.22;
+    const sg = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunR);
+    sg.addColorStop(0,   'rgba(255, 210, 140, 0.95)');
+    sg.addColorStop(0.4, 'rgba(240, 120, 50, 0.85)');
+    sg.addColorStop(1,   'rgba(180, 40, 20, 0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Dust/smoke nebula — a heavy brown haze instead of a pink space cloud
     if (nebula) {
       ctx.save();
       const ng = ctx.createRadialGradient(nebula.x, nebula.y, 0, nebula.x, nebula.y, nebula.r);
-      ng.addColorStop(0,    'rgba(200, 90, 180, 0.22)');
-      ng.addColorStop(0.35, 'rgba(120, 60, 180, 0.16)');
-      ng.addColorStop(0.7,  'rgba(60, 30, 110, 0.08)');
+      ng.addColorStop(0,    'rgba(90, 50, 30, 0.32)');
+      ng.addColorStop(0.45, 'rgba(60, 30, 20, 0.2)');
+      ng.addColorStop(0.8,  'rgba(30, 15, 10, 0.1)');
       ng.addColorStop(1,    'rgba(0, 0, 0, 0)');
       ctx.fillStyle = ng;
       ctx.fillRect(0, 0, W, H);
 
-      // Secondary pink wisp offset for more organic cloud shape
       const ng2 = ctx.createRadialGradient(
-        nebula.x - nebula.r * 0.3, nebula.y + nebula.r * 0.15, 0,
-        nebula.x - nebula.r * 0.3, nebula.y + nebula.r * 0.15, nebula.r * 0.6
+        nebula.x - nebula.r * 0.35, nebula.y + nebula.r * 0.2, 0,
+        nebula.x - nebula.r * 0.35, nebula.y + nebula.r * 0.2, nebula.r * 0.55
       );
-      ng2.addColorStop(0, 'rgba(255, 150, 200, 0.14)');
-      ng2.addColorStop(1, 'rgba(255, 150, 200, 0)');
+      ng2.addColorStop(0, 'rgba(220, 120, 60, 0.18)');
+      ng2.addColorStop(1, 'rgba(220, 120, 60, 0)');
       ctx.fillStyle = ng2;
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
     }
 
-    // Unified 3-layer parallax starfield
+    // Thin jagged mountain silhouette across the mid-horizon
+    drawDesertRidge();
+
+    // Warm atmospheric dust motes (re-purposed star layers)
     for (const s of stars) {
       if (s.speedFactor === 0.1) {
-        ctx.fillStyle = 'rgba(180,160,220,' + (s.a * s.flicker) + ')';
+        ctx.fillStyle = 'rgba(120, 70, 40, ' + (s.a * s.flicker) + ')';
         ctx.fillRect(s.x, s.y, 1, 1);
       } else if (s.speedFactor === 0.5) {
-        ctx.fillStyle = 'rgba(200,190,240,' + (s.a * s.flicker) + ')';
+        ctx.fillStyle = 'rgba(200, 130, 70, ' + (s.a * s.flicker * 0.8) + ')';
         ctx.fillRect(s.x, s.y, s.size, s.size);
       } else {
         const tw = 0.5 + 0.5 * Math.abs(Math.sin(frame * 0.08 + s.tw));
         const alpha = s.a * tw * s.flicker;
         ctx.save();
-        ctx.shadowBlur = 6;
-        ctx.shadowColor = 'rgba(220,210,255,0.9)';
-        ctx.fillStyle = 'rgba(255,255,255,' + alpha + ')';
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = 'rgba(255, 180, 110, 0.9)';
+        ctx.fillStyle = 'rgba(255, 220, 170, ' + alpha + ')';
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
         ctx.fill();
@@ -762,11 +794,11 @@
     // Distant derelict satellite silhouettes behind the debris field
     drawJunkSats();
 
-    // Fast space-dust specks — short streaks for extreme-speed illusion
-    ctx.strokeStyle = '#ffffff';
+    // Fast ember dust streaks — warm tint for the apocalyptic sky
+    ctx.strokeStyle = 'rgba(255, 200, 140, 1)';
     ctx.lineCap = 'round';
     for (const d of dust) {
-      ctx.globalAlpha = d.a;
+      ctx.globalAlpha = d.a * 0.8;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(d.x, d.y);
@@ -774,6 +806,33 @@
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+  }
+
+  // Jagged distant mountain/ruin silhouette along the horizon
+  function drawDesertRidge() {
+    ctx.save();
+    ctx.fillStyle = 'rgba(30, 15, 10, 0.85)';
+    ctx.beginPath();
+    const baseY = PLAY_H * 0.82;
+    ctx.moveTo(0, PLAY_H);
+    ctx.lineTo(0, baseY);
+    const peaks = 14;
+    for (let i = 0; i <= peaks; i++) {
+      const x = (W / peaks) * i;
+      // Deterministic jagged profile via sine hash
+      const h = 12 + Math.abs(Math.sin(i * 1.7) * 28) + (i % 3) * 4;
+      ctx.lineTo(x, baseY - h);
+      if (i < peaks) {
+        const xm = x + (W / peaks) * 0.5;
+        const hm = 6 + Math.abs(Math.cos(i * 2.3) * 14);
+        ctx.lineTo(xm, baseY - hm);
+      }
+    }
+    ctx.lineTo(W, baseY);
+    ctx.lineTo(W, PLAY_H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   function drawJunkSats() {
@@ -820,27 +879,300 @@
   }
 
   function drawGround() {
-    // Dark rocky crust with a glowing orange magma seam as horizon
+    // Burning dust wasteland — cracked dark earth with embers
     const gr = ctx.createLinearGradient(0, PLAY_H, 0, H);
-    gr.addColorStop(0, 'rgba(40, 20, 15, 0.9)');
+    gr.addColorStop(0, '#3a1a0c');
+    gr.addColorStop(0.5, '#1a0a05');
     gr.addColorStop(1, '#000000');
     ctx.fillStyle = gr;
     ctx.fillRect(0, PLAY_H, W, GROUND_H);
 
+    // Glowing ember seam at the horizon
     ctx.save();
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = '#ff4500';
-    ctx.strokeStyle = 'rgba(255, 90, 30, 0.7)';
-    ctx.lineWidth = 1.2;
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = '#ff6a1a';
+    ctx.strokeStyle = 'rgba(255, 120, 40, 0.85)';
+    ctx.lineWidth = 1.4;
     ctx.beginPath();
     ctx.moveTo(0, PLAY_H + 0.5);
     ctx.lineTo(W, PLAY_H + 0.5);
     ctx.stroke();
     ctx.restore();
+
+    // Jagged crack pattern in the dirt
+    ctx.strokeStyle = 'rgba(80, 30, 15, 0.6)';
+    ctx.lineWidth = 1;
+    for (let cx = 0; cx < W; cx += 18) {
+      const off = Math.sin(cx * 0.7) * 3;
+      ctx.beginPath();
+      ctx.moveTo(cx + off, PLAY_H + 4);
+      ctx.lineTo(cx + off + 4, PLAY_H + GROUND_H * 0.55);
+      ctx.stroke();
+    }
   }
 
   function drawPipes() {
     for (const p of pipes) drawPipe(p);
+  }
+
+  // Floating garbage items in each gap: burger, fries, headphones, toilet, etc.
+  function drawAllDebris() {
+    for (const p of pipes) {
+      if (!p.debris) continue;
+      const cx = p.x + PIPE_W / 2;
+      const cy = p.top + PIPE_GAP / 2 + p.debris.offY;
+      const rot = frame * p.debris.spin + p.debris.phase;
+      const bob = Math.sin(frame * 0.04 + p.debris.phase) * 3;
+      ctx.save();
+      ctx.translate(cx, cy + bob);
+      ctx.rotate(rot);
+      ctx.scale(p.debris.scale, p.debris.scale);
+      drawDebrisItem(p.debris.kind);
+      ctx.restore();
+    }
+  }
+
+  function drawDebrisItem(kind) {
+    // Soft drop shadow helps each item pop against the sunset
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    switch (kind) {
+      case 0: drawBurger();     break;
+      case 1: drawFries();      break;
+      case 2: drawHeadphones(); break;
+      case 3: drawToilet();     break;
+      case 4: drawDuck();       break;
+      case 5: drawTV();         break;
+      case 6: drawPizza();      break;
+      case 7: drawBottle();     break;
+      case 8: drawShoe();       break;
+    }
+  }
+
+  function drawBurger() {
+    // Top bun
+    ctx.fillStyle = '#e8a44a';
+    ctx.beginPath();
+    ctx.arc(0, -6, 11, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillRect(-11, -6, 22, 2);
+    // Sesame seeds
+    ctx.fillStyle = '#fff4d0';
+    ctx.beginPath(); ctx.arc(-5, -10, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( 2, -12, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( 7, -9,  1, 0, Math.PI * 2); ctx.fill();
+    // Lettuce (green frill)
+    ctx.fillStyle = '#7bc24e';
+    ctx.beginPath();
+    ctx.moveTo(-12, -4);
+    for (let x = -11; x <= 11; x += 4) ctx.lineTo(x, -2 + (x % 8 === 0 ? -2 : 0));
+    ctx.lineTo(12, -4); ctx.lineTo(12, -2); ctx.lineTo(-12, -2);
+    ctx.closePath(); ctx.fill();
+    // Patty
+    ctx.fillStyle = '#6a3a1a';
+    ctx.fillRect(-11, -2, 22, 5);
+    // Bottom bun
+    ctx.fillStyle = '#c08030';
+    ctx.beginPath();
+    ctx.moveTo(-11, 3);
+    ctx.lineTo(11, 3);
+    ctx.arc(0, 3, 11, 0, Math.PI);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawFries() {
+    // Red container
+    ctx.fillStyle = '#c92a2a';
+    ctx.beginPath();
+    ctx.moveTo(-9, 4); ctx.lineTo(-11, 11); ctx.lineTo(11, 11); ctx.lineTo(9, 4);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#7a1414';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Golden M-style band
+    ctx.fillStyle = '#ffd43b';
+    ctx.fillRect(-9, 5, 18, 2);
+    // Fries sticking out
+    ctx.fillStyle = '#ffd86b';
+    ctx.strokeStyle = '#a8761a';
+    ctx.lineWidth = 0.5;
+    for (let i = -4; i <= 4; i += 2) {
+      const h = 9 + Math.abs(i);
+      ctx.fillRect(i - 0.7, 3 - h, 1.4, h);
+      ctx.strokeRect(i - 0.7, 3 - h, 1.4, h);
+    }
+  }
+
+  function drawHeadphones() {
+    // Headband arc
+    ctx.strokeStyle = '#202020';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 2, 11, Math.PI + 0.25, 2 * Math.PI - 0.25);
+    ctx.stroke();
+    // Earcups
+    ctx.fillStyle = '#282828';
+    ctx.fillRect(-13, 0, 6, 10);
+    ctx.fillRect(7, 0, 6, 10);
+    // Cup foam
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillRect(-12, 2, 4, 6);
+    ctx.fillRect(8, 2, 4, 6);
+    // Logo dots
+    ctx.fillStyle = '#e04040';
+    ctx.beginPath(); ctx.arc(-10, 5, 0.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, 5, 0.8, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function drawToilet() {
+    // Tank
+    ctx.fillStyle = '#e6ecef';
+    ctx.fillRect(-7, -10, 14, 8);
+    ctx.strokeStyle = '#6a7278';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-7, -10, 14, 8);
+    // Flush button
+    ctx.fillStyle = '#9aa0a6';
+    ctx.fillRect(-2, -9, 4, 2);
+    // Bowl
+    ctx.fillStyle = '#f0f4f6';
+    ctx.beginPath();
+    ctx.moveTo(-10, -2);
+    ctx.lineTo(10, -2);
+    ctx.lineTo(7, 10);
+    ctx.lineTo(-7, 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#7a828a';
+    ctx.stroke();
+    // Water (grimy post-apocalypse green)
+    ctx.fillStyle = '#4a6a3a';
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 7, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawDuck() {
+    // Body
+    ctx.fillStyle = '#ffd633';
+    ctx.beginPath();
+    ctx.ellipse(0, 3, 10, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Head
+    ctx.beginPath();
+    ctx.arc(6, -3, 5, 0, Math.PI * 2);
+    ctx.fill();
+    // Beak
+    ctx.fillStyle = '#ff8a1c';
+    ctx.beginPath();
+    ctx.moveTo(9, -2); ctx.lineTo(14, -1); ctx.lineTo(9, 0);
+    ctx.closePath(); ctx.fill();
+    // Eye
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(7, -4, 0.9, 0, Math.PI * 2); ctx.fill();
+    // Wing line
+    ctx.strokeStyle = '#c39a14';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-3, 3); ctx.quadraticCurveTo(0, 6, 4, 3);
+    ctx.stroke();
+  }
+
+  function drawTV() {
+    // Cabinet
+    ctx.fillStyle = '#6a5a3e';
+    ctx.fillRect(-12, -7, 24, 14);
+    ctx.strokeStyle = '#2a1f0f';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-12, -7, 24, 14);
+    // Screen (dead static)
+    ctx.fillStyle = '#1a1d22';
+    ctx.fillRect(-9, -5, 17, 10);
+    // Static noise lines
+    ctx.strokeStyle = 'rgba(200, 200, 200, 0.3)';
+    for (let ly = -4; ly < 5; ly += 2) {
+      ctx.beginPath();
+      ctx.moveTo(-9, ly); ctx.lineTo(8, ly);
+      ctx.stroke();
+    }
+    // Knobs
+    ctx.fillStyle = '#d0a04a';
+    ctx.beginPath(); ctx.arc(10, -3, 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, 2, 1.2, 0, Math.PI * 2); ctx.fill();
+    // Bent antenna
+    ctx.strokeStyle = '#9a9a9a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-4, -7); ctx.lineTo(-8, -14);
+    ctx.moveTo(4, -7); ctx.lineTo(9, -12);
+    ctx.stroke();
+  }
+
+  function drawPizza() {
+    // Slice crust
+    ctx.fillStyle = '#d9a058';
+    ctx.beginPath();
+    ctx.moveTo(-11, 8); ctx.lineTo(11, 8); ctx.lineTo(0, -10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#7a4a1a';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Cheese (inner)
+    ctx.fillStyle = '#ffd56b';
+    ctx.beginPath();
+    ctx.moveTo(-9, 7); ctx.lineTo(9, 7); ctx.lineTo(0, -7);
+    ctx.closePath(); ctx.fill();
+    // Pepperoni
+    ctx.fillStyle = '#c03020';
+    ctx.beginPath(); ctx.arc(-3, 3, 1.6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(3, 1, 1.6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-1, -3, 1.4, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function drawBottle() {
+    // Body
+    ctx.fillStyle = 'rgba(60, 140, 90, 0.85)';
+    ctx.fillRect(-5, -4, 10, 14);
+    // Neck
+    ctx.fillRect(-2, -10, 4, 6);
+    // Cap
+    ctx.fillStyle = '#8a1a1a';
+    ctx.fillRect(-2.5, -12, 5, 2.5);
+    // Highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(-4, -3, 1.5, 11);
+    // Label
+    ctx.fillStyle = '#f0e6b0';
+    ctx.fillRect(-5, 1, 10, 4);
+    ctx.strokeStyle = '#4a2a0a';
+    ctx.lineWidth = 0.6;
+    ctx.strokeRect(-5, 1, 10, 4);
+  }
+
+  function drawShoe() {
+    // Sole
+    ctx.fillStyle = '#3a3a3a';
+    ctx.beginPath();
+    ctx.moveTo(-12, 6); ctx.lineTo(10, 6); ctx.lineTo(12, 3); ctx.lineTo(-12, 3);
+    ctx.closePath(); ctx.fill();
+    // Upper
+    ctx.fillStyle = '#a02a2a';
+    ctx.beginPath();
+    ctx.moveTo(-12, 3); ctx.lineTo(2, 3); ctx.lineTo(4, -3); ctx.lineTo(10, -3); ctx.lineTo(12, 3);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#2a0a0a';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    // Laces
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 0.8;
+    for (let lx = -8; lx < 2; lx += 3) {
+      ctx.beginPath();
+      ctx.moveTo(lx, 3); ctx.lineTo(lx + 1, -1);
+      ctx.stroke();
+    }
   }
 
   function drawPipe(p) {
@@ -1266,10 +1598,10 @@
     ctx.font = 'bold ' + size + 'px "Courier New", "Lucida Console", monospace';
     ctx.textAlign = 'center';
     ctx.shadowBlur = 12;
-    ctx.shadowColor = '#00ff88';
+    ctx.shadowColor = '#ffb347';
     ctx.lineWidth = 4;
-    ctx.strokeStyle = '#003318';
-    ctx.fillStyle = '#00ff88';
+    ctx.strokeStyle = '#3a1a05';
+    ctx.fillStyle = '#ffd280';
     ctx.strokeText(text, 0, 0);
     ctx.fillText(text, 0, 0);
     ctx.restore();
@@ -1292,6 +1624,7 @@
       shakeFrames--;
     }
     drawBackground();
+    drawAllDebris();   // floating trash in each gap, behind the ship/obstacles
     drawPipes();
     drawGround();
     drawExhaust();
