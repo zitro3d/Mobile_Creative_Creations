@@ -196,9 +196,9 @@
   <canvas id="game"></canvas>
   <div id="overlay" class="show">
     <div id="startScreen">
-      <div id="title">SHATTERED PLANET</div>
-      <div id="subtitle">Navigate the debris field</div>
-      <div class="tapHint">TAP TO LAUNCH</div>
+      <div id="title">GARBAGE HAULER</div>
+      <div id="subtitle">Dodge the orbital junk</div>
+      <div class="tapHint">TAP TO IGNITE</div>
     </div>
     <div id="gameOverScreen" class="hidden">
       <div class="panel">
@@ -265,13 +265,14 @@
     GROUND_H = Math.max(60, Math.round(H * 0.11));
     PLAY_H = H - GROUND_H;
     // Reposition stars to fit new dimensions
-    if (stars.length) { initStars(); initDust(); initNebula(); }
+    if (stars.length) { initStars(); initDust(); initNebula(); initJunkSats(); }
   }
 
   // ---------- Physics / constants ----------
-  const GRAVITY = 0.272; // 20% lower than original 0.34 — floating ether feel
-  const FLAP = -5.6;
-  const MAX_FALL = 9;
+  // Heavy mechanical feel — +10% gravity, stronger jump impulse
+  const GRAVITY = 0.3;
+  const FLAP = -6.7;
+  const MAX_FALL = 10.5;
 
   const PIPE_W = 56;
   const PIPE_GAP = 160;
@@ -289,10 +290,11 @@
   const STATE_OVER = 2;
   let state = STATE_READY;
 
-  let bird, pipes, sparks, exhaust, score, best, frame, flashAlpha, burstFrames, shakeFrames, scorePulse, thrusterFrames;
+  let bird, pipes, sparks, exhaust, score, best, frame, flashAlpha, burstFrames, shakeFrames, scorePulse, thrusterFrames, flapCount;
   let stars = [];
   let dust  = [];                  // fast white speed-dust specks
   let nebula;                       // static far-background cloud
+  let junkSats = [];                // distant satellite silhouettes
   best = parseInt(localStorage.getItem('flappy_best_ios') || '0', 10);
 
   function reset() {
@@ -311,9 +313,11 @@
     shakeFrames = 0;
     scorePulse = 0;
     thrusterFrames = 0;
+    flapCount = 0;
     initStars();
     initDust();
     initNebula();
+    initJunkSats();
     for (let i = 0; i < 4; i++) addPipe(W + 120 + i * PIPE_SPACING);
   }
 
@@ -390,17 +394,64 @@
     };
   }
 
+  // Distant derelict satellite silhouettes drifting slowly through the nebula
+  function initJunkSats() {
+    junkSats = [];
+    const n = 5;
+    for (let i = 0; i < n; i++) {
+      junkSats.push({
+        x: (W / n) * i + Math.random() * 40,
+        y: 40 + Math.random() * (PLAY_H * 0.55),
+        scale: 0.55 + Math.random() * 0.55,
+        speed: 0.15 + Math.random() * 0.2,
+        type: Math.floor(Math.random() * 3),
+        rot: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 0.003,
+      });
+    }
+  }
+
+  function updateJunkSats() {
+    for (const s of junkSats) {
+      s.x -= s.speed;
+      s.rot += s.spin;
+      if (s.x < -60) {
+        s.x = W + 40;
+        s.y = 40 + Math.random() * (PLAY_H * 0.55);
+      }
+    }
+  }
+
   function addPipe(x) {
     const top = PIPE_MIN_TOP + Math.random() * (PLAY_H - PIPE_GAP - PIPE_MIN_TOP * 2);
+    const type = Math.random() < 0.5 ? 'cargo' : 'junk';
     pipes.push({
       x: x,
       top: top,
       passed: false,
       seed: Math.random() * 1000,
       pulse: Math.random() * Math.PI * 2,
+      type: type,
       topShape: buildShardShape(PIPE_W, top, true),
       botShape: buildShardShape(PIPE_W, PLAY_H - (top + PIPE_GAP), false),
+      antennas: buildAntennas(),
     });
+  }
+
+  // Random antenna sticks for junk pipes, deterministic per-pipe
+  function buildAntennas() {
+    const arr = [];
+    const n = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < n; i++) {
+      arr.push({
+        side: Math.random() < 0.5 ? -1 : 1,
+        yFrac: 0.2 + Math.random() * 0.6,
+        len: 8 + Math.random() * 12,
+        angle: (Math.random() - 0.5) * 0.6,
+        tipR: 1 + Math.random() * 1.5,
+      });
+    }
+    return arr;
   }
 
   // Build a static jagged obsidian-shard polygon. Generated once per pipe so
@@ -463,8 +514,28 @@
     }
     if (state === STATE_PLAY) {
       bird.vy = FLAP;
-      thrusterFrames = 5;   // blue flame visible for 5 frames after a burn
+      thrusterFrames = 5;
+      flapCount++;
+      // Every 5th or 6th tap the engine backfires: extra smoke puff
+      const isBackfire = flapCount > 0 && (flapCount % 5 === 0 || flapCount % 6 === 0);
+      emitExhaustBurst(isBackfire ? 12 : 5, isBackfire);
       haptic();
+    }
+  }
+
+  function emitExhaustBurst(n, big) {
+    for (let i = 0; i < n; i++) {
+      const angle = Math.PI + (Math.random() - 0.5) * 0.9;
+      const speed = 0.4 + Math.random() * (big ? 1.8 : 0.8);
+      exhaust.push({
+        x: bird.x - BIRD_R * 0.9,
+        y: bird.y + (Math.random() - 0.5) * (big ? 10 : 5),
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed + (Math.random() - 0.5) * 0.4,
+        r: (big ? 4 : 2.5) + Math.random() * 2,
+        a: big ? 0.75 : 0.55,
+        dirty: big || Math.random() < 0.35,   // darker greasy puffs
+      });
     }
   }
 
@@ -478,26 +549,31 @@
 
     updateStars();
     updateDust();
+    updateJunkSats();
 
     if (thrusterFrames > 0) thrusterFrames--;
     if (burstFrames > 0) burstFrames--;
     if (scorePulse > 0) scorePulse = Math.max(0, scorePulse - 0.1);
 
-    // Engine exhaust: emit expanding/fading grey smoke puff behind the ship
-    if (state !== STATE_OVER && frame % 2 === 0) {
+    // Idle sputter — constant trickle of dirty smoke from the back
+    if (state !== STATE_OVER && frame % 3 === 0) {
       exhaust.push({
-        x: bird.x - BIRD_R * 0.8,
+        x: bird.x - BIRD_R * 0.85,
         y: bird.y + (Math.random() - 0.5) * 5,
-        r: 2.5 + Math.random() * 1.5,
-        a: 0.55,
+        vx: -0.3 - Math.random() * 0.3,
+        vy: (Math.random() - 0.5) * 0.3,
+        r: 2 + Math.random() * 1.5,
+        a: 0.45,
+        dirty: Math.random() < 0.4,
       });
-      if (exhaust.length > 60) exhaust.shift();
+      if (exhaust.length > 80) exhaust.shift();
     }
     for (let i = exhaust.length - 1; i >= 0; i--) {
       const p = exhaust[i];
-      p.r *= 1.06;                            // expand
-      p.a -= 0.02;                            // fade
-      p.x -= PIPE_SPEED * 0.45;               // drift backward
+      p.r *= 1.05;                             // expand
+      p.a -= 0.018;                            // fade slowly
+      p.x += (p.vx || 0) - PIPE_SPEED * 0.4;
+      p.y += (p.vy || 0);
       if (p.a <= 0) exhaust.splice(i, 1);
     }
 
@@ -683,6 +759,9 @@
       }
     }
 
+    // Distant derelict satellite silhouettes behind the debris field
+    drawJunkSats();
+
     // Fast space-dust specks — short streaks for extreme-speed illusion
     ctx.strokeStyle = '#ffffff';
     ctx.lineCap = 'round';
@@ -695,6 +774,49 @@
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+  }
+
+  function drawJunkSats() {
+    ctx.save();
+    for (const s of junkSats) {
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.rotate(s.rot);
+      ctx.scale(s.scale, s.scale);
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = '#1a1d22';
+      ctx.strokeStyle = 'rgba(40, 40, 45, 0.8)';
+      ctx.lineWidth = 1;
+      if (s.type === 0) {
+        // Solar-panel satellite
+        ctx.fillRect(-4, -3, 8, 6);                     // body
+        ctx.fillRect(-18, -2, 12, 4);                   // left panel
+        ctx.fillRect(6, -2, 12, 4);                     // right panel
+        ctx.strokeRect(-4, -3, 8, 6);
+        ctx.strokeRect(-18, -2, 12, 4);
+        ctx.strokeRect(6, -2, 12, 4);
+      } else if (s.type === 1) {
+        // Dish satellite
+        ctx.fillRect(-3, -2, 6, 4);
+        ctx.beginPath();
+        ctx.arc(0, -6, 5, Math.PI, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillRect(-10, -1, 6, 2);
+        ctx.fillRect(4, -1, 6, 2);
+      } else {
+        // Tumbling debris box
+        ctx.fillRect(-6, -4, 12, 8);
+        ctx.strokeRect(-6, -4, 12, 8);
+        ctx.strokeStyle = 'rgba(60, 60, 70, 0.6)';
+        ctx.beginPath();
+        ctx.moveTo(-6, 0); ctx.lineTo(6, 0);
+        ctx.moveTo(0, -4); ctx.lineTo(0, 4);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   function drawGround() {
@@ -722,8 +844,172 @@
   }
 
   function drawPipe(p) {
-    drawShard(p.x, 0, PIPE_W, p.top, true, p.topShape, p.seed);
-    drawShard(p.x, p.top + PIPE_GAP, PIPE_W, PLAY_H - (p.top + PIPE_GAP), false, p.botShape, p.seed + 13);
+    if (p.type === 'cargo') {
+      drawCargo(p.x, 0, PIPE_W, p.top, true, p.seed);
+      drawCargo(p.x, p.top + PIPE_GAP, PIPE_W, PLAY_H - (p.top + PIPE_GAP), false, p.seed + 13);
+    } else {
+      drawJunk(p.x, 0, PIPE_W, p.top, true, p.topShape, p.seed, p.antennas);
+      drawJunk(p.x, p.top + PIPE_GAP, PIPE_W, PLAY_H - (p.top + PIPE_GAP), false, p.botShape, p.seed + 13, p.antennas);
+    }
+  }
+
+  // Rectangular cargo container with yellow/black hazard stripes
+  function drawCargo(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const pad = 4;
+    const containerW = w + pad * 2;
+    const containerX = -pad;
+
+    // Body with rust-tinted metallic gradient
+    const grad = ctx.createLinearGradient(containerX, 0, containerX + containerW, 0);
+    grad.addColorStop(0,   '#8a6a4a');
+    grad.addColorStop(0.4, '#4a3e2d');
+    grad.addColorStop(0.7, '#5c4a35');
+    grad.addColorStop(1,   '#3a2e1f');
+    ctx.fillStyle = grad;
+    ctx.fillRect(containerX, 0, containerW, h);
+
+    // Hazard stripe band at the gap-facing end
+    const bandH = 18;
+    const bandY = isTop ? h - bandH : 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(containerX, bandY, containerW, bandH);
+    ctx.clip();
+    const stripeW = 10;
+    for (let sx = containerX - bandH; sx < containerX + containerW + bandH; sx += stripeW) {
+      ctx.fillStyle = (Math.floor((sx - containerX) / stripeW) % 2 === 0) ? '#ffd60a' : '#1a1a1a';
+      ctx.beginPath();
+      ctx.moveTo(sx, bandY);
+      ctx.lineTo(sx + stripeW, bandY);
+      ctx.lineTo(sx + stripeW - bandH, bandY + bandH);
+      ctx.lineTo(sx - bandH, bandY + bandH);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+    // Band edge lines
+    ctx.strokeStyle = '#2a2a2a';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(containerX + 0.5, bandY + 0.5, containerW - 1, bandH - 1);
+
+    // Rivets along both long edges
+    ctx.fillStyle = '#2a2a2a';
+    for (let ry = 4; ry < h - 4; ry += 10) {
+      ctx.beginPath(); ctx.arc(containerX + 3, ry, 1.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(containerX + containerW - 3, ry, 1.2, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Weathering — dark brown streaks
+    ctx.strokeStyle = 'rgba(58, 30, 15, 0.7)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++) {
+      const wx = containerX + 6 + srand(seed + i * 9) * (containerW - 12);
+      const wy0 = isTop ? 2 : h - 2;
+      const wy1 = wy0 + (isTop ? 14 + srand(seed + i * 3) * 20 : -(14 + srand(seed + i * 3) * 20));
+      ctx.beginPath();
+      ctx.moveTo(wx, wy0);
+      ctx.lineTo(wx + (srand(seed + i * 5) - 0.5) * 3, wy1);
+      ctx.stroke();
+    }
+    // Rust spots
+    for (let i = 0; i < 5; i++) {
+      const rx = containerX + srand(seed + 100 + i) * containerW;
+      const ry = srand(seed + 200 + i) * h;
+      const rr = 1 + srand(seed + 300 + i) * 2;
+      ctx.fillStyle = 'rgba(120, 55, 25, ' + (0.5 + srand(seed + 400 + i) * 0.3) + ')';
+      ctx.beginPath();
+      ctx.arc(rx, ry, rr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Outer edge shadow
+    ctx.strokeStyle = 'rgba(10, 8, 5, 0.9)';
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(containerX + 0.5, 0.5, containerW - 1, h - 1);
+    ctx.restore();
+  }
+
+  // Irregular junk pile — metallic polygon with antennas and weathering
+  function drawJunk(x, y, w, h, isTop, pts, seed, antennas) {
+    if (h <= 0 || !pts) return;
+    const tipY = isTop ? h : 0;
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Dark metal fill with slight gradient
+    const g = ctx.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0,   '#5a5550');
+    g.addColorStop(0.5, '#3a3632');
+    g.addColorStop(1,   '#2a2725');
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    // Dark brown weathering outline
+    ctx.strokeStyle = '#3a1e0f';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+
+    // Secondary inner rim for depth
+    ctx.strokeStyle = 'rgba(15, 10, 8, 0.75)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    // Rust streaks and bolts inside the polygon
+    ctx.save();
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(90, 40, 15, 0.7)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      const rx = srand(seed + 50 + i) * w;
+      const ry0 = srand(seed + 60 + i) * h;
+      const ry1 = ry0 + (isTop ? 10 + srand(seed + 70 + i) * 18 : -(10 + srand(seed + 70 + i) * 18));
+      ctx.beginPath();
+      ctx.moveTo(rx, ry0);
+      ctx.lineTo(rx + (srand(seed + 80 + i) - 0.5) * 3, ry1);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#2a2018';
+    for (let i = 0; i < 4; i++) {
+      const bx = 6 + srand(seed + 150 + i) * (w - 12);
+      const by = 6 + srand(seed + 160 + i) * (h - 12);
+      ctx.beginPath();
+      ctx.arc(bx, by, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Antenna sticks protruding from the gap-facing edge
+    if (antennas) {
+      ctx.strokeStyle = '#88807a';
+      ctx.fillStyle = '#d04840';
+      ctx.lineWidth = 1.2;
+      for (const a of antennas) {
+        // Anchor point on the tip edge (gap-facing), offset slightly inward
+        const ax = w * (0.2 + a.yFrac * 0.6);
+        const ay = tipY;
+        const dir = isTop ? 1 : -1;      // antennas point into the gap
+        const endX = ax + Math.sin(a.angle) * a.len;
+        const endY = ay + Math.cos(a.angle) * a.len * dir;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+        // red LED tip
+        ctx.beginPath();
+        ctx.arc(endX, endY, a.tipR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
   }
 
   // Deterministic pseudo-random from a seed
@@ -732,109 +1018,23 @@
     return x - Math.floor(x);
   }
 
-  function drawShard(x, y, w, h, isTop, pts, seed) {
-    if (h <= 0 || !pts) return;
-    const tipY = isTop ? h : 0;
-    const baseY = isTop ? 0 : h;
-
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Craggy grey rock fill with subtle gradient for volume
-    const g = ctx.createLinearGradient(0, 0, w, 0);
-    g.addColorStop(0,   '#555555');
-    g.addColorStop(0.5, '#444444');
-    g.addColorStop(1,   '#333333');
-
-    ctx.beginPath();
-    ctx.moveTo(pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-    ctx.closePath();
-    ctx.fillStyle = g;
-    ctx.fill();
-
-    // Glowing orange magma edge — hot debris look
-    ctx.save();
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = '#ff4500';
-    ctx.strokeStyle = '#ff4500';
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
-    ctx.restore();
-
-    // Inner dark rim for depth
-    ctx.strokeStyle = 'rgba(20, 10, 10, 0.7)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // Craters — 3-4 darker grey lines inside the rock
-    const craterCount = 3 + Math.floor(srand(seed + 101) * 2);
-    const coreCx = w / 2;
-    const runeStart = isTop ? baseY + 12 : tipY + 12;
-    const runeEnd   = isTop ? tipY - 12 : baseY - 12;
-    const span = runeEnd - runeStart;
-    if (span > 20) {
-      ctx.lineCap = 'round';
-      for (let i = 0; i < craterCount; i++) {
-        const t = (i + 0.5) / craterCount;
-        const cy = runeStart + span * t;
-        const len = 8 + srand(seed + 200 + i * 3) * 10;
-        const offset = (srand(seed + 300 + i) - 0.5) * 6;
-        const tilt = (srand(seed + 400 + i) - 0.5) * 0.4; // slight tilt for irregularity
-        ctx.save();
-        ctx.translate(coreCx + offset, cy);
-        ctx.rotate(tilt);
-        ctx.strokeStyle = '#2a2a2a';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(-len / 2, 0);
-        ctx.lineTo(len / 2, 0);
-        ctx.stroke();
-        // small crater highlight
-        ctx.strokeStyle = 'rgba(90, 90, 90, 0.4)';
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(-len / 2, 1);
-        ctx.lineTo(len / 2, 1);
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
-    ctx.restore();
-  }
-
-  // Trace an inner offset contour toward the centroid for "glowing core" lines
-  function drawInnerContour(pts, cx, cy, inset, stroke, glow) {
-    ctx.save();
-    ctx.shadowBlur = 8;
-    ctx.shadowColor = glow;
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let i = 0; i < pts.length; i++) {
-      const px = pts[i][0];
-      const py = pts[i][1];
-      const dx = cx - px;
-      const dy = cy - py;
-      const d = Math.sqrt(dx * dx + dy * dy) || 1;
-      const ipx = px + (dx / d) * inset;
-      const ipy = py + (dy / d) * inset;
-      if (i === 0) ctx.moveTo(ipx, ipy);
-      else ctx.lineTo(ipx, ipy);
-    }
-    ctx.closePath();
-    ctx.stroke();
-    ctx.restore();
-  }
-
   function drawExhaust() {
     if (exhaust.length === 0) return;
     ctx.save();
     for (const p of exhaust) {
       ctx.globalAlpha = Math.max(0, p.a);
       const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
-      g.addColorStop(0, 'rgba(200,200,200,0.7)');
-      g.addColorStop(1, 'rgba(80,80,80,0)');
+      if (p.dirty) {
+        // Greasy black smoke
+        g.addColorStop(0, 'rgba(60, 45, 35, 0.85)');
+        g.addColorStop(0.7, 'rgba(30, 25, 20, 0.4)');
+        g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      } else {
+        // Dirty orange flame/smoke
+        g.addColorStop(0, 'rgba(255, 140, 50, 0.9)');
+        g.addColorStop(0.5, 'rgba(200, 90, 40, 0.55)');
+        g.addColorStop(1, 'rgba(50, 30, 20, 0)');
+      }
       ctx.fillStyle = g;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
@@ -869,88 +1069,39 @@
   }
 
   function drawBird() {
-    // Metallic triangular spacecraft — nose pointing right (direction of travel)
+    // Asymmetrical boxy Garbage Hauler — rust, patches, and a struggling engine
     ctx.save();
-    ctx.translate(bird.x, bird.y);
 
-    // Rotational lean: -20° rising, +20° falling, smooth between
+    // Constant engine-wobble vibration so the whole ship shakes slightly
+    const wobbleX = (Math.random() - 0.5) * 1.4;
+    const wobbleY = (Math.random() - 0.5) * 1.4;
+    ctx.translate(bird.x + wobbleX, bird.y + wobbleY);
+
+    // Base tilt from velocity, clamped to ±20°
     const tilt = Math.max(-0.349, Math.min(0.349, bird.vy * 0.1));
+
+    // Front of the ship uses the base tilt
+    ctx.save();
     ctx.rotate(tilt);
-
-    // Thruster flame: flickering blue plume out the back for 5 frames post-flap
-    if (thrusterFrames > 0) drawThruster();
-
-    // Ship body — triangle pointing in +x direction
-    const nose = BIRD_R * 1.1;
-    const tailX = -BIRD_R * 0.85;
-    const wingY = BIRD_R * 0.75;
-
-    // Drop shadow for lift
-    ctx.save();
-    ctx.shadowBlur = 8;
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
-
-    // Metallic body gradient (top bright → bottom dark)
-    const bodyGrad = ctx.createLinearGradient(0, -wingY, 0, wingY);
-    bodyGrad.addColorStop(0,   '#e8eaed');
-    bodyGrad.addColorStop(0.4, '#9aa0a6');
-    bodyGrad.addColorStop(1,   '#3c4043');
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.moveTo(nose, 0);
-    ctx.lineTo(tailX, -wingY);
-    ctx.lineTo(tailX + 4, 0);
-    ctx.lineTo(tailX, wingY);
-    ctx.closePath();
-    ctx.fill();
+    drawHaulerFront();
     ctx.restore();
 
-    // Hull outline
-    ctx.strokeStyle = '#1a1d21';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-
-    // Cockpit window — cyan glass
+    // Back / engine pivots slightly further — mechanical hinge
     ctx.save();
-    ctx.shadowBlur = 6;
-    ctx.shadowColor = '#00d4ff';
-    ctx.fillStyle = '#0ff';
-    ctx.beginPath();
-    ctx.ellipse(BIRD_R * 0.2, 0, BIRD_R * 0.3, BIRD_R * 0.18, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.rotate(tilt * 1.45);
+    drawHaulerBack();
+    if (thrusterFrames > 0) drawDirtyFlame();
     ctx.restore();
 
-    // Cockpit highlight
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.beginPath();
-    ctx.ellipse(BIRD_R * 0.12, -BIRD_R * 0.06, BIRD_R * 0.12, BIRD_R * 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Center spine line
-    ctx.strokeStyle = 'rgba(20, 20, 25, 0.8)';
-    ctx.lineWidth = 0.8;
-    ctx.beginPath();
-    ctx.moveTo(nose - 2, 0);
-    ctx.lineTo(tailX + 4, 0);
-    ctx.stroke();
-
-    // Red wingtip marker lights
-    ctx.fillStyle = '#ff3b30';
-    ctx.beginPath();
-    ctx.arc(tailX + 2, -wingY + 2, 1.6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(tailX + 2, wingY - 2, 1.6, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Score burst halo (kept as a general "powered up" glow when passing debris)
+    // Burst halo on score (kept as a sickly amber instead of cyan)
     if (burstFrames > 0) {
       const burstT = burstFrames / 14;
       ctx.save();
-      ctx.globalAlpha = burstT * 0.5;
-      ctx.shadowBlur = 20;
-      ctx.shadowColor = '#00ffff';
-      ctx.strokeStyle = '#00e5ff';
+      ctx.rotate(tilt);
+      ctx.globalAlpha = burstT * 0.55;
+      ctx.shadowBlur = 16;
+      ctx.shadowColor = '#ffb74d';
+      ctx.strokeStyle = '#ffb74d';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(0, 0, BIRD_R * (1.3 + (1 - burstT) * 0.4), 0, Math.PI * 2);
@@ -961,38 +1112,142 @@
     ctx.restore();
   }
 
-  function drawThruster() {
-    // Flickering blue plume behind the ship
-    const flick = 0.75 + Math.random() * 0.25;
-    const len = (BIRD_R * 1.0 + Math.random() * 6) * flick;
-    const tailX = -BIRD_R * 0.85;
+  function drawHaulerFront() {
+    // Main front cabin block (rusty orange) + asymmetrical cargo bulge on top
+    const nose = BIRD_R * 1.15;
+    const cabinH = BIRD_R * 1.1;
 
     ctx.save();
-    ctx.shadowBlur = 18;
-    ctx.shadowColor = '#00b0ff';
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
 
-    // Outer flame
+    // Rusty orange main body rectangle
+    const bodyGrad = ctx.createLinearGradient(0, -cabinH / 2, 0, cabinH / 2);
+    bodyGrad.addColorStop(0,   '#c0462e');
+    bodyGrad.addColorStop(0.5, '#a52a2a');
+    bodyGrad.addColorStop(1,   '#6a1e1a');
+    ctx.fillStyle = bodyGrad;
+    ctx.fillRect(-BIRD_R * 0.1, -cabinH / 2, nose + BIRD_R * 0.1, cabinH);
+
+    // Dark grey top cargo block (asymmetric, sits proud on the roof)
+    ctx.fillStyle = '#3a3a40';
+    ctx.fillRect(BIRD_R * 0.2, -cabinH / 2 - BIRD_R * 0.45, BIRD_R * 0.7, BIRD_R * 0.5);
+    ctx.restore();
+
+    // Outlines
+    ctx.strokeStyle = '#1a100a';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(-BIRD_R * 0.1 + 0.5, -cabinH / 2 + 0.5, nose + BIRD_R * 0.1 - 1, cabinH - 1);
+    ctx.strokeRect(BIRD_R * 0.2 + 0.5, -cabinH / 2 - BIRD_R * 0.45 + 0.5, BIRD_R * 0.7 - 1, BIRD_R * 0.5 - 1);
+
+    // Diagonal hazard stripes on the cargo block
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(BIRD_R * 0.2 + 1, -cabinH / 2 - BIRD_R * 0.45 + 1, BIRD_R * 0.7 - 2, BIRD_R * 0.5 - 2);
+    ctx.clip();
+    for (let sx = -BIRD_R; sx < BIRD_R * 2; sx += 6) {
+      ctx.fillStyle = (Math.floor(sx / 6) % 2 === 0) ? '#ffd60a' : '#1a1a1a';
+      ctx.beginPath();
+      ctx.moveTo(sx, -cabinH / 2 - BIRD_R * 0.45);
+      ctx.lineTo(sx + 3, -cabinH / 2 - BIRD_R * 0.45);
+      ctx.lineTo(sx + 3 - BIRD_R * 0.5, -cabinH / 2 + BIRD_R * 0.05);
+      ctx.lineTo(sx - BIRD_R * 0.5, -cabinH / 2 + BIRD_R * 0.05);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Dim yellow cockpit window at the front
+    ctx.save();
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = '#f2c94c';
+    ctx.fillStyle = '#e0a020';
+    ctx.fillRect(nose - BIRD_R * 0.35, -BIRD_R * 0.18, BIRD_R * 0.3, BIRD_R * 0.28);
+    ctx.strokeStyle = '#2a1a05';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(nose - BIRD_R * 0.35 + 0.5, -BIRD_R * 0.18 + 0.5, BIRD_R * 0.3 - 1, BIRD_R * 0.28 - 1);
+    // Crossbar
+    ctx.beginPath();
+    ctx.moveTo(nose - BIRD_R * 0.35, 0);
+    ctx.lineTo(nose - BIRD_R * 0.05, 0);
+    ctx.stroke();
+    ctx.restore();
+
+    // Rivets along the seams
+    ctx.fillStyle = '#1a0a05';
+    for (let rx = 0; rx < nose; rx += 5) {
+      ctx.beginPath(); ctx.arc(rx, -cabinH / 2 + 2, 0.9, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(rx, cabinH / 2 - 2, 0.9, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Weathering streaks (dark brown)
+    ctx.strokeStyle = 'rgba(58, 28, 14, 0.75)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(BIRD_R * 0.4, -cabinH / 2 + 3);
+    ctx.lineTo(BIRD_R * 0.55, cabinH / 2 - 2);
+    ctx.moveTo(BIRD_R * 0.85, -cabinH / 2 + 4);
+    ctx.lineTo(BIRD_R * 0.95, cabinH / 2 - 3);
+    ctx.stroke();
+
+    // Small red warning light on the roof
+    ctx.fillStyle = '#d04840';
+    ctx.beginPath();
+    ctx.arc(BIRD_R * 0.55, -cabinH / 2 - BIRD_R * 0.5, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawHaulerBack() {
+    // Engine block + exhaust pipes
+    const tailX = -BIRD_R * 0.1;
+    const blockW = BIRD_R * 0.55;
+    const blockH = BIRD_R * 1.4;
+
+    ctx.save();
+    ctx.shadowBlur = 5;
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+
+    // Dark grey engine block extending behind the cabin
+    ctx.fillStyle = '#2a2a30';
+    ctx.fillRect(tailX - blockW, -blockH / 2, blockW, blockH);
+    ctx.strokeStyle = '#0a0a0e';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(tailX - blockW + 0.5, -blockH / 2 + 0.5, blockW - 1, blockH - 1);
+
+    // Rust patches on the engine
+    ctx.fillStyle = 'rgba(120, 50, 20, 0.7)';
+    ctx.beginPath(); ctx.arc(tailX - blockW * 0.3, -blockH * 0.2, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(tailX - blockW * 0.7, blockH * 0.15, 1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(tailX - blockW * 0.45, blockH * 0.3, 1.4, 0, Math.PI * 2); ctx.fill();
+
+    // Two stacked exhaust pipes poking out the back
+    ctx.fillStyle = '#1a1a1e';
+    ctx.fillRect(tailX - blockW - BIRD_R * 0.25, -blockH * 0.3, BIRD_R * 0.28, BIRD_R * 0.22);
+    ctx.fillRect(tailX - blockW - BIRD_R * 0.25,  blockH * 0.08, BIRD_R * 0.28, BIRD_R * 0.22);
+    ctx.strokeRect(tailX - blockW - BIRD_R * 0.25 + 0.5, -blockH * 0.3 + 0.5, BIRD_R * 0.28 - 1, BIRD_R * 0.22 - 1);
+    ctx.strokeRect(tailX - blockW - BIRD_R * 0.25 + 0.5,  blockH * 0.08 + 0.5, BIRD_R * 0.28 - 1, BIRD_R * 0.22 - 1);
+    ctx.restore();
+  }
+
+  function drawDirtyFlame() {
+    // Short flickering orange plume out the main exhaust
+    const tailX = -BIRD_R * 0.65 - BIRD_R * 0.25;
+    const flick = 0.7 + Math.random() * 0.3;
+    const len = (BIRD_R * 0.9 + Math.random() * 5) * flick;
+
+    ctx.save();
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = '#ff7a00';
+
     const g = ctx.createLinearGradient(tailX, 0, tailX - len, 0);
-    g.addColorStop(0,   'rgba(255,255,255,0.95)');
-    g.addColorStop(0.3, 'rgba(80,200,255,0.85)');
-    g.addColorStop(1,   'rgba(0,100,255,0)');
+    g.addColorStop(0,   'rgba(255, 230, 140, 0.9)');
+    g.addColorStop(0.4, 'rgba(255, 110, 20, 0.7)');
+    g.addColorStop(1,   'rgba(40, 20, 10, 0)');
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.moveTo(tailX, -BIRD_R * 0.35);
+    ctx.moveTo(tailX, -BIRD_R * 0.28);
     ctx.lineTo(tailX - len, 0);
-    ctx.lineTo(tailX, BIRD_R * 0.35);
-    ctx.closePath();
-    ctx.fill();
-
-    // Inner white-hot core
-    const g2 = ctx.createLinearGradient(tailX, 0, tailX - len * 0.6, 0);
-    g2.addColorStop(0, 'rgba(255,255,255,1)');
-    g2.addColorStop(1, 'rgba(180,230,255,0)');
-    ctx.fillStyle = g2;
-    ctx.beginPath();
-    ctx.moveTo(tailX, -BIRD_R * 0.15);
-    ctx.lineTo(tailX - len * 0.6, 0);
-    ctx.lineTo(tailX, BIRD_R * 0.15);
+    ctx.lineTo(tailX, BIRD_R * 0.28);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
