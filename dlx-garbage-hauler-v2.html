@@ -977,6 +977,7 @@
     levelStartOffset = levelIndex;
     levelBanner = { text: '', life: 0 };
     boss = null;
+    lightningAt = -999;   // reset volcano flicker timer so since stays valid
     if (levelIndex === 3) spawnBoss();
     shieldCharges = 0;
     slowFrames = 0;
@@ -1845,11 +1846,13 @@
         const y = ((seed * 23 + frame * 0.4) % PLAY_H + PLAY_H) % PLAY_H;
         ctx.fillRect(x, y, 1.5, 1.5);
       }
-      // Subtle ember-flicker glow on the horizon — much softer than a full
-      // lightning flash so it never reads as a UI flash bug
+      // Subtle ember-flicker glow on the horizon. since must be guarded for
+      // [0, 8) — without the >= 0 check, a restart (frame back to 0) leaves
+      // lightningAt pointing at a future frame and the alpha balloons past 1
+      // (clamped opaque), producing a solid orange wall over half the screen.
       if (Math.random() < 0.004 && frame - lightningAt > 90) lightningAt = frame;
       const since = frame - lightningAt;
-      if (since < 8) {
+      if (since >= 0 && since < 8) {
         const a = (8 - since) / 8 * 0.12;
         ctx.fillStyle = 'rgba(255, 160, 80, ' + a + ')';
         ctx.fillRect(0, PLAY_H * 0.5, W, PLAY_H * 0.5);
