@@ -2,47 +2,60 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Flappy Bird</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Flappy">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<title>Flappy Bird — iOS</title>
 <style>
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
     margin: 0;
     padding: 0;
+    width: 100%;
     height: 100%;
     background: #000;
     overflow: hidden;
-    font-family: 'Courier New', monospace;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
     -webkit-user-select: none;
     user-select: none;
-    touch-action: manipulation;
+    -webkit-touch-callout: none;
+    touch-action: none;
+    overscroll-behavior: none;
   }
   body {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    position: fixed;
+    inset: 0;
+    background: #4ec0ca;
   }
-  #wrap {
-    position: relative;
-    width: 100vmin;
-    height: 100vmin;
-    max-width: 480px;
-    max-height: 720px;
-    aspect-ratio: 2 / 3;
+  #stage {
+    position: absolute;
+    inset: 0;
   }
   canvas {
     display: block;
     width: 100%;
     height: 100%;
     image-rendering: pixelated;
-    image-rendering: -moz-crisp-edges;
-    image-rendering: crisp-edges;
+    image-rendering: -webkit-optimize-contrast;
     background: #4ec0ca;
-    box-shadow: 0 0 30px rgba(0,0,0,0.6);
-    cursor: pointer;
+    touch-action: none;
   }
   #overlay {
     position: absolute;
     inset: 0;
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -50,132 +63,238 @@
     color: #fff;
     text-shadow: 3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
     pointer-events: none;
+    text-align: center;
   }
   #overlay.show { pointer-events: auto; }
   #title {
-    font-size: 8vmin;
-    font-weight: bold;
-    letter-spacing: 2px;
+    font-size: clamp(36px, 9vmin, 72px);
+    font-weight: 900;
+    letter-spacing: 3px;
     color: #ffdd00;
-    margin-bottom: 1vmin;
+    margin-bottom: 8px;
+    font-family: "SF Pro Display", -apple-system, sans-serif;
   }
   #subtitle {
-    font-size: 3.5vmin;
-    margin-bottom: 4vmin;
+    font-size: clamp(14px, 3.2vmin, 22px);
+    margin-bottom: 24px;
     color: #fff;
+    font-weight: 600;
+  }
+  .tapHint {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 10px 20px;
+    background: rgba(0,0,0,0.35);
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1px;
   }
   .panel {
     background: rgba(0,0,0,0.55);
     border: 4px solid #fff;
-    border-radius: 8px;
-    padding: 4vmin 6vmin;
+    border-radius: 16px;
+    padding: 22px 32px;
     text-align: center;
-    box-shadow: 0 0 0 4px #000;
+    box-shadow: 0 0 0 4px #000, 0 10px 30px rgba(0,0,0,0.4);
+    max-width: 86%;
   }
   #gameOverTitle {
-    font-size: 7vmin;
+    font-size: clamp(28px, 7vmin, 54px);
     color: #ff5252;
-    margin-bottom: 2vmin;
+    margin-bottom: 12px;
     letter-spacing: 2px;
+    font-weight: 900;
   }
   .row {
-    font-size: 4vmin;
-    margin: 1vmin 0;
+    font-size: clamp(16px, 4vmin, 26px);
+    margin: 6px 0;
+    font-weight: 700;
   }
   .label { color: #ffdd00; }
   #restartBtn {
-    margin-top: 4vmin;
-    padding: 2vmin 5vmin;
-    font-size: 4vmin;
+    margin-top: 18px;
+    padding: 14px 34px;
+    font-size: clamp(16px, 4vmin, 22px);
     font-family: inherit;
-    font-weight: bold;
+    font-weight: 900;
     color: #000;
     background: #ffdd00;
     border: 4px solid #000;
-    border-radius: 6px;
+    border-radius: 12px;
     cursor: pointer;
     text-shadow: none;
-    box-shadow: 0 4px 0 #b8860b;
+    box-shadow: 0 5px 0 #b8860b;
     transition: transform 0.05s, box-shadow 0.05s;
+    letter-spacing: 1px;
+    -webkit-appearance: none;
   }
   #restartBtn:active {
-    transform: translateY(3px);
+    transform: translateY(4px);
     box-shadow: 0 1px 0 #b8860b;
   }
   .hidden { display: none !important; }
+
+  #gate {
+    position: fixed;
+    inset: 0;
+    background: #111;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    z-index: 100;
+  }
+  #gate h1 {
+    font-size: 28px;
+    margin: 0 0 12px;
+    color: #ffdd00;
+  }
+  #gate p {
+    font-size: 16px;
+    line-height: 1.5;
+    max-width: 420px;
+    color: #ddd;
+  }
+  #gate .icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+  }
+
+  @media (orientation: landscape) and (max-height: 500px) {
+    #rotate {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.92);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-size: 20px;
+      font-weight: 700;
+      z-index: 50;
+      padding: 24px;
+    }
+  }
+  #rotate { display: none; }
 </style>
 </head>
 <body>
-<div id="wrap">
-  <canvas id="game" width="288" height="432"></canvas>
+<div id="gate" class="hidden">
+  <div class="icon">📱</div>
+  <h1>iPhone / iPad Only</h1>
+  <p>This game is designed exclusively for iOS devices. Please open it on an iPhone or iPad using Safari.</p>
+</div>
+
+<div id="stage">
+  <canvas id="game"></canvas>
   <div id="overlay" class="show">
     <div id="startScreen">
       <div id="title">FLAPPY BIRD</div>
-      <div id="subtitle">Tap or press SPACE to flap</div>
+      <div id="subtitle">Tap the screen to flap</div>
+      <div class="tapHint">TAP TO START</div>
     </div>
     <div id="gameOverScreen" class="hidden">
       <div class="panel">
         <div id="gameOverTitle">GAME OVER</div>
-        <div class="row"><span class="label">SCORE:</span> <span id="finalScore">0</span></div>
-        <div class="row"><span class="label">BEST:</span> <span id="bestScore">0</span></div>
+        <div class="row"><span class="label">SCORE</span> <span id="finalScore">0</span></div>
+        <div class="row"><span class="label">BEST</span> <span id="bestScore">0</span></div>
         <button id="restartBtn">RESTART</button>
       </div>
     </div>
   </div>
 </div>
 
+<div id="rotate">Please rotate to portrait mode to play.</div>
+
 <script>
 (function() {
+  // ---------- iOS gate ----------
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const isIPhone = /iPhone|iPod/.test(ua);
+  // iPadOS 13+ reports as Mac; detect via touch points
+  const isIPad = /iPad/.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isIOS = isIPhone || isIPad;
+
+  if (!isIOS) {
+    document.getElementById('gate').classList.remove('hidden');
+    document.getElementById('stage').style.display = 'none';
+    return;
+  }
+
+  // ---------- Canvas sizing (DPR-aware) ----------
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
 
-  const W = canvas.width;
-  const H = canvas.height;
-  const GROUND_H = 56;
-  const PLAY_H = H - GROUND_H;
+  // Logical game world dimensions (iPhone-ish portrait)
+  const BASE_W = 360;
+  let W = BASE_W;
+  let H = 640;
+  let scale = 1;
 
-  // Physics
-  const GRAVITY = 0.32;
-  const FLAP = -5.6;
-  const MAX_FALL = 9;
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cw = window.innerWidth;
+    const ch = window.innerHeight;
 
-  // Pipes
-  const PIPE_W = 44;
-  const PIPE_GAP = 110;
-  const PIPE_SPACING = 150;
-  const PIPE_SPEED = 1.8;
-  const PIPE_MIN_TOP = 40;
+    // Fit logical width to physical width
+    scale = cw / BASE_W;
+    W = BASE_W;
+    H = Math.round(ch / scale);
 
-  // Bird
-  const BIRD_X = 70;
-  const BIRD_W = 24;
-  const BIRD_H = 18;
+    canvas.width = Math.round(cw * dpr);
+    canvas.height = Math.round(ch * dpr);
+    canvas.style.width = cw + 'px';
+    canvas.style.height = ch + 'px';
 
-  // State
+    ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+
+    recalcLayout();
+  }
+
+  let GROUND_H, PLAY_H;
+  function recalcLayout() {
+    GROUND_H = Math.max(60, Math.round(H * 0.11));
+    PLAY_H = H - GROUND_H;
+  }
+
+  // ---------- Physics / constants ----------
+  const GRAVITY = 0.34;
+  const FLAP = -6.2;
+  const MAX_FALL = 10;
+
+  const PIPE_W = 56;
+  const PIPE_GAP = 150;
+  const PIPE_SPACING = 190;
+  const PIPE_SPEED = 2.2;
+  const PIPE_MIN_TOP = 50;
+
+  const BIRD_X_FRAC = 0.28;
+  const BIRD_W = 34;
+  const BIRD_H = 26;
+
   const STATE_READY = 0;
   const STATE_PLAY = 1;
   const STATE_OVER = 2;
   let state = STATE_READY;
 
   let bird, pipes, score, best, groundOffset, frame, flashAlpha;
-
-  best = parseInt(localStorage.getItem('flappy_best') || '0', 10);
+  best = parseInt(localStorage.getItem('flappy_best_ios') || '0', 10);
 
   function reset() {
-    bird = { x: BIRD_X, y: PLAY_H / 2, vy: 0, rot: 0, frame: 0 };
+    bird = { x: Math.round(W * BIRD_X_FRAC), y: PLAY_H / 2, vy: 0, rot: 0 };
     pipes = [];
     score = 0;
     groundOffset = 0;
     frame = 0;
     flashAlpha = 0;
-    spawnInitialPipes();
-  }
-
-  function spawnInitialPipes() {
-    for (let i = 0; i < 4; i++) {
-      addPipe(W + 100 + i * PIPE_SPACING);
-    }
+    for (let i = 0; i < 4; i++) addPipe(W + 120 + i * PIPE_SPACING);
   }
 
   function addPipe(x) {
@@ -184,41 +303,38 @@
   }
 
   function flap() {
-    if (state === STATE_READY) {
-      state = STATE_PLAY;
-    }
+    if (state === STATE_READY) state = STATE_PLAY;
     if (state === STATE_PLAY) {
       bird.vy = FLAP;
       bird.rot = -0.5;
+      haptic();
     }
+  }
+
+  function haptic() {
+    // Best-effort tactile feedback (Safari gates most; no-op if blocked)
+    if (navigator.vibrate) { try { navigator.vibrate(8); } catch (e) {} }
   }
 
   function update() {
     frame++;
-
     if (state === STATE_READY) {
-      // Idle bob
-      bird.y = PLAY_H / 2 + Math.sin(frame * 0.1) * 6;
+      bird.y = PLAY_H / 2 + Math.sin(frame * 0.1) * 8;
       groundOffset = (groundOffset + PIPE_SPEED) % 24;
       return;
     }
-
     if (state === STATE_PLAY) {
       bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
       bird.y += bird.vy;
-      bird.rot = Math.max(-0.5, Math.min(1.4, bird.vy * 0.12));
+      bird.rot = Math.max(-0.5, Math.min(1.4, bird.vy * 0.11));
 
-      // Pipes movement
       for (const p of pipes) p.x -= PIPE_SPEED;
-      // Recycle
       while (pipes.length && pipes[0].x + PIPE_W < -10) pipes.shift();
-      // Add new
       const last = pipes[pipes.length - 1];
       if (!last || last.x < W - PIPE_SPACING) {
         addPipe((last ? last.x : W) + PIPE_SPACING);
       }
 
-      // Score
       for (const p of pipes) {
         if (!p.passed && p.x + PIPE_W < bird.x) {
           p.passed = true;
@@ -228,18 +344,17 @@
 
       groundOffset = (groundOffset + PIPE_SPEED) % 24;
 
-      // Collision
       if (collide()) {
         state = STATE_OVER;
-        flashAlpha = 0.8;
+        flashAlpha = 0.85;
         if (score > best) {
           best = score;
-          localStorage.setItem('flappy_best', String(best));
+          localStorage.setItem('flappy_best_ios', String(best));
         }
+        if (navigator.vibrate) { try { navigator.vibrate([30, 40, 30]); } catch (e) {} }
         showGameOver();
       }
     } else if (state === STATE_OVER) {
-      // Drop the bird if airborne
       if (bird.y + BIRD_H / 2 < PLAY_H) {
         bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
         bird.y += bird.vy;
@@ -252,10 +367,10 @@
   }
 
   function collide() {
-    const bx = bird.x - BIRD_W / 2 + 3;
-    const by = bird.y - BIRD_H / 2 + 3;
-    const bw = BIRD_W - 6;
-    const bh = BIRD_H - 6;
+    const bx = bird.x - BIRD_W / 2 + 4;
+    const by = bird.y - BIRD_H / 2 + 4;
+    const bw = BIRD_W - 8;
+    const bh = BIRD_H - 8;
 
     if (by + bh >= PLAY_H) return true;
     if (by <= 0) { bird.y = BIRD_H / 2; bird.vy = 0; }
@@ -270,101 +385,87 @@
 
   // ---------- Rendering ----------
   function drawBackground() {
-    // Sky gradient (pre-baked stripes for pixel feel)
     const g = ctx.createLinearGradient(0, 0, 0, PLAY_H);
     g.addColorStop(0, '#70c5ce');
     g.addColorStop(1, '#bce9f0');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, PLAY_H);
 
-    // Distant clouds (parallax)
-    const cloudOff = (frame * 0.2) % W;
+    const cloudOff = (frame * 0.25) % W;
     drawCloud(20 - cloudOff, 60);
-    drawCloud(120 - cloudOff, 90);
-    drawCloud(220 - cloudOff, 50);
+    drawCloud(140 - cloudOff, 100);
+    drawCloud(260 - cloudOff, 50);
     drawCloud(W + 20 - cloudOff, 60);
-    drawCloud(W + 120 - cloudOff, 90);
-    drawCloud(W + 220 - cloudOff, 50);
+    drawCloud(W + 140 - cloudOff, 100);
+    drawCloud(W + 260 - cloudOff, 50);
 
-    // City silhouette
     ctx.fillStyle = '#5fb6a4';
-    for (let x = 0; x < W; x += 12) {
-      const h = 20 + ((x * 13) % 18);
-      ctx.fillRect(x, PLAY_H - 60 - h, 11, h + 60);
+    for (let x = 0; x < W; x += 14) {
+      const h = 24 + ((x * 13) % 22);
+      ctx.fillRect(x, PLAY_H - 70 - h, 13, h + 70);
     }
 
-    // Bushes
     ctx.fillStyle = '#7ec850';
-    for (let x = 0; x < W; x += 16) {
-      const h = 14 + ((x * 7) % 8);
-      ctx.fillRect(x, PLAY_H - 30, 16, 30);
+    for (let x = 0; x < W; x += 18) {
+      const h = 16 + ((x * 7) % 10);
+      ctx.fillRect(x, PLAY_H - 34, 18, 34);
       ctx.beginPath();
-      ctx.arc(x + 8, PLAY_H - 30, h / 2 + 2, Math.PI, 0);
+      ctx.arc(x + 9, PLAY_H - 34, h / 2 + 2, Math.PI, 0);
       ctx.fill();
     }
   }
 
   function drawCloud(x, y) {
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.fillRect(x + 6, y, 24, 6);
-    ctx.fillRect(x, y + 6, 36, 6);
-    ctx.fillRect(x + 6, y + 12, 24, 4);
+    ctx.fillRect(x + 6, y, 26, 6);
+    ctx.fillRect(x, y + 6, 40, 6);
+    ctx.fillRect(x + 6, y + 12, 26, 4);
   }
 
   function drawGround() {
-    // Dirt
     ctx.fillStyle = '#ded895';
     ctx.fillRect(0, PLAY_H, W, GROUND_H);
-    // Stripe pattern
     ctx.fillStyle = '#c0a060';
     for (let x = -groundOffset; x < W; x += 24) {
-      ctx.fillRect(x, PLAY_H + 6, 12, 6);
-      ctx.fillRect(x + 12, PLAY_H + 18, 12, 6);
+      ctx.fillRect(x, PLAY_H + 8, 12, 6);
+      ctx.fillRect(x + 12, PLAY_H + 22, 12, 6);
     }
-    // Grass top
     ctx.fillStyle = '#7ec850';
-    ctx.fillRect(0, PLAY_H, W, 4);
+    ctx.fillRect(0, PLAY_H, W, 5);
     ctx.fillStyle = '#5e9c35';
-    ctx.fillRect(0, PLAY_H + 4, W, 2);
+    ctx.fillRect(0, PLAY_H + 5, W, 2);
   }
 
   function drawPipe(p) {
-    // Top pipe
     drawPipeSegment(p.x, 0, PIPE_W, p.top, true);
-    // Bottom pipe
     drawPipeSegment(p.x, p.top + PIPE_GAP, PIPE_W, PLAY_H - (p.top + PIPE_GAP), false);
   }
 
   function drawPipeSegment(x, y, w, h, isTop) {
-    // Body
     ctx.fillStyle = '#73bf2e';
     ctx.fillRect(x, y, w, h);
-    // Highlight
     ctx.fillStyle = '#9be23a';
-    ctx.fillRect(x + 3, y, 4, h);
-    // Shadow
+    ctx.fillRect(x + 4, y, 5, h);
     ctx.fillStyle = '#558b1f';
-    ctx.fillRect(x + w - 7, y, 4, h);
+    ctx.fillRect(x + w - 9, y, 5, h);
     ctx.fillStyle = '#3e6b16';
-    ctx.fillRect(x + w - 3, y, 3, h);
-    // Outline
+    ctx.fillRect(x + w - 4, y, 4, h);
     ctx.fillStyle = '#000';
     ctx.fillRect(x, y, 1, h);
     ctx.fillRect(x + w - 1, y, 1, h);
 
-    // Cap
-    const capH = 16;
+    const capH = 22;
     const capY = isTop ? y + h - capH : y;
-    const capX = x - 3;
-    const capW = w + 6;
+    const capX = x - 4;
+    const capW = w + 8;
     ctx.fillStyle = '#73bf2e';
     ctx.fillRect(capX, capY, capW, capH);
     ctx.fillStyle = '#9be23a';
-    ctx.fillRect(capX + 3, capY + 2, 5, capH - 4);
+    ctx.fillRect(capX + 4, capY + 3, 6, capH - 6);
     ctx.fillStyle = '#558b1f';
-    ctx.fillRect(capX + capW - 8, capY + 2, 5, capH - 4);
+    ctx.fillRect(capX + capW - 10, capY + 3, 6, capH - 6);
     ctx.fillStyle = '#3e6b16';
-    ctx.fillRect(capX + capW - 3, capY, 3, capH);
+    ctx.fillRect(capX + capW - 4, capY, 4, capH);
     ctx.fillStyle = '#000';
     ctx.fillRect(capX, capY, 1, capH);
     ctx.fillRect(capX + capW - 1, capY, 1, capH);
@@ -377,61 +478,53 @@
     ctx.translate(bird.x, bird.y);
     ctx.rotate(bird.rot);
 
-    // Wing animation phase
     const wingPhase = state === STATE_PLAY
       ? Math.floor(frame / 4) % 3
       : Math.floor(frame / 8) % 3;
 
-    // Pixel-art bird via blocky shapes (origin at center)
     const px = -BIRD_W / 2;
     const py = -BIRD_H / 2;
 
-    // Outline body
     ctx.fillStyle = '#000';
-    ctx.fillRect(px + 2, py + 4, 20, 12);
-    ctx.fillRect(px + 4, py + 2, 16, 16);
-    ctx.fillRect(px + 6, py, 12, 18);
+    ctx.fillRect(px + 3, py + 6, 28, 16);
+    ctx.fillRect(px + 6, py + 3, 22, 22);
+    ctx.fillRect(px + 9, py, 16, 26);
 
-    // Body yellow
     ctx.fillStyle = '#fad05c';
-    ctx.fillRect(px + 4, py + 5, 18, 10);
-    ctx.fillRect(px + 6, py + 3, 14, 14);
+    ctx.fillRect(px + 6, py + 7, 25, 14);
+    ctx.fillRect(px + 9, py + 4, 19, 20);
     ctx.fillStyle = '#f7c534';
-    ctx.fillRect(px + 6, py + 9, 14, 6);
+    ctx.fillRect(px + 9, py + 13, 19, 9);
 
-    // Belly white
     ctx.fillStyle = '#fff';
-    ctx.fillRect(px + 8, py + 12, 8, 4);
-    ctx.fillRect(px + 10, py + 14, 6, 2);
+    ctx.fillRect(px + 11, py + 17, 12, 5);
+    ctx.fillRect(px + 14, py + 20, 8, 3);
 
-    // Eye
     ctx.fillStyle = '#fff';
-    ctx.fillRect(px + 14, py + 4, 6, 6);
+    ctx.fillRect(px + 19, py + 5, 9, 9);
     ctx.fillStyle = '#000';
-    ctx.fillRect(px + 16, py + 5, 3, 4);
+    ctx.fillRect(px + 22, py + 7, 4, 5);
     ctx.fillStyle = '#fff';
-    ctx.fillRect(px + 17, py + 6, 1, 1);
+    ctx.fillRect(px + 23, py + 8, 1, 2);
 
-    // Beak
     ctx.fillStyle = '#000';
-    ctx.fillRect(px + 19, py + 9, 5, 5);
+    ctx.fillRect(px + 26, py + 12, 7, 7);
     ctx.fillStyle = '#f47b2b';
-    ctx.fillRect(px + 19, py + 10, 4, 3);
+    ctx.fillRect(px + 26, py + 13, 6, 5);
     ctx.fillStyle = '#d65a14';
-    ctx.fillRect(px + 19, py + 12, 4, 1);
+    ctx.fillRect(px + 26, py + 17, 6, 1);
 
-    // Wing (3 frames)
     let wy;
-    if (wingPhase === 0) wy = -2;
+    if (wingPhase === 0) wy = -3;
     else if (wingPhase === 1) wy = 2;
-    else wy = 6;
+    else wy = 8;
 
     ctx.fillStyle = '#000';
-    ctx.fillRect(px + 4, py + 6 + wy, 10, 6);
+    ctx.fillRect(px + 6, py + 9 + wy, 14, 8);
     ctx.fillStyle = '#fff';
-    ctx.fillRect(px + 5, py + 7 + wy, 8, 4);
+    ctx.fillRect(px + 7, py + 10 + wy, 12, 6);
     ctx.fillStyle = '#dcdcdc';
-    ctx.fillRect(px + 5, py + 9 + wy, 8, 2);
+    ctx.fillRect(px + 7, py + 13 + wy, 12, 3);
 
     ctx.restore();
   }
@@ -439,23 +532,15 @@
   function drawScore() {
     if (state === STATE_OVER) return;
     const text = String(score);
-    ctx.font = 'bold 36px "Courier New", monospace';
+    const size = Math.round(H * 0.08);
+    ctx.font = '900 ' + size + 'px -apple-system, "SF Pro Display", Helvetica, sans-serif';
     ctx.textAlign = 'center';
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 6;
     ctx.strokeStyle = '#000';
     ctx.fillStyle = '#fff';
-    ctx.strokeText(text, W / 2, 56);
-    ctx.fillText(text, W / 2, 56);
-  }
-
-  function drawReadyHint() {
-    if (state !== STATE_READY) return;
-    ctx.font = 'bold 14px "Courier New", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#000';
-    ctx.fillText('TAP / SPACE TO START', W / 2 + 1, 130 + 1);
-    ctx.fillStyle = '#fff';
-    ctx.fillText('TAP / SPACE TO START', W / 2, 130);
+    const y = Math.max(80, H * 0.14);
+    ctx.strokeText(text, W / 2, y);
+    ctx.fillText(text, W / 2, y);
   }
 
   function drawFlash() {
@@ -471,11 +556,12 @@
     drawGround();
     drawBird();
     drawScore();
-    drawReadyHint();
     drawFlash();
   }
 
-  function loop() {
+  let last = 0;
+  function loop(t) {
+    // Fixed-ish step to smooth iOS variable rAF
     update();
     render();
     requestAnimationFrame(loop);
@@ -513,37 +599,44 @@
     showStart();
   }
 
-  // Input
-  function handleInput(e) {
-    if (e) e.preventDefault();
-    if (state === STATE_OVER) return; // restart only via button
+  function handleTouchStart(e) {
+    if (e.cancelable) e.preventDefault();
+    if (state === STATE_OVER) return;
     if (state === STATE_READY) hideOverlay();
     flap();
   }
 
-  canvas.addEventListener('mousedown', handleInput);
-  canvas.addEventListener('touchstart', handleInput, { passive: false });
-  window.addEventListener('keydown', function(e) {
-    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
-      handleInput(e);
-    }
-  });
+  canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+  canvas.addEventListener('touchmove', function(e){ if (e.cancelable) e.preventDefault(); }, { passive: false });
+  canvas.addEventListener('touchend', function(e){ if (e.cancelable) e.preventDefault(); }, { passive: false });
 
-  restartBtn.addEventListener('click', function(e) {
-    e.stopPropagation();
-    restart();
-  });
-  restartBtn.addEventListener('touchstart', function(e) {
+  restartBtn.addEventListener('touchend', function(e) {
     e.stopPropagation();
     e.preventDefault();
     restart();
   }, { passive: false });
+  // Safari sometimes needs click fallback inside PWA
+  restartBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    restart();
+  });
+
+  // Prevent iOS gestures that disrupt gameplay
+  document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
+  document.addEventListener('dblclick', function(e){ e.preventDefault(); });
+  document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', function() {
+    setTimeout(resize, 150);
+  });
 
   // Boot
+  resize();
   reset();
   bestScoreEl.textContent = String(best);
   showStart();
-  loop();
+  requestAnimationFrame(loop);
 })();
 </script>
 </body>
