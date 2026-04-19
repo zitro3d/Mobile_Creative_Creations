@@ -547,10 +547,22 @@
       for (let i = 0; i <= 10; i++) {
         peaks.push({ x: (W / 10) * i, h: 20 + ((i * 17 + 5) % 30) });
       }
-      return { kind: 'volcano', baseY: baseY, peaks: peaks, cones: [
-        { cx: W * 0.30, scale: 1.0 },
-        { cx: W * 0.76, scale: 0.75 },
-      ]};
+      // Per-cone geometry + cached gradients (lava crater radial + smoke plume linear)
+      const cones = [];
+      const coneSpec = [{ cx: W * 0.30, scale: 1.0 }, { cx: W * 0.76, scale: 0.75 }];
+      for (const c of coneSpec) {
+        const topH = 90 * c.scale;
+        const topW = 14 * c.scale;
+        const lava = ctx.createRadialGradient(c.cx, baseY - topH + 3, 0, c.cx, baseY - topH + 3, topW * 1.2);
+        lava.addColorStop(0, '#ffd870');
+        lava.addColorStop(0.5, '#ff5a10');
+        lava.addColorStop(1, 'rgba(200,40,10,0)');
+        const plume = ctx.createLinearGradient(0, baseY - topH - 80 * c.scale, 0, baseY - topH);
+        plume.addColorStop(0, 'rgba(40, 20, 15, 0)');
+        plume.addColorStop(1, 'rgba(60, 30, 20, 0.75)');
+        cones.push({ cx: c.cx, scale: c.scale, topH: topH, topW: topW, lava: lava, plume: plume });
+      }
+      return { kind: 'volcano', baseY: baseY, peaks: peaks, cones: cones };
     }
     // sunset — simple peak profile
     const peaks = [];
@@ -2163,11 +2175,12 @@
     ctx.closePath();
     ctx.fill();
 
-    // Two big volcanic cones
-    function cone(cx, scale) {
-      const topH = 90 * scale;
-      const topW = 14 * scale;
-      ctx.fillStyle = theme().ridge;
+    // Cones from cached layout — gradients precomputed once per theme
+    const ridge = theme().ridge;
+    for (const c of layout.cones) {
+      const cx = c.cx, scale = c.scale, topH = c.topH, topW = c.topW;
+      // Cone silhouette
+      ctx.fillStyle = ridge;
       ctx.beginPath();
       ctx.moveTo(cx - 70 * scale, baseY);
       ctx.lineTo(cx - topW, baseY - topH);
@@ -2175,36 +2188,22 @@
       ctx.lineTo(cx + 70 * scale, baseY);
       ctx.closePath();
       ctx.fill();
-      // Glowing crater
-      ctx.save();
-      ctx.shadowBlur = 14; ctx.shadowColor = '#ff5a10';
-      const lavaGrad = ctx.createRadialGradient(cx, baseY - topH + 3, 0, cx, baseY - topH + 3, topW * 1.2);
-      lavaGrad.addColorStop(0, '#ffd870');
-      lavaGrad.addColorStop(0.5, '#ff5a10');
-      lavaGrad.addColorStop(1, 'rgba(200,40,10,0)');
-      ctx.fillStyle = lavaGrad;
+      // Glowing crater (cached)
+      ctx.fillStyle = c.lava;
       ctx.beginPath();
       ctx.ellipse(cx, baseY - topH + 2, topW * 1.3, 3.5, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
-      // Smoke plume
-      ctx.save();
-      const plumeGrad = ctx.createLinearGradient(0, baseY - topH - 80 * scale, 0, baseY - topH);
-      plumeGrad.addColorStop(0, 'rgba(40, 20, 15, 0)');
-      plumeGrad.addColorStop(1, 'rgba(60, 30, 20, 0.75)');
-      ctx.fillStyle = plumeGrad;
-      ctx.beginPath();
+      // Smoke plume (cached)
+      ctx.fillStyle = c.plume;
       const plumeWT = 10 * scale, plumeWB = 20 * scale;
+      ctx.beginPath();
       ctx.moveTo(cx - plumeWB, baseY - topH);
       ctx.quadraticCurveTo(cx - plumeWT * 1.8, baseY - topH - 40 * scale, cx - plumeWT, baseY - topH - 80 * scale);
       ctx.lineTo(cx + plumeWT, baseY - topH - 80 * scale);
       ctx.quadraticCurveTo(cx + plumeWT * 1.8, baseY - topH - 40 * scale, cx + plumeWB, baseY - topH);
       ctx.closePath();
       ctx.fill();
-      ctx.restore();
-      // Lava dribbles down the flank
-      ctx.save();
-      ctx.shadowBlur = 6; ctx.shadowColor = '#ff5a10';
+      // Lava dribble (kept as a single stroke, no gradient)
       ctx.strokeStyle = '#ff7a1a';
       ctx.lineWidth = 1.4;
       ctx.beginPath();
@@ -2212,9 +2211,7 @@
       ctx.lineTo(cx + topW * 2, baseY - topH * 0.4);
       ctx.lineTo(cx + topW * 3, baseY - 6);
       ctx.stroke();
-      ctx.restore();
     }
-    for (const c of layout.cones) cone(c.cx, c.scale);
 
     ctx.restore();
   }
