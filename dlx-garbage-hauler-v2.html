@@ -225,6 +225,8 @@
   #pwShield     { border-color: #9bd2ff; } #pwShield     .pwFill { background: #9bd2ff; }
   #pwSlow       { border-color: #c49bff; } #pwSlow       .pwFill { background: #c49bff; }
   #pwDouble     { border-color: #ffd280; } #pwDouble     .pwFill { background: #ffd280; }
+  #pwMagnet     { border-color: #ff6b9d; } #pwMagnet     .pwFill { background: #ff6b9d; }
+  #pwGhost      { border-color: #b8ffe8; } #pwGhost      .pwFill { background: #b8ffe8; }
 
   #gate {
     position: fixed;
@@ -320,6 +322,8 @@
     <div class="pw" id="pwShield"><span class="pwLabel">◎</span><span class="pwBar"><span class="pwFill"></span></span></div>
     <div class="pw" id="pwSlow"><span class="pwLabel">◐</span><span class="pwBar"><span class="pwFill"></span></span></div>
     <div class="pw" id="pwDouble"><span class="pwLabel">×2</span><span class="pwBar"><span class="pwFill"></span></span></div>
+    <div class="pw" id="pwMagnet"><span class="pwLabel">✦</span><span class="pwBar"><span class="pwFill"></span></span></div>
+    <div class="pw" id="pwGhost"><span class="pwLabel">◌</span><span class="pwBar"><span class="pwFill"></span></span></div>
   </div>
 </div>
 
@@ -378,6 +382,63 @@
     PLAY_H = H - GROUND_H;
     // Reposition stars to fit new dimensions
     if (stars.length) { initStars(); initDust(); initNebula(); initJunkSats(); }
+  }
+
+  // ---------- Audio (Web Audio, synthesised — no asset files) ----------
+  let audioCtx = null;
+  function audio() {
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { return null; }
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+  function tone(freq, dur, type, gain, slide) {
+    const a = audio(); if (!a) return;
+    const t = a.currentTime;
+    const osc = a.createOscillator();
+    const g = a.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, t);
+    if (typeof slide === 'number') {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(40, slide), t + dur);
+    }
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain || 0.2, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g).connect(a.destination);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+  }
+  function noiseBurst(dur, gain) {
+    const a = audio(); if (!a) return;
+    const t = a.currentTime;
+    const n = Math.floor(a.sampleRate * dur);
+    const buf = a.createBuffer(1, n, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const src = a.createBufferSource();
+    src.buffer = buf;
+    const g = a.createGain();
+    g.gain.value = gain || 0.3;
+    src.connect(g).connect(a.destination);
+    src.start(t);
+  }
+  function playSound(kind) {
+    switch (kind) {
+      case 'flap':    tone(180, 0.08, 'square',   0.08, 90);  break;
+      case 'pickup':  tone(880, 0.08, 'triangle', 0.12, 1320); break;
+      case 'gold':    tone(660, 0.06, 'triangle', 0.14, 1200);
+                      setTimeout(function(){ tone(990, 0.1, 'triangle', 0.14, 1800); }, 40); break;
+      case 'powerup': tone(440, 0.12, 'sawtooth', 0.1, 880);
+                      setTimeout(function(){ tone(660, 0.14, 'sine',   0.12, 1320); }, 60); break;
+      case 'missile': tone(320, 0.18, 'sawtooth', 0.15, 80); break;
+      case 'boom':    noiseBurst(0.3, 0.4);
+                      tone(90, 0.2, 'square', 0.2, 40); break;
+      case 'crash':   noiseBurst(0.5, 0.45);
+                      tone(110, 0.35, 'sawtooth', 0.25, 40); break;
+    }
   }
 
   // ---------- Physics / constants ----------
@@ -465,7 +526,12 @@
   let shieldCharges = 0;   // absorbs one hit each
   let slowFrames    = 0;   // slow-motion timer (frames)
   let doubleFrames  = 0;   // double-score timer (frames)
+  let magnetFrames  = 0;   // magnet pulls pickups toward ship
+  let ghostFrames   = 0;   // phase through obstacles
   let invulnFrames  = 0;   // brief i-frames after shield break / spawn
+  let combo         = 0;   // consecutive pickups without miss
+  let comboMax      = 0;
+  let missiles      = [];  // active missile shots
   best = parseInt(localStorage.getItem('flappy_best_ios_v2') || '0', 10);
 
   function reset() {
@@ -491,7 +557,12 @@
     shieldCharges = 0;
     slowFrames = 0;
     doubleFrames = 0;
+    magnetFrames = 0;
+    ghostFrames = 0;
     invulnFrames = 0;
+    combo = 0;
+    comboMax = 0;
+    missiles = [];
     initStars();
     initDust();
     initNebula();
@@ -608,20 +679,51 @@
     // Every ~5th pipe swaps its debris for a glowing power-up capsule
     const spawnPowerUp = pipeSpawnCount > 2 && Math.random() < 0.22;
     pipeSpawnCount++;
-    pipes.push({
+
+    // Motion: after a few pipes, some obstacles drift vertically or pulse
+    // their gap. Chance ramps with score for a rising difficulty feel.
+    // Motion: after a few pipes, some obstacles drift vertically. Chance
+    // ramps with score. Two flavours — slow large drift or fast tight drift.
+    let motion = 'static';
+    const motionRoll = Math.random();
+    const motionChance = Math.min(0.45, 0.08 + score * 0.004);
+    if (pipeSpawnCount > 4 && motionRoll < motionChance) {
+      motion = motionRoll < motionChance * 0.55 ? 'drift' : 'fast';
+    }
+
+    const pipe = {
       x: x,
       top: top,
       gap: gap,
+      driftY: 0,
       passed: false,
+      destroyed: false,
       seed: Math.random() * 1000,
       pulse: Math.random() * Math.PI * 2,
       type: type,
+      motion: motion,
       topShape: buildShardShape(PIPE_W, top, true),
       botShape: buildShardShape(PIPE_W, PLAY_H - (top + gap), false),
       antennas: buildAntennas(),
       debris:  spawnPowerUp ? null : makeDebris(gap),
       powerUp: spawnPowerUp ? makePowerUp(gap) : null,
-    });
+    };
+    if (motion === 'drift' || motion === 'fast') {
+      pipe.driftSpeed = motion === 'fast' ? 0.09 : 0.04;
+      pipe.driftAmp   = motion === 'fast' ? 22 : 38;
+      pipe.driftPhase = Math.random() * Math.PI * 2;
+    }
+    pipes.push(pipe);
+  }
+
+  function clampDrift(p) {
+    // Clamp so the top segment never dips into negative and bottom stays on-screen
+    const effTop = p.top + p.driftY;
+    const effBot = PLAY_H - (p.top + p.gap + p.driftY);
+    const maxDown = (PLAY_H - PIPE_MIN_TOP) - (p.top + p.gap);
+    const maxUp = -(p.top - PIPE_MIN_TOP);
+    if (p.driftY > maxDown) p.driftY = maxDown;
+    if (p.driftY < maxUp) p.driftY = maxUp;
   }
 
   function makeDebris(gap) {
@@ -638,7 +740,7 @@
     };
   }
 
-  const POWER_KINDS = ['shield', 'slow', 'double'];
+  const POWER_KINDS = ['shield', 'slow', 'double', 'magnet', 'missile', 'ghost'];
   function makePowerUp(gap) {
     return {
       kind: POWER_KINDS[Math.floor(Math.random() * POWER_KINDS.length)],
@@ -730,6 +832,7 @@
       const isBackfire = flapCount > 0 && (flapCount % 5 === 0 || flapCount % 6 === 0);
       emitExhaustBurst(isBackfire ? 12 : 5, isBackfire);
       haptic();
+      playSound('flap');
     }
   }
 
@@ -800,16 +903,24 @@
     }
     if (state === STATE_PLAY) {
       // Power-up timers
-      if (slowFrames > 0) slowFrames--;
-      if (doubleFrames > 0) doubleFrames--;
-      if (invulnFrames > 0) invulnFrames--;
+      if (slowFrames > 0)    slowFrames--;
+      if (doubleFrames > 0)  doubleFrames--;
+      if (magnetFrames > 0)  magnetFrames--;
+      if (ghostFrames > 0)   ghostFrames--;
+      if (invulnFrames > 0)  invulnFrames--;
 
       bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
       bird.y += bird.vy;
       bird.rot = Math.max(-0.5, Math.min(1.2, bird.vy * 0.09));
 
       const speed = currentPipeSpeed() * (slowFrames > 0 ? 0.5 : 1);
-      for (const p of pipes) p.x -= speed;
+      for (const p of pipes) {
+        p.x -= speed;
+        if (p.motion === 'drift' || p.motion === 'fast') {
+          p.driftY = Math.sin(frame * p.driftSpeed + p.driftPhase) * p.driftAmp;
+          clampDrift(p);
+        }
+      }
       while (pipes.length && pipes[0].x + PIPE_W < -10) pipes.shift();
       const last = pipes[pipes.length - 1];
       if (!last || last.x < W - PIPE_SPACING) {
@@ -824,6 +935,7 @@
       for (const p of pipes) {
         if (!p.passed && p.x + PIPE_W < bird.x) {
           p.passed = true;
+          if (p.debris && !p.debris.collected) breakCombo(); // missed pickup resets chain
           grantScore(1);
           burstFrames = 14;
           scorePulse = 1;
@@ -832,6 +944,7 @@
         }
       }
 
+      updateMissiles();
       updateSparks();
       updatePickupSparks();
       if (frame % 6 === 0) refreshHud();
@@ -848,12 +961,14 @@
           state = STATE_OVER;
           flashAlpha = 0.85;
           shakeFrames = 12;
+          breakCombo();
           emitDeathShards(bird.x, bird.y);
           if (score > best) {
             best = score;
             localStorage.setItem('flappy_best_ios_v2', String(best));
           }
           if (navigator.vibrate) { try { navigator.vibrate([30, 40, 30]); } catch (e) {} }
+          playSound('crash');
           setTimeout(showGameOver, 200);
         }
       }
@@ -937,34 +1052,59 @@
     if (bird.y + r >= PLAY_H) return true;
     if (bird.y - r <= 0) { bird.y = r; bird.vy = 0; }
 
+    // Ghost mode — phase through obstacles but still die if you hit ground
+    if (ghostFrames > 0) return false;
+
     for (const p of pipes) {
+      if (p.destroyed) continue;
+      const dy = p.driftY || 0;
       if (bird.x + r > p.x && bird.x - r < p.x + PIPE_W) {
-        if (bird.y - r < p.top || bird.y + r > p.top + p.gap) return true;
+        if (bird.y - r < p.top + dy || bird.y + r > p.top + p.gap + dy) return true;
       }
     }
     return false;
   }
 
-  // Pickup overlap: collectibles give score, power-ups activate effects
+  // Pickup overlap: collectibles give score, power-ups activate effects.
+  // Magnet bends uncollected debris/powerups toward the ship.
   function checkGapPickups(p) {
+    const dyOff = p.driftY || 0;
+    // Magnet pull: shift effective offY toward the bird
+    if (magnetFrames > 0) {
+      const pullRadius = 140;
+      for (const item of [p.debris, p.powerUp]) {
+        if (!item || item.collected) continue;
+        const ix = p.x + PIPE_W / 2;
+        const iy = p.top + p.gap / 2 + item.offY + dyOff;
+        const dx = bird.x - ix;
+        const dy = bird.y - iy;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < pullRadius) {
+          const targetOff = bird.y - (p.top + p.gap / 2 + dyOff);
+          item.offY += (targetOff - item.offY) * 0.18;
+        }
+      }
+    }
     if (p.debris && !p.debris.collected) {
       const cx = p.x + PIPE_W / 2;
-      const cy = p.top + p.gap / 2 + p.debris.offY;
+      const cy = p.top + p.gap / 2 + p.debris.offY + dyOff;
       const reach = BIRD_R + 12;
       const dx = bird.x - cx, dy = bird.y - cy;
       if (dx * dx + dy * dy < reach * reach) {
         p.debris.collected = true;
         const points = p.debris.gold ? 5 : 1;
+        addCombo();
         grantScore(points);
         scorePulse = 1;
         burstFrames = 10;
         emitPickupSparks(cx, cy, p.debris.gold ? '#ffe066' : '#fff3a8', points);
         if (navigator.vibrate) { try { navigator.vibrate(8); } catch (e) {} }
+        playSound(p.debris.gold ? 'gold' : 'pickup');
       }
     }
     if (p.powerUp && !p.powerUp.collected) {
       const cx = p.x + PIPE_W / 2;
-      const cy = p.top + p.gap / 2 + p.powerUp.offY;
+      const cy = p.top + p.gap / 2 + p.powerUp.offY + dyOff;
       const reach = BIRD_R + 14;
       const dx = bird.x - cx, dy = bird.y - cy;
       if (dx * dx + dy * dy < reach * reach) {
@@ -977,21 +1117,174 @@
   }
 
   function powerUpColor(kind) {
-    if (kind === 'shield') return '#9bd2ff';
-    if (kind === 'slow')   return '#c49bff';
+    if (kind === 'shield')  return '#9bd2ff';
+    if (kind === 'slow')    return '#c49bff';
+    if (kind === 'magnet')  return '#ff6b9d';
+    if (kind === 'missile') return '#ff5a2a';
+    if (kind === 'ghost')   return '#b8ffe8';
     return '#ffd280';
   }
 
   function activatePowerUp(kind) {
-    if (kind === 'shield') shieldCharges = Math.min(3, shieldCharges + 1);
-    else if (kind === 'slow')   slowFrames   = Math.max(slowFrames, 300);   // ~5s
-    else if (kind === 'double') doubleFrames = Math.max(doubleFrames, 360); // ~6s
+    if (kind === 'shield')       shieldCharges = Math.min(3, shieldCharges + 1);
+    else if (kind === 'slow')    slowFrames    = Math.max(slowFrames, 300);    // ~5s
+    else if (kind === 'double')  doubleFrames  = Math.max(doubleFrames, 360);  // ~6s
+    else if (kind === 'magnet')  magnetFrames  = Math.max(magnetFrames, 360);  // ~6s
+    else if (kind === 'ghost')   ghostFrames   = Math.max(ghostFrames, 120);   // ~2s
+    else if (kind === 'missile') fireMissile();
     refreshHud();
+    playSound('powerup');
+  }
+
+  // Auto-fire a homing missile at the next obstacle ahead of the ship
+  function fireMissile() {
+    let target = null;
+    for (const p of pipes) {
+      if (p.destroyed) continue;
+      if (p.x + PIPE_W > bird.x) { target = p; break; }
+    }
+    missiles.push({
+      x: bird.x - BIRD_R * 0.6,
+      y: bird.y,
+      vx: 0,
+      vy: 0,
+      target: target,
+      life: 90,
+      trail: [],
+    });
+    playSound('missile');
+  }
+
+  function updateMissiles() {
+    for (let i = missiles.length - 1; i >= 0; i--) {
+      const m = missiles[i];
+      m.life--;
+      // Seek — pull velocity toward target center
+      if (m.target && !m.target.destroyed) {
+        const tx = m.target.x + PIPE_W / 2;
+        const ty = m.target.top + m.target.gap / 2;
+        const dx = tx - m.x, dy = ty - m.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const accel = 0.6;
+        m.vx += (dx / d) * accel;
+        m.vy += (dy / d) * accel;
+        // Cap speed
+        const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
+        const MAX = 8;
+        if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
+      } else {
+        m.vx = Math.min(m.vx + 0.5, 9);
+      }
+      m.x += m.vx;
+      m.y += m.vy;
+      m.trail.push({ x: m.x, y: m.y });
+      if (m.trail.length > 8) m.trail.shift();
+
+      // Hit test against target
+      if (m.target && !m.target.destroyed) {
+        if (m.x > m.target.x - 4 && m.x < m.target.x + PIPE_W + 4) {
+          destroyPipe(m.target);
+          missiles.splice(i, 1);
+          continue;
+        }
+      }
+      if (m.life <= 0 || m.x > W + 40 || m.x < -40 || m.y < -40 || m.y > H + 40) {
+        missiles.splice(i, 1);
+      }
+    }
+  }
+
+  function destroyPipe(p) {
+    p.destroyed = true;
+    p.passed = true; // count as cleared
+    // Shower of debris sparks at each pipe segment
+    const cx = p.x + PIPE_W / 2;
+    const cy1 = p.top / 2;
+    const cy2 = p.top + p.gap + (PLAY_H - p.top - p.gap) / 2;
+    for (const cy of [cy1, cy2]) {
+      for (let i = 0; i < 14; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 2 + Math.random() * 3;
+        sparks.push({
+          x: cx + (Math.random() - 0.5) * PIPE_W,
+          y: cy + (Math.random() - 0.5) * 40,
+          vx: Math.cos(a) * sp,
+          vy: Math.sin(a) * sp,
+          size: 4 + Math.random() * 3,
+          rot: Math.random() * Math.PI * 2,
+          vr: (Math.random() - 0.5) * 0.4,
+          life: 1,
+          decay: 0.018,
+          shape: 'tri',
+          color: '#ff8a3a',
+          glow: '#ff5a2a',
+          drag: 0.97,
+          gravity: 0.18,
+        });
+      }
+    }
+    shakeFrames = Math.max(shakeFrames, 8);
+    flashAlpha = Math.max(flashAlpha, 0.35);
+    grantScore(1);
+    playSound('boom');
+  }
+
+  function drawMissiles() {
+    if (missiles.length === 0) return;
+    ctx.save();
+    for (const m of missiles) {
+      // Trail
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = '#ff8a3a';
+      for (let i = 0; i < m.trail.length; i++) {
+        const t = m.trail[i];
+        const k = (i + 1) / m.trail.length;
+        ctx.globalAlpha = k * 0.7;
+        ctx.fillStyle = '#ffc04a';
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, 3 * k, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Body
+      ctx.globalAlpha = 1;
+      const ang = Math.atan2(m.vy, m.vx);
+      ctx.save();
+      ctx.translate(m.x, m.y);
+      ctx.rotate(ang);
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = '#ff5a2a';
+      ctx.fillStyle = '#d0d0d0';
+      ctx.fillRect(-6, -2, 10, 4);
+      ctx.fillStyle = '#ff5a2a';
+      ctx.beginPath();
+      ctx.moveTo(4, -2); ctx.lineTo(9, 0); ctx.lineTo(4, 2);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#4a2a10';
+      ctx.fillRect(-6, -3, 2, 6);
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   function grantScore(n) {
-    const mul = doubleFrames > 0 ? 2 : 1;
+    const mul = (doubleFrames > 0 ? 2 : 1) * comboMultiplier();
     score += n * mul;
+  }
+
+  // Combo chain: pickups raise combo; a pipe passing with an uncollected
+  // item or a collision resets it.
+  function comboMultiplier() {
+    if (combo >= 13) return 4;
+    if (combo >= 7)  return 3;
+    if (combo >= 3)  return 2;
+    return 1;
+  }
+  function addCombo() {
+    combo++;
+    if (combo > comboMax) comboMax = combo;
+  }
+  function breakCombo() {
+    if (combo > 0) combo = 0;
   }
 
   // Pickup sparks use a dedicated array so they don't get cleared with sparks on death
@@ -1243,19 +1536,20 @@
   }
 
   function drawPipes() {
-    for (const p of pipes) drawPipe(p);
+    for (const p of pipes) if (!p.destroyed) drawPipe(p);
   }
 
   // Floating garbage items in each gap: burger, fries, headphones, toilet, etc.
   function drawAllDebris() {
     for (const p of pipes) {
+      if (p.destroyed) continue;
+      const dy = p.driftY || 0;
       if (p.debris && !p.debris.collected) {
         const cx = p.x + PIPE_W / 2;
-        const cy = p.top + p.gap / 2 + p.debris.offY;
+        const cy = p.top + p.gap / 2 + p.debris.offY + dy;
         const rot = frame * p.debris.spin + p.debris.phase;
         const bob = Math.sin(frame * 0.04 + p.debris.phase) * 3;
         ctx.save();
-        // Gold variant has a soft glowing halo
         if (p.debris.gold) {
           ctx.shadowBlur = 14;
           ctx.shadowColor = '#ffd85c';
@@ -1268,7 +1562,7 @@
       }
       if (p.powerUp && !p.powerUp.collected) {
         const cx = p.x + PIPE_W / 2;
-        const cy = p.top + p.gap / 2 + p.powerUp.offY;
+        const cy = p.top + p.gap / 2 + p.powerUp.offY + dy;
         const bob = Math.sin(frame * 0.05 + p.powerUp.phase) * 3;
         drawPowerUpCapsule(cx, cy + bob, p.powerUp.kind);
       }
@@ -1301,20 +1595,43 @@
     if (kind === 'shield') {
       ctx.beginPath();
       ctx.moveTo(0, -7);
-      ctx.lineTo(6, -4);
-      ctx.lineTo(6, 2);
-      ctx.lineTo(0, 8);
-      ctx.lineTo(-6, 2);
-      ctx.lineTo(-6, -4);
-      ctx.closePath();
-      ctx.stroke();
+      ctx.lineTo(6, -4); ctx.lineTo(6, 2); ctx.lineTo(0, 8);
+      ctx.lineTo(-6, 2); ctx.lineTo(-6, -4);
+      ctx.closePath(); ctx.stroke();
     } else if (kind === 'slow') {
+      ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath();
-      ctx.arc(0, 0, 6, 0, Math.PI * 2);
+      ctx.moveTo(0, -5); ctx.lineTo(0, 0); ctx.lineTo(4, 2); ctx.stroke();
+    } else if (kind === 'magnet') {
+      // Horseshoe magnet
+      ctx.beginPath();
+      ctx.arc(0, 2, 6, Math.PI, 0);
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(0, -5); ctx.lineTo(0, 0); ctx.lineTo(4, 2);
+      ctx.moveTo(-6, 2); ctx.lineTo(-6, 6); ctx.moveTo(6, 2); ctx.lineTo(6, 6);
       ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-7, 5, 3, 3);
+      ctx.fillRect(4, 5, 3, 3);
+    } else if (kind === 'missile') {
+      ctx.beginPath();
+      ctx.moveTo(-5, -3); ctx.lineTo(4, -3); ctx.lineTo(7, 0);
+      ctx.lineTo(4, 3);   ctx.lineTo(-5, 3);
+      ctx.closePath(); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-5, -3); ctx.lineTo(-7, -5);
+      ctx.moveTo(-5, 3);  ctx.lineTo(-7, 5);
+      ctx.stroke();
+    } else if (kind === 'ghost') {
+      ctx.beginPath();
+      ctx.arc(0, -1, 5, Math.PI, 0);
+      ctx.lineTo(5, 6);
+      ctx.lineTo(3, 4); ctx.lineTo(1, 6); ctx.lineTo(-1, 4); ctx.lineTo(-3, 6);
+      ctx.lineTo(-5, 4); ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.arc(-2, -1, 0.9, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 2, -1, 0.9, 0, Math.PI * 2); ctx.fill();
     } else {
       ctx.font = '900 10px "Courier New", monospace';
       ctx.textAlign = 'center';
@@ -1568,12 +1885,14 @@
   }
 
   function drawPipe(p) {
+    const dy = p.driftY || 0;
+    const botH = PLAY_H - (p.top + p.gap);
     if (p.type === 'cargo') {
-      drawCargo(p.x, 0, PIPE_W, p.top, true, p.seed);
-      drawCargo(p.x, p.top + p.gap, PIPE_W, PLAY_H - (p.top + p.gap), false, p.seed + 13);
+      drawCargo(p.x, dy,                   PIPE_W, p.top, true,  p.seed);
+      drawCargo(p.x, p.top + p.gap + dy,   PIPE_W, botH,  false, p.seed + 13);
     } else {
-      drawJunk(p.x, 0, PIPE_W, p.top, true, p.topShape, p.seed, p.antennas);
-      drawJunk(p.x, p.top + p.gap, PIPE_W, PLAY_H - (p.top + p.gap), false, p.botShape, p.seed + 13, p.antennas);
+      drawJunk(p.x, dy,                    PIPE_W, p.top, true,  p.topShape, p.seed, p.antennas);
+      drawJunk(p.x, p.top + p.gap + dy,    PIPE_W, botH,  false, p.botShape, p.seed + 13, p.antennas);
     }
   }
 
@@ -1798,8 +2117,12 @@
 
     // Shield bubble rendered underneath the ship
     if (shieldCharges > 0) drawShieldBubble();
-    if (invulnFrames > 0 && Math.floor(frame / 3) % 2 === 0) {
-      ctx.globalAlpha = 0.5; // strobe while invulnerable
+    // Magnet pulse ring
+    if (magnetFrames > 0) drawMagnetRing();
+    // Ghost + i-frame transparency
+    if (ghostFrames > 0) ctx.globalAlpha = 0.55 + 0.25 * Math.sin(frame * 0.3);
+    else if (invulnFrames > 0 && Math.floor(frame / 3) % 2 === 0) {
+      ctx.globalAlpha = 0.5;
     }
 
     // Constant engine-wobble vibration so the whole ship shakes slightly
@@ -1958,6 +2281,22 @@
     ctx.restore();
   }
 
+  function drawMagnetRing() {
+    ctx.save();
+    ctx.translate(bird.x, bird.y);
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = '#ff6b9d';
+    const r = 120 + Math.sin(frame * 0.18) * 6;
+    ctx.strokeStyle = 'rgba(255, 107, 157, 0.25)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 107, 157, 0.45)';
+    ctx.setLineDash([4, 8]);
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.65, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
   function drawShieldBubble() {
     ctx.save();
     const r = BIRD_R + 10 + Math.sin(frame * 0.15) * 1.5;
@@ -2032,6 +2371,23 @@
     ctx.restore();
   }
 
+  function drawComboHud() {
+    if (state !== STATE_PLAY) return;
+    const mul = comboMultiplier();
+    if (combo < 2 && mul === 1) return;
+    const text = 'x' + mul + ' · ' + combo;
+    const size = Math.round(H * 0.035);
+    ctx.save();
+    ctx.font = 'bold ' + size + 'px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = '#ffb347';
+    ctx.fillStyle = mul >= 3 ? '#ffe066' : '#ffd280';
+    const y = Math.max(80, H * 0.14) + size + 6;
+    ctx.fillText(text, W / 2, y);
+    ctx.restore();
+  }
+
   function drawFlash() {
     if (flashAlpha > 0) {
       ctx.fillStyle = 'rgba(255,255,255,' + flashAlpha + ')';
@@ -2055,8 +2411,10 @@
     drawExhaust();
     drawSparks();
     drawPickupSparks();
+    drawMissiles();
     drawBird();
     drawScore();
+    drawComboHud();
     drawFlash();
     ctx.restore();
   }
@@ -2081,6 +2439,8 @@
   const hudShield = document.getElementById('pwShield');
   const hudSlow   = document.getElementById('pwSlow');
   const hudDouble = document.getElementById('pwDouble');
+  const hudMagnet = document.getElementById('pwMagnet');
+  const hudGhost  = document.getElementById('pwGhost');
 
   // Miniature ship thumbnails inside the picker buttons — use the same
   // palette the in-game ship uses so selection matches flight.
@@ -2197,6 +2557,8 @@
     setHud(hudShield, shieldCharges > 0, shieldCharges / 3);
     setHud(hudSlow,   slowFrames > 0,    slowFrames   / 300);
     setHud(hudDouble, doubleFrames > 0,  doubleFrames / 360);
+    setHud(hudMagnet, magnetFrames > 0,  magnetFrames / 360);
+    setHud(hudGhost,  ghostFrames > 0,   ghostFrames  / 120);
   }
   function setHud(el, active, frac) {
     if (!el) return;
@@ -2216,6 +2578,7 @@
     // but check target defensively so the click fallback works too)
     if (e && e.target && e.target.closest && e.target.closest('.shipBtn')) return;
     if (e && e.cancelable) e.preventDefault();
+    audio(); // unlock WebAudio on the first user gesture (iOS requirement)
     if (state === STATE_OVER) return;
     if (state === STATE_READY) {
       // Tapping anywhere outside the ship buttons launches with the
