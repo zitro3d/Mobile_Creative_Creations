@@ -138,6 +138,94 @@
   }
   .hidden { display: none !important; }
 
+  #shipPicker {
+    display: flex;
+    gap: 10px;
+    margin: 20px 0;
+    pointer-events: auto;
+  }
+  .shipBtn {
+    flex: 1;
+    min-width: 88px;
+    background: rgba(0,0,0,0.45);
+    border: 2px solid rgba(255,255,255,0.25);
+    border-radius: 12px;
+    padding: 8px 6px;
+    color: #fff;
+    font-family: inherit;
+    -webkit-appearance: none;
+    cursor: pointer;
+    text-shadow: 1px 1px 0 #000;
+    transition: transform 0.08s, border-color 0.1s, background 0.1s;
+  }
+  .shipBtn.selected {
+    border-color: #ffd280;
+    background: rgba(255, 170, 80, 0.22);
+    box-shadow: 0 0 18px rgba(255,180,80,0.35);
+  }
+  .shipBtn:active { transform: scale(0.96); }
+  .shipThumb {
+    width: 90px;
+    height: 54px;
+    display: block;
+    margin: 0 auto 4px;
+    image-rendering: pixelated;
+  }
+  .shipName {
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    color: #ffd280;
+  }
+  .shipStats {
+    font-size: 10px;
+    color: #ddd;
+    margin-top: 2px;
+  }
+
+  #hud {
+    position: absolute;
+    top: calc(var(--safe-top) + 8px);
+    left: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    pointer-events: none;
+    z-index: 3;
+  }
+  .pw {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,180,80,0.4);
+    border-radius: 999px;
+    color: #fff;
+    font-family: "Courier New", monospace;
+    font-weight: 900;
+    font-size: 11px;
+  }
+  .pw.active { display: inline-flex; }
+  .pwLabel { min-width: 18px; text-align: center; }
+  .pwBar {
+    width: 40px;
+    height: 4px;
+    background: rgba(255,255,255,0.18);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .pwFill {
+    display: block;
+    height: 100%;
+    background: #ffd280;
+    transform-origin: left center;
+    transform: scaleX(1);
+  }
+  #pwShield     { border-color: #9bd2ff; } #pwShield     .pwFill { background: #9bd2ff; }
+  #pwSlow       { border-color: #c49bff; } #pwSlow       .pwFill { background: #c49bff; }
+  #pwDouble     { border-color: #ffd280; } #pwDouble     .pwFill { background: #ffd280; }
+
   #gate {
     position: fixed;
     inset: 0;
@@ -198,17 +286,40 @@
   <div id="overlay" class="show">
     <div id="startScreen">
       <div id="title">DLX<br>GARBAGE<br>HAULER</div>
-      <div id="subtitle">Dodge the orbital junk</div>
-      <div class="tapHint">TAP TO IGNITE</div>
+      <div id="subtitle">Pick your ship</div>
+      <div id="shipPicker">
+        <button class="shipBtn" data-ship="scout">
+          <canvas class="shipThumb" width="90" height="54"></canvas>
+          <div class="shipName">SCOUT</div>
+          <div class="shipStats">Small · Agile</div>
+        </button>
+        <button class="shipBtn selected" data-ship="hauler">
+          <canvas class="shipThumb" width="90" height="54"></canvas>
+          <div class="shipName">HAULER</div>
+          <div class="shipStats">Balanced</div>
+        </button>
+        <button class="shipBtn" data-ship="freighter">
+          <canvas class="shipThumb" width="90" height="54"></canvas>
+          <div class="shipName">FREIGHTER</div>
+          <div class="shipStats">Big · Heavy</div>
+        </button>
+      </div>
+      <div class="tapHint">TAP SHIP TO LAUNCH</div>
     </div>
     <div id="gameOverScreen" class="hidden">
       <div class="panel">
         <div id="gameOverTitle">GAME OVER</div>
         <div class="row"><span class="label">SCORE</span> <span id="finalScore">0</span></div>
         <div class="row"><span class="label">BEST</span> <span id="bestScore">0</span></div>
+        <div class="row"><span class="label">SHIP</span> <span id="finalShip">HAULER</span></div>
         <button id="restartBtn">RESTART</button>
       </div>
     </div>
+  </div>
+  <div id="hud">
+    <div class="pw" id="pwShield"><span class="pwLabel">◎</span><span class="pwBar"><span class="pwFill"></span></span></div>
+    <div class="pw" id="pwSlow"><span class="pwLabel">◐</span><span class="pwBar"><span class="pwFill"></span></span></div>
+    <div class="pw" id="pwDouble"><span class="pwLabel">×2</span><span class="pwBar"><span class="pwFill"></span></span></div>
   </div>
 </div>
 
@@ -270,35 +381,62 @@
   }
 
   // ---------- Physics / constants ----------
-  // Heavy mechanical feel — +10% gravity, stronger jump impulse
-  const GRAVITY = 0.3;
-  const FLAP = -6.7;
-  const MAX_FALL = 10.5;
+  // Three ship types — chosen on start screen. Stats stay fixed per run.
+  const SHIPS = {
+    scout:     { r: 15, gravity: 0.26, flap: -5.8, maxFall: 9,    label: 'SCOUT',     accentA: '#ffc64d', accentB: '#b23a2a' },
+    hauler:    { r: 20, gravity: 0.30, flap: -6.7, maxFall: 10.5, label: 'HAULER',    accentA: '#a52a2a', accentB: '#3a3a40' },
+    freighter: { r: 25, gravity: 0.34, flap: -7.6, maxFall: 12,   label: 'FREIGHTER', accentA: '#5e4a2a', accentB: '#262a30' },
+  };
+  let selectedShip = 'hauler';
+  let GRAVITY, FLAP, MAX_FALL, BIRD_R, BIRD_W, BIRD_H;
+  function applyShipStats(key) {
+    const s = SHIPS[key];
+    GRAVITY = s.gravity;
+    FLAP = s.flap;
+    MAX_FALL = s.maxFall;
+    BIRD_R = s.r;
+    BIRD_W = BIRD_R * 2;
+    BIRD_H = BIRD_R * 2;
+  }
+  applyShipStats(selectedShip);
 
   const PIPE_W = 56;
-  const PIPE_GAP = 160;
-  const PIPE_SPACING = 200;
-  const PIPE_SPEED = 2.0;
-  const PIPE_MIN_TOP = 60;
+  const PIPE_GAP_BASE    = 170;         // baseline gap
+  const PIPE_GAP_MIN     = 130;         // tightest after ramp
+  const PIPE_SPEED_BASE  = 2.0;
+  const PIPE_SPEED_MAX   = 3.6;
+  const PIPE_SPACING     = 200;
+  const PIPE_MIN_TOP     = 60;
+
+  // Difficulty scales with score
+  function currentPipeSpeed() {
+    return Math.min(PIPE_SPEED_MAX, PIPE_SPEED_BASE + score * 0.03);
+  }
+  function currentPipeGap() {
+    return Math.max(PIPE_GAP_MIN, PIPE_GAP_BASE - score * 0.5);
+  }
 
   const BIRD_X_FRAC = 0.28;
-  const BIRD_R = 20;          // Hauler half-size (all ship parts scale off this)
-  const BIRD_W = BIRD_R * 2;
-  const BIRD_H = BIRD_R * 2;
 
   const STATE_READY = 0;
   const STATE_PLAY = 1;
   const STATE_OVER = 2;
   let state = STATE_READY;
 
-  let bird, pipes, sparks, exhaust, score, best, frame, flashAlpha, burstFrames, shakeFrames, scorePulse, thrusterFrames, flapCount;
+  let bird, pipes, sparks, exhaust, score, best, frame, flashAlpha, burstFrames, shakeFrames, scorePulse, thrusterFrames, flapCount, pipeSpawnCount;
   let stars = [];
-  let dust  = [];                  // fast white speed-dust specks
-  let nebula;                       // static far-background cloud
-  let junkSats = [];                // distant satellite silhouettes
-  best = parseInt(localStorage.getItem('flappy_best_ios') || '0', 10);
+  let dust  = [];
+  let nebula;
+  let junkSats = [];
+  // Power-up state
+  let shieldCharges = 0;   // absorbs one hit each
+  let slowFrames    = 0;   // slow-motion timer (frames)
+  let doubleFrames  = 0;   // double-score timer (frames)
+  let invulnFrames  = 0;   // brief i-frames after shield break / spawn
+  best = parseInt(localStorage.getItem('flappy_best_ios_v2') || '0', 10);
 
   function reset() {
+    applyShipStats(selectedShip);
     bird = {
       x: Math.round(W * BIRD_X_FRAC),
       y: PLAY_H / 2,
@@ -306,6 +444,7 @@
     };
     pipes = [];
     sparks = [];
+    pickupSparks = [];
     exhaust = [];
     score = 0;
     frame = 0;
@@ -315,11 +454,17 @@
     scorePulse = 0;
     thrusterFrames = 0;
     flapCount = 0;
+    pipeSpawnCount = 0;
+    shieldCharges = 0;
+    slowFrames = 0;
+    doubleFrames = 0;
+    invulnFrames = 0;
     initStars();
     initDust();
     initNebula();
     initJunkSats();
     for (let i = 0; i < 4; i++) addPipe(W + 120 + i * PIPE_SPACING);
+    refreshHud();
   }
 
   // 3-layer parallax starfield — 80 stars with speedFactor 0.1 / 0.5 / 1.0
@@ -349,7 +494,7 @@
 
   function updateStars() {
     for (const s of stars) {
-      s.x -= PIPE_SPEED * s.speedFactor;
+      s.x -= PIPE_SPEED_BASE * s.speedFactor;
       if (s.x < -2) {
         // Reset to right edge at random height
         s.x = W + Math.random() * 8;
@@ -424,30 +569,49 @@
   }
 
   function addPipe(x) {
-    const top = PIPE_MIN_TOP + Math.random() * (PLAY_H - PIPE_GAP - PIPE_MIN_TOP * 2);
+    const gap = currentPipeGap();
+    const top = PIPE_MIN_TOP + Math.random() * (PLAY_H - gap - PIPE_MIN_TOP * 2);
     const type = Math.random() < 0.5 ? 'cargo' : 'junk';
+    // Every ~5th pipe swaps its debris for a glowing power-up capsule
+    const spawnPowerUp = pipeSpawnCount > 2 && Math.random() < 0.22;
+    pipeSpawnCount++;
     pipes.push({
       x: x,
       top: top,
+      gap: gap,
       passed: false,
       seed: Math.random() * 1000,
       pulse: Math.random() * Math.PI * 2,
       type: type,
       topShape: buildShardShape(PIPE_W, top, true),
-      botShape: buildShardShape(PIPE_W, PLAY_H - (top + PIPE_GAP), false),
+      botShape: buildShardShape(PIPE_W, PLAY_H - (top + gap), false),
       antennas: buildAntennas(),
-      debris: makeDebris(),
+      debris:  spawnPowerUp ? null : makeDebris(gap),
+      powerUp: spawnPowerUp ? makePowerUp(gap) : null,
     });
   }
 
-  // Random assorted floating garbage item for the gap between obstacles
-  function makeDebris() {
+  function makeDebris(gap) {
+    // Rare gold variant gives +5 instead of +1
+    const gold = Math.random() < 0.16;
     return {
-      kind: Math.floor(Math.random() * 9),           // 9 variants
-      offY: (Math.random() - 0.5) * (PIPE_GAP * 0.35),
+      kind: Math.floor(Math.random() * 9),
+      offY: (Math.random() - 0.5) * (gap * 0.32),
       scale: 0.85 + Math.random() * 0.35,
       spin: (Math.random() - 0.5) * 0.025,
       phase: Math.random() * Math.PI * 2,
+      gold: gold,
+      collected: false,
+    };
+  }
+
+  const POWER_KINDS = ['shield', 'slow', 'double'];
+  function makePowerUp(gap) {
+    return {
+      kind: POWER_KINDS[Math.floor(Math.random() * POWER_KINDS.length)],
+      offY: (Math.random() - 0.5) * (gap * 0.25),
+      phase: Math.random() * Math.PI * 2,
+      collected: false,
     };
   }
 
@@ -585,7 +749,7 @@
       const p = exhaust[i];
       p.r *= 1.05;                             // expand
       p.a -= 0.018;                            // fade slowly
-      p.x += (p.vx || 0) - PIPE_SPEED * 0.4;
+      p.x += (p.vx || 0) - PIPE_SPEED_BASE * 0.4;
       p.y += (p.vy || 0);
       if (p.a <= 0) exhaust.splice(i, 1);
     }
@@ -598,41 +762,63 @@
       return;
     }
     if (state === STATE_PLAY) {
+      // Power-up timers
+      if (slowFrames > 0) slowFrames--;
+      if (doubleFrames > 0) doubleFrames--;
+      if (invulnFrames > 0) invulnFrames--;
+
       bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
       bird.y += bird.vy;
       bird.rot = Math.max(-0.5, Math.min(1.2, bird.vy * 0.09));
 
-      for (const p of pipes) p.x -= PIPE_SPEED;
+      const speed = currentPipeSpeed() * (slowFrames > 0 ? 0.5 : 1);
+      for (const p of pipes) p.x -= speed;
       while (pipes.length && pipes[0].x + PIPE_W < -10) pipes.shift();
       const last = pipes[pipes.length - 1];
       if (!last || last.x < W - PIPE_SPACING) {
         addPipe((last ? last.x : W) + PIPE_SPACING);
       }
 
+      // Collectibles and power-ups
+      for (const p of pipes) {
+        checkGapPickups(p);
+      }
+
       for (const p of pipes) {
         if (!p.passed && p.x + PIPE_W < bird.x) {
           p.passed = true;
-          score++;
-          burstFrames = 14;       // eye glow pulse
-          scorePulse = 1;         // score text grows to 1.5x then shrinks over 10 frames
-          emitScoreBurst(p.x + PIPE_W / 2, p.top + PIPE_GAP / 2);
+          grantScore(1);
+          burstFrames = 14;
+          scorePulse = 1;
+          emitScoreBurst(p.x + PIPE_W / 2, p.top + p.gap / 2);
           if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} }
         }
       }
 
       updateSparks();
+      updatePickupSparks();
+      if (frame % 6 === 0) refreshHud();
 
       if (collide()) {
-        state = STATE_OVER;
-        flashAlpha = 0.85;
-        shakeFrames = 12; // ~200ms at 60fps
-        emitDeathShards(bird.x, bird.y);
-        if (score > best) {
-          best = score;
-          localStorage.setItem('flappy_best_ios', String(best));
+        if (shieldCharges > 0) {
+          shieldCharges--;
+          invulnFrames = 45;
+          shakeFrames = 6;
+          flashAlpha = 0.35;
+          emitShieldBreak(bird.x, bird.y);
+          if (navigator.vibrate) { try { navigator.vibrate([10, 20, 10]); } catch (e) {} }
+        } else {
+          state = STATE_OVER;
+          flashAlpha = 0.85;
+          shakeFrames = 12;
+          emitDeathShards(bird.x, bird.y);
+          if (score > best) {
+            best = score;
+            localStorage.setItem('flappy_best_ios_v2', String(best));
+          }
+          if (navigator.vibrate) { try { navigator.vibrate([30, 40, 30]); } catch (e) {} }
+          setTimeout(showGameOver, 200);
         }
-        if (navigator.vibrate) { try { navigator.vibrate([30, 40, 30]); } catch (e) {} }
-        setTimeout(showGameOver, 200);
       }
     } else if (state === STATE_OVER) {
       if (bird.y + BIRD_R < PLAY_H) {
@@ -708,6 +894,7 @@
   }
 
   function collide() {
+    if (invulnFrames > 0) return false;
     const r = BIRD_R - 3;
 
     if (bird.y + r >= PLAY_H) return true;
@@ -715,10 +902,116 @@
 
     for (const p of pipes) {
       if (bird.x + r > p.x && bird.x - r < p.x + PIPE_W) {
-        if (bird.y - r < p.top || bird.y + r > p.top + PIPE_GAP) return true;
+        if (bird.y - r < p.top || bird.y + r > p.top + p.gap) return true;
       }
     }
     return false;
+  }
+
+  // Pickup overlap: collectibles give score, power-ups activate effects
+  function checkGapPickups(p) {
+    if (p.debris && !p.debris.collected) {
+      const cx = p.x + PIPE_W / 2;
+      const cy = p.top + p.gap / 2 + p.debris.offY;
+      const reach = BIRD_R + 12;
+      const dx = bird.x - cx, dy = bird.y - cy;
+      if (dx * dx + dy * dy < reach * reach) {
+        p.debris.collected = true;
+        const points = p.debris.gold ? 5 : 1;
+        grantScore(points);
+        scorePulse = 1;
+        burstFrames = 10;
+        emitPickupSparks(cx, cy, p.debris.gold ? '#ffe066' : '#fff3a8', points);
+        if (navigator.vibrate) { try { navigator.vibrate(8); } catch (e) {} }
+      }
+    }
+    if (p.powerUp && !p.powerUp.collected) {
+      const cx = p.x + PIPE_W / 2;
+      const cy = p.top + p.gap / 2 + p.powerUp.offY;
+      const reach = BIRD_R + 14;
+      const dx = bird.x - cx, dy = bird.y - cy;
+      if (dx * dx + dy * dy < reach * reach) {
+        p.powerUp.collected = true;
+        activatePowerUp(p.powerUp.kind);
+        emitPickupSparks(cx, cy, powerUpColor(p.powerUp.kind), 14);
+        if (navigator.vibrate) { try { navigator.vibrate([15, 20, 15]); } catch (e) {} }
+      }
+    }
+  }
+
+  function powerUpColor(kind) {
+    if (kind === 'shield') return '#9bd2ff';
+    if (kind === 'slow')   return '#c49bff';
+    return '#ffd280';
+  }
+
+  function activatePowerUp(kind) {
+    if (kind === 'shield') shieldCharges = Math.min(3, shieldCharges + 1);
+    else if (kind === 'slow')   slowFrames   = Math.max(slowFrames, 300);   // ~5s
+    else if (kind === 'double') doubleFrames = Math.max(doubleFrames, 360); // ~6s
+    refreshHud();
+  }
+
+  function grantScore(n) {
+    const mul = doubleFrames > 0 ? 2 : 1;
+    score += n * mul;
+  }
+
+  // Pickup sparks use a dedicated array so they don't get cleared with sparks on death
+  let pickupSparks = [];
+  function emitPickupSparks(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 1.2 + Math.random() * 2.2;
+      pickupSparks.push({
+        x, y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp,
+        life: 1,
+        decay: 0.03 + Math.random() * 0.02,
+        size: 2 + Math.random() * 2,
+        color: color,
+      });
+    }
+  }
+  function updatePickupSparks() {
+    for (let i = pickupSparks.length - 1; i >= 0; i--) {
+      const s = pickupSparks[i];
+      s.x += s.vx; s.y += s.vy;
+      s.vx *= 0.93; s.vy = s.vy * 0.93 + 0.04;
+      s.life -= s.decay;
+      if (s.life <= 0) pickupSparks.splice(i, 1);
+    }
+  }
+  function drawPickupSparks() {
+    if (pickupSparks.length === 0) return;
+    ctx.save();
+    ctx.shadowBlur = 10;
+    for (const s of pickupSparks) {
+      ctx.shadowColor = s.color;
+      ctx.globalAlpha = Math.max(0, s.life);
+      ctx.fillStyle = s.color;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size * (0.4 + s.life * 0.6), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function emitShieldBreak(x, y) {
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2;
+      const sp = 3 + Math.random() * 2;
+      pickupSparks.push({
+        x, y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp,
+        life: 1,
+        decay: 0.035,
+        size: 2.5 + Math.random() * 2,
+        color: '#9bd2ff',
+      });
+    }
   }
 
   // ---------- Rendering ----------
@@ -919,18 +1212,79 @@
   // Floating garbage items in each gap: burger, fries, headphones, toilet, etc.
   function drawAllDebris() {
     for (const p of pipes) {
-      if (!p.debris) continue;
-      const cx = p.x + PIPE_W / 2;
-      const cy = p.top + PIPE_GAP / 2 + p.debris.offY;
-      const rot = frame * p.debris.spin + p.debris.phase;
-      const bob = Math.sin(frame * 0.04 + p.debris.phase) * 3;
-      ctx.save();
-      ctx.translate(cx, cy + bob);
-      ctx.rotate(rot);
-      ctx.scale(p.debris.scale, p.debris.scale);
-      drawDebrisItem(p.debris.kind);
-      ctx.restore();
+      if (p.debris && !p.debris.collected) {
+        const cx = p.x + PIPE_W / 2;
+        const cy = p.top + p.gap / 2 + p.debris.offY;
+        const rot = frame * p.debris.spin + p.debris.phase;
+        const bob = Math.sin(frame * 0.04 + p.debris.phase) * 3;
+        ctx.save();
+        // Gold variant has a soft glowing halo
+        if (p.debris.gold) {
+          ctx.shadowBlur = 14;
+          ctx.shadowColor = '#ffd85c';
+        }
+        ctx.translate(cx, cy + bob);
+        ctx.rotate(rot);
+        ctx.scale(p.debris.scale, p.debris.scale);
+        drawDebrisItem(p.debris.kind);
+        ctx.restore();
+      }
+      if (p.powerUp && !p.powerUp.collected) {
+        const cx = p.x + PIPE_W / 2;
+        const cy = p.top + p.gap / 2 + p.powerUp.offY;
+        const bob = Math.sin(frame * 0.05 + p.powerUp.phase) * 3;
+        drawPowerUpCapsule(cx, cy + bob, p.powerUp.kind);
+      }
     }
+  }
+
+  function drawPowerUpCapsule(cx, cy, kind) {
+    const color = powerUpColor(kind);
+    const pulse = 1 + Math.sin(frame * 0.12) * 0.08;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = color;
+    // Outer ring
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 14 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    // Inner disc
+    ctx.fillStyle = 'rgba(20, 20, 30, 0.8)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 11, 0, Math.PI * 2);
+    ctx.fill();
+    // Icon
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    if (kind === 'shield') {
+      ctx.beginPath();
+      ctx.moveTo(0, -7);
+      ctx.lineTo(6, -4);
+      ctx.lineTo(6, 2);
+      ctx.lineTo(0, 8);
+      ctx.lineTo(-6, 2);
+      ctx.lineTo(-6, -4);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (kind === 'slow') {
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -5); ctx.lineTo(0, 0); ctx.lineTo(4, 2);
+      ctx.stroke();
+    } else {
+      ctx.font = '900 10px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('×2', 0, 0);
+    }
+    ctx.restore();
   }
 
   function drawDebrisItem(kind) {
@@ -1179,10 +1533,10 @@
   function drawPipe(p) {
     if (p.type === 'cargo') {
       drawCargo(p.x, 0, PIPE_W, p.top, true, p.seed);
-      drawCargo(p.x, p.top + PIPE_GAP, PIPE_W, PLAY_H - (p.top + PIPE_GAP), false, p.seed + 13);
+      drawCargo(p.x, p.top + p.gap, PIPE_W, PLAY_H - (p.top + p.gap), false, p.seed + 13);
     } else {
       drawJunk(p.x, 0, PIPE_W, p.top, true, p.topShape, p.seed, p.antennas);
-      drawJunk(p.x, p.top + PIPE_GAP, PIPE_W, PLAY_H - (p.top + PIPE_GAP), false, p.botShape, p.seed + 13, p.antennas);
+      drawJunk(p.x, p.top + p.gap, PIPE_W, PLAY_H - (p.top + p.gap), false, p.botShape, p.seed + 13, p.antennas);
     }
   }
 
@@ -1405,6 +1759,12 @@
     // Asymmetrical boxy Garbage Hauler — rust, patches, and a struggling engine
     ctx.save();
 
+    // Shield bubble rendered underneath the ship
+    if (shieldCharges > 0) drawShieldBubble();
+    if (invulnFrames > 0 && Math.floor(frame / 3) % 2 === 0) {
+      ctx.globalAlpha = 0.5; // strobe while invulnerable
+    }
+
     // Constant engine-wobble vibration so the whole ship shakes slightly
     const wobbleX = (Math.random() - 0.5) * 1.4;
     const wobbleY = (Math.random() - 0.5) * 1.4;
@@ -1562,6 +1922,34 @@
     ctx.restore();
   }
 
+  function drawShieldBubble() {
+    ctx.save();
+    const r = BIRD_R + 10 + Math.sin(frame * 0.15) * 1.5;
+    ctx.translate(bird.x, bird.y);
+    ctx.shadowBlur = 16;
+    ctx.shadowColor = '#9bd2ff';
+    // Glowing ring
+    ctx.strokeStyle = 'rgba(155, 210, 255, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.stroke();
+    // Faint fill
+    ctx.fillStyle = 'rgba(155, 210, 255, 0.1)';
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    // Charge pips around the top
+    for (let i = 0; i < shieldCharges; i++) {
+      const a = -Math.PI / 2 + (i - (shieldCharges - 1) / 2) * 0.35;
+      ctx.fillStyle = '#9bd2ff';
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * r, Math.sin(a) * r, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawDirtyFlame() {
     // Short flickering orange plume out the main exhaust
     const tailX = -BIRD_R * 0.65 - BIRD_R * 0.25;
@@ -1625,11 +2013,12 @@
       shakeFrames--;
     }
     drawBackground();
-    drawAllDebris();   // floating trash in each gap, behind the ship/obstacles
+    drawAllDebris();
     drawPipes();
     drawGround();
     drawExhaust();
     drawSparks();
+    drawPickupSparks();
     drawBird();
     drawScore();
     drawFlash();
@@ -1650,12 +2039,80 @@
   const gameOverScreen = document.getElementById('gameOverScreen');
   const finalScoreEl = document.getElementById('finalScore');
   const bestScoreEl = document.getElementById('bestScore');
+  const finalShipEl = document.getElementById('finalShip');
   const restartBtn = document.getElementById('restartBtn');
+  const shipBtns = Array.from(document.querySelectorAll('.shipBtn'));
+  const hudShield = document.getElementById('pwShield');
+  const hudSlow   = document.getElementById('pwSlow');
+  const hudDouble = document.getElementById('pwDouble');
+
+  // Render miniature ship icons inside the picker buttons
+  function drawShipThumbs() {
+    for (const btn of shipBtns) {
+      const key = btn.dataset.ship;
+      const cvs = btn.querySelector('.shipThumb');
+      const c = cvs.getContext('2d');
+      c.clearRect(0, 0, cvs.width, cvs.height);
+      c.save();
+      c.translate(cvs.width / 2, cvs.height / 2);
+      const s = SHIPS[key];
+      const scl = 0.75 + (s.r - 15) * 0.03;
+      c.scale(scl, scl);
+      // Simple boxy profile: main body + engine block + cockpit
+      c.fillStyle = s.accentA;
+      c.fillRect(-18, -10, 28, 20);
+      c.fillStyle = s.accentB;
+      c.fillRect(-30, -6, 12, 14);
+      c.fillRect(-2, -16, 10, 6);         // roof cargo
+      c.fillStyle = '#e0a020';            // cockpit
+      c.fillRect(5, -5, 5, 7);
+      c.strokeStyle = '#1a0a05';
+      c.lineWidth = 1.2;
+      c.strokeRect(-18, -10, 28, 20);
+      c.strokeRect(-30, -6, 12, 14);
+      c.strokeRect(-2, -16, 10, 6);
+      // exhaust glow
+      c.shadowBlur = 6;
+      c.shadowColor = '#ff7a00';
+      c.fillStyle = '#ffb347';
+      c.fillRect(-36, -1, 5, 3);
+      c.restore();
+    }
+  }
+  drawShipThumbs();
+
+  function setSelectedShip(key) {
+    selectedShip = key;
+    for (const btn of shipBtns) {
+      btn.classList.toggle('selected', btn.dataset.ship === key);
+    }
+  }
+
+  for (const btn of shipBtns) {
+    const handler = function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      const key = btn.dataset.ship;
+      setSelectedShip(key);
+      if (state === STATE_READY) {
+        applyShipStats(key);
+        reset();
+        state = STATE_PLAY;
+        bird.x = Math.round(W * BIRD_X_FRAC);
+        bird.vy = FLAP;
+        thrusterFrames = 5;
+        hideOverlay();
+      }
+    };
+    btn.addEventListener('touchend', handler, { passive: false });
+    btn.addEventListener('click', handler);
+  }
 
   function showStart() {
     overlay.classList.add('show');
     startScreen.classList.remove('hidden');
     gameOverScreen.classList.add('hidden');
+    refreshHud();
   }
   function hideOverlay() {
     overlay.classList.remove('show');
@@ -1665,9 +2122,22 @@
   function showGameOver() {
     finalScoreEl.textContent = String(score);
     bestScoreEl.textContent = String(best);
+    if (finalShipEl) finalShipEl.textContent = SHIPS[selectedShip].label;
     overlay.classList.add('show');
     startScreen.classList.add('hidden');
     gameOverScreen.classList.remove('hidden');
+  }
+
+  function refreshHud() {
+    setHud(hudShield, shieldCharges > 0, shieldCharges / 3);
+    setHud(hudSlow,   slowFrames > 0,    slowFrames   / 300);
+    setHud(hudDouble, doubleFrames > 0,  doubleFrames / 360);
+  }
+  function setHud(el, active, frac) {
+    if (!el) return;
+    el.classList.toggle('active', !!active);
+    const fill = el.querySelector('.pwFill');
+    if (fill) fill.style.transform = 'scaleX(' + Math.max(0, Math.min(1, frac)) + ')';
   }
 
   function restart() {
@@ -1679,7 +2149,18 @@
   function handleTouchStart(e) {
     if (e.cancelable) e.preventDefault();
     if (state === STATE_OVER) return;
-    if (state === STATE_READY) hideOverlay();
+    if (state === STATE_READY) {
+      // From the start screen, tapping the background also launches with the
+      // currently highlighted ship (same as tapping its button).
+      applyShipStats(selectedShip);
+      reset();
+      state = STATE_PLAY;
+      bird.x = Math.round(W * BIRD_X_FRAC);
+      bird.vy = FLAP;
+      thrusterFrames = 5;
+      hideOverlay();
+      return;
+    }
     flap();
   }
 
