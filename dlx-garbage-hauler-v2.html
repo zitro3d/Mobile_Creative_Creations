@@ -678,6 +678,8 @@ if ('serviceWorker' in navigator) {
     if (lbl && lbl.parentNode) lbl.parentNode.removeChild(lbl);
     if (pck && pck.parentNode) pck.parentNode.removeChild(pck);
     try { localStorage.removeItem('dlx_theme_v2'); } catch (e) {}
+    // Note: dlx_resume_v2 is intentionally NOT cleared here — we read it
+    // a few lines below to let the player pick up where they left off.
   }
 
   // ---------- Canvas sizing (DPR-aware) ----------
@@ -1510,6 +1512,12 @@ if ('serviceWorker' in navigator) {
     }
     playSound('levelup');
     startThemeAmbient();
+    // Remember the furthest level reached so the player can resume here
+    // on next launch if they close the tab mid-run.
+    try { localStorage.setItem('dlx_resume_v2', String(levelIndex)); } catch (e) {}
+  }
+  function clearResume() {
+    try { localStorage.removeItem('dlx_resume_v2'); } catch (e) {}
   }
   function setLevelBanner(text) {
     levelBanner.text = text;
@@ -2186,6 +2194,7 @@ if ('serviceWorker' in navigator) {
           if (navigator.vibrate) { try { navigator.vibrate([30, 40, 30]); } catch (e) {} }
           playSound('crash');
           stopThemeAmbient(0.5);
+          clearResume();      // dying wipes the resume point; next run restarts level 1
           setTimeout(showGameOver, 200);
         }
       }
@@ -5618,9 +5627,14 @@ if ('serviceWorker' in navigator) {
       if (saved && THEMES[saved]) setSelectedTheme(saved);
     } catch (e) {}
   } else {
-    // Public mode always starts at level 1 (sunset), regardless of any
-    // prior dev-mode choice or saved theme.
-    setSelectedTheme('sunset');
+    // Public mode: if a prior run reached a later level (and didn't die),
+    // resume from there. Otherwise start at level 1.
+    let startTheme = 'sunset';
+    try {
+      const r = parseInt(localStorage.getItem('dlx_resume_v2') || '0', 10);
+      if (r > 0 && r < LEVEL_ORDER.length) startTheme = LEVEL_ORDER[r];
+    } catch (e) {}
+    setSelectedTheme(startTheme);
   }
   for (const btn of themeBtns) {
     const h = function(e) {
