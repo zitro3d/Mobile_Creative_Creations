@@ -363,6 +363,7 @@
         <button class="themeBtn" data-theme="city">CITY</button>
         <button class="themeBtn" data-theme="volcano">VOLCANO</button>
         <button class="themeBtn" data-theme="swamp">SWAMP</button>
+        <button class="themeBtn" data-theme="canyon">CANYON</button>
       </div>
       <div class="tapHint">TAP SHIP TO LAUNCH</div>
     </div>
@@ -544,6 +545,14 @@
       lb.addColorStop(1,   '#050000');
       bgCache.lavaspireBody = lb;
     }
+    bgCache.canyonHaze = null;
+    if (selectedTheme === 'canyon') {
+      const hz = ctx.createLinearGradient(0, PLAY_H * 0.6, 0, PLAY_H * 0.82);
+      hz.addColorStop(0, 'rgba(255, 140, 60, 0)');
+      hz.addColorStop(0.6, 'rgba(180, 80, 30, 0.25)');
+      hz.addColorStop(1,   'rgba(80, 30, 10, 0)');
+      bgCache.canyonHaze = hz;
+    }
 
     // Per-theme static horizon layout
     bgCache.horizon = buildHorizonLayout();
@@ -612,6 +621,18 @@
         cones.push({ cx: c.cx, scale: c.scale, topH: topH, topW: topW, lava: lava, plume: plume });
       }
       return { kind: 'volcano', baseY: baseY, peaks: peaks, cones: cones };
+    }
+    if (selectedTheme === 'canyon') {
+      // Two layers of jagged mountain spires (far + near) for canyon depth
+      const farPeaks = [];
+      for (let i = 0; i <= 12; i++) {
+        farPeaks.push({ x: (W / 12) * i, h: 36 + ((i * 23 + 7) % 44) });
+      }
+      const nearPeaks = [];
+      for (let i = 0; i <= 10; i++) {
+        nearPeaks.push({ x: (W / 10) * i, h: 62 + ((i * 37 + 11) % 80) });
+      }
+      return { kind: 'canyon', baseY: baseY, farPeaks: farPeaks, nearPeaks: nearPeaks };
     }
     // sunset — simple peak profile
     const peaks = [];
@@ -696,6 +717,12 @@
       { type: 'sine',     freq:  82, gain: 0.024, lfoFreq: 0.20, lfoDepth: 2 },
       { type: 'triangle', freq: 195, gain: 0.012, lfoFreq: 0.5,  lfoDepth: 5 },
       { type: 'sine',     freq: 130, gain: 0.012, lfoFreq: 0.13, lfoDepth: 2 },
+    ]},
+    canyon: { layers: [
+      // Tense low brass-like drone for the chase, tremolo on mid layer
+      { type: 'sawtooth', freq:  73, gain: 0.010, detune:  6 },
+      { type: 'sawtooth', freq: 110, gain: 0.008, detune: -8, lfoFreq: 0.6, lfoDepth: 4 },
+      { type: 'triangle', freq: 220, gain: 0.006, lfoFreq: 0.25, lfoDepth: 3 },
     ]},
   };
   let ambientNodes = [];
@@ -804,6 +831,18 @@
       boomN:   [0.32, 0.34], boomT: [ 70, 0.22, 'sine',     0.18, 35],
       crashN:  [0.55, 0.40], crashT:[ 80, 0.40, 'triangle', 0.22, 35],
       levelup: [[294,0.14,'triangle',0.10,294],[392,0.14,'triangle',0.10,392],[523,0.26,'triangle',0.12,523]],
+    },
+    canyon: {
+      flap:    [190, 0.07, 'sawtooth', 0.07,  95],
+      pickup:  [880, 0.07, 'triangle', 0.10, 1400],
+      goldA:   [680, 0.06, 'triangle', 0.11, 1260],
+      goldB:   [1020,0.10, 'triangle', 0.11, 1900],
+      pwA:     [460, 0.10, 'sawtooth', 0.09,  920],
+      pwB:     [690, 0.13, 'triangle', 0.10, 1380],
+      missile: [340, 0.18, 'sawtooth', 0.13,  70],
+      boomN:   [0.34, 0.42], boomT: [ 75, 0.24, 'square',   0.18, 35],
+      crashN:  [0.55, 0.45], crashT:[ 95, 0.36, 'sawtooth', 0.22, 35],
+      levelup: [[370,0.12,'sawtooth',0.10,370],[494,0.12,'sawtooth',0.10,494],[740,0.24,'sawtooth',0.12,740]],
     },
   };
 
@@ -1037,6 +1076,44 @@
       debrisSet: ['charredcan','emberrock','molten_tire','burntbook','skullbone','ashheap','lavashard'],
       obstacleTypes: ['lavaspire', 'vent'],
     },
+    canyon: {
+      label: 'CANYON',
+      // Deep dusty-red Mars/Tatooine canyon at sunset
+      sky: ['#0a0308', '#1f0d0a', '#4a2018', '#8a3a1a', '#c86830', '#1a0a06'],
+      sunInner: 'rgba(255, 200, 110, 0.95)',
+      sunMid:   'rgba(240, 90, 30, 0.9)',
+      sunEdge:  'rgba(120, 20, 0, 0)',
+      nebA: 'rgba(140, 60, 30, 0.3)',
+      nebB: 'rgba(80, 30, 15, 0.2)',
+      nebC: 'rgba(40, 15, 8, 0.08)',
+      nebWisp: 'rgba(255, 140, 70, 0.12)',
+      starBack: '160, 110, 80',
+      starMid:  '210, 150, 100',
+      starFront:'255, 200, 150',
+      starGlow: 'rgba(255, 180, 110, 0.85)',
+      dust: '255, 190, 120',
+      ridge: 'rgba(20, 8, 4, 0.96)',
+      groundA: '#3a1a08',
+      groundB: '#120602',
+      horizon: 'rgba(255, 140, 50, 0.9)',
+      horizonGlow: '#ff7a20',
+      crackColor: 'rgba(100, 45, 20, 0.75)',
+      cargo: {
+        grad: ['#7a5028', '#3a2410', '#4e3318', '#1f140a'],
+        edge: '#1a0a04', rivet: '#2a1a0c',
+        hazardA: '#ffb040', hazardB: '#120604',
+        rust: 'rgba(200, 90, 35, 0.75)',
+        weather: 'rgba(60, 25, 10, 0.85)',
+      },
+      junk: {
+        grad: ['#5a3a22', '#2e1c10', '#1a0e06'],
+        outline: '#1a0a04', rim: 'rgba(20,10,5,0.85)',
+        rust: 'rgba(200, 100, 40, 0.6)', bolt: '#1a0c06',
+        antennaMetal: '#7a5a3a', antennaLed: '#ff9030',
+      },
+      debrisSet: ['brick','sodacan','oldtire','charredcan','bottle','trafficcone','pizzabox'],
+      obstacleTypes: ['mesa', 'boulder'],
+    },
   };
   let selectedTheme = 'sunset';
   function theme() { return THEMES[selectedTheme]; }
@@ -1096,25 +1173,28 @@
   let loot          = [];  // collectible items revealed by missile destruction
 
   // ---------- Campaign progression ----------
-  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'swamp'];
+  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'swamp', 'canyon'];
   // Score gap required to leave each level (level i → level i+1).
-  // Level 1→2 needs 50 points, each subsequent transition adds +10:
-  //   sunset → city : 50
-  //   city → volcano : 60
-  //   volcano → swamp: 70
-  // (last entry unused — no advancement past swamp)
-  const LEVEL_GAPS  = [50, 60, 70, 0];
+  //   sunset → city    : 50
+  //   city   → volcano : 60
+  //   volcano→ swamp   : 70
+  //   swamp  → canyon  : 80   (swamp is "retreat mode"; boss sinks away)
+  //   canyon: final — no advancement
+  const LEVEL_GAPS  = [50, 60, 70, 80, 0];
   // Per-level difficulty multipliers stack on top of the score-based ramp.
   const LEVEL_DIFF = [
     { speedMul: 1.00, gapMul: 1.00 },   // sunset
     { speedMul: 1.18, gapMul: 0.92 },   // city
     { speedMul: 1.34, gapMul: 0.86 },   // volcano
-    { speedMul: 1.50, gapMul: 0.80 },   // swamp / boss
+    { speedMul: 1.50, gapMul: 0.80 },   // swamp (retreat mode)
+    { speedMul: 1.70, gapMul: 0.76 },   // canyon — final, pirate ambush
   ];
   let levelIndex      = 0;
   let levelScoreStart = 0;   // score at the moment current level began
   let levelBanner     = { text: '', life: 0 };
   let boss            = null;
+  let pirate          = null;   // canyon: pirate cargo ship chasing from behind
+  let projectiles     = [];     // lasers fired by the pirate
 
   function themeToLevelIndex(key) {
     const i = LEVEL_ORDER.indexOf(key);
@@ -1132,6 +1212,11 @@
     buildBgCache();
     setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
     if (levelIndex === 3) spawnBoss();
+    // Leaving swamp → canyon: boss retreats, pirate ship swoops in from behind
+    if (levelIndex === 4) {
+      boss = null;
+      spawnPirate();
+    }
     playSound('levelup');
     startThemeAmbient();
   }
@@ -1163,6 +1248,144 @@
     return false;
   }
 
+  // ---------- Pirate cargo ship (canyon level 5) ----------
+  function spawnPirate() {
+    pirate = {
+      x: -80,            // starts off-screen left, slides in
+      targetX: 40,       // final hover x
+      y: PLAY_H / 2,
+      targetY: PLAY_H / 2,
+      fireCooldown: 120, // frames until first shot
+    };
+    projectiles = [];
+  }
+  function updatePirate() {
+    if (!pirate) return;
+    // Slide to target x from off-screen
+    pirate.x += (pirate.targetX - pirate.x) * 0.04;
+    // Follow player's y with lag
+    pirate.targetY = bird.y + (Math.sin(frame * 0.015) * 40);
+    pirate.y += (pirate.targetY - pirate.y) * 0.025;
+    pirate.y = Math.max(BIRD_R + 10, Math.min(PLAY_H - BIRD_R - 10, pirate.y));
+    // Fire projectiles toward the player
+    pirate.fireCooldown--;
+    if (pirate.fireCooldown <= 0) {
+      pirate.fireCooldown = 70 + Math.floor(Math.random() * 40);
+      firePirateLaser();
+    }
+  }
+  function firePirateLaser() {
+    if (!pirate) return;
+    const sx = pirate.x + 30;
+    const sy = pirate.y;
+    const dx = bird.x - sx;
+    const dy = bird.y - sy;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const sp = 6.2;
+    projectiles.push({
+      x: sx, y: sy,
+      vx: (dx / d) * sp,
+      vy: (dy / d) * sp,
+      life: 120,
+      trail: [],
+    });
+    playSound('missile'); // reuse the dive sound
+  }
+  function updateProjectiles() {
+    const reach = BIRD_R + 4;
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      p.x += p.vx; p.y += p.vy;
+      p.life--;
+      p.trail.push({ x: p.x, y: p.y });
+      if (p.trail.length > 6) p.trail.shift();
+      if (p.life <= 0 || p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > PLAY_H + 20) {
+        projectiles.splice(i, 1);
+        continue;
+      }
+      // Collision with ship
+      const dx = bird.x - p.x;
+      const dy = bird.y - p.y;
+      if (dx * dx + dy * dy < reach * reach) p.hitBird = true;
+    }
+  }
+  function projectileHit() {
+    for (const p of projectiles) {
+      if (p.hitBird) { return true; }
+    }
+    return false;
+  }
+  function drawPirate() {
+    if (!pirate) return;
+    ctx.save();
+    ctx.translate(pirate.x, pirate.y);
+    // Body — boxy rusty cargo ship (mirror of the player hauler)
+    ctx.shadowBlur = 6; ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    const bodyW = 40, bodyH = 22;
+    // Hull
+    const bg = ctx.createLinearGradient(0, -bodyH / 2, 0, bodyH / 2);
+    bg.addColorStop(0, '#5a3820');
+    bg.addColorStop(0.5, '#3a2010');
+    bg.addColorStop(1, '#180a04');
+    ctx.fillStyle = bg;
+    ctx.fillRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH);
+    ctx.strokeStyle = '#0a0402'; ctx.lineWidth = 1.3;
+    ctx.strokeRect(-bodyW / 2 + 0.5, -bodyH / 2 + 0.5, bodyW - 1, bodyH - 1);
+    // Cargo blob on top
+    ctx.fillStyle = '#2a1a0a';
+    ctx.fillRect(-bodyW / 2 + 8, -bodyH / 2 - 6, 12, 6);
+    ctx.strokeRect(-bodyW / 2 + 8 + 0.5, -bodyH / 2 - 6 + 0.5, 12 - 1, 6 - 1);
+    // Cockpit at nose (faces right — toward player)
+    ctx.shadowBlur = 5; ctx.shadowColor = '#ff6020';
+    ctx.fillStyle = '#ff7020';
+    ctx.fillRect(bodyW / 2 - 8, -3, 5, 6);
+    ctx.shadowBlur = 0;
+    // Skull & crossbones
+    ctx.fillStyle = '#f4e6c0';
+    ctx.beginPath(); ctx.arc(-bodyW * 0.15, -1, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#0a0402';
+    ctx.beginPath(); ctx.arc(-bodyW * 0.18, -1.5, 0.7, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-bodyW * 0.12, -1.5, 0.7, 0, Math.PI * 2); ctx.fill();
+    // Engine plume
+    ctx.fillStyle = 'rgba(255, 140, 50, 0.9)';
+    ctx.beginPath();
+    ctx.moveTo(-bodyW / 2, -3);
+    ctx.lineTo(-bodyW / 2 - 6 - Math.random() * 4, 0);
+    ctx.lineTo(-bodyW / 2, 3);
+    ctx.closePath(); ctx.fill();
+    // Gun barrel pointing forward
+    ctx.fillStyle = '#181008';
+    ctx.fillRect(bodyW / 2 - 2, -2, 10, 4);
+    ctx.restore();
+  }
+  function drawProjectiles() {
+    if (projectiles.length === 0) return;
+    ctx.save();
+    ctx.shadowBlur = 10; ctx.shadowColor = '#ff4020';
+    for (const p of projectiles) {
+      // Trail
+      for (let i = 0; i < p.trail.length; i++) {
+        const k = (i + 1) / p.trail.length;
+        ctx.globalAlpha = k * 0.8;
+        ctx.fillStyle = '#ffb060';
+        ctx.beginPath();
+        ctx.arc(p.trail[i].x, p.trail[i].y, 2 * k, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Head
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffdc60';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ff4020';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   best = parseInt(localStorage.getItem('flappy_best_ios_v2') || '0', 10);
 
   function reset() {
@@ -1189,8 +1412,11 @@
     levelScoreStart = 0;
     levelBanner = { text: '', life: 0 };
     boss = null;
+    pirate = null;
+    projectiles = [];
     lightningAt = -999;   // reset volcano flicker timer so since stays valid
     if (levelIndex === 3) spawnBoss();
+    if (levelIndex === 4) spawnPirate();
     shieldCharges = 0;
     slowFrames = 0;
     doubleFrames = 0;
@@ -1590,6 +1816,8 @@
 
       updateMissiles();
       updateLoot();
+      updatePirate();
+      updateProjectiles();
       updateSparks();
       updatePickupSparks();
       if (frame % 6 === 0) refreshHud();
@@ -1709,6 +1937,7 @@
       }
     }
     if (boss && bossTipHits()) return true;
+    if (projectiles.length && projectileHit()) return true;
     return false;
   }
 
@@ -2205,7 +2434,39 @@
     if (selectedTheme === 'swamp')   return drawSwampHorizon();
     if (selectedTheme === 'city')    return drawCitySkyline();
     if (selectedTheme === 'volcano') return drawVolcanoHorizon();
+    if (selectedTheme === 'canyon')  return drawCanyonHorizon();
     return drawSunsetMountains();
+  }
+
+  function drawCanyonHorizon() {
+    const layout = bgCache.horizon;
+    if (!layout || layout.kind !== 'canyon') return;
+    ctx.save();
+    const baseY = layout.baseY;
+    // Distant far ridge line
+    ctx.fillStyle = 'rgba(35, 15, 8, 0.85)';
+    ctx.beginPath();
+    ctx.moveTo(0, baseY);
+    for (const p of layout.farPeaks) ctx.lineTo(p.x, baseY - p.h);
+    ctx.lineTo(W, baseY);
+    ctx.closePath();
+    ctx.fill();
+    // Near ridge — darker sharper canyon walls
+    ctx.fillStyle = theme().ridge;
+    ctx.fillRect(0, baseY, W, PLAY_H - baseY);
+    ctx.beginPath();
+    ctx.moveTo(0, baseY);
+    for (const p of layout.nearPeaks) ctx.lineTo(p.x, baseY - p.h);
+    ctx.lineTo(W, baseY);
+    ctx.closePath();
+    ctx.fill();
+    // Dusty haze band above the ridges
+    const haze = bgCache.canyonHaze;
+    if (haze) {
+      ctx.fillStyle = haze;
+      ctx.fillRect(0, baseY - 80, W, 80);
+    }
+    ctx.restore();
   }
 
   function drawSunsetMountains() {
@@ -3370,6 +3631,8 @@
       case 'pillar':     return '#1a1620';
       case 'lavaspire':  return '#0a0302';
       case 'vent':       return '#1a0504';
+      case 'mesa':       return '#1f1008';
+      case 'boulder':    return '#241208';
       default:           return T.ridge;
     }
   }
@@ -3403,6 +3666,8 @@
     pillar:     function(x, y, w, h, isTop, p) { drawPillar(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
     lavaspire:  function(x, y, w, h, isTop, p) { drawLavaSpire(x, y, w, h, isTop, isTop ? p.topShape : p.botShape, p.seed + (isTop ? 0 : 13)); },
     vent:       function(x, y, w, h, isTop, p) { drawVent(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    mesa:       function(x, y, w, h, isTop, p) { drawMesa(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    boulder:    function(x, y, w, h, isTop, p) { drawBoulder(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
   };
 
   // ---------- Thematic obstacle structures ----------
@@ -4038,6 +4303,120 @@
     ctx.restore();
   }
 
+  // Canyon: tall tapered rocky mesa — slab silhouette with horizontal bands
+  function drawMesa(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const tipY  = isTop ? h : 0;
+    const baseY = isTop ? 0 : h;
+    const sign  = isTop ? 1 : -1;
+    const basePad = 5;
+    const tipPad  = -4; // slightly narrower at the gap end
+    // Polygon: base wider than tip
+    ctx.fillStyle = '#321a08';
+    ctx.beginPath();
+    ctx.moveTo(-basePad, baseY);
+    ctx.lineTo(w + basePad, baseY);
+    ctx.lineTo(w + tipPad,  tipY);
+    ctx.lineTo(-tipPad,     tipY);
+    ctx.closePath();
+    ctx.fill();
+    // Vertical gradient overlay
+    const g = ctx.createLinearGradient(0, baseY, 0, tipY);
+    g.addColorStop(0, 'rgba(100, 50, 20, 0.45)');
+    g.addColorStop(1, 'rgba(10, 5, 2, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(-basePad, Math.min(baseY, tipY), w + basePad * 2, Math.abs(tipY - baseY));
+    // Horizontal rock strata
+    ctx.strokeStyle = 'rgba(10, 5, 2, 0.75)';
+    ctx.lineWidth = 0.9;
+    const strataCount = 4;
+    for (let i = 1; i <= strataCount; i++) {
+      const fy = baseY + (tipY - baseY) * (i / (strataCount + 1));
+      ctx.beginPath();
+      ctx.moveTo(-basePad + 2, fy + (srand(seed + i * 3) - 0.5) * 1.5);
+      ctx.lineTo(w + basePad - 2, fy + (srand(seed + 10 + i) - 0.5) * 1.5);
+      ctx.stroke();
+    }
+    // Cracks
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      const cx = 4 + srand(seed + 30 + i * 7) * (w - 8);
+      const y0 = baseY + (tipY - baseY) * (0.1 + srand(seed + 40 + i) * 0.7);
+      const y1 = y0 + 18 * sign;
+      ctx.beginPath();
+      ctx.moveTo(cx, y0);
+      ctx.lineTo(cx + (srand(seed + 50 + i) - 0.5) * 6, y1);
+      ctx.stroke();
+    }
+    // Warm dust highlight on the sun-facing side
+    ctx.fillStyle = 'rgba(210, 120, 60, 0.2)';
+    ctx.fillRect(w + tipPad - 6, Math.min(baseY, tipY) + 1, 5, Math.abs(tipY - baseY) - 2);
+    // Dark edge stroke
+    ctx.strokeStyle = '#0a0402';
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(-basePad, baseY);
+    ctx.lineTo(w + basePad, baseY);
+    ctx.lineTo(w + tipPad,  tipY);
+    ctx.lineTo(-tipPad,     tipY);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Canyon: stacked irregular boulder tower
+  function drawBoulder(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const tipY  = isTop ? h : 0;
+    const baseY = isTop ? 0 : h;
+    const sign  = isTop ? 1 : -1;
+    // Solid backfill so the tower reads as one silhouette even with gaps
+    ctx.fillStyle = '#1a0c06';
+    ctx.fillRect(-2, Math.min(baseY, tipY), w + 4, Math.abs(tipY - baseY));
+    // 3-4 stacked boulder blobs
+    const blobs = 3 + Math.floor(srand(seed) * 2);
+    for (let i = 0; i < blobs; i++) {
+      const t = (i + 0.5) / blobs;
+      const cy = baseY + (tipY - baseY) * t;
+      const r  = (w * 0.55 + srand(seed + i * 7) * 6) * (0.9 + srand(seed + i * 11) * 0.2);
+      const cxOff = (srand(seed + i * 13) - 0.5) * 6;
+      // Boulder fill
+      ctx.fillStyle = i % 2 === 0 ? '#3a1d0a' : '#2e1608';
+      ctx.beginPath();
+      // Irregular rounded polygon
+      const verts = 8;
+      for (let v = 0; v < verts; v++) {
+        const a = (v / verts) * Math.PI * 2;
+        const rr = r * (0.85 + srand(seed + i * 31 + v) * 0.3);
+        const px = w / 2 + cxOff + Math.cos(a) * rr;
+        const py = cy + Math.sin(a) * rr * 0.75;
+        if (v === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      // Dark rim
+      ctx.strokeStyle = '#0a0402'; ctx.lineWidth = 1.2;
+      ctx.stroke();
+      // Sun-lit side highlight
+      ctx.strokeStyle = 'rgba(210, 120, 50, 0.45)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(w / 2 + cxOff + r * 0.2, cy - r * 0.2, r * 0.6, Math.PI * 1.15, Math.PI * 1.6);
+      ctx.stroke();
+    }
+    // Tip dust spray
+    ctx.fillStyle = 'rgba(200, 120, 60, 0.25)';
+    ctx.beginPath();
+    ctx.ellipse(w / 2, tipY, w * 0.6, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   // Rectangular cargo container — theme-tinted hull + hazard band
   function drawCargo(x, y, w, h, isTop, seed) {
     if (h <= 0) return;
@@ -4554,6 +4933,8 @@
     drawPickupSparks();
     drawMissiles();
     drawLoot();
+    drawPirate();
+    drawProjectiles();
     drawBird();
     drawScore();
     drawComboHud();
