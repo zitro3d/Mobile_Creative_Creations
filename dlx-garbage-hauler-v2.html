@@ -5,10 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="dlx-garbage-hauler">
+<meta name="apple-mobile-web-app-title" content="DLX Hauler">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="format-detection" content="telephone=no">
-<title>dlx-garbage-hauler</title>
+<meta name="theme-color" content="#1a0512">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="dlx-icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="dlx-icon.svg">
+<title>DLX Garbage Hauler</title>
 <style>
   :root {
     --safe-top: env(safe-area-inset-top, 0px);
@@ -119,6 +123,63 @@
     box-shadow: 0 0 12px rgba(255,180,80,0.35);
   }
   .themeBtn:active { transform: scale(0.96); }
+
+  /* In-game HUD buttons (pause + mute) in the top-right corner of the stage. */
+  #playBtns {
+    position: absolute;
+    top: calc(var(--safe-top) + 8px);
+    right: calc(var(--safe-right) + 10px);
+    display: flex;
+    gap: 8px;
+    z-index: 4;
+    pointer-events: auto;
+  }
+  .hudBtn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.55);
+    border: 1.5px solid #ffd280;
+    color: #ffd280;
+    font-family: inherit;
+    font-weight: 900;
+    font-size: 14px;
+    line-height: 26px;
+    text-align: center;
+    cursor: pointer;
+    -webkit-appearance: none;
+    text-shadow: 1px 1px 0 #000;
+    transition: transform 0.08s, background 0.1s;
+  }
+  .hudBtn:active { transform: scale(0.92); background: rgba(255,170,80,0.28); }
+  .hudBtn.muted { color: #888; border-color: #888; text-decoration: line-through; }
+
+  /* Pause / victory overlay panels reuse the help backdrop style */
+  #pauseScreen, #victoryScreen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 16px);
+    background: rgba(0,0,0,0.72);
+    z-index: 5;
+    pointer-events: auto;
+  }
+  #pauseScreen .panel, #victoryScreen .panel {
+    max-width: 360px;
+    width: 100%;
+  }
+  #victoryScreen .panel { border-color: #ffd280; box-shadow: 0 0 28px rgba(255,180,80,0.35); }
+  #victoryTitle {
+    font-family: "Courier New", monospace;
+    font-weight: 900;
+    font-size: 26px;
+    letter-spacing: 3px;
+    color: #ffd280;
+    text-shadow: 0 0 12px #ffa048, 2px 2px 0 #000;
+    margin-bottom: 10px;
+  }
 
   /* Floating "?" button on the start screen */
   #helpBtn {
@@ -537,6 +598,27 @@
       </div>
     </div>
   </div>
+  <div id="playBtns">
+    <button id="muteBtn" class="hudBtn" aria-label="Mute">♪</button>
+    <button id="pauseBtn" class="hudBtn" aria-label="Pause">❚❚</button>
+  </div>
+  <div id="pauseScreen" class="hidden">
+    <div class="panel">
+      <div id="gameOverTitle">PAUSED</div>
+      <div class="row"><span class="label">SCORE</span> <span id="pauseScore">0</span></div>
+      <button id="resumeBtn">RESUME</button>
+      <button id="quitBtn" style="background:#333;color:#fff;box-shadow:0 3px 0 #111;margin-top:8px;">QUIT</button>
+    </div>
+  </div>
+  <div id="victoryScreen" class="hidden">
+    <div class="panel">
+      <div id="victoryTitle">VICTORY!</div>
+      <div style="color:#f4e9d6;margin:6px 0 10px;">The pirate is scrap metal.<br>Canyon cleared.</div>
+      <div class="row"><span class="label">SCORE</span> <span id="victoryScore">0</span></div>
+      <div class="row"><span class="label">BEST</span> <span id="victoryBest">0</span></div>
+      <button id="victoryBtn">PLAY AGAIN</button>
+    </div>
+  </div>
   <div id="hud">
     <div class="pw" id="pwShield"><span class="pwLabel">◎</span><span class="pwBar"><span class="pwFill"></span></span></div>
     <div class="pw" id="pwSlow"><span class="pwLabel">◐</span><span class="pwBar"><span class="pwFill"></span></span></div>
@@ -549,6 +631,14 @@
 <div id="rotate">Please rotate to portrait mode to play.</div>
 
 <script>
+// ---------- PWA: register the service worker so the game installs,
+//              loads instantly on repeat visits, and works offline.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  });
+}
+
 (function() {
   // ---------- iOS gate ----------
   const ua = navigator.userAgent || '';
@@ -889,6 +979,7 @@
   let ambientTheme = null;
 
   function startThemeAmbient() {
+    if (muted) { stopThemeAmbient(0.1); return; }
     const a = audio(); if (!a) return;
     if (ambientTheme === selectedTheme) return;   // already running this theme
     stopThemeAmbient(0.25);
@@ -1007,6 +1098,7 @@
   };
 
   function playSound(kind) {
+    if (muted) return;
     const sfx = THEME_SFX[selectedTheme] || THEME_SFX.sunset;
     let s;
     switch (kind) {
@@ -1316,10 +1408,17 @@
 
   const BIRD_X_FRAC = 0.28;
 
-  const STATE_READY = 0;
-  const STATE_PLAY = 1;
-  const STATE_OVER = 2;
+  const STATE_READY   = 0;
+  const STATE_PLAY    = 1;
+  const STATE_OVER    = 2;
+  const STATE_PAUSED  = 3;
+  const STATE_VICTORY = 4;
   let state = STATE_READY;
+  let prePauseState = STATE_PLAY;
+
+  // Mute (persisted)
+  let muted = false;
+  try { muted = localStorage.getItem('dlx_muted_v2') === '1'; } catch (e) {}
 
   let bird, pipes, sparks, exhaust, score, best, frame, flashAlpha, burstFrames, shakeFrames, scorePulse, thrusterFrames, flapCount, pipeSpawnCount;
   let stars = [];
@@ -1416,6 +1515,8 @@
   }
 
   // ---------- Pirate cargo ship (canyon level 5) ----------
+  let piratesDefeated = 0;
+  const PIRATE_BOSS_HP = 3;   // missile hits required to trigger VICTORY
   function spawnPirate() {
     pirate = {
       x: -80,            // starts off-screen left, slides in
@@ -1423,7 +1524,7 @@
       y: PLAY_H / 2,
       targetY: PLAY_H / 2,
       fireCooldown: 240, // 4s grace period before the first shot
-
+      hp: PIRATE_BOSS_HP - piratesDefeated,   // remaining hits before victory
     };
     projectiles = [];
   }
@@ -1610,6 +1711,7 @@
     boss = null;
     pirate = null;
     pirateRespawnFrames = 0;
+    piratesDefeated = 0;
     projectiles = [];
     lightningAt = -999;   // reset volcano flicker timer so since stays valid
     if (levelIndex === 3) spawnBoss();
@@ -1932,6 +2034,7 @@
   }
 
   function update() {
+    if (state === STATE_PAUSED || state === STATE_VICTORY) return;
     frame++;
 
     updateStars();
@@ -2275,8 +2378,22 @@
     scorePulse = 1;
     burstFrames = 14;
     shakeFrames = Math.max(shakeFrames, 12);
-    setLevelBanner('PIRATE DOWN!');
     playSound('boom');
+    piratesDefeated++;
+    if (piratesDefeated >= PIRATE_BOSS_HP) {
+      // Victory! Game beaten.
+      pirate = null;
+      pirateRespawnFrames = 0;
+      state = STATE_VICTORY;
+      if (score > best) {
+        best = score;
+        try { localStorage.setItem('flappy_best_ios_v2', String(best)); } catch (e) {}
+      }
+      stopThemeAmbient(0.6);
+      setTimeout(showVictory, 300);
+      return;
+    }
+    setLevelBanner('PIRATE DOWN — ' + (PIRATE_BOSS_HP - piratesDefeated) + ' TO GO');
     pirate = null;
     pirateRespawnFrames = 600;  // ~10s breather before another wave
   }
@@ -5510,16 +5627,111 @@
     });
   }
 
+  // ---------- Pause / mute / victory controls ----------
+  const playBtnsEl  = document.getElementById('playBtns');
+  const pauseBtn    = document.getElementById('pauseBtn');
+  const muteBtn     = document.getElementById('muteBtn');
+  const pauseScreen = document.getElementById('pauseScreen');
+  const pauseScoreEl= document.getElementById('pauseScore');
+  const resumeBtn   = document.getElementById('resumeBtn');
+  const quitBtn     = document.getElementById('quitBtn');
+  const victoryScreen = document.getElementById('victoryScreen');
+  const victoryScoreEl= document.getElementById('victoryScore');
+  const victoryBestEl = document.getElementById('victoryBest');
+  const victoryBtn    = document.getElementById('victoryBtn');
+
+  function updateMuteBtn() {
+    if (!muteBtn) return;
+    muteBtn.textContent = muted ? '🔇' : '♪';
+    muteBtn.classList.toggle('muted', muted);
+  }
+  updateMuteBtn();
+  function toggleMute(e) {
+    if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    muted = !muted;
+    try { localStorage.setItem('dlx_muted_v2', muted ? '1' : '0'); } catch(e){}
+    updateMuteBtn();
+    if (muted) stopThemeAmbient(0.2);
+    else if (state === STATE_PLAY) { ambientTheme = null; startThemeAmbient(); }
+  }
+  function pauseGame(e) {
+    if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    if (state !== STATE_PLAY) return;
+    prePauseState = state;
+    state = STATE_PAUSED;
+    pauseScoreEl.textContent = String(score);
+    pauseScreen.classList.remove('hidden');
+    stopThemeAmbient(0.2);
+  }
+  function resumeGame(e) {
+    if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    if (state !== STATE_PAUSED) return;
+    state = STATE_PLAY;
+    pauseScreen.classList.add('hidden');
+    ambientTheme = null;
+    startThemeAmbient();
+  }
+  function quitToStart(e) {
+    if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    pauseScreen.classList.add('hidden');
+    stopThemeAmbient(0.3);
+    state = STATE_READY;
+    reset();
+    showStart();
+  }
+  function showVictory() {
+    if (!victoryScreen) return;
+    victoryScoreEl.textContent = String(score);
+    victoryBestEl.textContent  = String(best);
+    victoryScreen.classList.remove('hidden');
+  }
+  function victoryRestart(e) {
+    if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    victoryScreen.classList.add('hidden');
+    state = STATE_READY;
+    reset();
+    showStart();
+  }
+
+  if (pauseBtn) {
+    pauseBtn.addEventListener('touchstart', pauseGame, { passive: false });
+    pauseBtn.addEventListener('click', pauseGame);
+  }
+  if (muteBtn) {
+    muteBtn.addEventListener('touchstart', toggleMute, { passive: false });
+    muteBtn.addEventListener('click', toggleMute);
+  }
+  if (resumeBtn) {
+    resumeBtn.addEventListener('touchstart', resumeGame, { passive: false });
+    resumeBtn.addEventListener('click', resumeGame);
+  }
+  if (quitBtn) {
+    quitBtn.addEventListener('touchstart', quitToStart, { passive: false });
+    quitBtn.addEventListener('click', quitToStart);
+  }
+  if (victoryBtn) {
+    victoryBtn.addEventListener('touchstart', victoryRestart, { passive: false });
+    victoryBtn.addEventListener('click', victoryRestart);
+  }
+  // Auto-pause when the tab is backgrounded (incoming call, app switch, etc.)
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden && state === STATE_PLAY) pauseGame();
+  });
+
   function showStart() {
     overlay.classList.add('show');
     startScreen.classList.remove('hidden');
     gameOverScreen.classList.add('hidden');
+    if (pauseScreen) pauseScreen.classList.add('hidden');
+    if (victoryScreen) victoryScreen.classList.add('hidden');
+    if (playBtnsEl) playBtnsEl.style.display = 'none';
     refreshHud();
   }
   function hideOverlay() {
     overlay.classList.remove('show');
     startScreen.classList.add('hidden');
     gameOverScreen.classList.add('hidden');
+    if (playBtnsEl) playBtnsEl.style.display = 'flex';
   }
   function showGameOver() {
     finalScoreEl.textContent = String(score);
@@ -5528,6 +5740,7 @@
     overlay.classList.add('show');
     startScreen.classList.add('hidden');
     gameOverScreen.classList.remove('hidden');
+    if (playBtnsEl) playBtnsEl.style.display = 'none';
   }
 
   function refreshHud() {
@@ -5557,7 +5770,11 @@
         (e.target.closest('.shipBtn') ||
          e.target.closest('.themeBtn') ||
          e.target.closest('#helpBtn') ||
-         e.target.closest('#helpScreen'))) return;
+         e.target.closest('#helpScreen') ||
+         e.target.closest('#playBtns') ||
+         e.target.closest('#pauseScreen') ||
+         e.target.closest('#victoryScreen'))) return;
+    if (state === STATE_PAUSED || state === STATE_VICTORY) return;
     if (e && e.cancelable) e.preventDefault();
     audio(); // unlock WebAudio on the first user gesture (iOS requirement)
     if (state === STATE_OVER) return;
