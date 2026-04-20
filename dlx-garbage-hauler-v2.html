@@ -635,7 +635,17 @@
 //              loads instantly on repeat visits, and works offline.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
-    navigator.serviceWorker.register('sw.js').catch(function(){});
+    navigator.serviceWorker.register('sw.js').then(function(reg){
+      // Check for updates every time the page loads so new builds apply fast.
+      if (reg && reg.update) reg.update();
+      if (reg && reg.waiting) { try { reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(e){} }
+    }).catch(function(){});
+    // When a new SW takes control, reload once so the fresh HTML renders.
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+      if (reloaded) return; reloaded = true;
+      window.location.reload();
+    });
   });
 }
 
@@ -660,10 +670,14 @@ if ('serviceWorker' in navigator) {
   // experience each biome as a surprise on reaching its score threshold.
   const IS_DEV_MODE = /(?:^|[?&])dev=1(?:&|$)/.test(window.location.search);
   if (!IS_DEV_MODE) {
+    // Remove the theme picker from the DOM entirely in public mode so it
+    // can never be reached, and wipe any dev-mode leftover so the next
+    // run always starts at level 1.
     const lbl = document.getElementById('themeLabel');
     const pck = document.getElementById('themePicker');
-    if (lbl) lbl.style.display = 'none';
-    if (pck) pck.style.display = 'none';
+    if (lbl && lbl.parentNode) lbl.parentNode.removeChild(lbl);
+    if (pck && pck.parentNode) pck.parentNode.removeChild(pck);
+    try { localStorage.removeItem('dlx_theme_v2'); } catch (e) {}
   }
 
   // ---------- Canvas sizing (DPR-aware) ----------
