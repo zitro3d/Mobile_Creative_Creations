@@ -1452,7 +1452,7 @@ if ('serviceWorker' in navigator) {
     { speedMul: 1.18, gapMul: 0.92 },   // city
     { speedMul: 1.34, gapMul: 0.86 },   // volcano
     { speedMul: 1.50, gapMul: 0.80 },   // swamp (retreat mode)
-    { speedMul: 1.70, gapMul: 0.76 },   // canyon — final, pirate ambush
+    { speedMul: 1.70, gapMul: 0.90 },   // canyon — final, pirate ambush
   ];
   let levelIndex      = 0;
   let levelScoreStart = 0;   // score at the moment current level began
@@ -1838,7 +1838,19 @@ if ('serviceWorker' in navigator) {
 
   function addPipe(x) {
     const gap = currentPipeGap();
-    const top = PIPE_MIN_TOP + Math.random() * (PLAY_H - gap - PIPE_MIN_TOP * 2);
+    // Canyon clamps the gap toward mid-screen so the ship can always
+    // physically reach it within tap range (the chase + tighter gap was
+    // making top/bottom-edge spawns unreachable from the wrong height).
+    let minTop, maxTop;
+    if (selectedTheme === 'canyon') {
+      minTop = Math.max(PIPE_MIN_TOP, PLAY_H * 0.20);
+      maxTop = Math.min(PLAY_H - gap - PIPE_MIN_TOP, PLAY_H * 0.55);
+    } else {
+      minTop = PIPE_MIN_TOP;
+      maxTop = PLAY_H - gap - PIPE_MIN_TOP;
+    }
+    if (maxTop < minTop) maxTop = minTop;   // safety against tiny screens
+    const top = minTop + Math.random() * (maxTop - minTop);
     const pool = theme().obstacleTypes || ['cargo', 'junk'];
     const type = pool[Math.floor(Math.random() * pool.length)];
     // Every ~5th pipe swaps its debris for a glowing power-up capsule
