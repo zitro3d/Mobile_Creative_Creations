@@ -714,7 +714,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v12';
+const DLX_BUILD = 'v13';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1833,7 +1833,7 @@ const DLX_BUILD = 'v12';
   //   canyon → underwater : 90   (anglerfish kill advances — score gap is a safety net)
   //   underwater → neoncity: 60  (anglerfish kill advances to neon city)
   //   neoncity → icecave  : 60  (dragon kill advances to ice cave)
-  //   icecave  → (final)   : 0  (golem = VICTORY)
+  //   icecave  → (final)   : 0  (wraith = VICTORY)
   const LEVEL_GAPS  = [50, 60, 70, 80, 90, 60, 60, 0];
   // Per-level difficulty multipliers stack on top of the score-based ramp.
   const LEVEL_DIFF = [
@@ -1844,7 +1844,7 @@ const DLX_BUILD = 'v12';
     { speedMul: 1.70, gapMul: 0.90 },   // canyon — pirate ambush
     { speedMul: 1.55, gapMul: 0.92 },   // underwater — anglerfish
     { speedMul: 1.75, gapMul: 0.88 },   // neoncity — cyberdragon
-    { speedMul: 1.80, gapMul: 0.86 },   // icecave — ice golem final boss
+    { speedMul: 1.80, gapMul: 0.86 },   // icecave — frost wraith final boss
   ];
   let levelIndex      = 0;
   let levelScoreStart = 0;   // score at the moment current level began
@@ -1857,8 +1857,8 @@ const DLX_BUILD = 'v12';
   let anglerHitsLeft  = 3;      // underwater: HP left before advance
   let dragon          = null;   // neoncity: cyberdragon boss
   let dragonHitsLeft  = 4;      // neoncity: HP left before advance
-  let golem           = null;   // icecave: ice golem final boss
-  let golemHitsLeft   = 4;      // icecave: HP left before VICTORY
+  let wraith          = null;   // icecave: frost wraith final boss
+  let wraithHitsLeft  = 4;      // icecave: HP left before VICTORY
 
   function themeToLevelIndex(key) {
     const i = LEVEL_ORDER.indexOf(key);
@@ -1895,12 +1895,12 @@ const DLX_BUILD = 'v12';
       projectiles = [];
       spawnDragon();
     }
-    // Leaving neoncity → icecave: dragon down, ice golem rises from the cave wall
+    // Leaving neoncity → icecave: dragon down, frost wraith manifests from the aurora
     if (levelIndex === 7) {
       dragon = null;
       dragonHitsLeft = 4;
       projectiles = [];
-      spawnGolem();
+      spawnWraith();
     }
     playSound('levelup');
     startThemeAmbient();
@@ -2682,304 +2682,314 @@ const DLX_BUILD = 'v12';
     ctx.restore();
   }
 
-  // ---------- Ice Golem final boss (icecave level 8) ----------
-  // Massive crystalline titan embedded in the right cave wall. Tracks the
-  // player's height with slow drift, lobs ice boulder projectiles (arcing
-  // under gravity), and telegraphs a slam every few seconds that spawns a
-  // barrage. The glowing heart crystal in its chest is the weak spot.
-  function spawnGolem() {
-    golem = {
-      x: W - 70,           // embedded in the right wall
-      y: PLAY_H / 2,
-      targetY: PLAY_H / 2,
-      slamCooldown: 240,   // 4s grace before first slam
-      throwCooldown: 120,  // first boulder after 2s
-      slamTelegraph: 0,    // ramps 0→1 before slam, then fires
-      armAngle: 0,         // visual arm pose (0 = idle, -1 = raised, 1 = slamming)
+  // ---------- Frost Wraith final boss (icecave level 8) ----------
+  // A teleporting aurora specter. Unlike the other bosses it never travels
+  // between attacks — it phases out, then manifests at a new shrine. The
+  // core is ONLY damageable while the wraith is fully manifest, so the
+  // player has to time their missile volleys with its appearance window.
+  // Shard attacks radiate outward from the core in a spinning ring instead
+  // of aiming straight at the ship.
+  function spawnWraith() {
+    // 5 shrine points scattered across the right 60% of the play area.
+    // Player ship hovers around x=W*0.28, so these keep the wraith far
+    // enough away that the player can't trivially bump into it.
+    const shrines = [
+      { x: W * 0.55, y: PLAY_H * 0.25 },
+      { x: W * 0.78, y: PLAY_H * 0.35 },
+      { x: W * 0.88, y: PLAY_H * 0.60 },
+      { x: W * 0.65, y: PLAY_H * 0.75 },
+      { x: W * 0.50, y: PLAY_H * 0.50 },
+    ];
+    const idx = Math.floor(Math.random() * shrines.length);
+    wraith = {
+      shrines: shrines,
+      idx: idx,
+      x: shrines[idx].x,
+      y: shrines[idx].y,
+      mx: shrines[idx].x,             // displayed x (may drift slightly)
+      my: shrines[idx].y,
+      phase: 'appear',                 // 'appear' | 'manifest' | 'fade' | 'gone'
+      phaseFrames: 0,
+      phaseLen: 26,                    // length of current phase
+      alpha: 0,                        // 0..1 visibility
+      ringsFired: 0,                   // shard rings emitted this manifest cycle
       hitFlash: 0,
-      heartPulse: 0,
     };
-    golemHitsLeft = 4;
+    wraithHitsLeft = 4;
     projectiles = [];
   }
-  function updateGolem() {
-    if (!golem) return;
-    // Slow vertical tracking of the player's height
-    golem.targetY = PLAY_H * 0.5 + (bird.y - PLAY_H * 0.5) * 0.35;
-    golem.y += (golem.targetY - golem.y) * 0.015;
-    golem.y = Math.max(PLAY_H * 0.35, Math.min(PLAY_H * 0.65, golem.y));
-    golem.heartPulse = (Math.sin(frame * 0.08) + 1) * 0.5;
-    if (golem.hitFlash > 0) golem.hitFlash--;
+  // Phase lengths (frames) — shortened as HP drops so the late fight feels
+  // frantic without changing any other system.
+  function wraithPhaseLen(phase, hp) {
+    const urgency = 1 - Math.max(0, hp - 1) * 0.12;   // 1.0 full HP → ~0.64 at 1 HP
+    const base = { appear: 26, manifest: 110, fade: 20, gone: 28 }[phase] || 30;
+    return Math.max(10, Math.floor(base * urgency));
+  }
+  function updateWraith() {
+    if (!wraith) return;
+    wraith.phaseFrames++;
+    if (wraith.hitFlash > 0) wraith.hitFlash--;
 
-    // Boulder toss — steady arcing projectiles
-    golem.throwCooldown--;
-    if (golem.throwCooldown <= 0) {
-      golem.throwCooldown = 90 + Math.floor(Math.random() * 50);
-      fireIceBoulder();
-    }
-
-    // Slam telegraph → slam → barrage of small shards
-    golem.slamCooldown--;
-    if (golem.slamCooldown <= 60 && golem.slamCooldown > 0) {
-      // Windup phase (1s) — arm raises, heart glows brighter
-      golem.slamTelegraph = (60 - golem.slamCooldown) / 60;
-      golem.armAngle = -golem.slamTelegraph;
-    }
-    if (golem.slamCooldown === 0) {
-      // Slam fires — barrage of 5 small shards in a fan
-      golem.armAngle = 1;
-      fireIceSlamBarrage();
-      shakeFrames = Math.max(shakeFrames, 14);
-    }
-    if (golem.slamCooldown < 0 && golem.slamCooldown > -30) {
-      // Recoil phase
-      golem.armAngle = 1 - ((-golem.slamCooldown) / 30);
-      golem.slamTelegraph = 0;
-    }
-    if (golem.slamCooldown <= -30) {
-      golem.slamCooldown = 300;   // 5s between slams
-      golem.armAngle = 0;
+    if (wraith.phase === 'appear') {
+      wraith.alpha = wraith.phaseFrames / wraith.phaseLen;
+      // Gentle settle-in: body starts slightly offset and drifts to shrine
+      wraith.mx = wraith.x;
+      wraith.my = wraith.y + Math.sin(wraith.phaseFrames * 0.12) * 3;
+      if (wraith.phaseFrames >= wraith.phaseLen) {
+        wraith.phase = 'manifest';
+        wraith.phaseFrames = 0;
+        wraith.phaseLen = wraithPhaseLen('manifest', wraithHitsLeft);
+        wraith.ringsFired = 0;
+        wraith.alpha = 1;
+      }
+    } else if (wraith.phase === 'manifest') {
+      wraith.alpha = 1;
+      // Slow hover bob at the shrine
+      wraith.mx = wraith.x + Math.sin(frame * 0.06) * 3;
+      wraith.my = wraith.y + Math.cos(frame * 0.05) * 4;
+      // Fire a radial shard RING at three intervals during the manifest
+      const ringTimes = [30, 60, 90];
+      for (const t of ringTimes) {
+        if (wraith.phaseFrames === t) fireWraithRing(wraith.ringsFired++);
+      }
+      if (wraith.phaseFrames >= wraith.phaseLen) {
+        wraith.phase = 'fade';
+        wraith.phaseFrames = 0;
+        wraith.phaseLen = wraithPhaseLen('fade', wraithHitsLeft);
+      }
+    } else if (wraith.phase === 'fade') {
+      wraith.alpha = 1 - wraith.phaseFrames / wraith.phaseLen;
+      wraith.mx = wraith.x;
+      wraith.my = wraith.y - wraith.phaseFrames * 0.2;   // drifts up while fading
+      if (wraith.phaseFrames >= wraith.phaseLen) {
+        wraith.phase = 'gone';
+        wraith.phaseFrames = 0;
+        wraith.phaseLen = wraithPhaseLen('gone', wraithHitsLeft);
+        wraith.alpha = 0;
+      }
+    } else if (wraith.phase === 'gone') {
+      wraith.alpha = 0;
+      if (wraith.phaseFrames >= wraith.phaseLen) {
+        // Pick a new shrine position — never the same one twice in a row
+        let next;
+        do { next = Math.floor(Math.random() * wraith.shrines.length); }
+        while (next === wraith.idx);
+        wraith.idx = next;
+        wraith.x = wraith.shrines[next].x;
+        wraith.y = wraith.shrines[next].y;
+        wraith.mx = wraith.x;
+        wraith.my = wraith.y;
+        wraith.phase = 'appear';
+        wraith.phaseFrames = 0;
+        wraith.phaseLen = wraithPhaseLen('appear', wraithHitsLeft);
+      }
     }
   }
-  function fireIceBoulder() {
-    if (!golem) return;
-    const sx = golem.x - 30;
-    const sy = golem.y - 10;
-    // Arc toward player: compute vx/vy so the boulder peaks over the ship
-    const dx = bird.x - sx;
-    const dy = bird.y - sy;
-    const sp = 4.5 + Math.random() * 1;
-    const d = Math.sqrt(dx * dx + dy * dy) || 1;
-    projectiles.push({
-      x: sx, y: sy,
-      vx: (dx / d) * sp - 1.2,   // extra leftward bias
-      vy: (dy / d) * sp - 2.6,   // arc upward first
-      life: 150,
-      trail: [],
-      ice: true,
-      icyGrav: 0.18,
-      rot: 0,
-      vr: (Math.random() - 0.5) * 0.2,
-    });
-    playSound('missile');
-  }
-  function fireIceSlamBarrage() {
-    if (!golem) return;
-    const sx = golem.x - 34;
-    const sy = golem.y + 20;
-    // 5 shards spraying leftward in a fan
-    for (let i = -2; i <= 2; i++) {
-      const ang = Math.PI + (i * 0.22);
-      const sp  = 5.5 + Math.random() * 0.6;
+  // Radial burst of 8 ice shards fired outward from the wraith's core
+  function fireWraithRing(ringIdx) {
+    if (!wraith) return;
+    const shards = 8;
+    // Each ring rotates slightly so it isn't identical every time
+    const baseAng = ringIdx * 0.25;
+    for (let i = 0; i < shards; i++) {
+      const ang = baseAng + (i / shards) * Math.PI * 2;
+      const sp  = 3.6;
       projectiles.push({
-        x: sx, y: sy,
+        x: wraith.mx, y: wraith.my,
         vx: Math.cos(ang) * sp,
-        vy: Math.sin(ang) * sp - 0.4,
-        life: 140,
+        vy: Math.sin(ang) * sp,
+        life: 160,
         trail: [],
         ice: true,
-        icyGrav: 0.1,
         shard: true,
+        icyGrav: 0,           // zero gravity — pure radial
         rot: ang,
-        vr: 0,
+        vr: 0.1,
       });
     }
-    playSound('boom');
+    playSound('missile');
   }
-  function golemHeartPos() {
-    if (!golem) return null;
-    return { x: golem.x - 16, y: golem.y + 2 };
+  function wraithBodyHits() {
+    if (!wraith) return false;
+    // Only collidable while fully manifest (alpha plateau)
+    if (wraith.phase !== 'manifest') return false;
+    const dx = bird.x - wraith.mx;
+    const dy = bird.y - wraith.my;
+    const r  = BIRD_R + 16;
+    return dx * dx + dy * dy < r * r;
   }
-  function golemBodyHits() {
-    if (!golem) return false;
-    // Roughly rectangular torso extends left from the right wall
-    const left   = golem.x - 46;
-    const right  = golem.x + 50;  // includes offscreen right
-    const top    = golem.y - 44;
-    const bot    = golem.y + 48;
-    return bird.x + BIRD_R > left && bird.x - BIRD_R < right &&
-           bird.y + BIRD_R > top  && bird.y - BIRD_R < bot;
-  }
-  function hitGolem(hx, hy) {
-    if (!golem) return;
-    golemHitsLeft--;
-    golem.hitFlash = 14;
-    // Ice shards burst from the heart
-    for (let i = 0; i < 18; i++) {
+  function hitWraith(hx, hy) {
+    if (!wraith) return;
+    wraithHitsLeft--;
+    wraith.hitFlash = 14;
+    // Shattered ice sparks around the core
+    for (let i = 0; i < 20; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = 2 + Math.random() * 3.5;
       sparks.push({
         x: hx, y: hy,
         vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-        size: 4 + Math.random() * 4,
+        size: 4 + Math.random() * 3,
         rot: Math.random() * Math.PI * 2,
         vr: (Math.random() - 0.5) * 0.4,
-        life: 1, decay: 0.018, shape: 'tri',
-        color: '#e0f4ff', glow: '#a0d8f0',
-        drag: 0.97, gravity: 0.12,
+        life: 1, decay: 0.02, shape: 'tri',
+        color: '#e0f8ff', glow: '#a0e8ff',
+        drag: 0.96, gravity: 0.05,
       });
     }
-    shakeFrames = Math.max(shakeFrames, 12);
+    shakeFrames = Math.max(shakeFrames, 10);
     grantScore(8);
     scorePulse = 1;
     playSound('boom');
-    if (golemHitsLeft <= 0) {
-      destroyGolem();
-    } else {
-      setLevelBanner('GOLEM HIT! ' + golemHitsLeft + ' LEFT');
+    if (wraithHitsLeft <= 0) {
+      destroyWraith();
+      return;
     }
+    // Force it into an early fade — each hit "banishes" it briefly so the
+    // player is rewarded for landing the shot with a breather.
+    wraith.phase = 'fade';
+    wraith.phaseFrames = 0;
+    wraith.phaseLen = wraithPhaseLen('fade', wraithHitsLeft);
+    setLevelBanner('WRAITH HIT! ' + wraithHitsLeft + ' LEFT');
   }
-  function destroyGolem() {
-    if (!golem) return;
-    // Massive shatter — body bursts in chunks of ice
+  function destroyWraith() {
+    if (!wraith) return;
+    // Aurora shockwave — sparks in every direction + a ring of light
     for (let i = 0; i < 60; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = 2.5 + Math.random() * 5;
       sparks.push({
-        x: golem.x - 10 + (Math.random() - 0.5) * 40,
-        y: golem.y + (Math.random() - 0.5) * 60,
+        x: wraith.mx, y: wraith.my,
         vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-        size: 5 + Math.random() * 7,
+        size: 5 + Math.random() * 6,
         rot: Math.random() * Math.PI * 2,
         vr: (Math.random() - 0.5) * 0.5,
-        life: 1, decay: 0.012, shape: 'tri',
-        color: '#e0f4ff', glow: '#80c8e8',
-        drag: 0.96, gravity: 0.14,
+        life: 1, decay: 0.011, shape: 'tri',
+        color: '#e0f8ff', glow: '#a0e8ff',
+        drag: 0.96, gravity: 0.03,
       });
     }
     grantScore(40);
     scorePulse = 1;
     burstFrames = 30;
-    shakeFrames = Math.max(shakeFrames, 30);
+    shakeFrames = Math.max(shakeFrames, 26);
     playSound('boom');
-    setLevelBanner('ICE GOLEM DOWN!  +40');
-    golem = null;
+    setLevelBanner('WRAITH BANISHED!  +40');
+    wraith = null;
     projectiles = [];
     // Final boss down — VICTORY
     stopThemeAmbient(0.8);
     state = STATE_VICTORY;
     setTimeout(showVictory, 500);
   }
-  function drawGolem() {
-    if (!golem) return;
-    const gx = golem.x, gy = golem.y;
-    const flash = golem.hitFlash > 0 ? golem.hitFlash / 14 : 0;
+  function drawWraith() {
+    if (!wraith || wraith.alpha <= 0.01) return;
+    const mx = wraith.mx, my = wraith.my, a = wraith.alpha;
+    const flash = wraith.hitFlash > 0 ? wraith.hitFlash / 14 : 0;
+    // Slight scale-up during appear → manifest so it "materializes"
+    const scale = wraith.phase === 'appear' ? 0.4 + 0.6 * a : 1;
+
     ctx.save();
+    ctx.translate(mx, my);
+    ctx.scale(scale, scale);
+    ctx.globalAlpha = a;
 
-    // --- Massive crystalline torso (mostly offscreen right) ---
-    ctx.shadowBlur = 18; ctx.shadowColor = 'rgba(160, 220, 255, 0.6)';
-    const bodyGrad = ctx.createLinearGradient(gx - 46, gy, gx + 40, gy);
-    bodyGrad.addColorStop(0, flash > 0.1 ? '#ffffff' : '#6a94b8');
-    bodyGrad.addColorStop(0.45, flash > 0.1 ? '#f0faff' : '#cfe8f5');
-    bodyGrad.addColorStop(1,   '#2a4868');
-    ctx.fillStyle = bodyGrad;
-    // Chunky torso polygon — stacked ice blocks suggesting a humanoid silhouette
+    // --- Outer aurora halo (pulses with frame)
+    const halo = ctx.createRadialGradient(0, 0, 4, 0, 0, 48);
+    halo.addColorStop(0,    'rgba(200, 255, 240, 0.55)');
+    halo.addColorStop(0.5,  'rgba(160, 200, 255, 0.3)');
+    halo.addColorStop(1,    'rgba(120, 80, 220, 0)');
+    ctx.fillStyle = halo;
     ctx.beginPath();
-    ctx.moveTo(gx - 46, gy - 30);
-    ctx.lineTo(gx - 10, gy - 44);
-    ctx.lineTo(gx + 40, gy - 38);
-    ctx.lineTo(gx + 40, gy + 48);
-    ctx.lineTo(gx - 20, gy + 48);
-    ctx.lineTo(gx - 46, gy + 26);
+    ctx.arc(0, 0, 48, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- Trailing ice tendrils (ethereal wisps rotating around the core)
+    ctx.strokeStyle = 'rgba(200, 240, 255, 0.55)';
+    ctx.lineWidth = 1.4;
+    for (let i = 0; i < 5; i++) {
+      const tAng = frame * 0.04 + i * (Math.PI * 2 / 5);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      const r1 = 14, r2 = 30, r3 = 38;
+      ctx.quadraticCurveTo(
+        Math.cos(tAng + 0.3) * r2, Math.sin(tAng + 0.3) * r2,
+        Math.cos(tAng) * r3,       Math.sin(tAng) * r3
+      );
+      ctx.stroke();
+    }
+
+    // --- Shrouded body: hooded silhouette in ice-blue tones
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = 'rgba(180, 230, 255, 0.7)';
+    ctx.fillStyle = flash > 0.1 ? '#ffffff' : 'rgba(80, 120, 180, 0.82)';
+    ctx.beginPath();
+    // Cloak drapes downward, hood arches up
+    ctx.moveTo(-14, -18);
+    ctx.quadraticCurveTo(-24, -24, -8, -30);
+    ctx.quadraticCurveTo(0, -36, 8, -30);
+    ctx.quadraticCurveTo(24, -24, 14, -18);
+    ctx.lineTo(22, 20);
+    ctx.quadraticCurveTo(0, 30, -22, 20);
     ctx.closePath();
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = '#0a1828';
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
-
-    // Body facet lines (geometric ice chunks)
-    ctx.strokeStyle = 'rgba(240, 250, 255, 0.55)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(gx - 30, gy - 30); ctx.lineTo(gx - 4, gy - 10);
-    ctx.moveTo(gx - 4,  gy - 10); ctx.lineTo(gx + 30, gy - 28);
-    ctx.moveTo(gx - 24, gy + 20); ctx.lineTo(gx + 10, gy + 10);
-    ctx.moveTo(gx + 10, gy + 10); ctx.lineTo(gx + 28, gy + 40);
-    ctx.stroke();
-
-    // --- Arm: raises during slam telegraph, slams down ---
-    const armAng = golem.armAngle;  // -1 (raised) … 0 (idle) … 1 (slammed)
-    const shoulderX = gx - 30;
-    const shoulderY = gy - 10;
-    // Arm rotates around the shoulder. -1 → pointing up, 1 → pointing down-left
-    const baseAng = Math.PI * 0.75;            // idle dangling direction (down-left)
-    const armRot  = baseAng + armAng * -Math.PI * 0.6;  // swing upward when raised
-    const armLen  = 38;
-    const elbowX = shoulderX + Math.cos(armRot) * armLen;
-    const elbowY = shoulderY + Math.sin(armRot) * armLen;
-    ctx.strokeStyle = '#4a7098';
-    ctx.lineWidth = 12;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(shoulderX, shoulderY);
-    ctx.lineTo(elbowX, elbowY);
-    ctx.stroke();
-    // Fist (big chunk at the end)
-    ctx.fillStyle = '#a0c8dc';
-    ctx.beginPath();
-    ctx.arc(elbowX, elbowY, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#0a1828';
+    ctx.strokeStyle = 'rgba(30, 50, 90, 0.9)';
     ctx.lineWidth = 1.4;
     ctx.stroke();
-    ctx.lineCap = 'butt';
 
-    // --- Head: angular crystal with glowing eyes ---
-    const headX = gx + 8, headY = gy - 52;
-    ctx.shadowBlur = 10; ctx.shadowColor = 'rgba(200, 240, 255, 0.6)';
-    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#a0c8dc';
+    // --- Inner hood shadow (the void under the hood)
+    ctx.fillStyle = 'rgba(10, 20, 40, 0.85)';
     ctx.beginPath();
-    ctx.moveTo(headX - 14, headY);
-    ctx.lineTo(headX - 6,  headY - 14);
-    ctx.lineTo(headX + 14, headY - 10);
-    ctx.lineTo(headX + 14, headY + 10);
-    ctx.lineTo(headX,      headY + 14);
-    ctx.lineTo(headX - 12, headY + 10);
-    ctx.closePath();
+    ctx.ellipse(0, -18, 8, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- Glowing core (weak spot — brighter and bigger during manifest)
+    const manifest = wraith.phase === 'manifest' ? 1 : 0.6;
+    const pulse = 1 + (Math.sin(frame * 0.15) + 1) * 0.15 * manifest;
+    ctx.shadowBlur = 18 * manifest;
+    ctx.shadowColor = '#80e8ff';
+    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#c0f0ff';
+    ctx.beginPath();
+    ctx.arc(0, -2, 6 * pulse, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = '#0a1828';
-    ctx.lineWidth = 1.4;
-    ctx.stroke();
-    // Glowing cyan eyes
-    ctx.shadowBlur = 8; ctx.shadowColor = '#60e8ff';
-    ctx.fillStyle = '#9af2ff';
-    ctx.beginPath(); ctx.arc(headX - 4, headY,  1.8, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(headX + 6, headY + 1, 1.8, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // --- Heart crystal (weak spot) ---
-    const h = golemHeartPos();
-    const pulse = 1 + golem.heartPulse * 0.4 + golem.slamTelegraph * 0.6;
-    ctx.shadowBlur = 18;
-    ctx.shadowColor = golem.slamTelegraph > 0 ? '#ffee80' : '#60f0ff';
-    ctx.fillStyle = golem.slamTelegraph > 0 ? '#ffffa0' : '#c0f0ff';
-    ctx.beginPath();
-    ctx.moveTo(h.x,            h.y - 9 * pulse);
-    ctx.lineTo(h.x + 7 * pulse, h.y);
-    ctx.lineTo(h.x,            h.y + 9 * pulse);
-    ctx.lineTo(h.x - 7 * pulse, h.y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    // Inner spark
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(h.x, h.y, 2, 0, Math.PI * 2);
+    ctx.arc(0, -2, 2, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#0a3050';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    // Target ring — faint so the player can see the weak spot
+    if (manifest > 0.9) {
+      ctx.strokeStyle = 'rgba(180, 240, 255, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, -2, 12 + Math.sin(frame * 0.1) * 1.5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
-    // HP pips above the head (4 diamonds)
+    // --- Two glowing eye-slits in the hood shadow (only during manifest)
+    if (manifest > 0.9) {
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = '#80e8ff';
+      ctx.fillStyle = '#a8f4ff';
+      ctx.beginPath(); ctx.ellipse(-3, -19, 1.5, 0.8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse( 3, -19, 1.5, 0.8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // HP pips above the shrine position (drawn in world space, always visible)
+    ctx.save();
+    ctx.globalAlpha = 0.9;
     for (let i = 0; i < 4; i++) {
-      const lit = i < golemHitsLeft;
-      ctx.fillStyle = lit ? '#80e8ff' : 'rgba(40, 60, 90, 0.6)';
-      ctx.shadowBlur = lit ? 6 : 0;
-      ctx.shadowColor = '#60f0ff';
-      const px = headX - 18 + i * 12;
-      const py = headY - 26;
+      const lit = i < wraithHitsLeft;
+      ctx.fillStyle = lit ? '#a0e8ff' : 'rgba(30, 50, 80, 0.6)';
+      ctx.shadowBlur = lit ? 5 : 0;
+      ctx.shadowColor = '#80e8ff';
+      const px = wraith.x - 18 + i * 12;
+      const py = wraith.y - 50;
       ctx.beginPath();
       ctx.moveTo(px,     py - 3);
       ctx.lineTo(px + 3, py);
@@ -3026,14 +3036,14 @@ const DLX_BUILD = 'v12';
     anglerHitsLeft = 3;
     dragon = null;
     dragonHitsLeft = 4;
-    golem = null;
-    golemHitsLeft = 4;
+    wraith = null;
+    wraithHitsLeft = 4;
     lightningAt = -999;   // reset volcano flicker timer so since stays valid
     if (levelIndex === 3) spawnBoss();
     if (levelIndex === 4) spawnPirate();
     if (levelIndex === 5) spawnAngler();
     if (levelIndex === 6) spawnDragon();
-    if (levelIndex === 7) spawnGolem();
+    if (levelIndex === 7) spawnWraith();
     shieldCharges = 0;
     slowFrames = 0;
     doubleFrames = 0;
@@ -3462,7 +3472,7 @@ const DLX_BUILD = 'v12';
       updatePirate();
       updateAngler();
       updateDragon();
-      updateGolem();
+      updateWraith();
       updateProjectiles();
       updateSparks();
       updatePickupSparks();
@@ -3589,7 +3599,7 @@ const DLX_BUILD = 'v12';
     if (projectiles.length && projectileHit()) return true;
     if (angler && (anglerMouthHits() || anglerLureHits())) return true;
     if (dragon && (dragonHeadHits() || dragonBodyHits())) return true;
-    if (golem && golemBodyHits()) return true;
+    if (wraith && wraithBodyHits()) return true;
     return false;
   }
 
@@ -3714,16 +3724,16 @@ const DLX_BUILD = 'v12';
       playSound('missile');
       return;
     }
-    // On icecave, missiles hunt the ice golem's heart crystal
-    if (selectedTheme === 'icecave' && golem) {
+    // On icecave, missiles hunt the frost wraith's core (only damages when manifest)
+    if (selectedTheme === 'icecave' && wraith) {
       missiles.push({
         x: bird.x + BIRD_R * 0.6,
         y: bird.y,
         vx: 3,
         vy: 0,
         target: null,
-        targetGolem: true,
-        life: 200,
+        targetWraith: true,
+        life: 220,
         trail: [],
       });
       playSound('missile');
@@ -3813,16 +3823,16 @@ const DLX_BUILD = 'v12';
         const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
         const MAX = 9;
         if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
-      } else if (m.targetGolem && golem) {
-        // Home to the golem's heart crystal
-        const h = golemHeartPos();
-        const dx = h.x - m.x, dy = h.y - m.y;
+      } else if (m.targetWraith && wraith) {
+        // Home to the wraith's current displayed position (not its shrine),
+        // so when it teleports the missile has to curve to catch up.
+        const dx = wraith.mx - m.x, dy = wraith.my - m.y;
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
-        const accel = 0.75;
+        const accel = 0.55;
         m.vx += (dx / d) * accel;
         m.vy += (dy / d) * accel;
         const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
-        const MAX = 8.5;
+        const MAX = 7.5;
         if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
       } else if (m.target && !m.target.destroyed) {
         const tx = m.target.x + PIPE_W / 2;
@@ -3873,13 +3883,29 @@ const DLX_BUILD = 'v12';
           continue;
         }
       }
-      // Ice golem hit — heart crystal in chest is the weak spot
-      if (m.targetGolem && golem) {
-        const h = golemHeartPos();
-        const ddx = m.x - h.x, ddy = m.y - h.y;
-        if (ddx * ddx + ddy * ddy < 16 * 16) {
-          hitGolem(m.x, m.y);
-          missiles.splice(i, 1);
+      // Frost wraith hit — core is the weak spot, but only damages while MANIFEST
+      if (m.targetWraith && wraith) {
+        const ddx = m.x - wraith.mx, ddy = m.y - wraith.my;
+        if (ddx * ddx + ddy * ddy < 20 * 20) {
+          if (wraith.phase === 'manifest') {
+            hitWraith(m.x, m.y);
+            missiles.splice(i, 1);
+          } else {
+            // Missile phases through during fade/gone — small spark effect
+            for (let s = 0; s < 4; s++) {
+              sparks.push({
+                x: m.x, y: m.y,
+                vx: (Math.random() - 0.5) * 2,
+                vy: (Math.random() - 0.5) * 2,
+                size: 2 + Math.random() * 2,
+                rot: 0, vr: 0,
+                life: 0.5, decay: 0.04, shape: 'tri',
+                color: 'rgba(200, 240, 255, 0.7)', glow: '#a0e0ff',
+                drag: 0.92, gravity: 0,
+              });
+            }
+            missiles.splice(i, 1);
+          }
           continue;
         }
       }
@@ -7511,7 +7537,7 @@ const DLX_BUILD = 'v12';
     drawPirate();
     drawAngler();
     drawDragon();
-    drawGolem();
+    drawWraith();
     drawProjectiles();
     drawBird();
     drawScore();
