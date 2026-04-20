@@ -87,7 +87,33 @@
   #overlay .panel, #overlay #restartBtn,
   #overlay #shipPicker, #overlay .shipBtn, #overlay .shipBtn *,
   #overlay #themePicker, #overlay .themeBtn,
-  #overlay #helpBtn, #overlay #helpScreen, #overlay #helpScreen * { pointer-events: auto; }
+  #overlay #helpBtn, #overlay #helpScreen, #overlay #helpScreen *,
+  #overlay #resumeRow, #overlay #resumeResetBtn { pointer-events: auto; }
+
+  #resumeRow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 8px;
+    font-size: 11px;
+    color: #ffd280;
+    letter-spacing: 1px;
+  }
+  #resumeResetBtn {
+    background: rgba(0,0,0,0.5);
+    border: 1.5px solid #ffd280;
+    color: #ffd280;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-family: inherit;
+    font-weight: 900;
+    font-size: 10px;
+    letter-spacing: 1px;
+    -webkit-appearance: none;
+    cursor: pointer;
+  }
+  #resumeResetBtn:active { transform: scale(0.94); }
 
   #themeLabel {
     font-size: 12px;
@@ -557,6 +583,10 @@
         <button class="themeBtn" data-theme="canyon">CANYON</button>
       </div>
       <div class="tapHint">TAP SHIP TO LAUNCH</div>
+      <div id="resumeRow" class="hidden">
+        <span id="resumeLabel">Resuming: —</span>
+        <button id="resumeResetBtn">START OVER</button>
+      </div>
       <button id="helpBtn" aria-label="Help">?</button>
       <div id="buildStamp"></div>
     </div>
@@ -679,7 +709,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v7';
+const DLX_BUILD = 'v8';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1550,9 +1580,12 @@ const DLX_BUILD = 'v7';
     }
     playSound('levelup');
     startThemeAmbient();
-    // Remember the furthest level reached so the player can resume here
-    // on next launch if they close the tab mid-run.
-    try { localStorage.setItem('dlx_resume_v2', String(levelIndex)); } catch (e) {}
+    // Persist the furthest level ever reached across deaths. New runs
+    // start at this level; a reset button on the start screen wipes it.
+    try {
+      const prev = parseInt(localStorage.getItem('dlx_resume_v2') || '0', 10);
+      if (levelIndex > prev) localStorage.setItem('dlx_resume_v2', String(levelIndex));
+    } catch (e) {}
   }
   function clearResume() {
     try { localStorage.removeItem('dlx_resume_v2'); } catch (e) {}
@@ -2232,7 +2265,9 @@ const DLX_BUILD = 'v7';
           if (navigator.vibrate) { try { navigator.vibrate([30, 40, 30]); } catch (e) {} }
           playSound('crash');
           stopThemeAmbient(0.5);
-          clearResume();      // dying wipes the resume point; next run restarts level 1
+          // Note: resume point is no longer cleared on death — the saved
+          // level persists so the player keeps picking up where they
+          // were. The start-screen reset button wipes it manually.
           setTimeout(showGameOver, 200);
         }
       }
@@ -5619,6 +5654,15 @@ const DLX_BUILD = 'v7';
 
   function launchWithSelected() {
     applyShipStats(selectedShip);
+    // In public mode, re-read the saved resume each launch so the player
+    // always starts at the furthest level they've ever reached.
+    if (!IS_DEV_MODE) {
+      try {
+        const r = parseInt(localStorage.getItem('dlx_resume_v2') || '0', 10);
+        if (r > 0 && r < LEVEL_ORDER.length) selectedTheme = LEVEL_ORDER[r];
+        else selectedTheme = 'sunset';
+      } catch (e) { selectedTheme = 'sunset'; }
+    }
     buildBgCache();       // make sure the starting biome is cached before reset
     reset();
     state = STATE_PLAY;
@@ -5658,21 +5702,25 @@ const DLX_BUILD = 'v7';
     // Rebuild cached gradients + static layouts for the new theme
     buildBgCache();
   }
+  // IMPORTANT: just assign selectedTheme here. setSelectedTheme() calls
+  // buildBgCache(), which needs PLAY_H — and resize() hasn't run yet at
+  // this point in boot. Calling it early used to NaN-out the sun gradient
+  // and halt the whole script in public mode.
   if (IS_DEV_MODE) {
-    // Dev mode remembers the last theme you picked in the debug picker.
     try {
       const saved = localStorage.getItem('dlx_theme_v2');
-      if (saved && THEMES[saved]) setSelectedTheme(saved);
+      if (saved && THEMES[saved]) selectedTheme = saved;
     } catch (e) {}
   } else {
-    // Public mode: if a prior run reached a later level (and didn't die),
-    // resume from there. Otherwise start at level 1.
-    let startTheme = 'sunset';
     try {
       const r = parseInt(localStorage.getItem('dlx_resume_v2') || '0', 10);
-      if (r > 0 && r < LEVEL_ORDER.length) startTheme = LEVEL_ORDER[r];
-    } catch (e) {}
-    setSelectedTheme(startTheme);
+      if (r > 0 && r < LEVEL_ORDER.length) selectedTheme = LEVEL_ORDER[r];
+      else selectedTheme = 'sunset';
+    } catch (e) { selectedTheme = 'sunset'; }
+  }
+  // Highlight the matching theme button (only visible in dev mode).
+  for (const btn of themeBtns) {
+    btn.classList.toggle('selected', btn.dataset.theme === selectedTheme);
   }
   for (const btn of themeBtns) {
     const h = function(e) {
@@ -5799,6 +5847,33 @@ const DLX_BUILD = 'v7';
     if (document.hidden && state === STATE_PLAY) pauseGame();
   });
 
+  const resumeRow       = document.getElementById('resumeRow');
+  const resumeLabelEl   = document.getElementById('resumeLabel');
+  const resumeResetBtn  = document.getElementById('resumeResetBtn');
+  function refreshResumeRow() {
+    if (!resumeRow) return;
+    let r = 0;
+    try { r = parseInt(localStorage.getItem('dlx_resume_v2') || '0', 10); } catch (e) {}
+    if (!IS_DEV_MODE && r > 0 && r < LEVEL_ORDER.length) {
+      resumeRow.classList.remove('hidden');
+      if (resumeLabelEl) {
+        resumeLabelEl.textContent = 'Resuming: Lv ' + (r + 1) + ' — ' + THEMES[LEVEL_ORDER[r]].label;
+      }
+    } else {
+      resumeRow.classList.add('hidden');
+    }
+  }
+  function resetProgress(e) {
+    if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    clearResume();
+    selectedTheme = 'sunset';
+    refreshResumeRow();
+  }
+  if (resumeResetBtn) {
+    resumeResetBtn.addEventListener('touchstart', resetProgress, { passive: false });
+    resumeResetBtn.addEventListener('click', resetProgress);
+  }
+
   function showStart() {
     overlay.classList.add('show');
     startScreen.classList.remove('hidden');
@@ -5806,6 +5881,7 @@ const DLX_BUILD = 'v7';
     if (pauseScreen) pauseScreen.classList.add('hidden');
     if (victoryScreen) victoryScreen.classList.add('hidden');
     if (playBtnsEl) playBtnsEl.style.display = 'none';
+    refreshResumeRow();
     refreshHud();
   }
   function hideOverlay() {
@@ -5854,7 +5930,8 @@ const DLX_BUILD = 'v7';
          e.target.closest('#helpScreen') ||
          e.target.closest('#playBtns') ||
          e.target.closest('#pauseScreen') ||
-         e.target.closest('#victoryScreen'))) return;
+         e.target.closest('#victoryScreen') ||
+         e.target.closest('#resumeResetBtn'))) return;
     if (state === STATE_PAUSED || state === STATE_VICTORY) return;
     if (e && e.cancelable) e.preventDefault();
     audio(); // unlock WebAudio on the first user gesture (iOS requirement)
