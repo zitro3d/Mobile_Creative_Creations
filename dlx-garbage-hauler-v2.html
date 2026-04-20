@@ -583,6 +583,7 @@
         <button class="themeBtn" data-theme="canyon">CANYON</button>
         <button class="themeBtn" data-theme="underwater">TRENCH</button>
         <button class="themeBtn" data-theme="neoncity">NEON CITY</button>
+        <button class="themeBtn" data-theme="icecave">ICE CAVE</button>
       </div>
       <div class="tapHint">TAP SHIP TO LAUNCH</div>
       <div id="resumeRow" class="hidden">
@@ -711,7 +712,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v10';
+const DLX_BUILD = 'v11';
 
 (function() {
   // ---------- iOS gate ----------
@@ -919,6 +920,22 @@ const DLX_BUILD = 'v10';
       ng.addColorStop(1,   'rgba(120, 20, 100, 0)');
       bgCache.neonGlow = ng;
     }
+    bgCache.aurora = null;
+    bgCache.iceSheen = null;
+    if (selectedTheme === 'icecave') {
+      // Aurora ribbon curtain up near the cave ceiling
+      const au = ctx.createLinearGradient(0, PLAY_H * 0.08, 0, PLAY_H * 0.45);
+      au.addColorStop(0,    'rgba(120, 255, 220, 0)');
+      au.addColorStop(0.35, 'rgba(140, 255, 180, 0.28)');
+      au.addColorStop(0.7,  'rgba(180, 160, 240, 0.22)');
+      au.addColorStop(1,    'rgba(120, 180, 255, 0)');
+      bgCache.aurora = au;
+      // Blue-white frost sheen across the ice floor
+      const sh = ctx.createLinearGradient(0, PLAY_H * 0.82, 0, PLAY_H);
+      sh.addColorStop(0, 'rgba(220, 240, 255, 0)');
+      sh.addColorStop(1, 'rgba(220, 240, 255, 0.5)');
+      bgCache.iceSheen = sh;
+    }
 
     // Per-theme static horizon layout
     bgCache.horizon = buildHorizonLayout();
@@ -1014,6 +1031,32 @@ const DLX_BUILD = 'v10';
         shafts.push({ x: (W / 4) * (i + 0.5) + ((i * 29) % 30) - 15, w: 36 + (i % 2) * 14, phase: i * 1.3 });
       }
       return { kind: 'underwater', baseY: baseY, kelp: kelp, shafts: shafts };
+    }
+    if (selectedTheme === 'icecave') {
+      // Jagged stalagmites rising from the floor + hanging stalactites
+      // from the ceiling create the cave silhouette.
+      const stalagmites = [];
+      for (let i = 0; i < 11; i++) {
+        stalagmites.push({
+          x: (W / 11) * i + ((i * 13) % 14) - 7,
+          h: 38 + ((i * 37 + 11) % 62),
+          w: 22 + ((i * 17) % 12),
+        });
+      }
+      const stalactites = [];
+      for (let i = 0; i < 9; i++) {
+        stalactites.push({
+          x: (W / 9) * i + ((i * 11) % 20) - 10,
+          h: 30 + ((i * 29 + 7) % 48),
+          w: 18 + ((i * 19) % 14),
+        });
+      }
+      // Aurora ribbon control points (smooth wavy curve across the top)
+      const auroraPts = [];
+      for (let i = 0; i <= 10; i++) {
+        auroraPts.push({ x: (W / 10) * i, phase: i * 0.7 });
+      }
+      return { kind: 'icecave', baseY: baseY, stalagmites: stalagmites, stalactites: stalactites, aurora: auroraPts };
     }
     if (selectedTheme === 'neoncity') {
       // Back layer: distant megacorp towers (blinking window grid)
@@ -1149,6 +1192,12 @@ const DLX_BUILD = 'v10';
       { type: 'sawtooth', freq:  82, gain: 0.014, lfoFreq: 0.8,  lfoDepth: 4 },
       { type: 'square',   freq: 164, gain: 0.006, detune: 6, lfoFreq: 1.3, lfoDepth: 3 },
       { type: 'triangle', freq: 246, gain: 0.008, lfoFreq: 0.45, lfoDepth: 6 },
+    ]},
+    icecave: { layers: [
+      // Airy crystalline pad — cold cave hum with shimmer up top
+      { type: 'sine',     freq:  55, gain: 0.016, lfoFreq: 0.1,  lfoDepth: 1.2 },
+      { type: 'sine',     freq: 220, gain: 0.010, lfoFreq: 0.2,  lfoDepth: 2 },
+      { type: 'triangle', freq: 660, gain: 0.006, lfoFreq: 0.08, lfoDepth: 5 },
     ]},
   };
   let ambientNodes = [];
@@ -1296,6 +1345,19 @@ const DLX_BUILD = 'v10';
       boomN:   [0.36, 0.42], boomT: [ 80, 0.22, 'square',   0.18, 30],
       crashN:  [0.55, 0.40], crashT:[ 95, 0.34, 'sawtooth', 0.22, 30],
       levelup: [[440,0.12,'square',0.10,440],[554,0.12,'square',0.10,554],[880,0.26,'square',0.12,880]],
+    },
+    icecave: {
+      // Glassy triangle-wave tings — crystalline pings that ring out
+      flap:    [520, 0.08, 'triangle', 0.07,  180],
+      pickup:  [1320,0.10, 'triangle', 0.10, 1880],
+      goldA:   [988, 0.08, 'triangle', 0.10, 1480],
+      goldB:   [1320,0.12, 'triangle', 0.10, 1980],
+      pwA:     [784, 0.12, 'triangle', 0.10, 1320],
+      pwB:     [988, 0.15, 'triangle', 0.10, 1760],
+      missile: [660, 0.18, 'triangle', 0.13,  120],   // ice shard zing
+      boomN:   [0.28, 0.42], boomT: [110, 0.24, 'triangle', 0.18, 50],
+      crashN:  [0.45, 0.42], crashT:[130, 0.34, 'triangle', 0.22, 50],
+      levelup: [[660,0.12,'triangle',0.10,660],[880,0.12,'triangle',0.10,880],[1320,0.26,'triangle',0.12,1320]],
     },
   };
 
@@ -1654,6 +1716,46 @@ const DLX_BUILD = 'v10';
       debrisSet: ['brokenphone','sodacan','headphones','cd','tv','bottle','trafficcone'],
       obstacleTypes: ['neontower', 'billboard'],
     },
+    icecave: {
+      label: 'ICE CAVE',
+      // Deep cobalt cavern roof fading to ghostly cyan mist above the icy floor
+      sky: ['#020818', '#0a1a3a', '#1a3a60', '#3a6a90', '#7acad0', '#c8f0f8'],
+      sunInner: 'rgba(180, 240, 255, 0.55)',  // aurora halo
+      sunMid:   'rgba(100, 180, 230, 0.35)',
+      sunEdge:  'rgba(20, 60, 120, 0)',
+      nebA: 'rgba(120, 220, 255, 0.22)',
+      nebB: 'rgba(180, 120, 230, 0.14)',
+      nebC: 'rgba(70,  140, 200, 0.10)',
+      nebWisp: 'rgba(220, 240, 255, 0.16)',
+      starBack: '180, 220, 255',          // frost pinpricks
+      starMid:  '210, 240, 255',
+      starFront:'255, 255, 255',
+      starGlow: 'rgba(200, 240, 255, 0.95)',
+      dust: '235, 245, 255',              // drifting snow
+      ridge: 'rgba(10, 24, 44, 0.92)',    // silhouetted cave wall
+      groundA: '#3a5a7a',                 // ice floor
+      groundB: '#0a1a30',
+      horizon: 'rgba(170, 220, 250, 0.9)',
+      horizonGlow: '#a0e6ff',
+      crackColor: 'rgba(160, 220, 255, 0.5)',
+      cargo: {
+        // Frosted chrome with pale-blue rime trim
+        grad: ['#a8cbe0', '#4a708c', '#6a92b0', '#2a4868'],
+        edge: '#0a1830', rivet: '#e8f4ff',
+        hazardA: '#ffee88', hazardB: '#0a2040',
+        rust: 'rgba(120, 180, 220, 0.8)',
+        weather: 'rgba(220, 240, 255, 0.85)',
+      },
+      junk: {
+        // Frost-bitten salvage, dull silver with ice crust
+        grad: ['#5a7890', '#2a4058', '#0a1828'],
+        outline: '#020818', rim: 'rgba(200, 230, 255, 0.25)',
+        rust: 'rgba(180, 230, 255, 0.6)', bolt: '#0a1828',
+        antennaMetal: '#88a8c0', antennaLed: '#a0e8ff',
+      },
+      debrisSet: ['bottle','sodacan','brokenphone','oldtire','brick','fishbone','cd'],
+      obstacleTypes: ['icicle', 'icepillar'],
+    },
   };
   let selectedTheme = 'sunset';
   function theme() { return THEMES[selectedTheme]; }
@@ -1720,15 +1822,17 @@ const DLX_BUILD = 'v10';
   let loot          = [];  // collectible items revealed by missile destruction
 
   // ---------- Campaign progression ----------
-  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'swamp', 'canyon', 'underwater', 'neoncity'];
+  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'swamp', 'canyon', 'underwater', 'neoncity', 'icecave'];
   // Score gap required to leave each level (level i → level i+1).
   //   sunset → city       : 50
   //   city   → volcano    : 60
   //   volcano→ swamp      : 70
   //   swamp  → canyon     : 80   (swamp is "retreat mode"; boss sinks away)
   //   canyon → underwater : 90   (anglerfish kill advances — score gap is a safety net)
-  //   underwater → neoncity: 60  (neon city is final; cyberdragon = VICTORY)
-  const LEVEL_GAPS  = [50, 60, 70, 80, 90, 60, 0];
+  //   underwater → neoncity: 60  (anglerfish kill advances to neon city)
+  //   neoncity → icecave  : 60  (dragon kill advances to ice cave)
+  //   icecave  → (final)   : 0  (golem = VICTORY)
+  const LEVEL_GAPS  = [50, 60, 70, 80, 90, 60, 60, 0];
   // Per-level difficulty multipliers stack on top of the score-based ramp.
   const LEVEL_DIFF = [
     { speedMul: 1.00, gapMul: 1.00 },   // sunset
@@ -1737,7 +1841,8 @@ const DLX_BUILD = 'v10';
     { speedMul: 1.50, gapMul: 0.80 },   // swamp (retreat mode)
     { speedMul: 1.70, gapMul: 0.90 },   // canyon — pirate ambush
     { speedMul: 1.55, gapMul: 0.92 },   // underwater — anglerfish
-    { speedMul: 1.75, gapMul: 0.88 },   // neoncity — cyberdragon final boss
+    { speedMul: 1.75, gapMul: 0.88 },   // neoncity — cyberdragon
+    { speedMul: 1.80, gapMul: 0.86 },   // icecave — ice golem final boss
   ];
   let levelIndex      = 0;
   let levelScoreStart = 0;   // score at the moment current level began
@@ -1748,8 +1853,10 @@ const DLX_BUILD = 'v10';
   let projectiles     = [];     // lasers fired by the pirate
   let angler          = null;   // underwater: anglerfish boss
   let anglerHitsLeft  = 3;      // underwater: HP left before advance
-  let dragon          = null;   // neoncity: cyberdragon final boss
-  let dragonHitsLeft  = 4;      // neoncity: HP left before VICTORY
+  let dragon          = null;   // neoncity: cyberdragon boss
+  let dragonHitsLeft  = 4;      // neoncity: HP left before advance
+  let golem           = null;   // icecave: ice golem final boss
+  let golemHitsLeft   = 4;      // icecave: HP left before VICTORY
 
   function themeToLevelIndex(key) {
     const i = LEVEL_ORDER.indexOf(key);
@@ -1785,6 +1892,13 @@ const DLX_BUILD = 'v10';
       anglerHitsLeft = 3;
       projectiles = [];
       spawnDragon();
+    }
+    // Leaving neoncity → icecave: dragon down, ice golem rises from the cave wall
+    if (levelIndex === 7) {
+      dragon = null;
+      dragonHitsLeft = 4;
+      projectiles = [];
+      spawnGolem();
     }
     playSound('levelup');
     startThemeAmbient();
@@ -1885,6 +1999,9 @@ const DLX_BUILD = 'v10';
     const reach = BIRD_R + 4;
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const p = projectiles[i];
+      // Ice boulders/shards arc under gravity and tumble visually
+      if (p.icyGrav) p.vy += p.icyGrav;
+      if (p.vr)      p.rot = (p.rot || 0) + p.vr;
       p.x += p.vx; p.y += p.vy;
       p.life--;
       p.trail.push({ x: p.x, y: p.y });
@@ -1896,7 +2013,8 @@ const DLX_BUILD = 'v10';
       // Collision with ship
       const dx = bird.x - p.x;
       const dy = bird.y - p.y;
-      if (dx * dx + dy * dy < reach * reach) p.hitBird = true;
+      const r = (p.ice && !p.shard) ? reach + 3 : reach;  // boulders are bigger
+      if (dx * dx + dy * dy < r * r) p.hitBird = true;
     }
   }
   function projectileHit() {
@@ -1970,6 +2088,46 @@ const DLX_BUILD = 'v10';
     ctx.save();
     for (const p of projectiles) {
       const neon = !!p.neon;
+      const ice  = !!p.ice;
+      if (ice) {
+        // Ice boulder / shard — white-cyan chunk with frosty glow
+        const size = p.shard ? 4 : 6;
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = '#a0e0ff';
+        // Faded trail of tumbling chunks
+        for (let i = 0; i < p.trail.length; i++) {
+          const k = (i + 1) / p.trail.length;
+          ctx.globalAlpha = k * 0.55;
+          ctx.fillStyle = '#cfe8f5';
+          ctx.beginPath();
+          ctx.arc(p.trail[i].x, p.trail[i].y, size * k * 0.7, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        // Main chunk — rotated diamond
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot || 0);
+        ctx.fillStyle = '#eaf6ff';
+        ctx.beginPath();
+        ctx.moveTo(0, -size);
+        ctx.lineTo(size * 0.9, 0);
+        ctx.lineTo(0, size);
+        ctx.lineTo(-size * 0.9, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#4a7098';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        // Inner highlight
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(-size * 0.3, -size * 0.3, size * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        ctx.shadowBlur = 0;
+        continue;
+      }
       // Trail
       ctx.shadowBlur = 10;
       ctx.shadowColor = neon ? '#ff50e0' : '#ff4020';
@@ -2411,9 +2569,8 @@ const DLX_BUILD = 'v10';
     setLevelBanner('CYBERDRAGON DOWN!  +30');
     dragon = null;
     projectiles = [];
-    stopThemeAmbient(0.8);
-    state = STATE_VICTORY;
-    setTimeout(showVictory, 500);
+    // Dragon dead → descend into the Ice Cave
+    if (levelIndex === 6) advanceLevel(7);
   }
   function drawDragon() {
     if (!dragon) return;
@@ -2523,6 +2680,316 @@ const DLX_BUILD = 'v10';
     ctx.restore();
   }
 
+  // ---------- Ice Golem final boss (icecave level 8) ----------
+  // Massive crystalline titan embedded in the right cave wall. Tracks the
+  // player's height with slow drift, lobs ice boulder projectiles (arcing
+  // under gravity), and telegraphs a slam every few seconds that spawns a
+  // barrage. The glowing heart crystal in its chest is the weak spot.
+  function spawnGolem() {
+    golem = {
+      x: W - 70,           // embedded in the right wall
+      y: PLAY_H / 2,
+      targetY: PLAY_H / 2,
+      slamCooldown: 240,   // 4s grace before first slam
+      throwCooldown: 120,  // first boulder after 2s
+      slamTelegraph: 0,    // ramps 0→1 before slam, then fires
+      armAngle: 0,         // visual arm pose (0 = idle, -1 = raised, 1 = slamming)
+      hitFlash: 0,
+      heartPulse: 0,
+    };
+    golemHitsLeft = 4;
+    projectiles = [];
+  }
+  function updateGolem() {
+    if (!golem) return;
+    // Slow vertical tracking of the player's height
+    golem.targetY = PLAY_H * 0.5 + (bird.y - PLAY_H * 0.5) * 0.35;
+    golem.y += (golem.targetY - golem.y) * 0.015;
+    golem.y = Math.max(PLAY_H * 0.35, Math.min(PLAY_H * 0.65, golem.y));
+    golem.heartPulse = (Math.sin(frame * 0.08) + 1) * 0.5;
+    if (golem.hitFlash > 0) golem.hitFlash--;
+
+    // Boulder toss — steady arcing projectiles
+    golem.throwCooldown--;
+    if (golem.throwCooldown <= 0) {
+      golem.throwCooldown = 90 + Math.floor(Math.random() * 50);
+      fireIceBoulder();
+    }
+
+    // Slam telegraph → slam → barrage of small shards
+    golem.slamCooldown--;
+    if (golem.slamCooldown <= 60 && golem.slamCooldown > 0) {
+      // Windup phase (1s) — arm raises, heart glows brighter
+      golem.slamTelegraph = (60 - golem.slamCooldown) / 60;
+      golem.armAngle = -golem.slamTelegraph;
+    }
+    if (golem.slamCooldown === 0) {
+      // Slam fires — barrage of 5 small shards in a fan
+      golem.armAngle = 1;
+      fireIceSlamBarrage();
+      shakeFrames = Math.max(shakeFrames, 14);
+    }
+    if (golem.slamCooldown < 0 && golem.slamCooldown > -30) {
+      // Recoil phase
+      golem.armAngle = 1 - ((-golem.slamCooldown) / 30);
+      golem.slamTelegraph = 0;
+    }
+    if (golem.slamCooldown <= -30) {
+      golem.slamCooldown = 300;   // 5s between slams
+      golem.armAngle = 0;
+    }
+  }
+  function fireIceBoulder() {
+    if (!golem) return;
+    const sx = golem.x - 30;
+    const sy = golem.y - 10;
+    // Arc toward player: compute vx/vy so the boulder peaks over the ship
+    const dx = bird.x - sx;
+    const dy = bird.y - sy;
+    const sp = 4.5 + Math.random() * 1;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    projectiles.push({
+      x: sx, y: sy,
+      vx: (dx / d) * sp - 1.2,   // extra leftward bias
+      vy: (dy / d) * sp - 2.6,   // arc upward first
+      life: 150,
+      trail: [],
+      ice: true,
+      icyGrav: 0.18,
+      rot: 0,
+      vr: (Math.random() - 0.5) * 0.2,
+    });
+    playSound('missile');
+  }
+  function fireIceSlamBarrage() {
+    if (!golem) return;
+    const sx = golem.x - 34;
+    const sy = golem.y + 20;
+    // 5 shards spraying leftward in a fan
+    for (let i = -2; i <= 2; i++) {
+      const ang = Math.PI + (i * 0.22);
+      const sp  = 5.5 + Math.random() * 0.6;
+      projectiles.push({
+        x: sx, y: sy,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp - 0.4,
+        life: 140,
+        trail: [],
+        ice: true,
+        icyGrav: 0.1,
+        shard: true,
+        rot: ang,
+        vr: 0,
+      });
+    }
+    playSound('boom');
+  }
+  function golemHeartPos() {
+    if (!golem) return null;
+    return { x: golem.x - 16, y: golem.y + 2 };
+  }
+  function golemBodyHits() {
+    if (!golem) return false;
+    // Roughly rectangular torso extends left from the right wall
+    const left   = golem.x - 46;
+    const right  = golem.x + 50;  // includes offscreen right
+    const top    = golem.y - 44;
+    const bot    = golem.y + 48;
+    return bird.x + BIRD_R > left && bird.x - BIRD_R < right &&
+           bird.y + BIRD_R > top  && bird.y - BIRD_R < bot;
+  }
+  function hitGolem(hx, hy) {
+    if (!golem) return;
+    golemHitsLeft--;
+    golem.hitFlash = 14;
+    // Ice shards burst from the heart
+    for (let i = 0; i < 18; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2 + Math.random() * 3.5;
+      sparks.push({
+        x: hx, y: hy,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        size: 4 + Math.random() * 4,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.4,
+        life: 1, decay: 0.018, shape: 'tri',
+        color: '#e0f4ff', glow: '#a0d8f0',
+        drag: 0.97, gravity: 0.12,
+      });
+    }
+    shakeFrames = Math.max(shakeFrames, 12);
+    grantScore(8);
+    scorePulse = 1;
+    playSound('boom');
+    if (golemHitsLeft <= 0) {
+      destroyGolem();
+    } else {
+      setLevelBanner('GOLEM HIT! ' + golemHitsLeft + ' LEFT');
+    }
+  }
+  function destroyGolem() {
+    if (!golem) return;
+    // Massive shatter — body bursts in chunks of ice
+    for (let i = 0; i < 60; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2.5 + Math.random() * 5;
+      sparks.push({
+        x: golem.x - 10 + (Math.random() - 0.5) * 40,
+        y: golem.y + (Math.random() - 0.5) * 60,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        size: 5 + Math.random() * 7,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.5,
+        life: 1, decay: 0.012, shape: 'tri',
+        color: '#e0f4ff', glow: '#80c8e8',
+        drag: 0.96, gravity: 0.14,
+      });
+    }
+    grantScore(40);
+    scorePulse = 1;
+    burstFrames = 30;
+    shakeFrames = Math.max(shakeFrames, 30);
+    playSound('boom');
+    setLevelBanner('ICE GOLEM DOWN!  +40');
+    golem = null;
+    projectiles = [];
+    // Final boss down — VICTORY
+    stopThemeAmbient(0.8);
+    state = STATE_VICTORY;
+    setTimeout(showVictory, 500);
+  }
+  function drawGolem() {
+    if (!golem) return;
+    const gx = golem.x, gy = golem.y;
+    const flash = golem.hitFlash > 0 ? golem.hitFlash / 14 : 0;
+    ctx.save();
+
+    // --- Massive crystalline torso (mostly offscreen right) ---
+    ctx.shadowBlur = 18; ctx.shadowColor = 'rgba(160, 220, 255, 0.6)';
+    const bodyGrad = ctx.createLinearGradient(gx - 46, gy, gx + 40, gy);
+    bodyGrad.addColorStop(0, flash > 0.1 ? '#ffffff' : '#6a94b8');
+    bodyGrad.addColorStop(0.45, flash > 0.1 ? '#f0faff' : '#cfe8f5');
+    bodyGrad.addColorStop(1,   '#2a4868');
+    ctx.fillStyle = bodyGrad;
+    // Chunky torso polygon — stacked ice blocks suggesting a humanoid silhouette
+    ctx.beginPath();
+    ctx.moveTo(gx - 46, gy - 30);
+    ctx.lineTo(gx - 10, gy - 44);
+    ctx.lineTo(gx + 40, gy - 38);
+    ctx.lineTo(gx + 40, gy + 48);
+    ctx.lineTo(gx - 20, gy + 48);
+    ctx.lineTo(gx - 46, gy + 26);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#0a1828';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+
+    // Body facet lines (geometric ice chunks)
+    ctx.strokeStyle = 'rgba(240, 250, 255, 0.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(gx - 30, gy - 30); ctx.lineTo(gx - 4, gy - 10);
+    ctx.moveTo(gx - 4,  gy - 10); ctx.lineTo(gx + 30, gy - 28);
+    ctx.moveTo(gx - 24, gy + 20); ctx.lineTo(gx + 10, gy + 10);
+    ctx.moveTo(gx + 10, gy + 10); ctx.lineTo(gx + 28, gy + 40);
+    ctx.stroke();
+
+    // --- Arm: raises during slam telegraph, slams down ---
+    const armAng = golem.armAngle;  // -1 (raised) … 0 (idle) … 1 (slammed)
+    const shoulderX = gx - 30;
+    const shoulderY = gy - 10;
+    // Arm rotates around the shoulder. -1 → pointing up, 1 → pointing down-left
+    const baseAng = Math.PI * 0.75;            // idle dangling direction (down-left)
+    const armRot  = baseAng + armAng * -Math.PI * 0.6;  // swing upward when raised
+    const armLen  = 38;
+    const elbowX = shoulderX + Math.cos(armRot) * armLen;
+    const elbowY = shoulderY + Math.sin(armRot) * armLen;
+    ctx.strokeStyle = '#4a7098';
+    ctx.lineWidth = 12;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(shoulderX, shoulderY);
+    ctx.lineTo(elbowX, elbowY);
+    ctx.stroke();
+    // Fist (big chunk at the end)
+    ctx.fillStyle = '#a0c8dc';
+    ctx.beginPath();
+    ctx.arc(elbowX, elbowY, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#0a1828';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+
+    // --- Head: angular crystal with glowing eyes ---
+    const headX = gx + 8, headY = gy - 52;
+    ctx.shadowBlur = 10; ctx.shadowColor = 'rgba(200, 240, 255, 0.6)';
+    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#a0c8dc';
+    ctx.beginPath();
+    ctx.moveTo(headX - 14, headY);
+    ctx.lineTo(headX - 6,  headY - 14);
+    ctx.lineTo(headX + 14, headY - 10);
+    ctx.lineTo(headX + 14, headY + 10);
+    ctx.lineTo(headX,      headY + 14);
+    ctx.lineTo(headX - 12, headY + 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#0a1828';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    // Glowing cyan eyes
+    ctx.shadowBlur = 8; ctx.shadowColor = '#60e8ff';
+    ctx.fillStyle = '#9af2ff';
+    ctx.beginPath(); ctx.arc(headX - 4, headY,  1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(headX + 6, headY + 1, 1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // --- Heart crystal (weak spot) ---
+    const h = golemHeartPos();
+    const pulse = 1 + golem.heartPulse * 0.4 + golem.slamTelegraph * 0.6;
+    ctx.shadowBlur = 18;
+    ctx.shadowColor = golem.slamTelegraph > 0 ? '#ffee80' : '#60f0ff';
+    ctx.fillStyle = golem.slamTelegraph > 0 ? '#ffffa0' : '#c0f0ff';
+    ctx.beginPath();
+    ctx.moveTo(h.x,            h.y - 9 * pulse);
+    ctx.lineTo(h.x + 7 * pulse, h.y);
+    ctx.lineTo(h.x,            h.y + 9 * pulse);
+    ctx.lineTo(h.x - 7 * pulse, h.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Inner spark
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(h.x, h.y, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#0a3050';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // HP pips above the head (4 diamonds)
+    for (let i = 0; i < 4; i++) {
+      const lit = i < golemHitsLeft;
+      ctx.fillStyle = lit ? '#80e8ff' : 'rgba(40, 60, 90, 0.6)';
+      ctx.shadowBlur = lit ? 6 : 0;
+      ctx.shadowColor = '#60f0ff';
+      const px = headX - 18 + i * 12;
+      const py = headY - 26;
+      ctx.beginPath();
+      ctx.moveTo(px,     py - 3);
+      ctx.lineTo(px + 3, py);
+      ctx.lineTo(px,     py + 3);
+      ctx.lineTo(px - 3, py);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
   best = parseInt(localStorage.getItem('flappy_best_ios_v2') || '0', 10);
 
   function reset() {
@@ -2557,11 +3024,14 @@ const DLX_BUILD = 'v10';
     anglerHitsLeft = 3;
     dragon = null;
     dragonHitsLeft = 4;
+    golem = null;
+    golemHitsLeft = 4;
     lightningAt = -999;   // reset volcano flicker timer so since stays valid
     if (levelIndex === 3) spawnBoss();
     if (levelIndex === 4) spawnPirate();
     if (levelIndex === 5) spawnAngler();
     if (levelIndex === 6) spawnDragon();
+    if (levelIndex === 7) spawnGolem();
     shieldCharges = 0;
     slowFrames = 0;
     doubleFrames = 0;
@@ -2773,9 +3243,9 @@ const DLX_BUILD = 'v10';
                               'slow', 'double', 'magnet', 'ghost',
                               'missile', 'missile', 'missile', 'missile'];
   function powerKindsForTheme() {
-    // Boss levels (canyon pirate, underwater angler, neoncity dragon) all
-    // skew toward shields + missiles so the player can brawl.
-    if (selectedTheme === 'canyon' || selectedTheme === 'underwater' || selectedTheme === 'neoncity') {
+    // Boss levels all skew toward shields + missiles so the player can brawl.
+    if (selectedTheme === 'canyon' || selectedTheme === 'underwater' ||
+        selectedTheme === 'neoncity' || selectedTheme === 'icecave') {
       return POWER_KINDS_CANYON;
     }
     return POWER_KINDS;
@@ -2990,6 +3460,7 @@ const DLX_BUILD = 'v10';
       updatePirate();
       updateAngler();
       updateDragon();
+      updateGolem();
       updateProjectiles();
       updateSparks();
       updatePickupSparks();
@@ -3116,6 +3587,7 @@ const DLX_BUILD = 'v10';
     if (projectiles.length && projectileHit()) return true;
     if (angler && (anglerMouthHits() || anglerLureHits())) return true;
     if (dragon && (dragonHeadHits() || dragonBodyHits())) return true;
+    if (golem && golemBodyHits()) return true;
     return false;
   }
 
@@ -3240,6 +3712,21 @@ const DLX_BUILD = 'v10';
       playSound('missile');
       return;
     }
+    // On icecave, missiles hunt the ice golem's heart crystal
+    if (selectedTheme === 'icecave' && golem) {
+      missiles.push({
+        x: bird.x + BIRD_R * 0.6,
+        y: bird.y,
+        vx: 3,
+        vy: 0,
+        target: null,
+        targetGolem: true,
+        life: 200,
+        trail: [],
+      });
+      playSound('missile');
+      return;
+    }
     let target = null;
     for (const p of pipes) {
       if (p.destroyed) continue;
@@ -3324,6 +3811,17 @@ const DLX_BUILD = 'v10';
         const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
         const MAX = 9;
         if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
+      } else if (m.targetGolem && golem) {
+        // Home to the golem's heart crystal
+        const h = golemHeartPos();
+        const dx = h.x - m.x, dy = h.y - m.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const accel = 0.75;
+        m.vx += (dx / d) * accel;
+        m.vy += (dy / d) * accel;
+        const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
+        const MAX = 8.5;
+        if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
       } else if (m.target && !m.target.destroyed) {
         const tx = m.target.x + PIPE_W / 2;
         const ty = m.target.top + m.target.gap / 2;
@@ -3369,6 +3867,16 @@ const DLX_BUILD = 'v10';
         const ddx = m.x - h.x, ddy = m.y - h.y;
         if (ddx * ddx + ddy * ddy < 22 * 22) {
           hitDragon(m.x, m.y);
+          missiles.splice(i, 1);
+          continue;
+        }
+      }
+      // Ice golem hit — heart crystal in chest is the weak spot
+      if (m.targetGolem && golem) {
+        const h = golemHeartPos();
+        const ddx = m.x - h.x, ddy = m.y - h.y;
+        if (ddx * ddx + ddy * ddy < 16 * 16) {
+          hitGolem(m.x, m.y);
           missiles.splice(i, 1);
           continue;
         }
@@ -3754,7 +4262,96 @@ const DLX_BUILD = 'v10';
     if (selectedTheme === 'canyon')  return drawCanyonHorizon();
     if (selectedTheme === 'underwater') return drawUnderwaterHorizon();
     if (selectedTheme === 'neoncity')   return drawNeonCityHorizon();
+    if (selectedTheme === 'icecave')    return drawIceCaveHorizon();
     return drawSunsetMountains();
+  }
+
+  function drawIceCaveHorizon() {
+    const layout = bgCache.horizon;
+    if (!layout || layout.kind !== 'icecave') return;
+    const baseY = layout.baseY;
+    ctx.save();
+
+    // Aurora ribbon curtain — smooth wavy band high in the cave ceiling
+    if (bgCache.aurora) {
+      ctx.globalCompositeOperation = 'screen';
+      ctx.fillStyle = bgCache.aurora;
+      ctx.beginPath();
+      const topY = PLAY_H * 0.08;
+      ctx.moveTo(0, topY);
+      for (const p of layout.aurora) {
+        const y = topY + Math.sin(frame * 0.012 + p.phase) * 10;
+        ctx.lineTo(p.x, y);
+      }
+      ctx.lineTo(W, PLAY_H * 0.45);
+      ctx.lineTo(0, PLAY_H * 0.45);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // Ceiling stalactites hanging from the cave roof (upside-down spikes)
+    ctx.fillStyle = 'rgba(14, 28, 48, 0.92)';
+    for (const s of layout.stalactites) {
+      ctx.beginPath();
+      ctx.moveTo(s.x - s.w / 2, 0);
+      ctx.lineTo(s.x + s.w / 2, 0);
+      ctx.lineTo(s.x,             s.h);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Ice sheen highlights along stalactites
+    ctx.strokeStyle = 'rgba(180, 230, 255, 0.4)';
+    ctx.lineWidth = 1;
+    for (const s of layout.stalactites) {
+      ctx.beginPath();
+      ctx.moveTo(s.x - s.w * 0.25, 4);
+      ctx.lineTo(s.x - 2, s.h - 4);
+      ctx.stroke();
+    }
+
+    // Cave wall silhouette across the floor
+    ctx.fillStyle = theme().ridge;
+    ctx.fillRect(0, baseY, W, PLAY_H - baseY);
+
+    // Floor stalagmites rising toward the gap
+    ctx.fillStyle = 'rgba(20, 36, 60, 0.95)';
+    for (const s of layout.stalagmites) {
+      ctx.beginPath();
+      ctx.moveTo(s.x - s.w / 2, baseY);
+      ctx.lineTo(s.x + s.w / 2, baseY);
+      ctx.lineTo(s.x,           baseY - s.h);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Stalagmite rime highlights
+    ctx.strokeStyle = 'rgba(200, 240, 255, 0.5)';
+    ctx.lineWidth = 1.2;
+    for (const s of layout.stalagmites) {
+      ctx.beginPath();
+      ctx.moveTo(s.x - s.w * 0.3, baseY - 3);
+      ctx.lineTo(s.x + 2,          baseY - s.h + 4);
+      ctx.stroke();
+    }
+
+    // Frost sheen across the ice floor
+    if (bgCache.iceSheen) {
+      ctx.fillStyle = bgCache.iceSheen;
+      ctx.fillRect(0, PLAY_H * 0.82, W, PLAY_H * 0.18);
+    }
+    // Occasional crack line running across the ice
+    ctx.strokeStyle = 'rgba(180, 220, 250, 0.35)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      const ly = PLAY_H * (0.9 + i * 0.03);
+      ctx.beginPath();
+      ctx.moveTo(0, ly);
+      for (let x = 0; x <= W; x += 40) {
+        ctx.lineTo(x, ly + ((x + i * 7) % 9) - 4);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function drawNeonCityHorizon() {
@@ -5108,6 +5705,8 @@ const DLX_BUILD = 'v10';
       case 'shipwreck':  return '#1a1814';
       case 'neontower':  return '#040012';
       case 'billboard':  return '#0a0418';
+      case 'icicle':     return '#284868';
+      case 'icepillar':  return '#2a4868';
       default:           return T.ridge;
     }
   }
@@ -5146,7 +5745,9 @@ const DLX_BUILD = 'v10';
     coral:      function(x, y, w, h, isTop, p) { drawCoral(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
     shipwreck:  function(x, y, w, h, isTop, p) { drawShipwreck(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
     neontower:  function(x, y, w, h, isTop, p) { drawNeonTower(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
-    billboard:  function(x, y, w, h, isTop, p) { drawBillboard(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    billboard:  function(x, y, w, h, isTop, p) { drawNeonBillboard(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    icicle:     function(x, y, w, h, isTop, p) { drawIcicle(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    icepillar:  function(x, y, w, h, isTop, p) { drawIcePillar(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
   };
 
   // ---------- Thematic obstacle structures ----------
@@ -6130,8 +6731,8 @@ const DLX_BUILD = 'v10';
     ctx.restore();
   }
 
-  // Billboard pillar — giant holographic ad panel on a pole
-  function drawBillboard(x, y, w, h, isTop, seed) {
+  // Neoncity billboard pillar — giant holographic ad panel on a pole
+  function drawNeonBillboard(x, y, w, h, isTop, seed) {
     if (h <= 0) return;
     ctx.save();
     ctx.translate(x, y);
@@ -6220,6 +6821,172 @@ const DLX_BUILD = 'v10';
     ctx.lineTo(w * 0.5 - 2, (wireStart + wireEnd) / 2);
     ctx.lineTo(w * 0.5, wireEnd);
     ctx.stroke();
+    ctx.restore();
+  }
+
+  // Icicle spike — crystalline spike with frosted inner prisms (ice cave)
+  function drawIcicle(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const tipY  = isTop ? h : 0;
+    const baseY = isTop ? 0 : h;
+    const cx    = w / 2;
+
+    // Silhouette / shadow backfill
+    ctx.fillStyle = 'rgba(10, 22, 40, 0.9)';
+    ctx.beginPath();
+    ctx.moveTo(-2, baseY);
+    ctx.lineTo(w + 2, baseY);
+    // Jagged edge down to the tip with mid-notches
+    ctx.lineTo(w - 2, tipY + (isTop ? -2 : 2));
+    ctx.lineTo(cx,     tipY);
+    ctx.lineTo(2,      tipY + (isTop ? -2 : 2));
+    ctx.closePath();
+    ctx.fill();
+
+    // Ice prism fill — pale blue gradient
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0,    '#7ab8d8');
+    grad.addColorStop(0.5,  '#cfe8f5');
+    grad.addColorStop(1,    '#4878a0');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(3, baseY);
+    ctx.lineTo(w - 3, baseY);
+    ctx.lineTo(cx,     tipY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Internal prism facets — diagonal ridges that catch the "light"
+    ctx.strokeStyle = 'rgba(240, 250, 255, 0.75)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.15, baseY + (isTop ? 6 : -6));
+    ctx.lineTo(cx - 1, tipY - (isTop ? -4 : 4));
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(80, 140, 180, 0.55)';
+    ctx.beginPath();
+    ctx.moveTo(cx + w * 0.2, baseY + (isTop ? 4 : -4));
+    ctx.lineTo(cx + 2, tipY - (isTop ? -6 : 6));
+    ctx.stroke();
+
+    // Horizontal cracks/segments
+    ctx.strokeStyle = 'rgba(200, 230, 255, 0.4)';
+    ctx.lineWidth = 0.8;
+    const segs = 3 + Math.floor(srand(seed) * 2);
+    for (let i = 1; i < segs; i++) {
+      const t = i / segs;
+      const y = baseY + (tipY - baseY) * t;
+      const pad = w * 0.1 * (1 - t * 0.8);
+      ctx.beginPath();
+      ctx.moveTo(pad, y);
+      ctx.lineTo(w - pad, y);
+      ctx.stroke();
+    }
+
+    // Crisp outline
+    ctx.strokeStyle = '#0a1828';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(3, baseY);
+    ctx.lineTo(w - 3, baseY);
+    ctx.lineTo(cx,     tipY);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Subtle sparkle pip at the tip
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.beginPath();
+    ctx.arc(cx, tipY + (isTop ? -3 : 3), 1.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Snow dusting at the base
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.fillRect(0, baseY + (isTop ? 0 : -3), w, 3);
+
+    ctx.restore();
+  }
+
+  // Ice pillar — chunky multi-faceted crystal column (ice cave)
+  function drawIcePillar(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Dark backing fill
+    ctx.fillStyle = '#0a1828';
+    ctx.fillRect(-3, 0, w + 6, h);
+
+    // Main column gradient — cool blue/white crystal
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0,    '#4a7098');
+    grad.addColorStop(0.35, '#cfe8f5');
+    grad.addColorStop(0.65, '#dceff8');
+    grad.addColorStop(1,    '#2a4868');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Faceted prism lines running along the column
+    ctx.strokeStyle = 'rgba(240, 250, 255, 0.7)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(w * 0.25, 0);
+    ctx.lineTo(w * 0.25, h);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(80, 120, 160, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(w * 0.7, 0);
+    ctx.lineTo(w * 0.7, h);
+    ctx.stroke();
+
+    // Horizontal chunk/segment breaks
+    const chunks = Math.max(3, Math.floor(h / 28));
+    ctx.strokeStyle = 'rgba(20, 40, 70, 0.55)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < chunks; i++) {
+      const cy = (h / chunks) * i + (srand(seed + i * 11) - 0.5) * 4;
+      ctx.beginPath();
+      ctx.moveTo(0, cy);
+      ctx.lineTo(w, cy + (srand(seed + i * 17) - 0.5) * 3);
+      ctx.stroke();
+    }
+
+    // Trapped bubble/air specks inside the ice
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    for (let i = 0; i < 6; i++) {
+      const bx = srand(seed + 100 + i) * w;
+      const by = srand(seed + 200 + i) * h;
+      const br = 0.8 + srand(seed + 300 + i) * 1.2;
+      ctx.beginPath();
+      ctx.arc(bx, by, br, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Gap-facing tip: jagged crystal cluster with bright highlight
+    const tipY = isTop ? h : 0;
+    const sign = isTop ? -1 : 1;
+    ctx.fillStyle = '#eaf6ff';
+    ctx.beginPath();
+    const teeth = 4;
+    ctx.moveTo(0, tipY);
+    for (let i = 0; i <= teeth; i++) {
+      const tx = (i / teeth) * w;
+      const notch = (srand(seed + i * 29) * 7 + 3) * sign;
+      ctx.lineTo(tx, tipY + notch);
+    }
+    ctx.lineTo(w, tipY);
+    ctx.closePath();
+    ctx.fill();
+    // Tip crystal outline
+    ctx.strokeStyle = '#4a7098';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // Crisp outer edge
+    ctx.strokeStyle = '#061628';
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
     ctx.restore();
   }
 
@@ -6742,6 +7509,7 @@ const DLX_BUILD = 'v10';
     drawPirate();
     drawAngler();
     drawDragon();
+    drawGolem();
     drawProjectiles();
     drawBird();
     drawScore();
