@@ -1,16 +1,17 @@
-// DLX Garbage Hauler — simple cache-first service worker so the game
-// loads instantly on repeat visits and keeps working offline (e.g. on a
-// plane, subway, or after install from Add to Home Screen).
-const CACHE = 'dlx-hauler-v3';
-const ASSETS = [
-  './dlx-garbage-hauler-v2.html',
+// DLX Garbage Hauler service worker.
+// - The HTML page uses NETWORK-FIRST so new versions always reach players
+//   when they're online; the old cached HTML is only used as a fallback
+//   when offline.
+// - The icon + manifest are CACHE-FIRST (they almost never change).
+const CACHE = 'dlx-hauler-v5';
+const PRECACHE = [
   './manifest.webmanifest',
   './dlx-icon.svg'
 ];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting())
   );
 });
 
@@ -23,17 +24,33 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  // Only handle GETs to same-origin URLs
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   if (url.origin !== self.location.origin) return;
 
+  const isHTML = e.request.mode === 'navigate' ||
+                 e.request.destination === 'document' ||
+                 url.pathname.endsWith('.html');
+
+  if (isHTML) {
+    // Network-first so a new build replaces the cached HTML immediately.
+    e.respondWith(
+      fetch(e.request).then((res) => {
+        if (res && res.status === 200) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+        }
+        return res;
+      }).catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
+  // Cache-first for static assets.
   e.respondWith(
     caches.match(e.request).then((cached) => {
       if (cached) return cached;
       return fetch(e.request).then((res) => {
-        // Opportunistically cache same-origin successful responses so
-        // incremental updates end up in the cache.
         if (res && res.status === 200 && res.type === 'basic') {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(e.request, copy));
