@@ -582,6 +582,7 @@
         <button class="themeBtn" data-theme="swamp">SWAMP</button>
         <button class="themeBtn" data-theme="canyon">CANYON</button>
         <button class="themeBtn" data-theme="underwater">TRENCH</button>
+        <button class="themeBtn" data-theme="neoncity">NEON CITY</button>
       </div>
       <div class="tapHint">TAP SHIP TO LAUNCH</div>
       <div id="resumeRow" class="hidden">
@@ -710,7 +711,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v9';
+const DLX_BUILD = 'v10';
 
 (function() {
   // ---------- iOS gate ----------
@@ -909,6 +910,15 @@ const DLX_BUILD = 'v9';
       ls.addColorStop(1,    'rgba(40,  80, 140, 0)');
       bgCache.lightShaft = ls;
     }
+    bgCache.neonGlow = null;
+    if (selectedTheme === 'neoncity') {
+      // Magenta street-level haze fading up — cheap way to light the skyline
+      const ng = ctx.createLinearGradient(0, PLAY_H * 0.55, 0, PLAY_H * 0.85);
+      ng.addColorStop(0,   'rgba(255, 60, 200, 0)');
+      ng.addColorStop(0.6, 'rgba(255, 80, 210, 0.25)');
+      ng.addColorStop(1,   'rgba(120, 20, 100, 0)');
+      bgCache.neonGlow = ng;
+    }
 
     // Per-theme static horizon layout
     bgCache.horizon = buildHorizonLayout();
@@ -1005,6 +1015,39 @@ const DLX_BUILD = 'v9';
       }
       return { kind: 'underwater', baseY: baseY, kelp: kelp, shafts: shafts };
     }
+    if (selectedTheme === 'neoncity') {
+      // Back layer: distant megacorp towers (blinking window grid)
+      const far = [];
+      for (let i = 0; i < 13; i++) {
+        far.push({
+          x: (W / 13) * i,
+          w: (W / 13) - 2,
+          h: 40 + ((i * 41 + 11) % 60),
+          hue: ['#ff50c8', '#50e0ff', '#ff80f0', '#a050ff'][(i + 2) % 4],
+          blink: ((i * 17 + 5) % 60) / 60,
+        });
+      }
+      // Near layer: tall neon-strip skyscrapers
+      const near = [];
+      for (let i = 0; i < 7; i++) {
+        const bx = (W / 7) * i + ((i * 11) % 6);
+        const bw = (W / 7) - 10;
+        const bh = 80 + ((i * 31 + 17) % 100);
+        const stripHue = ['#ff40a0','#00f0ff','#ff70e0','#9060ff'][(i + 1) % 4];
+        near.push({ bx: bx, bw: bw, bh: bh, stripHue: stripHue, i: i });
+      }
+      // Hover-traffic drone streaks
+      const drones = [];
+      for (let i = 0; i < 5; i++) {
+        drones.push({
+          x: (W / 5) * i + ((i * 19) % 40),
+          y: baseY - 50 - ((i * 27) % 40),
+          hue: (i % 2) ? '#ffcc40' : '#ff4080',
+          phase: i * 1.1,
+        });
+      }
+      return { kind: 'neoncity', baseY: baseY, far: far, near: near, drones: drones };
+    }
     // sunset — simple peak profile
     const peaks = [];
     const count = 14;
@@ -1100,6 +1143,12 @@ const DLX_BUILD = 'v9';
       { type: 'sine', freq:  60, gain: 0.020, lfoFreq: 0.15, lfoDepth: 2 },
       { type: 'sine', freq: 120, gain: 0.015, lfoFreq: 0.22, lfoDepth: 3 },
       { type: 'sine', freq: 180, gain: 0.010, lfoFreq: 0.35, lfoDepth: 4 },
+    ]},
+    neoncity: { layers: [
+      // Synthwave pad — saw + square arpeggio vibe with throbbing LFOs
+      { type: 'sawtooth', freq:  82, gain: 0.014, lfoFreq: 0.8,  lfoDepth: 4 },
+      { type: 'square',   freq: 164, gain: 0.006, detune: 6, lfoFreq: 1.3, lfoDepth: 3 },
+      { type: 'triangle', freq: 246, gain: 0.008, lfoFreq: 0.45, lfoDepth: 6 },
     ]},
   };
   let ambientNodes = [];
@@ -1234,6 +1283,19 @@ const DLX_BUILD = 'v9';
       boomN:   [0.30, 0.34], boomT: [ 55, 0.26, 'sine',     0.18, 30],
       crashN:  [0.55, 0.38], crashT:[ 70, 0.42, 'sine',     0.22, 30],
       levelup: [[262,0.14,'sine',0.10,262],[349,0.14,'sine',0.10,349],[523,0.26,'sine',0.12,523]],
+    },
+    neoncity: {
+      // Synth-punched laser palette — all saw/square for that retro arcade edge
+      flap:    [380, 0.08, 'square',   0.08,  120],
+      pickup:  [880, 0.08, 'square',   0.12, 1320],
+      goldA:   [740, 0.06, 'square',   0.11, 1100],
+      goldB:   [988, 0.10, 'square',   0.11, 1480],
+      pwA:     [620, 0.12, 'sawtooth', 0.10,  988],
+      pwB:     [784, 0.15, 'sawtooth', 0.10, 1240],
+      missile: [420, 0.18, 'sawtooth', 0.13,  90],   // laser zap
+      boomN:   [0.36, 0.42], boomT: [ 80, 0.22, 'square',   0.18, 30],
+      crashN:  [0.55, 0.40], crashT:[ 95, 0.34, 'sawtooth', 0.22, 30],
+      levelup: [[440,0.12,'square',0.10,440],[554,0.12,'square',0.10,554],[880,0.26,'square',0.12,880]],
     },
   };
 
@@ -1552,6 +1614,46 @@ const DLX_BUILD = 'v9';
       debrisSet: ['fishbone','oldtire','algae_bottle','rubberboot','bottle','oar','lilypad'],
       obstacleTypes: ['coral', 'shipwreck'],
     },
+    neoncity: {
+      label: 'NEON CITY',
+      // Deep violet night fading to magenta street-glow near the horizon
+      sky: ['#060010', '#150528', '#2a0848', '#4a1070', '#7a1890', '#bb30a8'],
+      sunInner: 'rgba(255, 100, 220, 0.55)',   // holographic moon-glow
+      sunMid:   'rgba(120, 40, 180, 0.4)',
+      sunEdge:  'rgba(20, 0, 60, 0)',
+      nebA: 'rgba(255, 60, 200, 0.18)',
+      nebB: 'rgba(60, 180, 255, 0.14)',
+      nebC: 'rgba(140, 40, 220, 0.12)',
+      nebWisp: 'rgba(255, 180, 255, 0.12)',
+      starBack: '180, 100, 255',          // distant ad-drones
+      starMid:  '255, 100, 220',
+      starFront:'80, 240, 255',
+      starGlow: 'rgba(180, 255, 255, 0.95)',
+      dust: '255, 120, 240',              // magenta/cyan rain streaks
+      ridge: 'rgba(6, 0, 22, 0.95)',      // pitch-black skyline silhouette
+      groundA: '#1a0428',                 // wet asphalt
+      groundB: '#06001a',
+      horizon: 'rgba(255, 80, 200, 0.9)',
+      horizonGlow: '#ff50c8',
+      crackColor: 'rgba(120, 60, 200, 0.6)',
+      cargo: {
+        // Chrome with hot-pink + cyan neon trim
+        grad: ['#4a6080', '#141830', '#2a3060', '#0a0a1a'],
+        edge: '#050518', rivet: '#ff60d0',
+        hazardA: '#ff40b0', hazardB: '#00f0ff',
+        rust: 'rgba(255, 60, 200, 0.6)',
+        weather: 'rgba(80, 200, 255, 0.5)',
+      },
+      junk: {
+        // Ditched tech — dark with neon accents
+        grad: ['#2a1848', '#120828', '#06021a'],
+        outline: '#020010', rim: 'rgba(10,4,22,0.9)',
+        rust: 'rgba(0, 240, 255, 0.55)', bolt: '#060418',
+        antennaMetal: '#5a4078', antennaLed: '#ff50e0',
+      },
+      debrisSet: ['brokenphone','sodacan','headphones','cd','tv','bottle','trafficcone'],
+      obstacleTypes: ['neontower', 'billboard'],
+    },
   };
   let selectedTheme = 'sunset';
   function theme() { return THEMES[selectedTheme]; }
@@ -1618,14 +1720,15 @@ const DLX_BUILD = 'v9';
   let loot          = [];  // collectible items revealed by missile destruction
 
   // ---------- Campaign progression ----------
-  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'swamp', 'canyon', 'underwater'];
+  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'swamp', 'canyon', 'underwater', 'neoncity'];
   // Score gap required to leave each level (level i → level i+1).
   //   sunset → city       : 50
   //   city   → volcano    : 60
   //   volcano→ swamp      : 70
   //   swamp  → canyon     : 80   (swamp is "retreat mode"; boss sinks away)
-  //   canyon → underwater : 90   (final biome; anglerfish = VICTORY)
-  const LEVEL_GAPS  = [50, 60, 70, 80, 90, 0];
+  //   canyon → underwater : 90   (anglerfish kill advances — score gap is a safety net)
+  //   underwater → neoncity: 60  (neon city is final; cyberdragon = VICTORY)
+  const LEVEL_GAPS  = [50, 60, 70, 80, 90, 60, 0];
   // Per-level difficulty multipliers stack on top of the score-based ramp.
   const LEVEL_DIFF = [
     { speedMul: 1.00, gapMul: 1.00 },   // sunset
@@ -1633,7 +1736,8 @@ const DLX_BUILD = 'v9';
     { speedMul: 1.34, gapMul: 0.86 },   // volcano
     { speedMul: 1.50, gapMul: 0.80 },   // swamp (retreat mode)
     { speedMul: 1.70, gapMul: 0.90 },   // canyon — pirate ambush
-    { speedMul: 1.55, gapMul: 0.92 },   // underwater — anglerfish final boss
+    { speedMul: 1.55, gapMul: 0.92 },   // underwater — anglerfish
+    { speedMul: 1.75, gapMul: 0.88 },   // neoncity — cyberdragon final boss
   ];
   let levelIndex      = 0;
   let levelScoreStart = 0;   // score at the moment current level began
@@ -1642,8 +1746,10 @@ const DLX_BUILD = 'v9';
   let pirate          = null;   // canyon: pirate cargo ship chasing from behind
   let pirateRespawnFrames = 0;  // canyon: ticks until a defeated pirate returns
   let projectiles     = [];     // lasers fired by the pirate
-  let angler          = null;   // underwater: anglerfish final boss
-  let anglerHitsLeft  = 3;      // underwater: HP left before VICTORY
+  let angler          = null;   // underwater: anglerfish boss
+  let anglerHitsLeft  = 3;      // underwater: HP left before advance
+  let dragon          = null;   // neoncity: cyberdragon final boss
+  let dragonHitsLeft  = 4;      // neoncity: HP left before VICTORY
 
   function themeToLevelIndex(key) {
     const i = LEVEL_ORDER.indexOf(key);
@@ -1672,6 +1778,13 @@ const DLX_BUILD = 'v9';
       pirateRespawnFrames = 0;
       projectiles = [];
       spawnAngler();
+    }
+    // Leaving underwater → neoncity: anglerfish gone, cyberdragon swoops in from the sky
+    if (levelIndex === 6) {
+      angler = null;
+      anglerHitsLeft = 3;
+      projectiles = [];
+      spawnDragon();
     }
     playSound('levelup');
     startThemeAmbient();
@@ -1855,24 +1968,26 @@ const DLX_BUILD = 'v9';
   function drawProjectiles() {
     if (projectiles.length === 0) return;
     ctx.save();
-    ctx.shadowBlur = 10; ctx.shadowColor = '#ff4020';
     for (const p of projectiles) {
+      const neon = !!p.neon;
       // Trail
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = neon ? '#ff50e0' : '#ff4020';
       for (let i = 0; i < p.trail.length; i++) {
         const k = (i + 1) / p.trail.length;
         ctx.globalAlpha = k * 0.8;
-        ctx.fillStyle = '#ffb060';
+        ctx.fillStyle = neon ? '#ff80f0' : '#ffb060';
         ctx.beginPath();
         ctx.arc(p.trail[i].x, p.trail[i].y, 2 * k, 0, Math.PI * 2);
         ctx.fill();
       }
       // Head
       ctx.globalAlpha = 1;
-      ctx.fillStyle = '#ffdc60';
+      ctx.fillStyle = neon ? '#e0f8ff' : '#ffdc60';
       ctx.beginPath();
       ctx.arc(p.x, p.y, 3.2, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#ff4020';
+      ctx.fillStyle = neon ? '#60f0ff' : '#ff4020';
       ctx.beginPath();
       ctx.arc(p.x, p.y, 1.6, 0, Math.PI * 2);
       ctx.fill();
@@ -1994,10 +2109,8 @@ const DLX_BUILD = 'v9';
     playSound('boom');
     setLevelBanner('ANGLER DOWN!  +20');
     angler = null;
-    // Game won — cue the VICTORY screen
-    stopThemeAmbient(0.8);
-    state = STATE_VICTORY;
-    setTimeout(showVictory, 400);
+    // Anglerfish dead → surface into Neon City immediately
+    if (levelIndex === 5) advanceLevel(6);
   }
   function drawAngler() {
     if (!angler) return;
@@ -2132,6 +2245,284 @@ const DLX_BUILD = 'v9';
     ctx.restore();
   }
 
+  // ---------- Cyberdragon final boss (neoncity level 7) ----------
+  // Segmented neon serpent that weaves across the screen and fires lasers
+  // from its mouth. The head is both the collider and the weak spot; each
+  // missile hit strips 1 HP. Defeating it triggers VICTORY.
+  function spawnDragon() {
+    const headX = W + 80;
+    const headY = PLAY_H / 2;
+    const segs = [];
+    // 6 trailing body segments, each records a recent head position
+    for (let i = 0; i < 6; i++) {
+      segs.push({ x: headX + 22 * i, y: headY, r: 14 - i * 1.2 });
+    }
+    dragon = {
+      head: { x: headX, y: headY, targetX: W - 90, targetY: headY, ang: Math.PI },
+      segs: segs,
+      trail: [],           // rolling history of head positions for body to follow
+      fireCooldown: 180,
+      mouthOpen: 0,
+      hitFlash: 0,
+    };
+    dragonHitsLeft = 4;
+    projectiles = [];
+  }
+  function updateDragon() {
+    if (!dragon) return;
+    const h = dragon.head;
+    h.x += (h.targetX - h.x) * 0.035;
+    // Weaving sine pattern + player chase mix
+    const weave = Math.sin(frame * 0.03) * PLAY_H * 0.28 + PLAY_H * 0.5;
+    const chase = bird.y;
+    h.targetY = weave * 0.55 + chase * 0.45;
+    h.y += (h.targetY - h.y) * 0.05;
+    h.y = Math.max(28, Math.min(PLAY_H - 28, h.y));
+    // Aim angle points toward player for the mouth direction
+    h.ang = Math.atan2(bird.y - h.y, bird.x - h.x);
+    // Body segments trail the head via a rolling history buffer
+    dragon.trail.push({ x: h.x, y: h.y });
+    if (dragon.trail.length > 64) dragon.trail.shift();
+    for (let i = 0; i < dragon.segs.length; i++) {
+      const idx = Math.max(0, dragon.trail.length - 1 - (i + 1) * 7);
+      const pt = dragon.trail[idx];
+      if (pt) {
+        dragon.segs[i].x = pt.x;
+        dragon.segs[i].y = pt.y;
+      }
+    }
+    // Mouth snap cycle
+    const cyc = (frame % 110) / 110;
+    dragon.mouthOpen = cyc < 0.2 ? Math.sin(cyc / 0.2 * Math.PI) : 0;
+    if (dragon.hitFlash > 0) dragon.hitFlash--;
+    // Fire laser projectiles at the player
+    dragon.fireCooldown--;
+    if (dragon.fireCooldown <= 0) {
+      dragon.fireCooldown = 90 + Math.floor(Math.random() * 50);
+      fireDragonLaser();
+    }
+  }
+  function fireDragonLaser() {
+    if (!dragon) return;
+    const h = dragon.head;
+    // Aim in a small cone so the shot is dodgeable
+    const aimX = bird.x + (Math.random() - 0.5) * 60;
+    const aimY = bird.y + (Math.random() - 0.5) * 120;
+    const dx = aimX - h.x;
+    const dy = aimY - h.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const sp = 6.4 + Math.random() * 0.8;
+    projectiles.push({
+      x: h.x + Math.cos(h.ang) * 20,
+      y: h.y + Math.sin(h.ang) * 20,
+      vx: (dx / d) * sp,
+      vy: (dy / d) * sp,
+      life: 120,
+      trail: [],
+      neon: true,
+    });
+    playSound('missile');
+  }
+  function dragonHeadHits() {
+    if (!dragon) return false;
+    const h = dragon.head;
+    const dx = bird.x - h.x;
+    const dy = bird.y - h.y;
+    const reach = BIRD_R + 18;
+    return dx * dx + dy * dy < reach * reach;
+  }
+  function dragonBodyHits() {
+    if (!dragon) return false;
+    for (const s of dragon.segs) {
+      const dx = bird.x - s.x;
+      const dy = bird.y - s.y;
+      const reach = BIRD_R + s.r - 2;
+      if (dx * dx + dy * dy < reach * reach) return true;
+    }
+    return false;
+  }
+  function hitDragon(hx, hy) {
+    if (!dragon) return;
+    dragonHitsLeft--;
+    dragon.hitFlash = 12;
+    for (let i = 0; i < 18; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2 + Math.random() * 3.5;
+      sparks.push({
+        x: hx, y: hy,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        size: 4 + Math.random() * 3,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.4,
+        life: 1, decay: 0.018, shape: 'tri',
+        color: '#ff60e0', glow: '#60f0ff',
+        drag: 0.97, gravity: 0.1,
+      });
+    }
+    shakeFrames = Math.max(shakeFrames, 10);
+    grantScore(6);
+    scorePulse = 1;
+    playSound('boom');
+    if (dragonHitsLeft <= 0) {
+      destroyDragon();
+    } else {
+      setLevelBanner('DRAGON HIT! ' + dragonHitsLeft + ' LEFT');
+    }
+  }
+  function destroyDragon() {
+    if (!dragon) return;
+    // Huge neon explosion along the whole body
+    const h = dragon.head;
+    for (let i = 0; i < 48; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 3 + Math.random() * 5;
+      sparks.push({
+        x: h.x, y: h.y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        size: 5 + Math.random() * 6,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.5,
+        life: 1, decay: 0.011, shape: 'tri',
+        color: '#ff60e0', glow: '#60f0ff',
+        drag: 0.96, gravity: 0.05,
+      });
+    }
+    for (const s of dragon.segs) {
+      for (let i = 0; i < 8; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 2 + Math.random() * 3;
+        sparks.push({
+          x: s.x, y: s.y,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+          size: 4 + Math.random() * 3,
+          rot: Math.random() * Math.PI * 2,
+          vr: (Math.random() - 0.5) * 0.4,
+          life: 1, decay: 0.015, shape: 'tri',
+          color: '#60f0ff', glow: '#ff60e0',
+          drag: 0.96, gravity: 0.08,
+        });
+      }
+    }
+    grantScore(30);
+    scorePulse = 1;
+    burstFrames = 28;
+    shakeFrames = Math.max(shakeFrames, 26);
+    playSound('boom');
+    setLevelBanner('CYBERDRAGON DOWN!  +30');
+    dragon = null;
+    projectiles = [];
+    stopThemeAmbient(0.8);
+    state = STATE_VICTORY;
+    setTimeout(showVictory, 500);
+  }
+  function drawDragon() {
+    if (!dragon) return;
+    ctx.save();
+    // --- Body segments (draw tail-first so head sits on top) ---
+    for (let i = dragon.segs.length - 1; i >= 0; i--) {
+      const s = dragon.segs[i];
+      // Outer magenta glow
+      ctx.shadowBlur = 14; ctx.shadowColor = '#ff50e0';
+      ctx.fillStyle = '#ff50e0';
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+      // Inner cyan core
+      ctx.shadowBlur = 10; ctx.shadowColor = '#60f0ff';
+      ctx.fillStyle = '#c0f8ff';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.shadowBlur = 0;
+    // --- Head ---
+    const h = dragon.head;
+    ctx.translate(h.x, h.y);
+    ctx.rotate(h.ang);
+    const flash = dragon.hitFlash > 0 ? dragon.hitFlash / 12 : 0;
+    // Skull outline — angular neon-dragon head
+    ctx.shadowBlur = 16; ctx.shadowColor = flash > 0.1 ? '#ffffff' : '#ff50e0';
+    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#1a0430';
+    ctx.beginPath();
+    ctx.moveTo(-18, -12);
+    ctx.lineTo(  4, -14);
+    ctx.lineTo( 22,  -6);   // snout top
+    ctx.lineTo( 22,   6);   // snout bottom
+    ctx.lineTo(  4,  14);
+    ctx.lineTo(-18,  12);
+    ctx.lineTo(-12,   0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Neon outline
+    ctx.strokeStyle = '#ff50e0';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    // Horns back-swept
+    ctx.fillStyle = '#60f0ff';
+    ctx.shadowBlur = 8; ctx.shadowColor = '#60f0ff';
+    ctx.beginPath();
+    ctx.moveTo(-6, -12); ctx.lineTo(-18, -22); ctx.lineTo(-8, -10);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-6,  12); ctx.lineTo(-18,  22); ctx.lineTo(-8,  10);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    // Glowing eyes
+    ctx.shadowBlur = 8; ctx.shadowColor = '#ffee40';
+    ctx.fillStyle = '#ffee40';
+    ctx.beginPath(); ctx.arc(-4, -5, 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-4,  5, 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    // Mouth (opens to reveal plasma glow)
+    const open = dragon.mouthOpen;
+    if (open > 0.05) {
+      ctx.fillStyle = '#ff30a0';
+      ctx.beginPath();
+      ctx.moveTo(22, -4 * open);
+      ctx.lineTo(8,  -8 * open);
+      ctx.lineTo(8,   8 * open);
+      ctx.lineTo(22,  4 * open);
+      ctx.closePath();
+      ctx.fill();
+      // Inner plasma glow when wide open
+      if (open > 0.4) {
+        ctx.shadowBlur = 12; ctx.shadowColor = '#ffee40';
+        ctx.fillStyle = '#ffffa0';
+        ctx.beginPath();
+        ctx.arc(16, 0, 4 * open, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+    // Teeth rows
+    ctx.fillStyle = '#e0f8ff';
+    for (let i = 0; i < 4; i++) {
+      const tx = 10 + i * 3;
+      ctx.beginPath();
+      ctx.moveTo(tx, -4 * open); ctx.lineTo(tx + 1.5, -2); ctx.lineTo(tx + 3, -4 * open);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(tx,  4 * open); ctx.lineTo(tx + 1.5,  2); ctx.lineTo(tx + 3,  4 * open);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.rotate(-h.ang);
+    ctx.translate(-h.x, -h.y);
+    // HP pips above the head (fixed in world space, not rotated)
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = i < dragonHitsLeft ? '#60f0ff' : 'rgba(40, 40, 90, 0.6)';
+      ctx.shadowBlur = i < dragonHitsLeft ? 6 : 0;
+      ctx.shadowColor = '#60f0ff';
+      ctx.beginPath();
+      ctx.arc(h.x - 24 + i * 16, h.y - 32, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
   best = parseInt(localStorage.getItem('flappy_best_ios_v2') || '0', 10);
 
   function reset() {
@@ -2164,10 +2555,13 @@ const DLX_BUILD = 'v9';
     projectiles = [];
     angler = null;
     anglerHitsLeft = 3;
+    dragon = null;
+    dragonHitsLeft = 4;
     lightningAt = -999;   // reset volcano flicker timer so since stays valid
     if (levelIndex === 3) spawnBoss();
     if (levelIndex === 4) spawnPirate();
     if (levelIndex === 5) spawnAngler();
+    if (levelIndex === 6) spawnDragon();
     shieldCharges = 0;
     slowFrames = 0;
     doubleFrames = 0;
@@ -2379,7 +2773,12 @@ const DLX_BUILD = 'v9';
                               'slow', 'double', 'magnet', 'ghost',
                               'missile', 'missile', 'missile', 'missile'];
   function powerKindsForTheme() {
-    return selectedTheme === 'canyon' ? POWER_KINDS_CANYON : POWER_KINDS;
+    // Boss levels (canyon pirate, underwater angler, neoncity dragon) all
+    // skew toward shields + missiles so the player can brawl.
+    if (selectedTheme === 'canyon' || selectedTheme === 'underwater' || selectedTheme === 'neoncity') {
+      return POWER_KINDS_CANYON;
+    }
+    return POWER_KINDS;
   }
   function makePowerUp(gap) {
     return {
@@ -2590,6 +2989,7 @@ const DLX_BUILD = 'v9';
       updateLoot();
       updatePirate();
       updateAngler();
+      updateDragon();
       updateProjectiles();
       updateSparks();
       updatePickupSparks();
@@ -2715,6 +3115,7 @@ const DLX_BUILD = 'v9';
     if (boss && bossTipHits()) return true;
     if (projectiles.length && projectileHit()) return true;
     if (angler && (anglerMouthHits() || anglerLureHits())) return true;
+    if (dragon && (dragonHeadHits() || dragonBodyHits())) return true;
     return false;
   }
 
@@ -2824,6 +3225,21 @@ const DLX_BUILD = 'v9';
       playSound('missile');
       return;
     }
+    // On neoncity, missiles hunt the cyberdragon's head
+    if (selectedTheme === 'neoncity' && dragon) {
+      missiles.push({
+        x: bird.x + BIRD_R * 0.6,
+        y: bird.y,
+        vx: 3,
+        vy: 0,
+        target: null,
+        targetDragon: true,
+        life: 200,
+        trail: [],
+      });
+      playSound('missile');
+      return;
+    }
     let target = null;
     for (const p of pipes) {
       if (p.destroyed) continue;
@@ -2896,6 +3312,18 @@ const DLX_BUILD = 'v9';
         const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
         const MAX = 8;
         if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
+      } else if (m.targetDragon && dragon) {
+        // Home to the dragon's head
+        const tx = dragon.head.x;
+        const ty = dragon.head.y;
+        const dx = tx - m.x, dy = ty - m.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const accel = 0.8;
+        m.vx += (dx / d) * accel;
+        m.vy += (dy / d) * accel;
+        const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
+        const MAX = 9;
+        if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
       } else if (m.target && !m.target.destroyed) {
         const tx = m.target.x + PIPE_W / 2;
         const ty = m.target.top + m.target.gap / 2;
@@ -2933,6 +3361,16 @@ const DLX_BUILD = 'v9';
             missiles.splice(i, 1);
             continue;
           }
+        }
+      }
+      // Cyberdragon hit — head is the weak spot (body blocks without damaging missile)
+      if (m.targetDragon && dragon) {
+        const h = dragon.head;
+        const ddx = m.x - h.x, ddy = m.y - h.y;
+        if (ddx * ddx + ddy * ddy < 22 * 22) {
+          hitDragon(m.x, m.y);
+          missiles.splice(i, 1);
+          continue;
         }
       }
       // Pipe target hit
@@ -3315,7 +3753,89 @@ const DLX_BUILD = 'v9';
     if (selectedTheme === 'volcano') return drawVolcanoHorizon();
     if (selectedTheme === 'canyon')  return drawCanyonHorizon();
     if (selectedTheme === 'underwater') return drawUnderwaterHorizon();
+    if (selectedTheme === 'neoncity')   return drawNeonCityHorizon();
     return drawSunsetMountains();
+  }
+
+  function drawNeonCityHorizon() {
+    const layout = bgCache.horizon;
+    if (!layout || layout.kind !== 'neoncity') return;
+    const baseY = layout.baseY;
+    ctx.save();
+
+    // Street-glow haze band rising from the baseline
+    if (bgCache.neonGlow) {
+      ctx.fillStyle = bgCache.neonGlow;
+      ctx.fillRect(0, PLAY_H * 0.55, W, PLAY_H * 0.3);
+    }
+
+    // Distant megacorp towers — pitch-black silhouettes with neon window grids
+    ctx.fillStyle = 'rgba(10, 4, 22, 0.95)';
+    for (const b of layout.far) {
+      ctx.fillRect(b.x, baseY - b.h, b.w, b.h);
+    }
+    // Window grids on far towers (blinking)
+    for (const b of layout.far) {
+      const blink = 0.55 + Math.sin(frame * 0.04 + b.blink * 6) * 0.45;
+      ctx.fillStyle = b.hue;
+      ctx.globalAlpha = blink * 0.85;
+      for (let wy = baseY - b.h + 6; wy < baseY - 4; wy += 6) {
+        for (let wx = b.x + 2; wx < b.x + b.w - 2; wx += 4) {
+          if (((wx + wy) % 7) < 3) ctx.fillRect(wx, wy, 2, 2);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // Near skyline: pitch-black silhouettes with glowing neon strips
+    ctx.fillStyle = 'rgba(4, 0, 14, 0.95)';
+    for (const b of layout.near) {
+      ctx.fillRect(b.bx, baseY - b.bh, b.bw, b.bh);
+    }
+    // Vertical neon strips running up the near towers
+    for (const b of layout.near) {
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = b.stripHue;
+      ctx.fillStyle = b.stripHue;
+      const stripX = b.bx + b.bw * 0.15;
+      ctx.fillRect(stripX, baseY - b.bh + 4, 1.4, b.bh - 8);
+      ctx.fillRect(b.bx + b.bw * 0.82, baseY - b.bh + 4, 1.4, b.bh - 8);
+      // Roof antenna blinker
+      const blinkOn = (Math.floor(frame / 20) + b.i) % 3 === 0;
+      if (blinkOn) {
+        ctx.fillStyle = b.stripHue;
+        ctx.beginPath();
+        ctx.arc(b.bx + b.bw * 0.5, baseY - b.bh - 4, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+    }
+
+    // Hover-traffic drone dots (moving)
+    for (const d of layout.drones) {
+      const dx = ((d.x - frame * 0.6) % (W + 40) + W + 40) % (W + 40);
+      const dy = d.y + Math.sin(frame * 0.03 + d.phase) * 4;
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = d.hue;
+      ctx.fillStyle = d.hue;
+      ctx.beginPath(); ctx.arc(dx, dy, 2, 0, Math.PI * 2); ctx.fill();
+      // Tail streak
+      ctx.strokeStyle = d.hue;
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(dx, dy); ctx.lineTo(dx + 10, dy);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+    }
+
+    // Wet-asphalt highlight reflecting the skyline near the baseline
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = '#ff50c8';
+    ctx.fillRect(0, baseY, W, 1.5);
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   function drawUnderwaterHorizon() {
@@ -4586,6 +5106,8 @@ const DLX_BUILD = 'v9';
       case 'boulder':    return '#241208';
       case 'coral':      return '#14283a';
       case 'shipwreck':  return '#1a1814';
+      case 'neontower':  return '#040012';
+      case 'billboard':  return '#0a0418';
       default:           return T.ridge;
     }
   }
@@ -4623,6 +5145,8 @@ const DLX_BUILD = 'v9';
     boulder:    function(x, y, w, h, isTop, p) { drawBoulder(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
     coral:      function(x, y, w, h, isTop, p) { drawCoral(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
     shipwreck:  function(x, y, w, h, isTop, p) { drawShipwreck(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    neontower:  function(x, y, w, h, isTop, p) { drawNeonTower(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    billboard:  function(x, y, w, h, isTop, p) { drawBillboard(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
   };
 
   // ---------- Thematic obstacle structures ----------
@@ -5532,6 +6056,173 @@ const DLX_BUILD = 'v9';
     ctx.restore();
   }
 
+  // Neon tower — pitch-black shaft with magenta/cyan neon strips + windows
+  function drawNeonTower(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    // Pitch-black silhouette
+    ctx.fillStyle = '#040012';
+    ctx.fillRect(-2, 0, w + 4, h);
+    // Pick one of 4 neon hues per tower (seeded so a single tower keeps one color)
+    const hues = ['#ff40b0', '#00f0ff', '#ff70e0', '#9060ff'];
+    const hue = hues[Math.floor(srand(seed) * 4)];
+    const altHue = hues[(Math.floor(srand(seed) * 4) + 2) % 4];
+    // Vertical neon strips on both edges
+    ctx.shadowBlur = 8; ctx.shadowColor = hue;
+    ctx.fillStyle = hue;
+    ctx.fillRect(2, 4, 1.6, h - 8);
+    ctx.fillRect(w - 3.6, 4, 1.6, h - 8);
+    ctx.shadowBlur = 0;
+    // Horizontal floor bands (blinking pattern)
+    const floorH = 12;
+    const floors = Math.floor(h / floorH);
+    for (let i = 0; i < floors; i++) {
+      const fy = i * floorH + 3;
+      const t = (frame * 0.03 + i * 0.6 + seed * 0.3) % (Math.PI * 2);
+      const lit = Math.sin(t) > -0.2;
+      if (!lit) continue;
+      const useAlt = (i % 3 === 0);
+      const c = useAlt ? altHue : hue;
+      ctx.fillStyle = c;
+      ctx.globalAlpha = 0.75;
+      // 3 window segments per floor
+      ctx.fillRect(6, fy, 3, 2);
+      ctx.fillRect(11, fy, 3, 2);
+      ctx.fillRect(16, fy, 3, 2);
+      if (w > 32) {
+        ctx.fillRect(w - 19, fy, 3, 2);
+        ctx.fillRect(w - 14, fy, 3, 2);
+        ctx.fillRect(w - 9, fy, 3, 2);
+      }
+    }
+    ctx.globalAlpha = 1;
+    // Gap-facing edge: a bright neon cap so collisions read clearly
+    const capY = isTop ? h - 3 : 0;
+    ctx.shadowBlur = 10; ctx.shadowColor = hue;
+    ctx.fillStyle = hue;
+    ctx.fillRect(0, capY, w, 3);
+    ctx.shadowBlur = 0;
+    // Antenna/spike on the gap-facing end
+    const spikeY = isTop ? h : 0;
+    const spikeDir = isTop ? -1 : 1;
+    ctx.fillStyle = '#0a0418';
+    ctx.beginPath();
+    ctx.moveTo(w * 0.5 - 2, spikeY);
+    ctx.lineTo(w * 0.5 + 2, spikeY);
+    ctx.lineTo(w * 0.5,     spikeY + spikeDir * (-8));
+    ctx.closePath();
+    ctx.fill();
+    // Antenna tip red blinker
+    const blinkOn = (Math.floor(frame / 18) + Math.floor(seed)) % 2 === 0;
+    if (blinkOn) {
+      ctx.shadowBlur = 6; ctx.shadowColor = '#ff3030';
+      ctx.fillStyle = '#ff5050';
+      ctx.beginPath();
+      ctx.arc(w * 0.5, spikeY + spikeDir * (-9), 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    // Outer edge
+    ctx.strokeStyle = '#020008';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+    ctx.restore();
+  }
+
+  // Billboard pillar — giant holographic ad panel on a pole
+  function drawBillboard(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    // Support post running the full length (dark steel)
+    ctx.fillStyle = '#15102a';
+    ctx.fillRect(w * 0.5 - 3, 0, 6, h);
+    ctx.strokeStyle = '#060218';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(w * 0.5 - 3, 0, 6, h);
+
+    // The ad panel sits at the GAP-facing end (where the player threads the needle)
+    const panelH = Math.min(46, h * 0.55);
+    const panelY = isTop ? h - panelH : 0;
+    const panelW = w + 10;
+    const panelX = -5;
+
+    // Backing frame
+    ctx.fillStyle = '#0a0418';
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = '#ff50d0';
+    ctx.lineWidth = 1.6;
+    ctx.shadowBlur = 8; ctx.shadowColor = '#ff50d0';
+    ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1);
+    ctx.shadowBlur = 0;
+
+    // Scrolling holographic lines — fake animated ad
+    const hues = ['#ff40b0', '#00f0ff', '#ffcc40', '#9060ff'];
+    const hue  = hues[Math.floor(srand(seed) * 4)];
+    ctx.fillStyle = hue;
+    ctx.globalAlpha = 0.55;
+    for (let i = 0; i < 5; i++) {
+      const ly = panelY + 4 + i * (panelH - 8) / 5;
+      const offset = (frame * 0.8 + i * 20) % (panelW - 6);
+      const lw = 12 + (i % 3) * 8;
+      ctx.fillRect(panelX + 3 + offset, ly, lw, 2);
+    }
+    ctx.globalAlpha = 1;
+
+    // Big glyph in the middle (different per tower) — stylized logo block
+    ctx.shadowBlur = 6; ctx.shadowColor = hue;
+    ctx.fillStyle = hue;
+    const gcx = panelX + panelW * 0.5;
+    const gcy = panelY + panelH * 0.5;
+    const glyph = Math.floor(srand(seed + 7) * 4);
+    if (glyph === 0) {
+      // Triangle
+      ctx.beginPath();
+      ctx.moveTo(gcx - 8, gcy + 6);
+      ctx.lineTo(gcx + 8, gcy + 6);
+      ctx.lineTo(gcx,     gcy - 8);
+      ctx.closePath();
+      ctx.fill();
+    } else if (glyph === 1) {
+      // Circle
+      ctx.beginPath();
+      ctx.arc(gcx, gcy, 8, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (glyph === 2) {
+      // Square
+      ctx.fillRect(gcx - 7, gcy - 7, 14, 14);
+    } else {
+      // Diamond
+      ctx.beginPath();
+      ctx.moveTo(gcx, gcy - 9);
+      ctx.lineTo(gcx + 9, gcy);
+      ctx.lineTo(gcx, gcy + 9);
+      ctx.lineTo(gcx - 9, gcy);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+
+    // Panel flicker — occasional dark band
+    if ((frame + Math.floor(seed * 10)) % 120 < 4) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(panelX, panelY + panelH * 0.3, panelW, 6);
+    }
+
+    // Wiring drips along the post away from the panel
+    ctx.strokeStyle = 'rgba(120, 60, 180, 0.6)';
+    ctx.lineWidth = 0.9;
+    const wireStart = isTop ? panelY : panelY + panelH;
+    const wireEnd   = isTop ? 0 : h;
+    ctx.beginPath();
+    ctx.moveTo(w * 0.5, wireStart);
+    ctx.lineTo(w * 0.5 - 2, (wireStart + wireEnd) / 2);
+    ctx.lineTo(w * 0.5, wireEnd);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // Rectangular cargo container — theme-tinted hull + hazard band
   function drawCargo(x, y, w, h, isTop, seed) {
     if (h <= 0) return;
@@ -6050,6 +6741,7 @@ const DLX_BUILD = 'v9';
     drawLoot();
     drawPirate();
     drawAngler();
+    drawDragon();
     drawProjectiles();
     drawBird();
     drawScore();
