@@ -1195,6 +1195,7 @@
   let levelBanner     = { text: '', life: 0 };
   let boss            = null;
   let pirate          = null;   // canyon: pirate cargo ship chasing from behind
+  let pirateRespawnFrames = 0;  // canyon: ticks until a defeated pirate returns
   let projectiles     = [];     // lasers fired by the pirate
 
   function themeToLevelIndex(key) {
@@ -1261,7 +1262,14 @@
     projectiles = [];
   }
   function updatePirate() {
-    if (!pirate) return;
+    // Respawn after the player missiles one down
+    if (!pirate) {
+      if (selectedTheme === 'canyon' && pirateRespawnFrames > 0) {
+        pirateRespawnFrames--;
+        if (pirateRespawnFrames === 0) spawnPirate();
+      }
+      return;
+    }
     // Slide to target x from off-screen
     pirate.x += (pirate.targetX - pirate.x) * 0.04;
     // Follow player's y with lag
@@ -1435,6 +1443,7 @@
     levelBanner = { text: '', life: 0 };
     boss = null;
     pirate = null;
+    pirateRespawnFrames = 0;
     projectiles = [];
     lightningAt = -999;   // reset volcano flicker timer so since stays valid
     if (levelIndex === 3) spawnBoss();
@@ -1632,9 +1641,17 @@
   // other power-ups, since players want it to show up more often.
   const POWER_KINDS = ['shield', 'slow', 'double', 'magnet', 'ghost',
                        'missile', 'missile', 'missile'];
+  // Canyon (level 5) is harder with the pirate chase, so shields appear
+  // much more often and missiles skew higher for shooting the pirate back.
+  const POWER_KINDS_CANYON = ['shield', 'shield', 'shield', 'shield',
+                              'slow', 'double', 'magnet', 'ghost',
+                              'missile', 'missile', 'missile', 'missile'];
+  function powerKindsForTheme() {
+    return selectedTheme === 'canyon' ? POWER_KINDS_CANYON : POWER_KINDS;
+  }
   function makePowerUp(gap) {
     return {
-      kind: POWER_KINDS[Math.floor(Math.random() * POWER_KINDS.length)],
+      kind: (function(){ const p = powerKindsForTheme(); return p[Math.floor(Math.random() * p.length)]; })(),
       offY: (Math.random() - 0.5) * (gap * 0.25),
       phase: Math.random() * Math.PI * 2,
       collected: false,
@@ -2038,6 +2055,22 @@
   // of the ship — so a missile picked up while overlapping a pipe blasts
   // the *next* one, not the one we're tucked inside.
   function fireMissile() {
+    // On canyon, aim at the pirate instead of the next pipe so the player
+    // can shoot back — pirates are the threat up there.
+    if (selectedTheme === 'canyon' && pirate) {
+      missiles.push({
+        x: bird.x - BIRD_R * 0.6,
+        y: bird.y,
+        vx: -1.5,  // initial backward nudge toward pirate on the left
+        vy: 0,
+        target: null,
+        targetPirate: true,
+        life: 150,
+        trail: [],
+      });
+      playSound('missile');
+      return;
+    }
     let target = null;
     for (const p of pipes) {
       if (p.destroyed) continue;
@@ -2055,12 +2088,48 @@
     playSound('missile');
   }
 
+  function destroyPirate() {
+    if (!pirate) return;
+    // Shower of sparks + score + retreat timer
+    for (let i = 0; i < 22; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2.5 + Math.random() * 3;
+      sparks.push({
+        x: pirate.x, y: pirate.y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        size: 5 + Math.random() * 4,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.4,
+        life: 1, decay: 0.014, shape: 'tri',
+        color: '#ffcc40', glow: '#ff5a20',
+        drag: 0.97, gravity: 0.14,
+      });
+    }
+    grantScore(5);
+    scorePulse = 1;
+    burstFrames = 14;
+    shakeFrames = Math.max(shakeFrames, 12);
+    setLevelBanner('PIRATE DOWN!');
+    playSound('boom');
+    pirate = null;
+    pirateRespawnFrames = 600;  // ~10s breather before another wave
+  }
+
   function updateMissiles() {
     for (let i = missiles.length - 1; i >= 0; i--) {
       const m = missiles[i];
       m.life--;
-      // Seek — pull velocity toward target center
-      if (m.target && !m.target.destroyed) {
+      // Homing: pirate first (canyon), then pipe target, else forward
+      if (m.targetPirate && pirate) {
+        const dx = pirate.x - m.x, dy = pirate.y - m.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const accel = 0.75;
+        m.vx += (dx / d) * accel;
+        m.vy += (dy / d) * accel;
+        const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
+        const MAX = 9;
+        if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
+      } else if (m.target && !m.target.destroyed) {
         const tx = m.target.x + PIPE_W / 2;
         const ty = m.target.top + m.target.gap / 2;
         const dx = tx - m.x, dy = ty - m.y;
@@ -2068,7 +2137,6 @@
         const accel = 0.6;
         m.vx += (dx / d) * accel;
         m.vy += (dy / d) * accel;
-        // Cap speed
         const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
         const MAX = 8;
         if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
@@ -2080,7 +2148,15 @@
       m.trail.push({ x: m.x, y: m.y });
       if (m.trail.length > 8) m.trail.shift();
 
-      // Hit test against target
+      // Pirate hit (AABB around the pirate hull)
+      if (m.targetPirate && pirate) {
+        if (Math.abs(m.x - pirate.x) < 24 && Math.abs(m.y - pirate.y) < 16) {
+          destroyPirate();
+          missiles.splice(i, 1);
+          continue;
+        }
+      }
+      // Pipe target hit
       if (m.target && !m.target.destroyed) {
         if (m.x > m.target.x - 4 && m.x < m.target.x + PIPE_W + 4) {
           destroyPipe(m.target);
