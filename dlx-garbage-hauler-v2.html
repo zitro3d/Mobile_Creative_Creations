@@ -670,6 +670,7 @@
   }
   // Per-theme SFX palette. Each entry is [freq, duration, wave, gain, slide].
   // Boom/crash carry both a noise burst and a sub-bass tone.
+  // levelup is a 3-note arpeggio that plays on theme advance.
   const THEME_SFX = {
     sunset: {
       flap:    [180, 0.07, 'square',   0.07,  90],
@@ -678,38 +679,46 @@
       goldB:   [990, 0.09, 'triangle', 0.11, 1800],
       pwA:     [440, 0.10, 'sawtooth', 0.09,  880],
       pwB:     [660, 0.13, 'sine',     0.10, 1320],
+      missile: [320, 0.18, 'sawtooth', 0.12,  80],
       boomN:   [0.30, 0.32], boomT: [ 90, 0.20, 'square',   0.16, 40],
       crashN:  [0.45, 0.36], crashT:[110, 0.32, 'sawtooth', 0.20, 40],
+      levelup: [[392,0.12,'triangle',0.10,392],[523,0.12,'triangle',0.10,523],[784,0.22,'triangle',0.12,784]],
     },
     city: {
-      flap:    [220, 0.06, 'square',   0.07, 110],   // sharper synth click
+      flap:    [220, 0.06, 'square',   0.07, 110],
       pickup:  [1000,0.07, 'square',   0.10, 1600],
       goldA:   [820, 0.06, 'square',   0.11, 1500],
       goldB:   [1300,0.09, 'square',   0.11, 2100],
       pwA:     [500, 0.11, 'square',   0.09, 1000],
       pwB:     [750, 0.12, 'square',   0.10, 1500],
+      missile: [380, 0.16, 'square',   0.12,  90],   // sharper synth dive
       boomN:   [0.34, 0.40], boomT: [ 80, 0.25, 'sawtooth', 0.18, 35],
       crashN:  [0.55, 0.42], crashT:[100, 0.38, 'square',   0.22, 35],
+      levelup: [[440,0.10,'square',0.10,440],[523,0.10,'square',0.10,523],[659,0.22,'square',0.12,659]],
     },
     volcano: {
-      flap:    [200, 0.08, 'sawtooth', 0.07,  80],   // gravelly
+      flap:    [200, 0.08, 'sawtooth', 0.07,  80],
       pickup:  [820, 0.07, 'triangle', 0.10, 1240],
       goldA:   [630, 0.06, 'triangle', 0.11, 1180],
       goldB:   [950, 0.10, 'triangle', 0.11, 1700],
       pwA:     [420, 0.12, 'sawtooth', 0.09,  840],
       pwB:     [630, 0.14, 'triangle', 0.10, 1260],
-      boomN:   [0.36, 0.45], boomT: [ 60, 0.30, 'square',   0.20, 30],   // low rumble
+      missile: [260, 0.22, 'sawtooth', 0.14,  60],   // gravelly low dive
+      boomN:   [0.36, 0.45], boomT: [ 60, 0.30, 'square',   0.20, 30],
       crashN:  [0.60, 0.45], crashT:[ 70, 0.45, 'sawtooth', 0.24, 30],
+      levelup: [[330,0.12,'sawtooth',0.10,330],[440,0.12,'sawtooth',0.10,440],[554,0.24,'sawtooth',0.12,554]],
     },
     swamp: {
-      flap:    [130, 0.10, 'triangle', 0.07,  70],   // deep wet pulse
+      flap:    [130, 0.10, 'triangle', 0.07,  70],
       pickup:  [620, 0.08, 'sine',     0.10,  980],
       goldA:   [480, 0.06, 'sine',     0.11,  920],
       goldB:   [720, 0.10, 'sine',     0.11, 1380],
       pwA:     [380, 0.12, 'triangle', 0.09,  760],
       pwB:     [570, 0.15, 'sine',     0.10, 1140],
+      missile: [220, 0.24, 'sine',     0.13,  60],   // wet whoosh, slow slide
       boomN:   [0.32, 0.34], boomT: [ 70, 0.22, 'sine',     0.18, 35],
       crashN:  [0.55, 0.40], crashT:[ 80, 0.40, 'triangle', 0.22, 35],
+      levelup: [[294,0.14,'triangle',0.10,294],[392,0.14,'triangle',0.10,392],[523,0.26,'triangle',0.12,523]],
     },
   };
 
@@ -731,7 +740,15 @@
         const pB = sfx.pwB;
         setTimeout(function(){ tone(pB[0], pB[1], pB[2], pB[3], pB[4]); }, 60);
         break;
-      case 'missile':    tone(320, 0.18, 'sawtooth', 0.13, 80); break;
+      case 'missile':
+        s = sfx.missile; tone(s[0], s[1], s[2], s[3], s[4]); break;
+      case 'levelup':
+        const arp = sfx.levelup;
+        for (let i = 0; i < arp.length; i++) {
+          const n = arp[i];
+          setTimeout(function(){ tone(n[0], n[1], n[2], n[3], n[4]); }, i * 110);
+        }
+        break;
       case 'boom':
         noiseBurst(sfx.boomN[0], sfx.boomN[1]);
         s = sfx.boomT;   tone(s[0], s[1], s[2], s[3], s[4]); break;
@@ -1030,7 +1047,7 @@
     buildBgCache();
     setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
     if (levelIndex === 3) spawnBoss();
-    playSound('powerup');
+    playSound('levelup');
   }
   function setLevelBanner(text) {
     levelBanner.text = text;
@@ -1496,7 +1513,7 @@
           shieldCharges--;
           invulnFrames = 45;
           shakeFrames = 6;
-          flashAlpha = 0.35;
+          // No white flash on shield save — only on actual death
           emitShieldBreak(bird.x, bird.y);
           if (navigator.vibrate) { try { navigator.vibrate([10, 20, 10]); } catch (e) {} }
         } else {
