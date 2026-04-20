@@ -205,6 +205,16 @@
     transition: transform 0.08s, background 0.1s;
   }
   #helpBtn:active { transform: scale(0.92); background: rgba(255,170,80,0.28); }
+  #buildStamp {
+    position: absolute;
+    bottom: calc(var(--safe-bottom) + 8px);
+    right: calc(var(--safe-right) + 10px);
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    color: rgba(255, 210, 128, 0.5);
+    letter-spacing: 1px;
+    pointer-events: none;
+  }
 
   /* Modal help panel */
   #helpScreen {
@@ -548,6 +558,7 @@
       </div>
       <div class="tapHint">TAP SHIP TO LAUNCH</div>
       <button id="helpBtn" aria-label="Help">?</button>
+      <div id="buildStamp"></div>
     </div>
     <div id="helpScreen" class="hidden">
       <div class="panel helpPanel">
@@ -634,11 +645,29 @@
 // ---------- PWA: register the service worker so the game installs,
 //              loads instantly on repeat visits, and works offline.
 if ('serviceWorker' in navigator) {
+  const checkForUpdate = function(reg) {
+    if (!reg) return;
+    try { reg.update(); } catch (e) {}
+    if (reg.waiting) { try { reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(e){} }
+  };
   window.addEventListener('load', function() {
     navigator.serviceWorker.register('sw.js').then(function(reg){
-      // Check for updates every time the page loads so new builds apply fast.
-      if (reg && reg.update) reg.update();
-      if (reg && reg.waiting) { try { reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(e){} }
+      checkForUpdate(reg);
+      // Also check whenever the installed app resumes from the background —
+      // iOS home-screen PWAs often run stale for hours otherwise.
+      document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) checkForUpdate(reg);
+      });
+      // And whenever a new SW finishes installing, apply it right away.
+      reg.addEventListener('updatefound', function() {
+        const ns = reg.installing;
+        if (!ns) return;
+        ns.addEventListener('statechange', function() {
+          if (ns.state === 'installed' && navigator.serviceWorker.controller) {
+            try { ns.postMessage({ type: 'SKIP_WAITING' }); } catch(e){}
+          }
+        });
+      });
     }).catch(function(){});
     // When a new SW takes control, reload once so the fresh HTML renders.
     let reloaded = false;
@@ -648,6 +677,9 @@ if ('serviceWorker' in navigator) {
     });
   });
 }
+// Build stamp shown in the corner of the start screen so we can verify
+// the latest version is running inside the installed PWA.
+const DLX_BUILD = 'v7';
 
 (function() {
   // ---------- iOS gate ----------
@@ -664,6 +696,12 @@ if ('serviceWorker' in navigator) {
     return;
   }
   if (isIPad) document.body.classList.add('is-ipad');
+
+  // Visible build tag so we can tell at a glance which version is running.
+  try {
+    const bs = document.getElementById('buildStamp');
+    if (bs && typeof DLX_BUILD === 'string') bs.textContent = DLX_BUILD;
+  } catch (e) {}
 
   // Dev mode: ?dev=1 in the URL keeps the theme picker visible for
   // debugging / free-play. Public visitors see only the ship picker and
