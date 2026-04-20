@@ -668,6 +668,86 @@
     src.connect(g).connect(a.destination);
     src.start(t);
   }
+  // ---------- Theme ambient music (looped drone per biome) ----------
+  // Each layer becomes a continuous oscillator at low gain. Optional LFO
+  // modulates pitch for movement so it never feels static.
+  const THEME_AMBIENT = {
+    sunset: { layers: [
+      { type: 'sine',     freq: 220, gain: 0.022, lfoFreq: 0.3,  lfoDepth: 4 },
+      { type: 'triangle', freq: 110, gain: 0.018 },
+      { type: 'sine',     freq: 330, gain: 0.012, lfoFreq: 0.18, lfoDepth: 3 },
+    ]},
+    city: { layers: [
+      { type: 'sawtooth', freq: 110, gain: 0.018, detune:  8 },
+      { type: 'sawtooth', freq: 165, gain: 0.012, detune: -6, lfoFreq: 0.22, lfoDepth: 2 },
+      { type: 'square',   freq:  55, gain: 0.014 },
+    ]},
+    volcano: { layers: [
+      { type: 'square',   freq:  65, gain: 0.024, lfoFreq: 0.18, lfoDepth: 2 },
+      { type: 'sawtooth', freq: 110, gain: 0.014, lfoFreq: 0.10, lfoDepth: 3 },
+      { type: 'triangle', freq: 220, gain: 0.010 },
+    ]},
+    swamp: { layers: [
+      { type: 'sine',     freq:  82, gain: 0.024, lfoFreq: 0.20, lfoDepth: 2 },
+      { type: 'triangle', freq: 195, gain: 0.012, lfoFreq: 0.5,  lfoDepth: 5 },
+      { type: 'sine',     freq: 130, gain: 0.012, lfoFreq: 0.13, lfoDepth: 2 },
+    ]},
+  };
+  let ambientNodes = [];
+  let ambientTheme = null;
+
+  function startThemeAmbient() {
+    const a = audio(); if (!a) return;
+    if (ambientTheme === selectedTheme) return;   // already running this theme
+    stopThemeAmbient(0.25);
+    ambientTheme = selectedTheme;
+    const cfg = THEME_AMBIENT[selectedTheme];
+    if (!cfg) return;
+    const t = a.currentTime;
+    for (const layer of cfg.layers) {
+      const osc = a.createOscillator();
+      const gn  = a.createGain();
+      osc.type = layer.type;
+      osc.frequency.value = layer.freq;
+      if (typeof layer.detune === 'number') osc.detune.value = layer.detune;
+      // LFO for slow vibrato so the drone breathes
+      if (layer.lfoFreq) {
+        const lfo = a.createOscillator();
+        const lfoGain = a.createGain();
+        lfo.frequency.value = layer.lfoFreq;
+        lfoGain.gain.value = layer.lfoDepth || 3;
+        lfo.connect(lfoGain).connect(osc.frequency);
+        lfo.start(t);
+        ambientNodes.push({ osc: lfo });
+      }
+      gn.gain.setValueAtTime(0.0001, t);
+      gn.gain.linearRampToValueAtTime(layer.gain, t + 0.6);
+      osc.connect(gn).connect(a.destination);
+      osc.start(t);
+      ambientNodes.push({ osc: osc, gn: gn, target: layer.gain });
+    }
+  }
+
+  function stopThemeAmbient(fade) {
+    if (!audioCtx) { ambientNodes = []; ambientTheme = null; return; }
+    const t = audioCtx.currentTime;
+    const ft = (typeof fade === 'number') ? fade : 0.4;
+    for (const n of ambientNodes) {
+      if (n.gn) {
+        try {
+          n.gn.gain.cancelScheduledValues(t);
+          n.gn.gain.setValueAtTime(n.gn.gain.value, t);
+          n.gn.gain.linearRampToValueAtTime(0.0001, t + ft);
+        } catch (e) {}
+      }
+      if (n.osc && n.osc.stop) {
+        try { n.osc.stop(t + ft + 0.05); } catch (e) {}
+      }
+    }
+    ambientNodes = [];
+    ambientTheme = null;
+  }
+
   // Per-theme SFX palette. Each entry is [freq, duration, wave, gain, slide].
   // Boom/crash carry both a noise burst and a sub-bass tone.
   // levelup is a 3-note arpeggio that plays on theme advance.
@@ -1048,6 +1128,7 @@
     setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
     if (levelIndex === 3) spawnBoss();
     playSound('levelup');
+    startThemeAmbient();
   }
   function setLevelBanner(text) {
     levelBanner.text = text;
@@ -1528,6 +1609,7 @@
           }
           if (navigator.vibrate) { try { navigator.vibrate([30, 40, 30]); } catch (e) {} }
           playSound('crash');
+          stopThemeAmbient(0.5);
           setTimeout(showGameOver, 200);
         }
       }
@@ -4677,6 +4759,7 @@
     thrusterFrames = 5;
     setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
     hideOverlay();
+    startThemeAmbient();
   }
 
   // IMPORTANT: hook on touchstart and stop propagation so the stage's
