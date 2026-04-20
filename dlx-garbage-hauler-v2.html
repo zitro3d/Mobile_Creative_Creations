@@ -581,6 +581,7 @@
         <button class="themeBtn" data-theme="volcano">VOLCANO</button>
         <button class="themeBtn" data-theme="swamp">SWAMP</button>
         <button class="themeBtn" data-theme="canyon">CANYON</button>
+        <button class="themeBtn" data-theme="underwater">TRENCH</button>
       </div>
       <div class="tapHint">TAP SHIP TO LAUNCH</div>
       <div id="resumeRow" class="hidden">
@@ -709,7 +710,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v8';
+const DLX_BUILD = 'v9';
 
 (function() {
   // ---------- iOS gate ----------
@@ -898,6 +899,16 @@ const DLX_BUILD = 'v8';
       hz.addColorStop(1,   'rgba(80, 30, 10, 0)');
       bgCache.canyonHaze = hz;
     }
+    bgCache.lightShaft = null;
+    if (selectedTheme === 'underwater') {
+      // Cylindrical column of light — brighter at the surface, fading as
+      // it descends. Single gradient reused for every shaft.
+      const ls = ctx.createLinearGradient(0, 0, 0, PLAY_H * 0.7);
+      ls.addColorStop(0,    'rgba(170, 220, 255, 0.18)');
+      ls.addColorStop(0.5,  'rgba(110, 180, 230, 0.09)');
+      ls.addColorStop(1,    'rgba(40,  80, 140, 0)');
+      bgCache.lightShaft = ls;
+    }
 
     // Per-theme static horizon layout
     bgCache.horizon = buildHorizonLayout();
@@ -978,6 +989,21 @@ const DLX_BUILD = 'v8';
         nearPeaks.push({ x: (W / 10) * i, h: 62 + ((i * 37 + 11) % 80) });
       }
       return { kind: 'canyon', baseY: baseY, farPeaks: farPeaks, nearPeaks: nearPeaks };
+    }
+    if (selectedTheme === 'underwater') {
+      const kelp = [];
+      for (let i = 0; i < 9; i++) {
+        kelp.push({
+          x: (W / 9) * i + ((i * 11) % 20) - 10,
+          h: 90 + ((i * 31 + 13) % 120),
+          phase: (i * 0.7) % (Math.PI * 2),
+        });
+      }
+      const shafts = [];
+      for (let i = 0; i < 4; i++) {
+        shafts.push({ x: (W / 4) * (i + 0.5) + ((i * 29) % 30) - 15, w: 36 + (i % 2) * 14, phase: i * 1.3 });
+      }
+      return { kind: 'underwater', baseY: baseY, kelp: kelp, shafts: shafts };
     }
     // sunset — simple peak profile
     const peaks = [];
@@ -1068,6 +1094,12 @@ const DLX_BUILD = 'v8';
       { type: 'sawtooth', freq:  73, gain: 0.010, detune:  6 },
       { type: 'sawtooth', freq: 110, gain: 0.008, detune: -8, lfoFreq: 0.6, lfoDepth: 4 },
       { type: 'triangle', freq: 220, gain: 0.006, lfoFreq: 0.25, lfoDepth: 3 },
+    ]},
+    underwater: { layers: [
+      // Pure sine layers — the ocean sounds muffled and immense
+      { type: 'sine', freq:  60, gain: 0.020, lfoFreq: 0.15, lfoDepth: 2 },
+      { type: 'sine', freq: 120, gain: 0.015, lfoFreq: 0.22, lfoDepth: 3 },
+      { type: 'sine', freq: 180, gain: 0.010, lfoFreq: 0.35, lfoDepth: 4 },
     ]},
   };
   let ambientNodes = [];
@@ -1189,6 +1221,19 @@ const DLX_BUILD = 'v8';
       boomN:   [0.34, 0.42], boomT: [ 75, 0.24, 'square',   0.18, 35],
       crashN:  [0.55, 0.45], crashT:[ 95, 0.36, 'sawtooth', 0.22, 35],
       levelup: [[370,0.12,'sawtooth',0.10,370],[494,0.12,'sawtooth',0.10,494],[740,0.24,'sawtooth',0.12,740]],
+    },
+    underwater: {
+      // Muffled bubble-y pops — everything filtered through water
+      flap:    [110, 0.09, 'sine',     0.07,  60],
+      pickup:  [560, 0.08, 'sine',     0.10,  880],
+      goldA:   [430, 0.06, 'sine',     0.11,  820],
+      goldB:   [660, 0.10, 'sine',     0.11, 1240],
+      pwA:     [340, 0.12, 'sine',     0.09,  680],
+      pwB:     [510, 0.15, 'sine',     0.10, 1020],
+      missile: [200, 0.22, 'sine',     0.13,  55],   // torpedo hiss
+      boomN:   [0.30, 0.34], boomT: [ 55, 0.26, 'sine',     0.18, 30],
+      crashN:  [0.55, 0.38], crashT:[ 70, 0.42, 'sine',     0.22, 30],
+      levelup: [[262,0.14,'sine',0.10,262],[349,0.14,'sine',0.10,349],[523,0.26,'sine',0.12,523]],
     },
   };
 
@@ -1467,6 +1512,46 @@ const DLX_BUILD = 'v8';
       debrisSet: ['brick','sodacan','oldtire','charredcan','bottle','trafficcone','pizzabox'],
       obstacleTypes: ['mesa', 'boulder'],
     },
+    underwater: {
+      label: 'UNDERWATER',
+      // Surface sunlight up top fading to abyss black at the bottom
+      sky: ['#3a78b8', '#1f4f8c', '#103560', '#0a2048', '#050f30', '#010518'],
+      sunInner: 'rgba(200, 240, 255, 0.75)',   // refracted surface light
+      sunMid:   'rgba(90, 150, 200, 0.5)',
+      sunEdge:  'rgba(20, 40, 80, 0)',
+      nebA: 'rgba(40, 100, 160, 0.25)',
+      nebB: 'rgba(30, 70, 120, 0.18)',
+      nebC: 'rgba(20, 40, 80, 0.08)',
+      nebWisp: 'rgba(140, 220, 255, 0.14)',
+      starBack: '100, 180, 230',          // distant plankton
+      starMid:  '140, 210, 240',
+      starFront:'200, 240, 255',
+      starGlow: 'rgba(170, 230, 255, 0.9)',
+      dust: '200, 240, 255',              // rising bubbles
+      ridge: 'rgba(3, 10, 22, 0.95)',     // dark silhouettes
+      groundA: '#3a4838',                 // seafloor sediment
+      groundB: '#0a1410',
+      horizon: 'rgba(90, 180, 210, 0.85)',
+      horizonGlow: '#7ae0ff',
+      crackColor: 'rgba(20, 40, 60, 0.7)',
+      cargo: {
+        // Barnacle-crusted metal with rust streaks
+        grad: ['#4a6668', '#1d2e32', '#2a3e42', '#0e1618'],
+        edge: '#050a0c', rivet: '#152022',
+        hazardA: '#ffe066', hazardB: '#030608',
+        rust: 'rgba(120, 70, 30, 0.7)',
+        weather: 'rgba(20, 50, 40, 0.85)',
+      },
+      junk: {
+        // Rotted wood + moss-slicked metal
+        grad: ['#3a4a36', '#1a241c', '#0a1210'],
+        outline: '#020608', rim: 'rgba(5,12,12,0.9)',
+        rust: 'rgba(60, 120, 90, 0.7)', bolt: '#0a1812',
+        antennaMetal: '#5a7068', antennaLed: '#ffee40',
+      },
+      debrisSet: ['fishbone','oldtire','algae_bottle','rubberboot','bottle','oar','lilypad'],
+      obstacleTypes: ['coral', 'shipwreck'],
+    },
   };
   let selectedTheme = 'sunset';
   function theme() { return THEMES[selectedTheme]; }
@@ -1533,21 +1618,22 @@ const DLX_BUILD = 'v8';
   let loot          = [];  // collectible items revealed by missile destruction
 
   // ---------- Campaign progression ----------
-  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'swamp', 'canyon'];
+  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'swamp', 'canyon', 'underwater'];
   // Score gap required to leave each level (level i → level i+1).
-  //   sunset → city    : 50
-  //   city   → volcano : 60
-  //   volcano→ swamp   : 70
-  //   swamp  → canyon  : 80   (swamp is "retreat mode"; boss sinks away)
-  //   canyon: final — no advancement
-  const LEVEL_GAPS  = [50, 60, 70, 80, 0];
+  //   sunset → city       : 50
+  //   city   → volcano    : 60
+  //   volcano→ swamp      : 70
+  //   swamp  → canyon     : 80   (swamp is "retreat mode"; boss sinks away)
+  //   canyon → underwater : 90   (final biome; anglerfish = VICTORY)
+  const LEVEL_GAPS  = [50, 60, 70, 80, 90, 0];
   // Per-level difficulty multipliers stack on top of the score-based ramp.
   const LEVEL_DIFF = [
     { speedMul: 1.00, gapMul: 1.00 },   // sunset
     { speedMul: 1.18, gapMul: 0.92 },   // city
     { speedMul: 1.34, gapMul: 0.86 },   // volcano
     { speedMul: 1.50, gapMul: 0.80 },   // swamp (retreat mode)
-    { speedMul: 1.70, gapMul: 0.90 },   // canyon — final, pirate ambush
+    { speedMul: 1.70, gapMul: 0.90 },   // canyon — pirate ambush
+    { speedMul: 1.55, gapMul: 0.92 },   // underwater — anglerfish final boss
   ];
   let levelIndex      = 0;
   let levelScoreStart = 0;   // score at the moment current level began
@@ -1556,6 +1642,8 @@ const DLX_BUILD = 'v8';
   let pirate          = null;   // canyon: pirate cargo ship chasing from behind
   let pirateRespawnFrames = 0;  // canyon: ticks until a defeated pirate returns
   let projectiles     = [];     // lasers fired by the pirate
+  let angler          = null;   // underwater: anglerfish final boss
+  let anglerHitsLeft  = 3;      // underwater: HP left before VICTORY
 
   function themeToLevelIndex(key) {
     const i = LEVEL_ORDER.indexOf(key);
@@ -1577,6 +1665,13 @@ const DLX_BUILD = 'v8';
     if (levelIndex === 4) {
       boss = null;
       spawnPirate();
+    }
+    // Leaving canyon → underwater: pirate warps out, anglerfish rises from trench
+    if (levelIndex === 5) {
+      pirate = null;
+      pirateRespawnFrames = 0;
+      projectiles = [];
+      spawnAngler();
     }
     playSound('levelup');
     startThemeAmbient();
@@ -1785,6 +1880,258 @@ const DLX_BUILD = 'v8';
     ctx.restore();
   }
 
+  // ---------- Anglerfish final boss (underwater level 6) ----------
+  function spawnAngler() {
+    angler = {
+      x: W + 80,           // enters from the right
+      targetX: W - 80,     // hovers in front of the player
+      y: PLAY_H / 2,
+      targetY: PLAY_H / 2,
+      mouthOpen: 0,        // 0..1 animated
+      lurePhaseX: 0,
+      lurePhaseY: 0,
+      hitFlash: 0,
+    };
+    anglerHitsLeft = 3;
+  }
+  function updateAngler() {
+    if (!angler) return;
+    angler.x += (angler.targetX - angler.x) * 0.035;
+    // Stalk the player with a wobble
+    angler.targetY = bird.y + Math.sin(frame * 0.012) * 60;
+    angler.y += (angler.targetY - angler.y) * 0.022;
+    angler.y = Math.max(BIRD_R + 30, Math.min(PLAY_H - BIRD_R - 30, angler.y));
+    // Mouth snap cycle (closed most of the time, opens wide briefly)
+    const cyc = (frame % 140) / 140;
+    angler.mouthOpen = cyc < 0.15 ? Math.sin(cyc / 0.15 * Math.PI) : 0;
+    // Lure swims on its own
+    angler.lurePhaseX = Math.sin(frame * 0.03);
+    angler.lurePhaseY = Math.cos(frame * 0.045);
+    if (angler.hitFlash > 0) angler.hitFlash--;
+  }
+  // Lure tip (bait) position — collider + target for missiles.
+  function anglerLureTip() {
+    if (!angler) return null;
+    // The lure hangs off a rod in front of the fish, swimming around.
+    const rodLen = 42;
+    const swingX = angler.lurePhaseX * 10;
+    const swingY = angler.lurePhaseY * 14;
+    return {
+      x: angler.x - rodLen + swingX,
+      y: angler.y - 6 + swingY,
+    };
+  }
+  function anglerMouthHits() {
+    if (!angler) return false;
+    // Big mouth hit zone only when open
+    if (angler.mouthOpen < 0.4) return false;
+    const mx = angler.x - 20;
+    const my = angler.y + 6;
+    const dx = bird.x - mx;
+    const dy = bird.y - my;
+    const reach = BIRD_R + 22;
+    return dx * dx + dy * dy < reach * reach && dx < 0;
+  }
+  function anglerLureHits() {
+    const tip = anglerLureTip();
+    if (!tip) return false;
+    const dx = bird.x - tip.x;
+    const dy = bird.y - tip.y;
+    const reach = BIRD_R + 5;
+    return dx * dx + dy * dy < reach * reach;
+  }
+  function hitAngler(hx, hy) {
+    if (!angler) return;
+    anglerHitsLeft--;
+    angler.hitFlash = 10;
+    // Impact sparks at the lure
+    for (let i = 0; i < 14; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2 + Math.random() * 3;
+      sparks.push({
+        x: hx, y: hy,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        size: 3 + Math.random() * 3,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.4,
+        life: 1, decay: 0.02, shape: 'tri',
+        color: '#a0f0ff', glow: '#80c0ff',
+        drag: 0.97, gravity: 0.05,
+      });
+    }
+    shakeFrames = Math.max(shakeFrames, 8);
+    grantScore(5);
+    scorePulse = 1;
+    playSound('boom');
+    if (anglerHitsLeft <= 0) {
+      destroyAngler();
+    } else {
+      setLevelBanner('ANGLER HIT! ' + anglerHitsLeft + ' LEFT');
+    }
+  }
+
+  function destroyAngler() {
+    if (!angler) return;
+    // Big explosion of sparks
+    for (let i = 0; i < 36; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2.5 + Math.random() * 4;
+      sparks.push({
+        x: angler.x, y: angler.y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        size: 5 + Math.random() * 5,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.5,
+        life: 1, decay: 0.012, shape: 'tri',
+        color: '#ff80c0', glow: '#60d0ff',
+        drag: 0.96, gravity: 0.08,
+      });
+    }
+    grantScore(20);
+    scorePulse = 1;
+    burstFrames = 22;
+    shakeFrames = Math.max(shakeFrames, 20);
+    playSound('boom');
+    setLevelBanner('ANGLER DOWN!  +20');
+    angler = null;
+    // Game won — cue the VICTORY screen
+    stopThemeAmbient(0.8);
+    state = STATE_VICTORY;
+    setTimeout(showVictory, 400);
+  }
+  function drawAngler() {
+    if (!angler) return;
+    ctx.save();
+    ctx.translate(angler.x, angler.y);
+    const flash = angler.hitFlash > 0 ? (angler.hitFlash / 10) : 0;
+    // --- Lure rod (drawn first so it sits behind the mouth) ---
+    const tip = anglerLureTip();
+    if (tip) {
+      const rx = tip.x - angler.x;
+      const ry = tip.y - angler.y;
+      // Rod curve from forehead to lure tip
+      ctx.strokeStyle = '#0a0f1a';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-14, -22);
+      ctx.quadraticCurveTo(rx * 0.6, ry * 0.3 - 28, rx, ry);
+      ctx.stroke();
+      // Glowing lure orb
+      ctx.shadowBlur = 18;
+      ctx.shadowColor = '#8cf0ff';
+      ctx.fillStyle = '#d0f8ff';
+      ctx.beginPath(); ctx.arc(rx, ry, 5.5, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#60d0ff';
+      ctx.beginPath(); ctx.arc(rx, ry, 2.8, 0, Math.PI * 2); ctx.fill();
+    }
+    // --- Body: bulbous silhouette ---
+    ctx.shadowBlur = 10; ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    const bodyGrad = ctx.createRadialGradient(10, 0, 4, 10, 0, 60);
+    bodyGrad.addColorStop(0,   flash > 0.1 ? '#d0e0ff' : '#1a2a38');
+    bodyGrad.addColorStop(0.6, flash > 0.1 ? '#607898' : '#0a1220');
+    bodyGrad.addColorStop(1,   '#030610');
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.ellipse(6, 0, 50, 38, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Spiny dorsal ridge
+    ctx.fillStyle = '#030610';
+    ctx.beginPath();
+    ctx.moveTo(-10, -30);
+    for (let i = 0; i < 6; i++) {
+      const sx = -10 + i * 9;
+      ctx.lineTo(sx + 3, -36 - (i % 2 === 0 ? 3 : 0));
+      ctx.lineTo(sx + 8, -28);
+    }
+    ctx.closePath();
+    ctx.fill();
+    // Tail fin on the right
+    ctx.fillStyle = '#0a1424';
+    ctx.beginPath();
+    ctx.moveTo(50, -4);
+    ctx.lineTo(72, -24);
+    ctx.lineTo(68, 0);
+    ctx.lineTo(72, 24);
+    ctx.lineTo(50, 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#060a14'; ctx.lineWidth = 1.2;
+    ctx.stroke();
+    // Tail fin rays
+    ctx.strokeStyle = 'rgba(80, 120, 180, 0.4)';
+    ctx.lineWidth = 0.8;
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.moveTo(52, -4 + i * 3);
+      ctx.lineTo(70, -18 + i * 12);
+      ctx.stroke();
+    }
+    // Side fin
+    ctx.fillStyle = '#0a1424';
+    ctx.beginPath();
+    ctx.ellipse(14, 20, 14, 6, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+    // --- Mouth (opens vertically toward the player) ---
+    const open = angler.mouthOpen;
+    const mouthW = 38;
+    const mouthH = 8 + open * 26;
+    const mx = -26, my = 6;
+    ctx.fillStyle = '#2a0612';
+    ctx.beginPath();
+    ctx.moveTo(mx, my - mouthH / 2);
+    ctx.lineTo(mx + mouthW, my - 2);
+    ctx.lineTo(mx + mouthW, my + 2);
+    ctx.lineTo(mx, my + mouthH / 2);
+    ctx.closePath();
+    ctx.fill();
+    // Throat inner glow
+    if (open > 0.3) {
+      const tg = ctx.createRadialGradient(mx + 8, my, 2, mx + 8, my, 16);
+      tg.addColorStop(0, 'rgba(120, 20, 40, 0.7)');
+      tg.addColorStop(1, 'rgba(30, 5, 10, 0)');
+      ctx.fillStyle = tg;
+      ctx.beginPath();
+      ctx.ellipse(mx + 8, my, 14, mouthH / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Teeth (top + bottom rows)
+    ctx.fillStyle = '#f0e8d0';
+    const teeth = 7;
+    for (let i = 0; i < teeth; i++) {
+      const tx = mx + 3 + i * ((mouthW - 6) / teeth);
+      // Top row — points down
+      ctx.beginPath();
+      ctx.moveTo(tx, my - mouthH / 2 + 1);
+      ctx.lineTo(tx + 3, my - mouthH / 2 + 1);
+      ctx.lineTo(tx + 1.5, my - mouthH / 2 + 5);
+      ctx.closePath();
+      ctx.fill();
+      // Bottom row — points up
+      ctx.beginPath();
+      ctx.moveTo(tx, my + mouthH / 2 - 1);
+      ctx.lineTo(tx + 3, my + mouthH / 2 - 1);
+      ctx.lineTo(tx + 1.5, my + mouthH / 2 - 5);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // --- Eye: pale yellow with black slit ---
+    ctx.fillStyle = '#f8f0a0';
+    ctx.beginPath(); ctx.arc(-6, -10, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#0a0605';
+    ctx.beginPath(); ctx.arc(-6, -10, 2.4, 0, Math.PI * 2); ctx.fill();
+    // Eye shine
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath(); ctx.arc(-7.5, -11.5, 1, 0, Math.PI * 2); ctx.fill();
+    // HP pips above head (small lure-blue dots)
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = i < anglerHitsLeft ? '#8cf0ff' : 'rgba(40,60,90,0.6)';
+      ctx.beginPath(); ctx.arc(-20 + i * 10, -44, 2.6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   best = parseInt(localStorage.getItem('flappy_best_ios_v2') || '0', 10);
 
   function reset() {
@@ -1815,9 +2162,12 @@ const DLX_BUILD = 'v8';
     pirateRespawnFrames = 0;
     piratesDefeated = 0;
     projectiles = [];
+    angler = null;
+    anglerHitsLeft = 3;
     lightningAt = -999;   // reset volcano flicker timer so since stays valid
     if (levelIndex === 3) spawnBoss();
     if (levelIndex === 4) spawnPirate();
+    if (levelIndex === 5) spawnAngler();
     shieldCharges = 0;
     slowFrames = 0;
     doubleFrames = 0;
@@ -2239,6 +2589,7 @@ const DLX_BUILD = 'v8';
       updateMissiles();
       updateLoot();
       updatePirate();
+      updateAngler();
       updateProjectiles();
       updateSparks();
       updatePickupSparks();
@@ -2363,6 +2714,7 @@ const DLX_BUILD = 'v8';
     }
     if (boss && bossTipHits()) return true;
     if (projectiles.length && projectileHit()) return true;
+    if (angler && (anglerMouthHits() || anglerLureHits())) return true;
     return false;
   }
 
@@ -2457,6 +2809,21 @@ const DLX_BUILD = 'v8';
       playSound('missile');
       return;
     }
+    // On underwater, missiles hunt the anglerfish (target the lure tip)
+    if (selectedTheme === 'underwater' && angler) {
+      missiles.push({
+        x: bird.x + BIRD_R * 0.6,
+        y: bird.y,
+        vx: 3,
+        vy: 0,
+        target: null,
+        targetAngler: true,
+        life: 180,
+        trail: [],
+      });
+      playSound('missile');
+      return;
+    }
     let target = null;
     for (const p of pipes) {
       if (p.destroyed) continue;
@@ -2506,7 +2873,7 @@ const DLX_BUILD = 'v8';
     for (let i = missiles.length - 1; i >= 0; i--) {
       const m = missiles[i];
       m.life--;
-      // Homing: pirate first (canyon), then pipe target, else forward
+      // Homing: pirate first (canyon), then angler (underwater), then pipe target, else forward
       if (m.targetPirate && pirate) {
         const dx = pirate.x - m.x, dy = pirate.y - m.y;
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -2515,6 +2882,19 @@ const DLX_BUILD = 'v8';
         m.vy += (dy / d) * accel;
         const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
         const MAX = 9;
+        if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
+      } else if (m.targetAngler && angler) {
+        // Aim at the glowing lure — makes the tip the weak spot
+        const tip = anglerLureTip();
+        const tx = tip ? tip.x : angler.x;
+        const ty = tip ? tip.y : angler.y;
+        const dx = tx - m.x, dy = ty - m.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const accel = 0.7;
+        m.vx += (dx / d) * accel;
+        m.vy += (dy / d) * accel;
+        const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
+        const MAX = 8;
         if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
       } else if (m.target && !m.target.destroyed) {
         const tx = m.target.x + PIPE_W / 2;
@@ -2541,6 +2921,18 @@ const DLX_BUILD = 'v8';
           destroyPirate();
           missiles.splice(i, 1);
           continue;
+        }
+      }
+      // Anglerfish hit — lure tip is the weak spot
+      if (m.targetAngler && angler) {
+        const tip = anglerLureTip();
+        if (tip) {
+          const ddx = m.x - tip.x, ddy = m.y - tip.y;
+          if (ddx * ddx + ddy * ddy < 14 * 14) {
+            hitAngler(m.x, m.y);
+            missiles.splice(i, 1);
+            continue;
+          }
         }
       }
       // Pipe target hit
@@ -2922,7 +3314,79 @@ const DLX_BUILD = 'v8';
     if (selectedTheme === 'city')    return drawCitySkyline();
     if (selectedTheme === 'volcano') return drawVolcanoHorizon();
     if (selectedTheme === 'canyon')  return drawCanyonHorizon();
+    if (selectedTheme === 'underwater') return drawUnderwaterHorizon();
     return drawSunsetMountains();
+  }
+
+  function drawUnderwaterHorizon() {
+    const layout = bgCache.horizon;
+    if (!layout || layout.kind !== 'underwater') return;
+    const baseY = layout.baseY;
+    ctx.save();
+
+    // Shimmering light shafts descending from the surface
+    if (bgCache.lightShaft) {
+      ctx.globalCompositeOperation = 'screen';
+      ctx.fillStyle = bgCache.lightShaft;
+      for (const s of layout.shafts) {
+        ctx.save();
+        ctx.translate(s.x, 0);
+        const tilt = Math.sin(frame * 0.01 + s.phase) * 0.08;
+        ctx.rotate(tilt);
+        ctx.fillRect(-s.w / 2, 0, s.w, PLAY_H * 0.7);
+        ctx.restore();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // Sea floor silhouette
+    ctx.fillStyle = theme().ridge;
+    ctx.fillRect(0, baseY, W, PLAY_H - baseY);
+
+    // Kelp forest — swaying tall strands
+    ctx.strokeStyle = 'rgba(14, 32, 20, 0.95)';
+    ctx.lineWidth = 3.5;
+    for (const k of layout.kelp) {
+      const baseX = k.x;
+      const h = k.h;
+      ctx.beginPath();
+      ctx.moveTo(baseX, baseY);
+      const segs = 5;
+      for (let i = 1; i <= segs; i++) {
+        const t = i / segs;
+        const y = baseY - h * t;
+        const sway = Math.sin(frame * 0.025 + k.phase + t * 2) * 12 * t;
+        ctx.lineTo(baseX + sway, y);
+      }
+      ctx.stroke();
+    }
+    // Kelp highlights
+    ctx.strokeStyle = 'rgba(60, 110, 70, 0.55)';
+    ctx.lineWidth = 1.2;
+    for (const k of layout.kelp) {
+      ctx.beginPath();
+      ctx.moveTo(k.x - 0.8, baseY);
+      const segs = 5;
+      for (let i = 1; i <= segs; i++) {
+        const t = i / segs;
+        const y = baseY - k.h * t;
+        const sway = Math.sin(frame * 0.025 + k.phase + t * 2) * 12 * t;
+        ctx.lineTo(k.x - 0.8 + sway, y);
+      }
+      ctx.stroke();
+    }
+
+    // Distant glowing fish specks drifting across the mid-depth
+    ctx.save();
+    ctx.shadowBlur = 6; ctx.shadowColor = '#7ae0ff';
+    for (let i = 0; i < 6; i++) {
+      const fx = ((i * 97 + frame * 0.2) % (W + 80)) - 40;
+      const fy = PLAY_H * (0.35 + (i % 3) * 0.12) + Math.sin(frame * 0.04 + i) * 6;
+      ctx.fillStyle = 'rgba(170, 230, 255, ' + (0.4 + 0.3 * Math.sin(frame * 0.1 + i)) + ')';
+      ctx.fillRect(fx, fy, 2, 1);
+    }
+    ctx.restore();
+    ctx.restore();
   }
 
   function drawCanyonHorizon() {
@@ -4120,6 +4584,8 @@ const DLX_BUILD = 'v8';
       case 'vent':       return '#1a0504';
       case 'mesa':       return '#1f1008';
       case 'boulder':    return '#241208';
+      case 'coral':      return '#14283a';
+      case 'shipwreck':  return '#1a1814';
       default:           return T.ridge;
     }
   }
@@ -4155,6 +4621,8 @@ const DLX_BUILD = 'v8';
     vent:       function(x, y, w, h, isTop, p) { drawVent(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
     mesa:       function(x, y, w, h, isTop, p) { drawMesa(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
     boulder:    function(x, y, w, h, isTop, p) { drawBoulder(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    coral:      function(x, y, w, h, isTop, p) { drawCoral(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
+    shipwreck:  function(x, y, w, h, isTop, p) { drawShipwreck(x, y, w, h, isTop, p.seed + (isTop ? 0 : 13)); },
   };
 
   // ---------- Thematic obstacle structures ----------
@@ -4904,6 +5372,166 @@ const DLX_BUILD = 'v8';
     ctx.restore();
   }
 
+  // Coral pillar — branching arms + polyp dots (underwater biome)
+  function drawCoral(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const tipY  = isTop ? h : 0;
+    const baseY = isTop ? 0 : h;
+    const midX  = w / 2;
+    // Deep shadow silhouette
+    ctx.fillStyle = '#061a2c';
+    ctx.fillRect(-3, Math.min(baseY, tipY), w + 6, Math.abs(tipY - baseY));
+    // Trunk gradient — purple/red coral core
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0,    '#5a1e3a');
+    grad.addColorStop(0.45, '#a8325e');
+    grad.addColorStop(0.75, '#d84878');
+    grad.addColorStop(1,    '#6a1a3a');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    // Bumpy trunk
+    const segs = 10;
+    const lefts = [];
+    const rights = [];
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const py = baseY + (tipY - baseY) * t;
+      const bulge = Math.sin(t * Math.PI * 3 + seed) * 3 + (srand(seed + i * 7) - 0.5) * 2;
+      lefts.push([bulge, py]);
+      rights.push([w - bulge, py]);
+    }
+    ctx.moveTo(lefts[0][0], lefts[0][1]);
+    for (let i = 1; i < lefts.length; i++) ctx.lineTo(lefts[i][0], lefts[i][1]);
+    for (let i = rights.length - 1; i >= 0; i--) ctx.lineTo(rights[i][0], rights[i][1]);
+    ctx.closePath();
+    ctx.fill();
+    // Dark outline
+    ctx.strokeStyle = '#14283a';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    // Branching arms — 3 sprouts along the trunk
+    const arms = 3;
+    for (let i = 0; i < arms; i++) {
+      const t = 0.25 + (i / arms) * 0.6 + srand(seed + i * 19) * 0.05;
+      const ay = baseY + (tipY - baseY) * t;
+      const side = i % 2 === 0 ? -1 : 1;
+      const armW = 6 + srand(seed + i * 23) * 4;
+      const armLen = 14 + srand(seed + i * 31) * 10;
+      ctx.save();
+      ctx.translate(midX + side * (w * 0.4), ay);
+      ctx.rotate(side * (0.4 + srand(seed + i * 37) * 0.4) * (isTop ? 1 : -1));
+      ctx.fillStyle = '#b84068';
+      ctx.beginPath();
+      ctx.ellipse(side * armLen * 0.5, 0, armLen * 0.5, armW * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#3a0e20';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Tip bulb
+      ctx.fillStyle = '#ff80a8';
+      ctx.beginPath();
+      ctx.arc(side * armLen, 0, armW * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    // Polyp dots (tiny bright specks)
+    ctx.fillStyle = 'rgba(255, 180, 210, 0.8)';
+    for (let i = 0; i < 14; i++) {
+      const px = srand(seed + 200 + i) * w;
+      const py = baseY + (tipY - baseY) * srand(seed + 300 + i);
+      ctx.beginPath();
+      ctx.arc(px, py, 0.8 + srand(seed + 400 + i) * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Tip halo glow
+    ctx.fillStyle = 'rgba(255, 120, 170, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(midX, tipY, w * 0.55, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Shipwreck hull — broken wooden ribs + planking (underwater biome)
+  function drawShipwreck(x, y, w, h, isTop, seed) {
+    if (h <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    const tipY  = isTop ? h : 0;
+    const baseY = isTop ? 0 : h;
+    // Dark silhouette
+    ctx.fillStyle = '#0a0906';
+    ctx.fillRect(-2, Math.min(baseY, tipY), w + 4, Math.abs(tipY - baseY));
+    // Hull planks — horizontal stripes with grain
+    const plankH = 9;
+    const count = Math.floor(h / plankH);
+    for (let i = 0; i < count; i++) {
+      const py = (isTop ? i : (count - 1 - i)) * plankH;
+      const t = i / Math.max(1, count - 1);
+      const shade = isTop ? (1 - t) : t; // darker near tip (gap edge in shadow)
+      const r = Math.floor(46 + shade * 22);
+      const g = Math.floor(32 + shade * 14);
+      const b = Math.floor(20 + shade * 8);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(0, py, w, plankH - 1);
+      // Grain lines
+      ctx.strokeStyle = 'rgba(20, 12, 6, 0.6)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(0, py + plankH * 0.5);
+      for (let gx = 0; gx < w; gx += 6) {
+        ctx.lineTo(gx, py + plankH * 0.5 + (srand(seed + i * 13 + gx) - 0.5) * 1.2);
+      }
+      ctx.stroke();
+    }
+    // Vertical ribs — broken beams
+    const ribs = 3;
+    for (let i = 0; i < ribs; i++) {
+      const rx = w * (0.15 + i * 0.35);
+      ctx.fillStyle = '#1a1814';
+      ctx.fillRect(rx - 1.5, Math.min(baseY, tipY), 3, Math.abs(tipY - baseY));
+      ctx.strokeStyle = 'rgba(80, 55, 30, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(rx - 1.5, Math.min(baseY, tipY), 3, Math.abs(tipY - baseY));
+    }
+    // Jagged broken tip — polygon teeth along the gap-facing edge
+    ctx.fillStyle = '#1a1814';
+    ctx.beginPath();
+    const teeth = 5;
+    ctx.moveTo(0, tipY);
+    for (let i = 0; i <= teeth; i++) {
+      const tx = (i / teeth) * w;
+      const notch = (srand(seed + i * 29) * 6 + 2) * (isTop ? -1 : 1);
+      ctx.lineTo(tx, tipY + notch);
+    }
+    ctx.lineTo(w, tipY);
+    ctx.closePath();
+    ctx.fill();
+    // Barnacle clusters
+    ctx.fillStyle = '#4a5a48';
+    for (let i = 0; i < 6; i++) {
+      const bx = srand(seed + 500 + i) * w;
+      const by = Math.min(baseY, tipY) + srand(seed + 600 + i) * Math.abs(tipY - baseY);
+      ctx.beginPath();
+      ctx.arc(bx, by, 1.4 + srand(seed + 700 + i) * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Porthole — round window with glow
+    const phY = Math.min(baseY, tipY) + Math.abs(tipY - baseY) * (isTop ? 0.2 : 0.7);
+    ctx.fillStyle = '#0a1a2a';
+    ctx.beginPath(); ctx.arc(w * 0.55, phY, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#5a4a2a'; ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(80, 160, 220, 0.5)';
+    ctx.beginPath(); ctx.arc(w * 0.55 - 1, phY - 1, 2, 0, Math.PI * 2); ctx.fill();
+    // Outer edge
+    ctx.strokeStyle = '#060504';
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+    ctx.restore();
+  }
+
   // Rectangular cargo container — theme-tinted hull + hazard band
   function drawCargo(x, y, w, h, isTop, seed) {
     if (h <= 0) return;
@@ -5421,6 +6049,7 @@ const DLX_BUILD = 'v8';
     drawMissiles();
     drawLoot();
     drawPirate();
+    drawAngler();
     drawProjectiles();
     drawBird();
     drawScore();
