@@ -728,7 +728,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v21';
+const DLX_BUILD = 'v22';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1956,8 +1956,11 @@ const DLX_BUILD = 'v21';
       cx: W / 2,
       baseY: PLAY_H + 18,
       tentacles: [
-        { phaseX: 0,          phaseY: 0,          len: PLAY_H * 0.65, ampX: W * 0.38, speed: 0.04,  tipX: 0, tipY: 0 },
-        { phaseX: Math.PI,    phaseY: Math.PI / 2, len: PLAY_H * 0.55, ampX: W * 0.32, speed: 0.055, tipX: 0, tipY: 0 },
+        // baseLen = max reach; each tentacle pulses between 25% and 100% of
+        // that length on its own retract phase so one is usually short
+        // while the other is long, opening safe lanes through the playfield.
+        { phaseX: 0,          phaseY: 0,          retractPhase: 0,        retractSpeed: 0.015, baseLen: PLAY_H * 0.75, ampX: W * 0.38, speed: 0.04,  tipX: 0, tipY: 0 },
+        { phaseX: Math.PI,    phaseY: Math.PI / 2, retractPhase: Math.PI, retractSpeed: 0.018, baseLen: PLAY_H * 0.65, ampX: W * 0.32, speed: 0.055, tipX: 0, tipY: 0 },
       ],
     };
   }
@@ -7607,23 +7610,39 @@ const DLX_BUILD = 'v21';
   function drawBoss() {
     if (!boss) return;
     const t = frame * 0.04;
-    // Dark body silhouette, mostly submerged
+    // Deep plum-purple body so the kraken reads against the green swamp
+    // sky instead of blending with the #24422a / #3a6830 mid-band. Outline
+    // stroke gives the silhouette a hard edge at every sky tone.
     ctx.save();
-    ctx.fillStyle = 'rgba(6, 20, 10, 0.95)';
+    ctx.fillStyle = 'rgba(44, 14, 40, 0.98)';
     ctx.beginPath();
     ctx.ellipse(boss.cx, boss.baseY, 130, 58, 0, Math.PI, 2 * Math.PI);
     ctx.fill();
-    // Spines on back
-    ctx.fillStyle = 'rgba(12, 34, 16, 0.95)';
+    ctx.strokeStyle = '#060208';
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+    // Slimy highlight along the hump so the dome reads as wet flesh
+    const humpGlow = ctx.createLinearGradient(0, boss.baseY - 58, 0, boss.baseY);
+    humpGlow.addColorStop(0,   'rgba(200, 80, 160, 0.22)');
+    humpGlow.addColorStop(0.6, 'rgba(120, 30, 100, 0.10)');
+    humpGlow.addColorStop(1,   'rgba(60,  10,  50, 0)');
+    ctx.fillStyle = humpGlow;
+    ctx.beginPath();
+    ctx.ellipse(boss.cx, boss.baseY, 125, 55, 0, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    // Spines on back — brighter violet with dark rim so they pop
     for (let i = -3; i <= 3; i++) {
       const sx = boss.cx + i * 22;
       const sy = boss.baseY - 55 + Math.abs(i) * 6;
+      ctx.fillStyle = 'rgba(90, 30, 100, 0.98)';
       ctx.beginPath();
       ctx.moveTo(sx - 4, sy + 12);
       ctx.lineTo(sx, sy - 8);
       ctx.lineTo(sx + 4, sy + 12);
       ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = '#060208'; ctx.lineWidth = 1.2;
+      ctx.stroke();
     }
     // Eyes
     const open = Math.sin(frame * 0.04) > -0.7;
@@ -7662,11 +7681,15 @@ const DLX_BUILD = 'v21';
     if (!boss) return;
     const t = frame * 0.04;
     for (const tc of boss.tentacles) {
+      // Retract/extend: pulses 25% → 100% of max reach so the playfield
+      // gets a breathing window between attacks.
+      const extT = 0.5 + Math.sin(frame * tc.retractSpeed + tc.retractPhase) * 0.5;
+      const currentLen = tc.baseLen * (0.25 + 0.75 * extT);
       const segs = 12;
       const pts = [];
       for (let s = 0; s <= segs; s++) {
         const f = s / segs;
-        const y = boss.baseY - tc.len * f;
+        const y = boss.baseY - currentLen * f;
         const horizSweep = Math.sin(t * tc.speed * 12 + tc.phaseX) * tc.ampX * f;
         const wiggle = Math.sin(t * 2.2 + f * 6 + tc.phaseY) * 8 * f;
         pts.push({ x: boss.cx + horizSweep + wiggle, y: y });
@@ -7675,24 +7698,31 @@ const DLX_BUILD = 'v21';
       const tip = pts[segs];
       tc.tipX = tip.x; tc.tipY = tip.y;
 
-      // Thick dark body — single stroke (lighter spine and per-segment
-      // suckers were the heaviest part of swamp render budget).
+      // Two-tone stroke so the tentacles pop against the swamp greens:
+      // a dark outline underneath + a vivid violet core on top.
       ctx.save();
-      ctx.strokeStyle = 'rgba(20, 70, 30, 0.95)';
-      ctx.lineWidth = 9;
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.strokeStyle = '#0a030c';
+      ctx.lineWidth = 11;
       ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
       for (let s = 1; s < pts.length; s++) ctx.lineTo(pts[s].x, pts[s].y);
       ctx.stroke();
-      // Suckers — 3 per tentacle, not every-other segment
-      ctx.fillStyle = 'rgba(160, 220, 100, 0.55)';
+      ctx.strokeStyle = 'rgba(170, 70, 200, 0.98)';
+      ctx.lineWidth = 7.5;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let s = 1; s < pts.length; s++) ctx.lineTo(pts[s].x, pts[s].y);
+      ctx.stroke();
+      // Suckers — 3 per tentacle, bright lime against the violet so they
+      // read as bio-luminescent details and keep the classic kraken cue.
+      ctx.fillStyle = 'rgba(200, 255, 140, 0.85)';
       for (let s = 4; s < segs - 1; s += 4) {
         ctx.beginPath();
         ctx.arc(pts[s].x, pts[s].y, 2, 0, Math.PI * 2);
         ctx.fill();
       }
-      // Claw tip (the killer)
+      // Claw tip (the killer) — keep green so the hazard signal stays loud
       ctx.shadowBlur = 10; ctx.shadowColor = '#80ff40';
       ctx.fillStyle = '#b8ff60';
       ctx.beginPath();
