@@ -348,6 +348,22 @@
     box-shadow: 0 3px 0 #a85820;
   }
   #helpCloseBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 #a85820; }
+  #helpReplayTutBtn {
+    display: block;
+    margin: 8px auto 0;
+    padding: 6px 14px;
+    background: rgba(0,0,0,0.5);
+    color: #ffd280;
+    border: 1.5px solid #ffd280;
+    border-radius: 6px;
+    font-family: inherit;
+    font-weight: 900;
+    font-size: 11px;
+    letter-spacing: 1px;
+    -webkit-appearance: none;
+    cursor: pointer;
+  }
+  #helpReplayTutBtn:active { transform: scale(0.96); }
   #title {
     font-size: clamp(36px, 9vmin, 72px);
     font-weight: 900;
@@ -646,6 +662,7 @@
           </ul>
         </div>
         <button id="helpCloseBtn">GOT IT</button>
+        <button id="helpReplayTutBtn">REPLAY TUTORIAL</button>
       </div>
     </div>
     <div id="gameOverScreen" class="hidden">
@@ -728,7 +745,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v29';
+const DLX_BUILD = 'v30';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1804,11 +1821,14 @@ const DLX_BUILD = 'v29';
   }
   function currentPipeSpeed() {
     const d = (typeof LEVEL_DIFF !== 'undefined' && LEVEL_DIFF[levelIndex]) || { speedMul: 1 };
-    return Math.min(PIPE_SPEED_MAX, (PIPE_SPEED_BASE + levelProgress() * 0.02) * d.speedMul);
+    let s = Math.min(PIPE_SPEED_MAX, (PIPE_SPEED_BASE + levelProgress() * 0.02) * d.speedMul);
+    if (tutorial) s *= 0.75;   // gentler pacing so new players can react
+    return s;
   }
   function currentPipeGap() {
     const d = (typeof LEVEL_DIFF !== 'undefined' && LEVEL_DIFF[levelIndex]) || { gapMul: 1 };
-    return Math.max(PIPE_GAP_MIN, (PIPE_GAP_BASE - levelProgress() * 0.35) * d.gapMul);
+    let g = Math.max(PIPE_GAP_MIN, (PIPE_GAP_BASE - levelProgress() * 0.35) * d.gapMul);
+    if (tutorial) g = Math.min(PIPE_GAP_BASE * 1.15, g + 30);   // wider gaps during tutorial
   }
 
   const BIRD_X_FRAC = 0.28;
@@ -1870,6 +1890,9 @@ const DLX_BUILD = 'v29';
   let levelIndex      = 0;
   let levelScoreStart = 0;   // score at the moment current level began
   let levelBanner     = { text: '', life: 0 };
+  // First-launch tutorial — runs on Sunset, scripts the first few pipes
+  // with guaranteed pickups and steps hints through the core loop.
+  let tutorial        = null;
   let boss            = null;
   let pirate          = null;   // canyon: pirate cargo ship chasing from behind
   let pirateRespawnFrames = 0;  // canyon: ticks until a defeated pirate returns
@@ -1948,6 +1971,123 @@ const DLX_BUILD = 'v29';
   function setLevelBanner(text) {
     levelBanner.text = text;
     levelBanner.life = 120;
+  }
+
+  // ---------- First-launch tutorial ----------
+  // Scripts the core loop on Sunset: tap → thread gap → grab trash →
+  // pick up power-up → fire missile. Guarantees pickups on the first
+  // few pipes so the hints don't stall, and runs gameplay a bit slower
+  // with wider gaps so new players have room to react.
+  function shouldRunTutorial() {
+    if (IS_DEV_MODE) return false;
+    try { return !localStorage.getItem('dlx_tutorial_v1_seen'); }
+    catch (e) { return false; }
+  }
+  function armTutorial() {
+    tutorial = {
+      step: 0,                // 0..5, 5 = outro, >5 = ended
+      started: false,
+      hintText: 'TAP TO THRUST',
+      hintSub:  'Tap anywhere to lift your ship.',
+      hintAlpha: 0,
+      stepFrame: 0,
+      pipesSpawnedDuringTutorial: 0,
+      firstFlapSeen: false,
+      firstPipePassed: false,
+      firstPickupSeen: false,
+      firstPowerUpSeen: false,
+      missileFired: false,
+      pendingEndFrame: 0,
+    };
+  }
+  function endTutorial(markSeen) {
+    if (markSeen) {
+      try { localStorage.setItem('dlx_tutorial_v1_seen', '1'); } catch (e) {}
+    }
+    tutorial = null;
+  }
+  function advanceTutorial(nextStep, text, sub) {
+    if (!tutorial) return;
+    tutorial.step = nextStep;
+    tutorial.hintText = text;
+    tutorial.hintSub  = sub;
+    tutorial.hintAlpha = 0;        // fades back in
+    tutorial.stepFrame = frame;
+  }
+  function updateTutorial() {
+    if (!tutorial) return;
+    if (state !== STATE_PLAY) return;
+    if (!tutorial.started) {
+      tutorial.started = true;
+      tutorial.stepFrame = frame;
+    }
+    // Smooth fade-in/hold on every hint
+    tutorial.hintAlpha = Math.min(1, tutorial.hintAlpha + 0.04);
+
+    // Track core events for step transitions
+    if (!tutorial.firstFlapSeen && flapCount > 0) tutorial.firstFlapSeen = true;
+    if (!tutorial.firstPipePassed && score > 0)   tutorial.firstPipePassed = true;
+    if (!tutorial.firstPickupSeen && comboMax > 0) tutorial.firstPickupSeen = true;
+    if (!tutorial.firstPowerUpSeen &&
+        (shieldCharges > 0 || slowFrames > 0 || doubleFrames > 0 ||
+         magnetFrames > 0 || ghostFrames > 0 || missiles.length > 0 ||
+         tutorial.missileInventoryArmed)) {
+      tutorial.firstPowerUpSeen = true;
+    }
+
+    const step = tutorial.step;
+    const age = frame - tutorial.stepFrame;
+
+    if (step === 0 && tutorial.firstFlapSeen) {
+      advanceTutorial(1, 'FLY THROUGH THE GAP', 'Aim for the opening between the pillars.');
+    } else if (step === 1 && tutorial.firstPipePassed) {
+      advanceTutorial(2, 'GRAB THE TRASH', '+1 score per item · gold items are worth +5.');
+    } else if (step === 2 && (tutorial.firstPickupSeen || age > 360)) {
+      advanceTutorial(3, 'POWER-UP!', 'Fly into a glowing capsule to charge a tool.');
+    } else if (step === 3 && (tutorial.firstPowerUpSeen || age > 420)) {
+      advanceTutorial(4, 'TAP ➤ TO FIRE A MISSILE', 'Missiles blow up the next pillar.');
+    } else if (step === 4 && (tutorial.missileFired || age > 540)) {
+      advanceTutorial(5, 'NICE FLYING — YOU’VE GOT IT', 'Good luck out there, hauler.');
+      tutorial.pendingEndFrame = frame + 150;
+      // Persist "seen" as soon as the last hint lands — the 150-frame
+      // outro is purely visual, and if the player crashes during it we
+      // don't want them to see the tutorial again.
+      try { localStorage.setItem('dlx_tutorial_v1_seen', '1'); } catch (e) {}
+    } else if (step === 5 && frame >= tutorial.pendingEndFrame) {
+      endTutorial(false);   // flag already set above
+    }
+  }
+  // Small UI banner for tutorial hints — draws over the playfield but
+  // under the HUD so score/combo stay readable.
+  function drawTutorialHint() {
+    if (!tutorial || tutorial.step > 5) return;
+    const size    = Math.max(14, Math.round(H * 0.024));
+    const subSize = Math.max(11, Math.round(H * 0.016));
+    const padX = 18, padY = 10;
+    ctx.save();
+    ctx.font = 'bold ' + size + 'px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    const mainW = ctx.measureText(tutorial.hintText).width;
+    ctx.font = subSize + 'px "Courier New", monospace';
+    const subW  = ctx.measureText(tutorial.hintSub).width;
+    const w = Math.min(W - 20, Math.max(mainW, subW) + padX * 2);
+    const h = size + subSize + padY * 2 + 4;
+    const x = (W - w) / 2;
+    const y = H * 0.20;
+    ctx.globalAlpha = tutorial.hintAlpha;
+    ctx.fillStyle = 'rgba(10, 5, 18, 0.82)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#ffd280';
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.font = 'bold ' + size + 'px "Courier New", monospace';
+    ctx.fillStyle = '#ffd280';
+    ctx.fillText(tutorial.hintText, W / 2, y + padY + size);
+    ctx.font = subSize + 'px "Courier New", monospace';
+    ctx.fillStyle = '#e8d4a0';
+    ctx.fillText(tutorial.hintSub, W / 2, y + padY + size + subSize + 4);
+    ctx.restore();
   }
 
   // ---------- Boss state (swamp) ----------
@@ -3253,8 +3393,21 @@ const DLX_BUILD = 'v29';
     const top = minTop + Math.random() * (maxTop - minTop);
     const pool = theme().obstacleTypes || ['cargo', 'junk'];
     const type = pool[Math.floor(Math.random() * pool.length)];
-    // Every ~5th pipe swaps its debris for a glowing power-up capsule
-    const spawnPowerUp = pipeSpawnCount > 2 && Math.random() < 0.3;
+    // Every ~5th pipe swaps its debris for a glowing power-up capsule.
+    // During the tutorial we script a guaranteed pickup sequence instead:
+    // pipe 1 = debris, 2 = debris, 3 = shield, 4 = missile, 5 = missile
+    // so each step of the hint chain has something real to react to.
+    let spawnPowerUp;
+    let scriptedPowerKind = null;
+    if (tutorial) {
+      const n = tutorial.pipesSpawnedDuringTutorial;
+      if      (n === 2) { spawnPowerUp = true; scriptedPowerKind = 'shield'; }
+      else if (n >= 3)  { spawnPowerUp = true; scriptedPowerKind = 'missile'; }
+      else              { spawnPowerUp = false; }
+      tutorial.pipesSpawnedDuringTutorial++;
+    } else {
+      spawnPowerUp = pipeSpawnCount > 2 && Math.random() < 0.3;
+    }
     pipeSpawnCount++;
 
     // Motion: after a few pipes, some obstacles drift vertically or pulse
@@ -3283,7 +3436,7 @@ const DLX_BUILD = 'v29';
       botShape: buildShardShape(PIPE_W, PLAY_H - (top + gap), false),
       antennas: buildAntennas(),
       debris:  spawnPowerUp ? null : makeDebris(gap),
-      powerUp: spawnPowerUp ? makePowerUp(gap) : null,
+      powerUp: spawnPowerUp ? makePowerUp(gap, scriptedPowerKind) : null,
     };
     if (motion === 'drift' || motion === 'fast') {
       pipe.driftSpeed = motion === 'fast' ? 0.09 : 0.04;
@@ -3334,9 +3487,9 @@ const DLX_BUILD = 'v29';
     }
     return POWER_KINDS;
   }
-  function makePowerUp(gap) {
+  function makePowerUp(gap, forcedKind) {
     return {
-      kind: (function(){ const p = powerKindsForTheme(); return p[Math.floor(Math.random() * p.length)]; })(),
+      kind: forcedKind || (function(){ const p = powerKindsForTheme(); return p[Math.floor(Math.random() * p.length)]; })(),
       offY: (Math.random() - 0.5) * (gap * 0.25),
       phase: Math.random() * Math.PI * 2,
       collected: false,
@@ -3548,6 +3701,7 @@ const DLX_BUILD = 'v29';
       updateProjectiles();
       updateSparks();
       updatePickupSparks();
+      updateTutorial();
       if (frame % 6 === 0) refreshHud();
 
       if (collide()) {
@@ -3750,6 +3904,7 @@ const DLX_BUILD = 'v29';
   // of the ship — so a missile picked up while overlapping a pipe blasts
   // the *next* one, not the one we're tucked inside.
   function fireMissile() {
+    if (tutorial) tutorial.missileFired = true;
     // On canyon, aim at the pirate instead of the next pipe so the player
     // can shoot back — pirates are the threat up there.
     if (selectedTheme === 'canyon' && pirate) {
@@ -7889,6 +8044,7 @@ const DLX_BUILD = 'v29';
     drawScore();
     drawComboHud();
     drawLevelBanner();
+    drawTutorialHint();
     drawFlash();
     ctx.restore();
   }
@@ -8158,13 +8314,22 @@ const DLX_BUILD = 'v29';
         else selectedTheme = 'sunset';
       } catch (e) { selectedTheme = 'sunset'; }
     }
+    // First-launch tutorial: runs only on a fresh Sunset start so we don't
+    // interrupt someone resuming deep into the campaign.
+    if (shouldRunTutorial() && selectedTheme === 'sunset') {
+      armTutorial();
+    } else {
+      tutorial = null;
+    }
     buildBgCache();       // make sure the starting biome is cached before reset
     reset();
     state = STATE_PLAY;
     bird.x = Math.round(W * BIRD_X_FRAC);
     bird.vy = FLAP;
     thrusterFrames = 5;
-    setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
+    if (!tutorial) {
+      setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
+    }
     hideOverlay();
     startThemeAmbient();
   }
@@ -8240,6 +8405,27 @@ const DLX_BUILD = 'v29';
   if (helpCloseBtn) {
     helpCloseBtn.addEventListener('touchstart', closeHelp, { passive: false });
     helpCloseBtn.addEventListener('click', closeHelp);
+  }
+  // Replay tutorial: wipe the "seen" flag + the resume so the next
+  // launch kicks off the tutorial on Sunset again.
+  const helpReplayTutBtn = document.getElementById('helpReplayTutBtn');
+  function replayTutorial(e) {
+    if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    try {
+      localStorage.removeItem('dlx_tutorial_v1_seen');
+      localStorage.removeItem('dlx_resume_v2');
+    } catch (err) {}
+    selectedTheme = 'sunset';
+    closeHelp();
+    refreshResumeRow();
+    // Sync picker highlight on next start screen show
+    for (const btn of themeBtns) {
+      btn.classList.toggle('selected', btn.dataset.theme === 'sunset');
+    }
+  }
+  if (helpReplayTutBtn) {
+    helpReplayTutBtn.addEventListener('touchend', replayTutorial, { passive: false });
+    helpReplayTutBtn.addEventListener('click', replayTutorial);
   }
   if (helpScreen) {
     // Tap the backdrop (but not the panel) to dismiss
