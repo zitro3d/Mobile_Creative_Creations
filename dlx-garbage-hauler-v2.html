@@ -745,7 +745,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v31';
+const DLX_BUILD = 'v32';
 
 (function() {
   // ---------- iOS gate ----------
@@ -2118,11 +2118,36 @@ const DLX_BUILD = 'v31';
     const r = BIRD_R - 2;
     const reach = r + 7;
     for (const t of boss.tentacles) {
+      if (t.offlineUntil && frame < t.offlineUntil) continue;
       const dx = bird.x - t.tipX;
       const dy = bird.y - t.tipY;
       if (dx * dx + dy * dy < reach * reach) return true;
     }
     return false;
+  }
+  function severTentacle(t) {
+    if (!boss || !t) return;
+    t.offlineUntil = frame + 600;   // regrows after ~10s
+    // Green sparks bursting from the stump
+    for (let i = 0; i < 22; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2 + Math.random() * 3.5;
+      sparks.push({
+        x: t.tipX, y: t.tipY,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        size: 4 + Math.random() * 3,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.4,
+        life: 1, decay: 0.018, shape: 'tri',
+        color: '#b8ff60', glow: '#60c830',
+        drag: 0.96, gravity: 0.12,
+      });
+    }
+    shakeFrames = Math.max(shakeFrames, 10);
+    grantScore(5);
+    scorePulse = 1;
+    playSound('boom');
+    setLevelBanner('TENTACLE SEVERED!  +5');
   }
 
   // ---------- Pirate cargo ship (canyon level 6) ----------
@@ -3474,7 +3499,8 @@ const DLX_BUILD = 'v31';
   function powerKindsForTheme() {
     // Boss levels all skew toward shields + missiles so the player can brawl.
     if (selectedTheme === 'canyon' || selectedTheme === 'underwater' ||
-        selectedTheme === 'neoncity' || selectedTheme === 'icecave') {
+        selectedTheme === 'neoncity' || selectedTheme === 'icecave' ||
+        selectedTheme === 'swamp') {
       return POWER_KINDS_CANYON;
     }
     return POWER_KINDS;
@@ -3958,6 +3984,32 @@ const DLX_BUILD = 'v31';
       playSound('missile');
       return;
     }
+    // On swamp, aim at the nearest active tentacle tip so the player
+    // can sever one for +5 and open a safe window through the boss.
+    if (selectedTheme === 'swamp' && boss) {
+      let bestT = null, bestD = Infinity;
+      for (const tc of boss.tentacles) {
+        if (tc.offlineUntil && frame < tc.offlineUntil) continue;
+        const dx = bird.x - tc.tipX;
+        const dy = bird.y - tc.tipY;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD) { bestD = d2; bestT = tc; }
+      }
+      if (bestT) {
+        missiles.push({
+          x: bird.x + BIRD_R * 0.6,
+          y: bird.y,
+          vx: 0,
+          vy: 0,
+          target: null,
+          targetTentacle: bestT,
+          life: 180,
+          trail: [],
+        });
+        playSound('missile');
+        return;
+      }
+    }
     let target = null;
     for (const p of pipes) {
       if (p.destroyed) continue;
@@ -4053,6 +4105,24 @@ const DLX_BUILD = 'v31';
         const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
         const MAX = 7.5;
         if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
+      } else if (m.targetTentacle) {
+        // Home to the tentacle tip. If the tentacle was severed before
+        // we landed, drop the target and fly forward.
+        const tc = m.targetTentacle;
+        const stillActive = boss && (!tc.offlineUntil || frame >= tc.offlineUntil);
+        if (!stillActive) {
+          m.targetTentacle = null;
+          m.vx = Math.min((m.vx || 0) + 0.5, 9);
+        } else {
+          const dx = tc.tipX - m.x, dy = tc.tipY - m.y;
+          const d = Math.sqrt(dx * dx + dy * dy) || 1;
+          const accel = 0.6;
+          m.vx += (dx / d) * accel;
+          m.vy += (dy / d) * accel;
+          const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
+          const MAX = 7.5;
+          if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
+        }
       } else if (m.target && !m.target.destroyed) {
         const tx = m.target.x + PIPE_W / 2;
         const ty = m.target.top + m.target.gap / 2;
@@ -4126,6 +4196,18 @@ const DLX_BUILD = 'v31';
             missiles.splice(i, 1);
           }
           continue;
+        }
+      }
+      // Swamp tentacle hit
+      if (m.targetTentacle && boss) {
+        const tc = m.targetTentacle;
+        if (!tc.offlineUntil || frame >= tc.offlineUntil) {
+          const ddx = m.x - tc.tipX, ddy = m.y - tc.tipY;
+          if (ddx * ddx + ddy * ddy < 14 * 14) {
+            severTentacle(tc);
+            missiles.splice(i, 1);
+            continue;
+          }
         }
       }
       // Pipe target hit
@@ -5595,21 +5677,28 @@ const DLX_BUILD = 'v31';
     ctx.closePath(); ctx.fill();
   };
   DEBRIS_DRAWERS.rubberboot = function() {
-    ctx.fillStyle = '#2a6a2e';
+    // Classic yellow wellington so it reads against the green swamp sky.
+    ctx.fillStyle = '#ffb030';
     ctx.beginPath();
     ctx.moveTo(-4, -10); ctx.lineTo(5, -10); ctx.lineTo(5, 5);
     ctx.lineTo(11, 5);   ctx.lineTo(11, 10); ctx.lineTo(-4, 10);
     ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = '#103a10'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = '#5a3408'; ctx.lineWidth = 1; ctx.stroke();
     // Top band
-    ctx.fillStyle = '#1a4520';
+    ctx.fillStyle = '#d88020';
     ctx.fillRect(-5, -10, 11, 2);
-    // Dirt streaks
+    // Sole
+    ctx.fillStyle = '#3a1808';
+    ctx.fillRect(-4, 9, 15, 2);
+    // Mud streaks
     ctx.strokeStyle = 'rgba(60, 35, 10, 0.6)';
     ctx.beginPath();
     ctx.moveTo(-2, -6); ctx.lineTo(-1, 3);
     ctx.moveTo(3, -4);  ctx.lineTo(4, 6);
     ctx.stroke();
+    // Sun highlight
+    ctx.fillStyle = 'rgba(255, 240, 180, 0.5)';
+    ctx.fillRect(-3, -8, 1.5, 15);
   };
   DEBRIS_DRAWERS.oldtire = function() {
     ctx.fillStyle = '#1a1a1a';
@@ -5633,18 +5722,31 @@ const DLX_BUILD = 'v31';
     ctx.beginPath(); ctx.arc(4, 7, 1.6, 0, Math.PI * 2); ctx.fill();
   };
   DEBRIS_DRAWERS.algae_bottle = function() {
-    ctx.fillStyle = 'rgba(50, 120, 60, 0.85)';
+    // Amber glass bottle with an algae rim — still swampy, but the warm
+    // base colour pops against the green sky.
+    ctx.fillStyle = 'rgba(230, 160, 60, 0.88)';
     ctx.fillRect(-5, -4, 10, 14);
     ctx.fillRect(-2, -10, 4, 6);
+    ctx.strokeStyle = '#6a3a10'; ctx.lineWidth = 0.8;
+    ctx.strokeRect(-5, -4, 10, 14);
+    ctx.strokeRect(-2, -10, 4, 6);
+    // Dark cap
     ctx.fillStyle = '#3a1a12';
     ctx.fillRect(-2.5, -12, 5, 2.5);
-    // Moss stripes
-    ctx.fillStyle = 'rgba(120, 180, 40, 0.65)';
-    ctx.fillRect(-5, 0, 10, 2);
-    ctx.fillRect(-5, 5, 10, 2);
-    // Label
-    ctx.fillStyle = '#8a8a5a';
-    ctx.fillRect(-5, -2, 10, 4);
+    // Algae crept halfway up the bottle (single band instead of drowning
+    // the whole sprite in green)
+    ctx.fillStyle = 'rgba(120, 180, 40, 0.75)';
+    ctx.fillRect(-5, 4, 10, 3);
+    ctx.fillStyle = 'rgba(90, 140, 40, 0.9)';
+    ctx.fillRect(-5, 6, 10, 1);
+    // Warm tan label
+    ctx.fillStyle = '#f4e0a0';
+    ctx.fillRect(-5, -2, 10, 3);
+    ctx.fillStyle = '#8a4a10';
+    ctx.fillRect(-4, -1, 8, 1);
+    // Highlight
+    ctx.fillStyle = 'rgba(255, 240, 200, 0.55)';
+    ctx.fillRect(-4, -3, 1, 12);
   };
   DEBRIS_DRAWERS.slimecan = function() {
     ctx.fillStyle = '#4a5850';
@@ -8117,6 +8219,13 @@ const DLX_BUILD = 'v31';
     if (!boss) return;
     const t = frame * 0.04;
     for (const tc of boss.tentacles) {
+      // Skip severed tentacles until they regrow. Also null out the tip
+      // so collision doesn't chase a stale position and so missiles fired
+      // after the sever don't find it as a target.
+      if (tc.offlineUntil && frame < tc.offlineUntil) {
+        tc.tipX = -9999; tc.tipY = -9999;
+        continue;
+      }
       // Retract/extend: pulses 25% → 100% of max reach so the playfield
       // gets a breathing window between attacks.
       const extT = 0.5 + Math.sin(frame * tc.retractSpeed + tc.retractPhase) * 0.5;
