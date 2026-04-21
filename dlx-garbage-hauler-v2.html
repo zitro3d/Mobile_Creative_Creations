@@ -748,10 +748,10 @@
         <div id="helpTitle">HOW TO PLAY</div>
         <div class="helpBody">
           <p class="helpLead">Tap the screen to thrust upward. Fly through the gaps, grab the garbage, survive all 8 levels and banish the frost wraith to win.</p>
-          <h4>Ships <span class="helpSub">(each has a signature perk)</span></h4>
+          <h4>Ships <span class="helpSub">(more risk = more score)</span></h4>
           <ul>
-            <li><b>Scout</b> — small &amp; agile · <span class="helpSub">double-flap boost</span> · ×1.00</li>
-            <li><b>Hauler</b> — balanced · <span class="helpSub">launches with a shield</span> · ×1.25</li>
+            <li><b>Scout</b> — small &amp; agile · ×1.00</li>
+            <li><b>Hauler</b> — balanced · ×1.25</li>
             <li><b>Freighter</b> — big &amp; heavy · <span class="helpSub">passive cargo magnet</span> · ×1.60</li>
           </ul>
           <h4>Campaign</h4>
@@ -784,9 +784,11 @@
           <h4>Unlocks</h4>
           <ul>
             <li><b>🔥 Chrome Hot Rod</b> — beat the Frost Wraith once to
-              unlock a polished chrome paint job with candy-red glass,
-              racing flames down the side, and twin chrome smokestacks.
-              Toggle it on the start screen.</li>
+              unlock a polished chrome rig with candy-red glass, racing
+              flames, twin chrome smokestacks, blue nitrous jets out the
+              back, and a Knight Rider-style scanner along the roof.
+              While active: <i>launches with a shield</i> and <i>double-flap
+              gives a boost</i>. Toggle it on the start screen.</li>
           </ul>
         </div>
         <button id="helpCloseBtn">GOT IT</button>
@@ -883,7 +885,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v44';
+const DLX_BUILD = 'v45';
 
 (function() {
   // ---------- iOS gate ----------
@@ -3364,9 +3366,10 @@ const DLX_BUILD = 'v44';
     if (levelIndex === 5) spawnPirate();
     if (levelIndex === 6) spawnBoss();
     if (levelIndex === 7) spawnWraith();
-    // Hauler perk: launches with a shield charge already primed, so the
-    // balanced middle ship is the forgiving "getting into it" option.
-    shieldCharges = (selectedShip === 'hauler') ? 1 : 0;
+    // Chrome Hot Rod perk: launches with a shield charge primed.
+    // Default ships start clean so each ship is differentiated by
+    // stats only — perks are reserved for the unlock skin.
+    shieldCharges = (selectedSkin === 'hotrod') ? 1 : 0;
     slowFrames = 0;
     doubleFrames = 0;
     magnetFrames = 0;
@@ -3669,10 +3672,11 @@ const DLX_BUILD = 'v44';
       bird.x = Math.round(W * BIRD_X_FRAC);
     }
     if (state === STATE_PLAY) {
-      // Scout perk: a second flap within ~0.35s of the previous one
-      // kicks a little extra lift, so the agile hull rewards rhythm.
+      // Chrome Hot Rod perk: a second flap within ~0.35s of the
+      // previous one kicks a little extra lift. Tied to the unlocked
+      // skin so the default starter ships stay simple.
       const sinceLast = frame - lastFlapFrame;
-      const doubleFlap = selectedShip === 'scout' && lastFlapFrame > 0 && sinceLast > 0 && sinceLast < 22;
+      const doubleFlap = selectedSkin === 'hotrod' && lastFlapFrame > 0 && sinceLast > 0 && sinceLast < 22;
       bird.vy = doubleFlap ? FLAP * 1.35 : FLAP;
       lastFlapFrame = frame;
       thrusterFrames = doubleFlap ? 8 : 5;
@@ -8100,6 +8104,38 @@ const DLX_BUILD = 'v44';
       ctx.lineTo(BIRD_R * 0.05, cabinH / 2);
       ctx.closePath();
       ctx.fill();
+      ctx.restore();
+
+      // Knight Rider scanner — a red dot sweeping back and forth along
+      // the top of the body, with a fading trail. Makes the rig feel
+      // wired and "alive" without any extra interaction.
+      ctx.save();
+      const scanY = -cabinH / 2 + 1.2;
+      const scanX0 = -BIRD_R * 0.05;
+      const scanX1 = nose - BIRD_R * 0.05;
+      const scanW = scanX1 - scanX0;
+      // Dark recessed track so the dot reads as a mounted strip
+      ctx.fillStyle = '#1a0408';
+      ctx.fillRect(scanX0, scanY, scanW, 1.6);
+      const baseT = frame * 0.075;
+      // Trail — older positions fading
+      for (let i = 6; i >= 1; i--) {
+        const u = (Math.sin(baseT - i * 0.18) + 1) * 0.5;
+        const x = scanX0 + u * scanW;
+        const a = (1 - i / 7) * 0.55;
+        ctx.fillStyle = 'rgba(255, 32, 32, ' + a.toFixed(3) + ')';
+        ctx.fillRect(x - 1.5, scanY - 0.1, 3, 1.8);
+      }
+      // Bright head dot with red glow
+      const u0 = (Math.sin(baseT) + 1) * 0.5;
+      const xh = scanX0 + u0 * scanW;
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = '#ff2030';
+      ctx.fillStyle = '#ff7878';
+      ctx.fillRect(xh - 1.5, scanY - 0.4, 3, 2.4);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(xh - 0.5, scanY + 0.2, 1, 1);
       ctx.restore();
     }
 
