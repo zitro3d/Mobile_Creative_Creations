@@ -88,7 +88,8 @@
   #overlay #shipPicker, #overlay .shipBtn, #overlay .shipBtn *,
   #overlay #themePicker, #overlay .themeBtn,
   #overlay #helpBtn, #overlay #helpScreen, #overlay #helpScreen *,
-  #overlay #resumeRow, #overlay #resumeResetBtn { pointer-events: auto; }
+  #overlay #resumeRow, #overlay #resumeResetBtn,
+  #overlay #skinToggleBtn { pointer-events: auto; }
 
   #resumeRow {
     display: flex;
@@ -115,6 +116,31 @@
     transition: background 0.15s, border-color 0.15s, color 0.15s;
   }
   #resumeResetBtn:active { transform: scale(0.94); }
+  /* Unlockable skin toggle — hidden until gold livery is earned. */
+  #skinToggleBtn {
+    display: block;
+    margin: 4px auto 0;
+    padding: 6px 14px;
+    background: rgba(0, 0, 0, 0.5);
+    color: #ffd280;
+    border: 1.5px solid rgba(255, 210, 128, 0.5);
+    border-radius: 6px;
+    font-family: inherit;
+    font-weight: 900;
+    font-size: 11px;
+    letter-spacing: 1px;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+  }
+  #skinToggleBtn:active { transform: scale(0.96); }
+  #skinToggleBtn.active {
+    background: rgba(255, 200, 80, 0.25);
+    border-color: #ffd280;
+    color: #fff4d0;
+    box-shadow: 0 0 12px rgba(255, 200, 80, 0.35);
+  }
+  #skinToggleBtn.hidden { display: none; }
   #resumeResetBtn.confirming {
     background: rgba(170, 30, 30, 0.35);
     border-color: #ff6a4a;
@@ -255,6 +281,19 @@
     text-align: center;
   }
   .victorySubtitle b { color: #ffd280; }
+  .victoryUnlock {
+    margin: 2px 0 10px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(255, 200, 80, 0.12);
+    border: 1px solid rgba(255, 200, 80, 0.45);
+    color: #ffd280;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-align: center;
+    font-weight: 700;
+  }
+  .victoryUnlock.hidden { display: none; }
   .statsGrid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -696,6 +735,7 @@
         <button class="themeBtn" data-theme="icecave">ICE CAVE</button>
       </div>
       <div class="tapHint">TAP SHIP TO LAUNCH</div>
+      <button id="skinToggleBtn" class="hidden">⭐ GOLD LIVERY</button>
       <div id="resumeRow" class="hidden">
         <span id="resumeLabel">Resuming: —</span>
         <button id="resumeResetBtn">START OVER</button>
@@ -708,11 +748,11 @@
         <div id="helpTitle">HOW TO PLAY</div>
         <div class="helpBody">
           <p class="helpLead">Tap the screen to thrust upward. Fly through the gaps, grab the garbage, survive all 8 levels and banish the frost wraith to win.</p>
-          <h4>Ships <span class="helpSub">(more risk = more score)</span></h4>
+          <h4>Ships <span class="helpSub">(each has a signature perk)</span></h4>
           <ul>
-            <li><b>Scout</b> — small &amp; agile · ×1.00</li>
-            <li><b>Hauler</b> — balanced · ×1.25</li>
-            <li><b>Freighter</b> — big &amp; heavy · ×1.60</li>
+            <li><b>Scout</b> — small &amp; agile · <span class="helpSub">double-flap boost</span> · ×1.00</li>
+            <li><b>Hauler</b> — balanced · <span class="helpSub">launches with a shield</span> · ×1.25</li>
+            <li><b>Freighter</b> — big &amp; heavy · <span class="helpSub">passive cargo magnet</span> · ×1.60</li>
           </ul>
           <h4>Campaign</h4>
           <ol class="helpLevels">
@@ -740,6 +780,11 @@
             <li>Glowing gold items: <b>+5</b></li>
             <li>Boss hits: <b>+5 – +8</b> · boss kills: <b>+20 – +40</b></li>
             <li>Chain pickups for ×2 / ×3 / ×4 combo bonus</li>
+          </ul>
+          <h4>Unlocks</h4>
+          <ul>
+            <li><b>⭐ Gold Livery</b> — beat the Frost Wraith once to
+              unlock a gold paint job. Toggle it on the start screen.</li>
           </ul>
         </div>
         <button id="helpCloseBtn">GOT IT</button>
@@ -775,6 +820,7 @@
         The <b>Frost Wraith</b> is banished.<br>
         All 8 biomes cleared — campaign complete.
       </div>
+      <div id="victoryUnlock" class="victoryUnlock hidden"></div>
       <div class="statsGrid">
         <div class="statCell"><div class="statLabel">SCORE</div><div class="statValue" id="victoryScore">0</div></div>
         <div class="statCell"><div class="statLabel">BEST</div><div class="statValue" id="victoryBest">0</div></div>
@@ -835,7 +881,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v38';
+const DLX_BUILD = 'v39';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1565,6 +1611,47 @@ const DLX_BUILD = 'v38';
   };
   let selectedShip = 'hauler';
 
+  // ---------- Ship skins / liveries ----------
+  // Unlockable palette overlays. Each skin replaces a subset of the
+  // ship color keys used by drawHaulerFront / drawHaulerBack.
+  const SHIP_SKINS = {
+    default: null,   // use the ship's native palette
+    gold: {
+      bodyTop:    '#ffe488',
+      bodyMid:    '#eeb23a',
+      bodyBot:    '#946310',
+      secondary:  '#4a3208',
+      engine:     '#2a1d06',
+      engineEdge: '#100800',
+      rust:       'rgba(110, 70, 15, 0.7)',
+      cockpit:    '#ffe4a0',
+      cockpitGlow:'#ffb04a',
+      warning:    '#ff6030',
+      accentA:    '#ffb430',
+      accentB:    '#4a3208',
+    },
+  };
+  let selectedSkin = 'default';
+  try {
+    const savedSkin = localStorage.getItem('dlx_ship_skin_v1');
+    if (savedSkin && SHIP_SKINS[savedSkin]) selectedSkin = savedSkin;
+  } catch (e) {}
+  function goldSkinUnlocked() {
+    try { return localStorage.getItem('dlx_skin_gold_v1') === '1'; }
+    catch (e) { return false; }
+  }
+  function unlockGoldSkin() {
+    try { localStorage.setItem('dlx_skin_gold_v1', '1'); } catch (e) {}
+  }
+  // Merges the native ship palette with the selected skin's overrides.
+  // Called once per draw pass, so allocations stay light.
+  function shipSkin() {
+    const base = SHIPS[selectedShip];
+    const override = SHIP_SKINS[selectedSkin];
+    if (!override) return base;
+    return Object.assign({}, base, override);
+  }
+
   // Theme palettes. Each theme also carries a CSS filter string applied via
   // ctx.filter when drawing obstacles and debris so those assets are
   // re-tinted to match the sky.
@@ -1942,6 +2029,8 @@ const DLX_BUILD = 'v38';
   let slowFrames    = 0;   // slow-motion timer (frames)
   let doubleFrames  = 0;   // double-score timer (frames)
   let magnetFrames  = 0;   // magnet pulls pickups toward ship
+  let lastFlapFrame = 0;   // frame of the previous flap (for Scout double-flap)
+  let victoryFreshUnlock = false;   // true on the first wraith kill of this save
   let ghostFrames   = 0;   // phase through obstacles
   let invulnFrames  = 0;   // brief i-frames after shield break / spawn
   let combo         = 0;   // consecutive pickups without miss
@@ -3073,6 +3162,12 @@ const DLX_BUILD = 'v38';
     setLevelBanner('WRAITH BANISHED!  +40');
     wraith = null;
     projectiles = [];
+    // Unlock the gold livery the first time the campaign is cleared.
+    // Remember whether this is a fresh unlock so the victory screen can
+    // call it out (vs. "still golden" on subsequent wins).
+    const firstUnlock = !goldSkinUnlocked();
+    if (firstUnlock) unlockGoldSkin();
+    victoryFreshUnlock = firstUnlock;
     // Final boss down — VICTORY
     stopThemeAmbient(0.8);
     state = STATE_VICTORY;
@@ -3219,6 +3314,7 @@ const DLX_BUILD = 'v38';
     scorePulse = 0;
     thrusterFrames = 0;
     flapCount = 0;
+    lastFlapFrame = 0;
     pipeSpawnCount = 0;
     levelIndex = themeToLevelIndex(selectedTheme);
     levelScoreStart = 0;
@@ -3249,7 +3345,9 @@ const DLX_BUILD = 'v38';
     if (levelIndex === 5) spawnPirate();
     if (levelIndex === 6) spawnBoss();
     if (levelIndex === 7) spawnWraith();
-    shieldCharges = 0;
+    // Hauler perk: launches with a shield charge already primed, so the
+    // balanced middle ship is the forgiving "getting into it" option.
+    shieldCharges = (selectedShip === 'hauler') ? 1 : 0;
     slowFrames = 0;
     doubleFrames = 0;
     magnetFrames = 0;
@@ -3552,8 +3650,13 @@ const DLX_BUILD = 'v38';
       bird.x = Math.round(W * BIRD_X_FRAC);
     }
     if (state === STATE_PLAY) {
-      bird.vy = FLAP;
-      thrusterFrames = 5;
+      // Scout perk: a second flap within ~0.35s of the previous one
+      // kicks a little extra lift, so the agile hull rewards rhythm.
+      const sinceLast = frame - lastFlapFrame;
+      const doubleFlap = selectedShip === 'scout' && lastFlapFrame > 0 && sinceLast > 0 && sinceLast < 22;
+      bird.vy = doubleFlap ? FLAP * 1.35 : FLAP;
+      lastFlapFrame = frame;
+      thrusterFrames = doubleFlap ? 8 : 5;
       flapCount++;
       // Every 5th or 6th tap the engine backfires: extra smoke puff
       const isBackfire = flapCount > 0 && (flapCount % 5 === 0 || flapCount % 6 === 0);
@@ -3813,9 +3916,14 @@ const DLX_BUILD = 'v38';
   // Magnet bends uncollected debris/powerups toward the ship.
   function checkGapPickups(p) {
     const dyOff = p.driftY || 0;
-    // Magnet pull: shift effective offY toward the bird
-    if (magnetFrames > 0) {
-      const pullRadius = 140;
+    // Magnet pull: active power-up grabs pickups inside 140px; Freighter
+    // gets a permanent smaller "cargo magnet" (60px) since carting stuff
+    // around is literally its job — its perk in the ship lineup.
+    const activeMagnet  = magnetFrames > 0;
+    const passiveMagnet = !activeMagnet && selectedShip === 'freighter';
+    if (activeMagnet || passiveMagnet) {
+      const pullRadius   = activeMagnet ? 140  : 60;
+      const pullStrength = activeMagnet ? 0.18 : 0.08;
       for (const item of [p.debris, p.powerUp]) {
         if (!item || item.collected) continue;
         const ix = p.x + PIPE_W / 2;
@@ -3825,7 +3933,7 @@ const DLX_BUILD = 'v38';
         const d = Math.sqrt(dx * dx + dy * dy);
         if (d < pullRadius) {
           const targetOff = bird.y - (p.top + p.gap / 2 + dyOff);
-          item.offY += (targetOff - item.offY) * 0.18;
+          item.offY += (targetOff - item.offY) * pullStrength;
         }
       }
     }
@@ -7896,7 +8004,7 @@ const DLX_BUILD = 'v38';
   }
 
   function drawHaulerFront() {
-    const s = SHIPS[selectedShip];
+    const s = shipSkin();
     const nose = BIRD_R * 1.15;
     const cabinH = BIRD_R * 1.1;
 
@@ -7980,7 +8088,7 @@ const DLX_BUILD = 'v38';
   }
 
   function drawHaulerBack() {
-    const s = SHIPS[selectedShip];
+    const s = shipSkin();
     const tailX = -BIRD_R * 0.1;
     const blockW = BIRD_R * 0.55;
     const blockH = BIRD_R * 1.4;
@@ -8579,6 +8687,7 @@ const DLX_BUILD = 'v38';
   const victoryTimeEl   = document.getElementById('victoryTime');
   const victoryComboEl  = document.getElementById('victoryCombo');
   const victoryBiomesEl = document.getElementById('victoryBiomes');
+  const victoryUnlockEl = document.getElementById('victoryUnlock');
   const victoryBtn      = document.getElementById('victoryBtn');
   // Run timer — starts the moment the player taps a ship to launch,
   // stops when showVictory fires. Display is mm:ss of this session only
@@ -8660,6 +8769,20 @@ const DLX_BUILD = 'v38';
     if (victoryTimeEl)   victoryTimeEl.textContent   = formatRunTime();
     if (victoryComboEl)  victoryComboEl.textContent  = '×' + (comboMax || 1);
     if (victoryBiomesEl) victoryBiomesEl.textContent = LEVEL_ORDER.length + '/' + LEVEL_ORDER.length;
+    // Unlock callout: fresh unlock gets the "just earned it" copy,
+    // return visits get the "still golden" nod.
+    if (victoryUnlockEl) {
+      if (victoryFreshUnlock) {
+        victoryUnlockEl.textContent = '⭐ GOLD LIVERY UNLOCKED — toggle it on the start screen';
+        victoryUnlockEl.classList.remove('hidden');
+      } else if (goldSkinUnlocked()) {
+        victoryUnlockEl.textContent = '⭐ Golden again — nice flying';
+        victoryUnlockEl.classList.remove('hidden');
+      } else {
+        victoryUnlockEl.classList.add('hidden');
+      }
+    }
+    victoryFreshUnlock = false;
     spawnVictoryConfetti();
     victoryScreen.classList.remove('hidden');
   }
@@ -8751,6 +8874,35 @@ const DLX_BUILD = 'v38';
     resumeResetBtn.addEventListener('click', resetProgress);
   }
 
+  // ---------- Gold livery toggle (unlocked by campaign completion) ----------
+  const skinToggleBtn = document.getElementById('skinToggleBtn');
+  function refreshSkinToggle() {
+    if (!skinToggleBtn) return;
+    if (goldSkinUnlocked()) {
+      skinToggleBtn.classList.remove('hidden');
+      skinToggleBtn.classList.toggle('active', selectedSkin === 'gold');
+    } else {
+      skinToggleBtn.classList.add('hidden');
+      // If the unlock was wiped, fall back to default to keep the
+      // selection consistent with what's available.
+      if (selectedSkin !== 'default') {
+        selectedSkin = 'default';
+        try { localStorage.setItem('dlx_ship_skin_v1', 'default'); } catch (e) {}
+      }
+    }
+  }
+  function toggleSkin(e) {
+    if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    if (!goldSkinUnlocked()) return;
+    selectedSkin = (selectedSkin === 'gold') ? 'default' : 'gold';
+    try { localStorage.setItem('dlx_ship_skin_v1', selectedSkin); } catch (err) {}
+    refreshSkinToggle();
+  }
+  if (skinToggleBtn) {
+    skinToggleBtn.addEventListener('touchend', toggleSkin, { passive: false });
+    skinToggleBtn.addEventListener('click', toggleSkin);
+  }
+
   function showStart() {
     overlay.classList.add('show');
     startScreen.classList.remove('hidden');
@@ -8760,6 +8912,7 @@ const DLX_BUILD = 'v38';
     cancelResetConfirm();   // back to default START OVER state
     if (playBtnsEl) playBtnsEl.style.display = 'none';
     refreshResumeRow();
+    refreshSkinToggle();
     // Sync picker highlight with the current selectedTheme so players see
     // which level they'll launch into (especially after dying mid-run).
     for (const btn of themeBtns) {
