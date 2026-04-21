@@ -581,10 +581,10 @@
         <button class="themeBtn selected" data-theme="sunset">SUNSET</button>
         <button class="themeBtn" data-theme="city">CITY</button>
         <button class="themeBtn" data-theme="volcano">VOLCANO</button>
-        <button class="themeBtn" data-theme="swamp">SWAMP</button>
-        <button class="themeBtn" data-theme="canyon">CANYON</button>
         <button class="themeBtn" data-theme="underwater">TRENCH</button>
         <button class="themeBtn" data-theme="neoncity">NEON CITY</button>
+        <button class="themeBtn" data-theme="canyon">CANYON</button>
+        <button class="themeBtn" data-theme="swamp">SWAMP</button>
         <button class="themeBtn" data-theme="icecave">ICE CAVE</button>
       </div>
       <div class="tapHint">TAP SHIP TO LAUNCH</div>
@@ -611,8 +611,11 @@
             <li>Sunset — 0 … 49</li>
             <li>City — 50 … 109</li>
             <li>Volcano — 110 … 179</li>
-            <li>Swamp — 180 … 259 <span class="helpSub">(boss tentacles)</span></li>
-            <li>Canyon — 260 + <span class="helpSub">(pirate ambush)</span></li>
+            <li>Trench — 180 … 239 <span class="helpSub">(anglerfish)</span></li>
+            <li>Neon City — 240 … 299 <span class="helpSub">(cyberdragon)</span></li>
+            <li>Canyon — 300 … 389 <span class="helpSub">(pirate ambush)</span></li>
+            <li>Swamp — 390 … 469 <span class="helpSub">(boss tentacles)</span></li>
+            <li>Ice Cave — 470 + <span class="helpSub">(frost wraith)</span></li>
           </ol>
           <h4>Power-ups</h4>
           <ul class="helpPw">
@@ -714,7 +717,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v14';
+const DLX_BUILD = 'v15';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1823,26 +1826,28 @@ const DLX_BUILD = 'v14';
   let loot          = [];  // collectible items revealed by missile destruction
 
   // ---------- Campaign progression ----------
-  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'swamp', 'canyon', 'underwater', 'neoncity', 'icecave'];
+  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'underwater', 'neoncity', 'canyon', 'swamp', 'icecave'];
   // Score gap required to leave each level (level i → level i+1).
-  //   sunset → city       : 50
-  //   city   → volcano    : 60
-  //   volcano→ swamp      : 70
-  //   swamp  → canyon     : 80   (swamp is "retreat mode"; boss sinks away)
-  //   canyon → underwater : 90   (anglerfish kill advances — score gap is a safety net)
-  //   underwater → neoncity: 60  (anglerfish kill advances to neon city)
-  //   neoncity → icecave  : 60  (dragon kill advances to ice cave)
-  //   icecave  → (final)   : 0  (wraith = VICTORY)
-  const LEVEL_GAPS  = [50, 60, 70, 80, 90, 60, 60, 0];
+  //   sunset     → city       : 50
+  //   city       → volcano    : 60
+  //   volcano    → underwater : 70
+  //   underwater → neoncity   : 60   (angler kill usually advances first)
+  //   neoncity   → canyon     : 60   (dragon kill usually advances first)
+  //   canyon     → swamp      : 90   (pirate respawns; score ramp advances)
+  //   swamp      → icecave    : 80   (boss sinks on transition; score ramp advances)
+  //   icecave    → (final)    : 0    (wraith = VICTORY)
+  const LEVEL_GAPS  = [50, 60, 70, 60, 60, 90, 80, 0];
   // Per-level difficulty multipliers stack on top of the score-based ramp.
+  // Values travel with the theme (each biome keeps its own pace/gap feel)
+  // rather than strictly following position.
   const LEVEL_DIFF = [
     { speedMul: 1.00, gapMul: 1.00 },   // sunset
     { speedMul: 1.18, gapMul: 0.92 },   // city
     { speedMul: 1.34, gapMul: 0.86 },   // volcano
-    { speedMul: 1.50, gapMul: 0.80 },   // swamp (retreat mode)
-    { speedMul: 1.70, gapMul: 0.90 },   // canyon — pirate ambush
     { speedMul: 1.55, gapMul: 0.92 },   // underwater — anglerfish
     { speedMul: 1.75, gapMul: 0.88 },   // neoncity — cyberdragon
+    { speedMul: 1.70, gapMul: 0.90 },   // canyon — pirate ambush
+    { speedMul: 1.50, gapMul: 0.80 },   // swamp (retreat mode, sinking boss)
     { speedMul: 1.80, gapMul: 0.86 },   // icecave — frost wraith final boss
   ];
   let levelIndex      = 0;
@@ -1874,31 +1879,32 @@ const DLX_BUILD = 'v14';
     selectedTheme = LEVEL_ORDER[levelIndex];
     buildBgCache();
     setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
-    if (levelIndex === 3) spawnBoss();
-    // Leaving swamp → canyon: boss retreats, pirate ship swoops in from behind
-    if (levelIndex === 4) {
-      boss = null;
-      spawnPirate();
-    }
-    // Leaving canyon → underwater: pirate warps out, anglerfish rises from trench
-    if (levelIndex === 5) {
-      pirate = null;
-      pirateRespawnFrames = 0;
-      projectiles = [];
-      spawnAngler();
-    }
+    // Entering underwater: anglerfish rises from the trench
+    if (levelIndex === 3) spawnAngler();
     // Leaving underwater → neoncity: anglerfish gone, cyberdragon swoops in from the sky
-    if (levelIndex === 6) {
+    if (levelIndex === 4) {
       angler = null;
       anglerHitsLeft = 3;
       projectiles = [];
       spawnDragon();
     }
-    // Leaving neoncity → icecave: dragon down, frost wraith manifests from the aurora
-    if (levelIndex === 7) {
+    // Leaving neoncity → canyon: dragon down, pirate ship swoops in from behind
+    if (levelIndex === 5) {
       dragon = null;
       dragonHitsLeft = 4;
       projectiles = [];
+      spawnPirate();
+    }
+    // Leaving canyon → swamp: pirate warps out, kraken boss rises from the muck
+    if (levelIndex === 6) {
+      pirate = null;
+      pirateRespawnFrames = 0;
+      projectiles = [];
+      spawnBoss();
+    }
+    // Leaving swamp → icecave: tentacles sink away, frost wraith manifests
+    if (levelIndex === 7) {
+      boss = null;
       spawnWraith();
     }
     playSound('levelup');
@@ -1941,7 +1947,7 @@ const DLX_BUILD = 'v14';
     return false;
   }
 
-  // ---------- Pirate cargo ship (canyon level 5) ----------
+  // ---------- Pirate cargo ship (canyon level 6) ----------
   let piratesDefeated = 0;     // running tally for stats / future use
   function spawnPirate() {
     pirate = {
@@ -2154,7 +2160,7 @@ const DLX_BUILD = 'v14';
     ctx.restore();
   }
 
-  // ---------- Anglerfish final boss (underwater level 6) ----------
+  // ---------- Anglerfish boss (underwater level 4) ----------
   function spawnAngler() {
     angler = {
       x: W + 80,           // enters from the right
@@ -2269,7 +2275,7 @@ const DLX_BUILD = 'v14';
     setLevelBanner('ANGLER DOWN!  +20');
     angler = null;
     // Anglerfish dead → surface into Neon City immediately
-    if (levelIndex === 5) advanceLevel(6);
+    if (levelIndex === 3) advanceLevel(4);
   }
   function drawAngler() {
     if (!angler) return;
@@ -2404,7 +2410,7 @@ const DLX_BUILD = 'v14';
     ctx.restore();
   }
 
-  // ---------- Cyberdragon final boss (neoncity level 7) ----------
+  // ---------- Cyberdragon boss (neoncity level 5) ----------
   // Segmented neon serpent that weaves across the screen and fires lasers
   // from its mouth. The head is both the collider and the weak spot; each
   // missile hit strips 1 HP. Defeating it triggers VICTORY.
@@ -2570,8 +2576,8 @@ const DLX_BUILD = 'v14';
     setLevelBanner('CYBERDRAGON DOWN!  +30');
     dragon = null;
     projectiles = [];
-    // Dragon dead → descend into the Ice Cave
-    if (levelIndex === 6) advanceLevel(7);
+    // Dragon dead → canyon pirate ambush is next
+    if (levelIndex === 4) advanceLevel(5);
   }
   function drawDragon() {
     if (!dragon) return;
@@ -3038,10 +3044,10 @@ const DLX_BUILD = 'v14';
     wraith = null;
     wraithHitsLeft = 4;
     lightningAt = -999;   // reset volcano flicker timer so since stays valid
-    if (levelIndex === 3) spawnBoss();
-    if (levelIndex === 4) spawnPirate();
-    if (levelIndex === 5) spawnAngler();
-    if (levelIndex === 6) spawnDragon();
+    if (levelIndex === 3) spawnAngler();
+    if (levelIndex === 4) spawnDragon();
+    if (levelIndex === 5) spawnPirate();
+    if (levelIndex === 6) spawnBoss();
     if (levelIndex === 7) spawnWraith();
     shieldCharges = 0;
     slowFrames = 0;
@@ -3248,7 +3254,7 @@ const DLX_BUILD = 'v14';
   // other power-ups, since players want it to show up more often.
   const POWER_KINDS = ['shield', 'slow', 'double', 'magnet', 'ghost',
                        'missile', 'missile', 'missile'];
-  // Canyon (level 5) is harder with the pirate chase, so shields appear
+  // Canyon (level 6) is harder with the pirate chase, so shields appear
   // much more often and missiles skew higher for shooting the pirate back.
   const POWER_KINDS_CANYON = ['shield', 'shield', 'shield', 'shield',
                               'slow', 'double', 'magnet', 'ghost',
