@@ -209,15 +209,99 @@
     max-width: 360px;
     width: 100%;
   }
-  #victoryScreen .panel { border-color: #ffd280; box-shadow: 0 0 28px rgba(255,180,80,0.35); }
+  /* Victory fanfare — radial golden burst behind the panel + a
+     confetti layer populated by JS when the screen opens. */
+  #victoryScreen {
+    background:
+      radial-gradient(circle at 50% 42%, rgba(255, 208, 120, 0.22), rgba(0,0,0,0.82) 55%),
+      rgba(0,0,0,0.72);
+    overflow: hidden;
+  }
+  #victoryFanfare {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .confetti {
+    position: absolute;
+    top: -24px;
+    width: 6px;
+    height: 12px;
+    opacity: 0;
+    border-radius: 1px;
+    animation-name: confettiFall;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+  }
+  @keyframes confettiFall {
+    0%   { transform: translate3d(0, -10vh, 0) rotate(0deg);   opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { transform: translate3d(0, 110vh, 0) rotate(720deg); opacity: 0; }
+  }
+  #victoryScreen .panel {
+    border-color: #ffd280;
+    box-shadow: 0 0 28px rgba(255,180,80,0.35);
+    position: relative;
+    z-index: 2;
+    padding: 18px 18px 14px;
+  }
+  .victorySubtitle {
+    color: #f4e9d6;
+    font-size: 12px;
+    line-height: 1.4;
+    margin: 2px 0 12px;
+    text-align: center;
+  }
+  .victorySubtitle b { color: #ffd280; }
+  .statsGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin: 4px 0 14px;
+  }
+  .statCell {
+    background: rgba(0, 0, 0, 0.42);
+    border: 1px solid rgba(255, 210, 128, 0.28);
+    border-radius: 6px;
+    padding: 6px 2px 7px;
+    text-align: center;
+  }
+  .statLabel {
+    font-size: 9px;
+    color: #a8a090;
+    letter-spacing: 1.4px;
+    margin-bottom: 2px;
+    font-weight: 700;
+  }
+  .statValue {
+    font-family: "Courier New", monospace;
+    font-weight: 900;
+    font-size: 14px;
+    color: #ffd280;
+    text-shadow: 1px 1px 0 #000;
+    line-height: 1.1;
+  }
   #victoryTitle {
     font-family: "Courier New", monospace;
     font-weight: 900;
-    font-size: 26px;
-    letter-spacing: 3px;
+    font-size: 32px;
+    letter-spacing: 4px;
     color: #ffd280;
     text-shadow: 0 0 12px #ffa048, 2px 2px 0 #000;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
+    animation: victoryPulse 1.7s ease-in-out infinite;
+  }
+  @keyframes victoryPulse {
+    0%, 100% {
+      text-shadow: 0 0 12px #ffa048, 2px 2px 0 #000;
+      transform: scale(1);
+    }
+    50% {
+      text-shadow: 0 0 28px #ffa048, 0 0 6px #fff8d0, 2px 2px 0 #000;
+      transform: scale(1.05);
+    }
   }
 
   /* Floating "?" button on the start screen */
@@ -675,11 +759,21 @@
     </div>
   </div>
   <div id="victoryScreen" class="hidden">
+    <div id="victoryFanfare"></div>
     <div class="panel">
       <div id="victoryTitle">VICTORY!</div>
-      <div style="color:#f4e9d6;margin:6px 0 10px;">The pirate is scrap metal.<br>Canyon cleared.</div>
-      <div class="row"><span class="label">SCORE</span> <span id="victoryScore">0</span></div>
-      <div class="row"><span class="label">BEST</span> <span id="victoryBest">0</span></div>
+      <div class="victorySubtitle">
+        The <b>Frost Wraith</b> is banished.<br>
+        All 8 biomes cleared — campaign complete.
+      </div>
+      <div class="statsGrid">
+        <div class="statCell"><div class="statLabel">SCORE</div><div class="statValue" id="victoryScore">0</div></div>
+        <div class="statCell"><div class="statLabel">BEST</div><div class="statValue" id="victoryBest">0</div></div>
+        <div class="statCell"><div class="statLabel">SHIP</div><div class="statValue" id="victoryShip">HAULER</div></div>
+        <div class="statCell"><div class="statLabel">TIME</div><div class="statValue" id="victoryTime">0:00</div></div>
+        <div class="statCell"><div class="statLabel">MAX COMBO</div><div class="statValue" id="victoryCombo">×1</div></div>
+        <div class="statCell"><div class="statLabel">BIOMES</div><div class="statValue" id="victoryBiomes">8/8</div></div>
+      </div>
       <button id="victoryBtn">PLAY AGAIN</button>
     </div>
   </div>
@@ -732,7 +826,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v35';
+const DLX_BUILD = 'v36';
 
 (function() {
   // ---------- iOS gate ----------
@@ -8309,6 +8403,7 @@ const DLX_BUILD = 'v35';
     bird.x = Math.round(W * BIRD_X_FRAC);
     bird.vy = FLAP;
     thrusterFrames = 5;
+    markRunStart();       // start the victory-screen run timer
     setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
     hideOverlay();
     startThemeAmbient();
@@ -8404,10 +8499,44 @@ const DLX_BUILD = 'v35';
   const pauseScoreEl= document.getElementById('pauseScore');
   const resumeBtn   = document.getElementById('resumeBtn');
   const quitBtn     = document.getElementById('quitBtn');
-  const victoryScreen = document.getElementById('victoryScreen');
-  const victoryScoreEl= document.getElementById('victoryScore');
-  const victoryBestEl = document.getElementById('victoryBest');
-  const victoryBtn    = document.getElementById('victoryBtn');
+  const victoryScreen   = document.getElementById('victoryScreen');
+  const victoryFanfare  = document.getElementById('victoryFanfare');
+  const victoryScoreEl  = document.getElementById('victoryScore');
+  const victoryBestEl   = document.getElementById('victoryBest');
+  const victoryShipEl   = document.getElementById('victoryShip');
+  const victoryTimeEl   = document.getElementById('victoryTime');
+  const victoryComboEl  = document.getElementById('victoryCombo');
+  const victoryBiomesEl = document.getElementById('victoryBiomes');
+  const victoryBtn      = document.getElementById('victoryBtn');
+  // Run timer — starts the moment the player taps a ship to launch,
+  // stops when showVictory fires. Display is mm:ss of this session only
+  // (not cumulative across deaths).
+  let runStartMs = 0;
+  function markRunStart() { runStartMs = performance.now(); }
+  function formatRunTime() {
+    const elapsed = Math.max(0, (performance.now() - runStartMs) / 1000);
+    const m = Math.floor(elapsed / 60);
+    const s = Math.floor(elapsed) % 60;
+    return m + ':' + String(s).padStart(2, '0');
+  }
+  function spawnVictoryConfetti() {
+    if (!victoryFanfare) return;
+    victoryFanfare.innerHTML = '';
+    const colors = ['#ffd280', '#ffee40', '#60f0ff', '#ff80c0', '#a0f080', '#ff9a40'];
+    const count = 48;
+    for (let i = 0; i < count; i++) {
+      const c = document.createElement('div');
+      c.className = 'confetti';
+      c.style.left = (Math.random() * 100) + '%';
+      c.style.background = colors[i % colors.length];
+      c.style.width = (4 + Math.random() * 4) + 'px';
+      c.style.height = (8 + Math.random() * 8) + 'px';
+      c.style.animationDuration = (2.4 + Math.random() * 1.8) + 's';
+      c.style.animationDelay = (Math.random() * 1.2) + 's';
+      c.style.transform = 'rotate(' + (Math.random() * 360) + 'deg)';
+      victoryFanfare.appendChild(c);
+    }
+  }
 
   function updateMuteBtn() {
     if (!muteBtn) return;
@@ -8452,6 +8581,14 @@ const DLX_BUILD = 'v35';
     if (!victoryScreen) return;
     victoryScoreEl.textContent = String(score);
     victoryBestEl.textContent  = String(best);
+    if (victoryShipEl) {
+      const shipName = (SHIPS[selectedShip] && SHIPS[selectedShip].label) || selectedShip;
+      victoryShipEl.textContent = String(shipName).toUpperCase();
+    }
+    if (victoryTimeEl)   victoryTimeEl.textContent   = formatRunTime();
+    if (victoryComboEl)  victoryComboEl.textContent  = '×' + (comboMax || 1);
+    if (victoryBiomesEl) victoryBiomesEl.textContent = LEVEL_ORDER.length + '/' + LEVEL_ORDER.length;
+    spawnVictoryConfetti();
     victoryScreen.classList.remove('hidden');
   }
   function victoryRestart(e) {
