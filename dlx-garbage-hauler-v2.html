@@ -112,8 +112,19 @@
     letter-spacing: 1px;
     -webkit-appearance: none;
     cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
   }
   #resumeResetBtn:active { transform: scale(0.94); }
+  #resumeResetBtn.confirming {
+    background: rgba(170, 30, 30, 0.35);
+    border-color: #ff6a4a;
+    color: #ffd8c0;
+    animation: resumeResetPulse 0.6s ease-out infinite alternate;
+  }
+  @keyframes resumeResetPulse {
+    from { box-shadow: 0 0 0 rgba(255, 80, 40, 0.0); }
+    to   { box-shadow: 0 0 12px rgba(255, 80, 40, 0.55); }
+  }
 
   #themeLabel {
     font-size: 12px;
@@ -717,7 +728,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v17';
+const DLX_BUILD = 'v18';
 
 (function() {
   // ---------- iOS gate ----------
@@ -8003,14 +8014,42 @@ const DLX_BUILD = 'v17';
       resumeRow.classList.add('hidden');
     }
   }
+  // Two-tap confirmation so an accidental tap near this button (it sits
+  // close to the ship + help buttons) doesn't wipe the player's campaign
+  // progress. First tap flips the button to CONFIRM state; second tap
+  // within 3s actually resets. Any 3s of inactivity reverts it.
+  let resetConfirmTimer = 0;
+  function cancelResetConfirm() {
+    if (resetConfirmTimer) {
+      clearTimeout(resetConfirmTimer);
+      resetConfirmTimer = 0;
+    }
+    if (resumeResetBtn) {
+      resumeResetBtn.textContent = 'START OVER';
+      resumeResetBtn.classList.remove('confirming');
+    }
+  }
   function resetProgress(e) {
     if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
-    clearResume();
-    selectedTheme = 'sunset';
-    refreshResumeRow();
+    if (resetConfirmTimer) {
+      // Second tap within the confirm window — actually reset
+      cancelResetConfirm();
+      clearResume();
+      selectedTheme = 'sunset';
+      refreshResumeRow();
+      return;
+    }
+    // First tap — arm confirm state
+    if (resumeResetBtn) {
+      resumeResetBtn.textContent = 'TAP TO CONFIRM';
+      resumeResetBtn.classList.add('confirming');
+    }
+    resetConfirmTimer = setTimeout(cancelResetConfirm, 3000);
   }
   if (resumeResetBtn) {
-    resumeResetBtn.addEventListener('touchstart', resetProgress, { passive: false });
+    // touchend (not touchstart) so a finger swiping through on its way to
+    // a ship button doesn't accidentally trigger this.
+    resumeResetBtn.addEventListener('touchend', resetProgress, { passive: false });
     resumeResetBtn.addEventListener('click', resetProgress);
   }
 
@@ -8020,6 +8059,7 @@ const DLX_BUILD = 'v17';
     gameOverScreen.classList.add('hidden');
     if (pauseScreen) pauseScreen.classList.add('hidden');
     if (victoryScreen) victoryScreen.classList.add('hidden');
+    cancelResetConfirm();   // back to default START OVER state
     if (playBtnsEl) playBtnsEl.style.display = 'none';
     refreshResumeRow();
     // Sync picker highlight with the current selectedTheme so players see
