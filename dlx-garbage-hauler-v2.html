@@ -727,7 +727,7 @@
           </ol>
           <h4>Power-ups</h4>
           <ul class="helpPw">
-            <li><span class="pwIcon sh has-svg"><svg viewBox="-10 -10 20 20" aria-hidden="true"><path d="M-7,-8 L7,-8 L7,1 Q7,7 0,9 Q-7,7 -7,1 Z" fill="#9bd2ff" stroke="#9bd2ff" stroke-width="0.8"/><rect x="-1.3" y="-5" width="2.6" height="9" fill="#0a1020" fill-opacity="0.85"/><rect x="-4.5" y="-1.3" width="9" height="2.6" fill="#0a1020" fill-opacity="0.85"/></svg></span> <b>Shield</b> — absorbs a hit (stacks to 3)</li>
+            <li><span class="pwIcon sh has-svg"><svg viewBox="-10 -10 20 20" aria-hidden="true"><circle cx="0" cy="0" r="7" fill="none" stroke="#9bd2ff" stroke-width="1.8"/><path d="M -4.5,-4.5 A 4.5,4.5 0 0 1 0,-6.5" fill="none" stroke="#ffffff" stroke-opacity="0.75" stroke-width="1.2"/><circle cx="-5.5" cy="-4.5" r="1.2" fill="#9bd2ff"/><circle cx="0" cy="-6.8" r="1.2" fill="#9bd2ff"/><circle cx="5.5" cy="-4.5" r="1.2" fill="#9bd2ff"/></svg></span> <b>Shield</b> — absorbs a hit (stacks to 3)</li>
             <li><span class="pwIcon sl">◐</span> <b>Slow</b> — pipes at ½ speed · 5s</li>
             <li><span class="pwIcon db">×2</span> <b>Double</b> — score ×2 · 6s</li>
             <li><span class="pwIcon mg has-svg"><svg viewBox="-10 -10 20 20" aria-hidden="true"><path d="M-5,7 L-5,0 A5,5 0 0 1 5,0 L5,7" fill="none" stroke="#ff6b9d" stroke-width="3.2" stroke-linecap="round"/><circle cx="-5" cy="7" r="2.4" fill="#f04040"/><circle cx="5" cy="7" r="2.4" fill="#f04040"/></svg></span> <b>Magnet</b> — pulls pickups · 6s</li>
@@ -835,7 +835,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v37';
+const DLX_BUILD = 'v38';
 
 (function() {
   // ---------- iOS gate ----------
@@ -5284,21 +5284,25 @@ const DLX_BUILD = 'v37';
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     if (kind === 'shield') {
-      // Heraldic shield with a white cross emblem
-      ctx.fillStyle = color;
+      // Lightweight energy bubble — mirrors the actual shield aura the
+      // player sees when the power-up is active (a ring + a few
+      // sparkles, no heavy crest).
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(-6, -7);
-      ctx.lineTo( 6, -7);
-      ctx.lineTo( 6,  1);
-      ctx.quadraticCurveTo( 6,  7, 0, 8.5);
-      ctx.quadraticCurveTo(-6,  7, -6, 1);
-      ctx.closePath();
-      ctx.fill();
+      ctx.arc(0, 0, 7, 0, Math.PI * 2);
       ctx.stroke();
-      // Cross emblem
-      ctx.fillStyle = 'rgba(255,255,255,0.88)';
-      ctx.fillRect(-1.2, -4, 2.4, 8);
-      ctx.fillRect(-4,   -1.2, 8, 2.4);
+      // Inner highlight arc
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(0, 0, 4.8, Math.PI * 1.1, Math.PI * 1.75);
+      ctx.stroke();
+      // Three small sparkle dots around the top
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(-5.5, -4.5, 1.1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 0,    -6.8, 1.1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 5.5, -4.5, 1.1, 0, Math.PI * 2); ctx.fill();
     } else if (kind === 'slow') {
       ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath();
@@ -7841,7 +7845,11 @@ const DLX_BUILD = 'v37';
     if (shieldCharges > 0) drawShieldBubble();
     // Magnet pulse ring
     if (magnetFrames > 0) drawMagnetRing();
-    // Ghost + i-frame transparency
+    // Ghost aura — soft mint halo + dashed spinning ring telegraphs
+    // phase-through mode clearly. Drawn before the transparency below
+    // so the aura itself stays solid and readable.
+    if (ghostFrames > 0) drawGhostAura();
+    // Ghost + i-frame transparency (applied to the ship itself only)
     if (ghostFrames > 0) ctx.globalAlpha = 0.55 + 0.25 * Math.sin(frame * 0.3);
     else if (invulnFrames > 0 && Math.floor(frame / 3) % 2 === 0) {
       ctx.globalAlpha = 0.5;
@@ -8044,6 +8052,35 @@ const DLX_BUILD = 'v37';
       ctx.arc(Math.cos(a) * r, Math.sin(a) * r, 2.2, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.restore();
+  }
+
+  function drawGhostAura() {
+    ctx.save();
+    ctx.translate(bird.x, bird.y);
+    const base = BIRD_R + 6;
+    const r = base + Math.sin(frame * 0.18) * 2;
+    // Soft mint radial glow
+    const g = ctx.createRadialGradient(0, 0, 2, 0, 0, r + 5);
+    g.addColorStop(0,   'rgba(184, 255, 232, 0.40)');
+    g.addColorStop(0.55,'rgba(120, 240, 200, 0.22)');
+    g.addColorStop(1,   'rgba(80,  200, 160, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, r + 5, 0, Math.PI * 2);
+    ctx.fill();
+    // Dashed spinning ring — the ethereal "you're phasing" cue
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = '#b8ffe8';
+    ctx.strokeStyle = 'rgba(184, 255, 232, 0.85)';
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([4, 5]);
+    ctx.lineDashOffset = -frame * 0.35;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
