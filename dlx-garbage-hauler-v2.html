@@ -728,7 +728,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v20';
+const DLX_BUILD = 'v21';
 
 (function() {
   // ---------- iOS gate ----------
@@ -5849,14 +5849,11 @@ const DLX_BUILD = 'v20';
     ctx.ellipse(cx, baseY - 1 * sign, w * 0.55, 4, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Reed stalks — fewer stalks, single stroke per stalk, simpler cattails.
-    // Previous version was the worst hot path on the swamp level: 8 stalks
-    // per pipe × 2 strokes each + 6-segment cattail fluff loop × 5 cattails
-    // per pipe meant ~70 stroke ops per pipe segment, and with 6 reed
-    // segments visible it was ~420 strokes per frame just for reeds.
+    // Reed stalks — each stalk drawn as a dark outline + brighter core so
+    // they read against the swamp sky's green gradient instead of blending
+    // into it. Two strokes per stalk is still well under the old hot-path
+    // budget (previous version was ~70 stroke ops per pipe segment).
     const stalkCount = 5;
-    ctx.strokeStyle = '#2e5018';
-    ctx.lineWidth = 1.8;
     const stalksData = [];
     for (let i = 0; i < stalkCount; i++) {
       const t = i / (stalkCount - 1);
@@ -5867,17 +5864,36 @@ const DLX_BUILD = 'v20';
       const sTipY = baseY + reach * sign;
       const sway = Math.sin(frame * 0.05 + i * 0.7 + seed * 0.03) * 3.2;
       const sTipX = sBaseX + (srand(seed + i * 23) - 0.5) * 10 + sway;
-      stalksData.push({ sBaseX, sBaseY, sTipX, sTipY });
-      // Single stroke per stalk
+      stalksData.push({ sBaseX, sBaseY, sTipX, sTipY, sway });
+    }
+    // Pass 1: dark near-black outline so the stalk shows against any sky tone
+    ctx.strokeStyle = '#050c03';
+    ctx.lineWidth = 3.2;
+    ctx.lineCap = 'round';
+    for (const sd of stalksData) {
       ctx.beginPath();
-      ctx.moveTo(sBaseX, sBaseY);
+      ctx.moveTo(sd.sBaseX, sd.sBaseY);
       ctx.quadraticCurveTo(
-        (sBaseX + sTipX) / 2 + sway,
-        (sBaseY + sTipY) / 2,
-        sTipX, sTipY
+        (sd.sBaseX + sd.sTipX) / 2 + sd.sway,
+        (sd.sBaseY + sd.sTipY) / 2,
+        sd.sTipX, sd.sTipY
       );
       ctx.stroke();
     }
+    // Pass 2: vivid lime core stroke — pops against the dark swamp sky
+    ctx.strokeStyle = '#8cc43a';
+    ctx.lineWidth = 1.6;
+    for (const sd of stalksData) {
+      ctx.beginPath();
+      ctx.moveTo(sd.sBaseX, sd.sBaseY);
+      ctx.quadraticCurveTo(
+        (sd.sBaseX + sd.sTipX) / 2 + sd.sway,
+        (sd.sBaseY + sd.sTipY) / 2,
+        sd.sTipX, sd.sTipY
+      );
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
 
     // Cattail heads — drawn in a single pass with shared style; the heavy
     // 6-line fluff loop is gone in favour of one inner stripe.
