@@ -745,7 +745,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v30';
+const DLX_BUILD = 'v31';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1821,14 +1821,11 @@ const DLX_BUILD = 'v30';
   }
   function currentPipeSpeed() {
     const d = (typeof LEVEL_DIFF !== 'undefined' && LEVEL_DIFF[levelIndex]) || { speedMul: 1 };
-    let s = Math.min(PIPE_SPEED_MAX, (PIPE_SPEED_BASE + levelProgress() * 0.02) * d.speedMul);
-    if (tutorial) s *= 0.75;   // gentler pacing so new players can react
-    return s;
+    return Math.min(PIPE_SPEED_MAX, (PIPE_SPEED_BASE + levelProgress() * 0.02) * d.speedMul);
   }
   function currentPipeGap() {
     const d = (typeof LEVEL_DIFF !== 'undefined' && LEVEL_DIFF[levelIndex]) || { gapMul: 1 };
-    let g = Math.max(PIPE_GAP_MIN, (PIPE_GAP_BASE - levelProgress() * 0.35) * d.gapMul);
-    if (tutorial) g = Math.min(PIPE_GAP_BASE * 1.15, g + 30);   // wider gaps during tutorial
+    return Math.max(PIPE_GAP_MIN, (PIPE_GAP_BASE - levelProgress() * 0.35) * d.gapMul);
   }
 
   const BIRD_X_FRAC = 0.28;
@@ -2017,10 +2014,18 @@ const DLX_BUILD = 'v30';
   function updateTutorial() {
     if (!tutorial) return;
     if (state !== STATE_PLAY) return;
+    // Safety: if we somehow leave Sunset while the tutorial is still
+    // armed (e.g. player scores past level 1 mid-hints), shut it down
+    // so we don't keep drawing hints on other biomes.
+    if (selectedTheme !== 'sunset') { endTutorial(true); return; }
     if (!tutorial.started) {
       tutorial.started = true;
       tutorial.stepFrame = frame;
+      tutorial.armedFrame = frame;
     }
+    // Hard safety timeout — no matter what, the tutorial ends after
+    // 60s of play so it can't get stuck across runs.
+    if (frame - tutorial.armedFrame > 60 * 60) { endTutorial(true); return; }
     // Smooth fade-in/hold on every hint
     tutorial.hintAlpha = Math.min(1, tutorial.hintAlpha + 0.04);
 
@@ -3393,21 +3398,8 @@ const DLX_BUILD = 'v30';
     const top = minTop + Math.random() * (maxTop - minTop);
     const pool = theme().obstacleTypes || ['cargo', 'junk'];
     const type = pool[Math.floor(Math.random() * pool.length)];
-    // Every ~5th pipe swaps its debris for a glowing power-up capsule.
-    // During the tutorial we script a guaranteed pickup sequence instead:
-    // pipe 1 = debris, 2 = debris, 3 = shield, 4 = missile, 5 = missile
-    // so each step of the hint chain has something real to react to.
-    let spawnPowerUp;
-    let scriptedPowerKind = null;
-    if (tutorial) {
-      const n = tutorial.pipesSpawnedDuringTutorial;
-      if      (n === 2) { spawnPowerUp = true; scriptedPowerKind = 'shield'; }
-      else if (n >= 3)  { spawnPowerUp = true; scriptedPowerKind = 'missile'; }
-      else              { spawnPowerUp = false; }
-      tutorial.pipesSpawnedDuringTutorial++;
-    } else {
-      spawnPowerUp = pipeSpawnCount > 2 && Math.random() < 0.3;
-    }
+    // Every ~5th pipe swaps its debris for a glowing power-up capsule
+    const spawnPowerUp = pipeSpawnCount > 2 && Math.random() < 0.3;
     pipeSpawnCount++;
 
     // Motion: after a few pipes, some obstacles drift vertically or pulse
@@ -3436,7 +3428,7 @@ const DLX_BUILD = 'v30';
       botShape: buildShardShape(PIPE_W, PLAY_H - (top + gap), false),
       antennas: buildAntennas(),
       debris:  spawnPowerUp ? null : makeDebris(gap),
-      powerUp: spawnPowerUp ? makePowerUp(gap, scriptedPowerKind) : null,
+      powerUp: spawnPowerUp ? makePowerUp(gap) : null,
     };
     if (motion === 'drift' || motion === 'fast') {
       pipe.driftSpeed = motion === 'fast' ? 0.09 : 0.04;
@@ -3487,9 +3479,9 @@ const DLX_BUILD = 'v30';
     }
     return POWER_KINDS;
   }
-  function makePowerUp(gap, forcedKind) {
+  function makePowerUp(gap) {
     return {
-      kind: forcedKind || (function(){ const p = powerKindsForTheme(); return p[Math.floor(Math.random() * p.length)]; })(),
+      kind: (function(){ const p = powerKindsForTheme(); return p[Math.floor(Math.random() * p.length)]; })(),
       offY: (Math.random() - 0.5) * (gap * 0.25),
       phase: Math.random() * Math.PI * 2,
       collected: false,
