@@ -728,7 +728,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v26';
+const DLX_BUILD = 'v27';
 
 (function() {
   // ---------- iOS gate ----------
@@ -2009,8 +2009,61 @@ const DLX_BUILD = 'v26';
     // Vertical drift — slow independent sine instead of tracking the
     // player so the pirate feels like a patrolling hazard, not a leash.
     pirate.targetY = PLAY_H * 0.5 + Math.sin(frame * 0.012) * PLAY_H * 0.32;
-    pirate.y += (pirate.targetY - pirate.y) * 0.04;
+    // Thread the pipes: if a pillar is currently overlapping the pirate
+    // or approaching within a short look-ahead, clamp the vertical
+    // target into that pillar's gap so the pirate weaves through the
+    // obstacles instead of ghosting through them.
+    const PIRATE_HW = 22;   // half-width of the pirate hull
+    const PIRATE_HH = 16;   // half-height of the pirate hull
+    const LOOK_AHEAD = 90;  // frames' worth of horizontal travel to react
+    let blocker = null;
+    for (const p of pipes) {
+      if (p.destroyed) continue;
+      const pipeLeft  = p.x;
+      const pipeRight = p.x + PIPE_W;
+      const pirateLeft  = pirate.x - PIRATE_HW;
+      const pirateRight = pirate.x + PIRATE_HW;
+      // Currently overlapping
+      if (pipeRight > pirateLeft && pipeLeft < pirateRight) {
+        blocker = p;
+        break;
+      }
+      // Approaching from the right within look-ahead
+      if (pipeLeft > pirateRight && pipeLeft < pirateRight + LOOK_AHEAD) {
+        blocker = blocker || p;
+        // keep scanning — prefer a currently-overlapping pipe if any
+      }
+    }
+    if (blocker) {
+      const dy = blocker.driftY || 0;
+      const gapTop = blocker.top + dy;
+      const gapBot = gapTop + blocker.gap;
+      // Keep a small margin off each pillar edge
+      const minY = gapTop + PIRATE_HH + 4;
+      const maxY = gapBot - PIRATE_HH - 4;
+      if (minY < maxY) {
+        pirate.targetY = Math.max(minY, Math.min(maxY, pirate.targetY));
+      }
+    }
+    pirate.y += (pirate.targetY - pirate.y) * 0.06;
     pirate.y = Math.max(BIRD_R + 10, Math.min(PLAY_H - BIRD_R - 10, pirate.y));
+    // Hard safety clamp: if a pipe is actually overlapping the pirate,
+    // snap y into the gap so the ship never visually passes through the
+    // pillar even when the sine target hasn't caught up.
+    if (blocker) {
+      const dy = blocker.driftY || 0;
+      const gapTop = blocker.top + dy;
+      const gapBot = gapTop + blocker.gap;
+      const pipeLeft = blocker.x;
+      const pipeRight = blocker.x + PIPE_W;
+      if (pipeRight > pirate.x - PIRATE_HW && pipeLeft < pirate.x + PIRATE_HW) {
+        const minY = gapTop + PIRATE_HH + 2;
+        const maxY = gapBot - PIRATE_HH - 2;
+        if (minY < maxY) {
+          pirate.y = Math.max(minY, Math.min(maxY, pirate.y));
+        }
+      }
+    }
     // Fire projectiles toward the player
     pirate.fireCooldown--;
     if (pirate.fireCooldown <= 0) {
