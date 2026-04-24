@@ -985,7 +985,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v56';
+const DLX_BUILD = 'v57';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1380,7 +1380,6 @@ const DLX_BUILD = 'v56';
 
   // ---------- Audio (Web Audio, synthesised — no asset files) ----------
   let audioCtx = null;
-  let audioCtxDidWarm = false;
   // Create the AudioContext itself (it starts in 'suspended' state on
   // iOS until a user gesture resumes it). decodeAudioData works on a
   // suspended context, which means we can decode file-based ambient
@@ -1395,10 +1394,6 @@ const DLX_BUILD = 'v56';
     if (!audioCtx) ensureAudioCtx();
     if (!audioCtx) return null;
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    if (!audioCtxDidWarm) {
-      audioCtxDidWarm = true;
-      if (typeof warmDecodeAmbientFiles === 'function') warmDecodeAmbientFiles();
-    }
     return audioCtx;
   }
   function tone(freq, dur, type, gain, slide) {
@@ -1492,86 +1487,95 @@ const DLX_BUILD = 'v56';
   };
   let ambientNodes = [];
   let ambientTheme = null;
-  // File-based themes: decode the track into a Web Audio AudioBuffer
-  // once (cached per URL) and play it through a looping
-  // AudioBufferSourceNode so the loop wrap is sample-accurate with
-  // no click or gap (HTMLAudioElement's .loop inserts silence on
-  // iOS Safari). Loading is split into two stages:
-  //   1. fetch → ArrayBuffer (no AudioContext required, can start
-  //      immediately at page boot so the file is already on-device
-  //      by the time the player taps a ship).
-  //   2. decode → AudioBuffer (requires an unlocked AudioContext,
-  //      which typically comes with the first user gesture). We
-  //      kick this off as soon as audio() returns a live context.
-  const ambientArrayCache  = Object.create(null);   // url → ArrayBuffer
-  const ambientArrayInflight = Object.create(null); // url → Promise
-  const ambientBufferCache = Object.create(null);   // url → AudioBuffer
-  const ambientBufferPromise = Object.create(null); // url → Promise
-  let activeAmbientSource = null;
-  let activeAmbientGain   = null;
-  let activeAmbientToken  = 0;
+  // File-based themes: stream playback via HTMLAudioElement for
+  // instant start (no full-file decode required). To avoid the
+  // audible click at loop wrap that iOS Safari's .loop=true causes,
+  // we keep TWO elements per URL and manually cross-fade the second
+  // in just before the first ends, so the handoff is seamless.
+  const ambientElPairs = Object.create(null);  // url → { elA, elB, meta }
+  let activeAmbientPair = null;
+  let activeAmbientToken = 0;
+  function getAmbientPair(url) {
+    if (ambientElPairs[url]) return ambientElPairs[url];
+    const mk = function() {
+      const el = new Audio(url);
+      el.preload = 'auto';
+      el.loop = false;     // we handle looping manually via crossfade
+      el.volume = 0;
+      return el;
+    };
+    const pair = { url: url, elA: mk(), elB: mk(), active: null };
+    ambientElPairs[url] = pair;
+    return pair;
+  }
+  // Fade a single HTMLAudioElement's volume using rAF. Runs
+  // independently per element so crossfades don't conflict.
+  function fadeEl(el, targetVol, durationMs, onDone) {
+    if (!el) { if (onDone) onDone(); return; }
+    if (el._fadeRAF) cancelAnimationFrame(el._fadeRAF);
+    const startVol = el.volume;
+    const startMs  = performance.now();
+    const tick = function(now) {
+      const t = Math.min(1, (now - startMs) / Math.max(1, durationMs));
+      el.volume = Math.max(0, Math.min(1, startVol + (targetVol - startVol) * t));
+      if (t < 1) {
+        el._fadeRAF = requestAnimationFrame(tick);
+      } else {
+        el._fadeRAF = 0;
+        if (onDone) onDone();
+      }
+    };
+    el._fadeRAF = requestAnimationFrame(tick);
+  }
   function prefetchAmbient(url) {
-    if (ambientArrayCache[url])    return Promise.resolve(ambientArrayCache[url]);
-    if (ambientArrayInflight[url]) return ambientArrayInflight[url];
-    const p = fetch(url)
-      .then(function(r) { return r.arrayBuffer(); })
-      .then(function(arr) {
-        ambientArrayCache[url] = arr;
-        delete ambientArrayInflight[url];
-        return arr;
-      })
-      .catch(function(err) { delete ambientArrayInflight[url]; throw err; });
-    ambientArrayInflight[url] = p;
-    return p;
+    // HTMLAudioElement picks this up from the <link rel="preload"> hint
+    // and/or the service worker cache. Touching getAmbientPair() here
+    // forces the Audio objects into existence so their own preload
+    // kicks off network fetch in parallel with everything else.
+    getAmbientPair(url);
+    return Promise.resolve();
   }
-  function loadAmbientBuffer(url) {
-    if (ambientBufferCache[url]) return Promise.resolve(ambientBufferCache[url]);
-    if (ambientBufferPromise[url]) return ambientBufferPromise[url];
-    // Use ensureAudioCtx() instead of audio() so a boot-time decode
-    // doesn't try to resume a not-yet-unlocked context. decodeAudioData
-    // works fine on a suspended context.
-    const a = ensureAudioCtx(); if (!a) return Promise.resolve(null);
-    const p = prefetchAmbient(url)
-      .then(function(arr) {
-        // decodeAudioData consumes the ArrayBuffer; clone so the
-        // prefetch cache remains re-usable for any future decode.
-        const clone = arr.slice(0);
-        return new Promise(function(resolve, reject) {
-          const ret = a.decodeAudioData(clone, resolve, reject);
-          if (ret && typeof ret.then === 'function') ret.then(resolve, reject);
-        });
-      })
-      .then(function(buf) {
-        ambientBufferCache[url] = buf;
-        delete ambientBufferPromise[url];
-        return buf;
-      })
-      .catch(function(err) { delete ambientBufferPromise[url]; throw err; });
-    ambientBufferPromise[url] = p;
-    return p;
-  }
-  // Walk THEME_AMBIENT, start fetching every file-based track now so
-  // the bytes are cached by the time the player actually picks a ship.
-  // Safe to call multiple times (every call is idempotent via the
-  // in-flight cache).
   function prefetchAllAmbientFiles() {
     try {
       for (const key of Object.keys(THEME_AMBIENT)) {
         const cfg = THEME_AMBIENT[key];
-        if (cfg && cfg.file) prefetchAmbient(cfg.file).catch(function() {});
+        if (cfg && cfg.file) prefetchAmbient(cfg.file);
       }
     } catch (e) {}
   }
-  // And once the audio context is live (after the first tap), start
-  // decoding so the first startThemeAmbient call has an AudioBuffer
-  // ready immediately instead of decoding on-demand.
-  function warmDecodeAmbientFiles() {
-    try {
-      for (const key of Object.keys(THEME_AMBIENT)) {
-        const cfg = THEME_AMBIENT[key];
-        if (cfg && cfg.file) loadAmbientBuffer(cfg.file).catch(function() {});
-      }
-    } catch (e) {}
+  function warmDecodeAmbientFiles() { /* no-op: streaming playback doesn't pre-decode */ }
+  // Schedule the crossfade swap from `current` to `next` just before
+  // the current element's duration elapses, so the seam is inaudible.
+  function scheduleAmbientSwap(pair, targetVol, myToken) {
+    const current = pair.active === 'A' ? pair.elA : pair.elB;
+    const next    = pair.active === 'A' ? pair.elB : pair.elA;
+    const FADE_MS = 120;   // crossfade length
+    const armFor = function() {
+      if (myToken !== activeAmbientToken) return;
+      const dur = current.duration;
+      if (!dur || isNaN(dur) || !isFinite(dur)) return;
+      const msLeft   = Math.max(0, (dur - current.currentTime) * 1000);
+      const waitMs   = Math.max(0, msLeft - FADE_MS);
+      if (pair._swapTimer) clearTimeout(pair._swapTimer);
+      pair._swapTimer = setTimeout(function() {
+        if (myToken !== activeAmbientToken) return;
+        try { next.currentTime = 0; } catch (e) {}
+        next.volume = 0;
+        const p = next.play();
+        if (p && typeof p.catch === 'function') p.catch(function() {});
+        fadeEl(next, targetVol, FADE_MS);
+        fadeEl(current, 0, FADE_MS, function() {
+          try { current.pause(); } catch (e) {}
+        });
+        pair.active = pair.active === 'A' ? 'B' : 'A';
+        scheduleAmbientSwap(pair, targetVol, myToken);
+      }, waitMs);
+    };
+    if (current.readyState >= 1 /* HAVE_METADATA */) {
+      armFor();
+    } else {
+      current.addEventListener('loadedmetadata', armFor, { once: true });
+    }
   }
 
   function startThemeAmbient() {
@@ -1582,26 +1586,25 @@ const DLX_BUILD = 'v56';
     ambientTheme = selectedTheme;
     const cfg = THEME_AMBIENT[selectedTheme];
     if (!cfg) return;
-    // ---- File-based theme: Web Audio gapless loop ----
+    // ---- File-based theme: streamed playback with crossfade loop ----
     if (cfg.file) {
       const targetVol = (typeof cfg.volume === 'number') ? cfg.volume : 0.55;
       const myToken = ++activeAmbientToken;
-      const themeAtStart = selectedTheme;
-      loadAmbientBuffer(cfg.file).then(function(buf) {
-        // Bail if the player moved on (or muted / restarted ambient) before the decode finished.
-        if (!buf || myToken !== activeAmbientToken || ambientTheme !== themeAtStart) return;
-        const src = a.createBufferSource();
-        src.buffer = buf;
-        src.loop = true;
-        const gn = a.createGain();
-        const t = a.currentTime;
-        gn.gain.setValueAtTime(0.0001, t);
-        gn.gain.linearRampToValueAtTime(targetVol, t + 0.6);
-        src.connect(gn).connect(a.destination);
-        src.start(0);
-        activeAmbientSource = src;
-        activeAmbientGain   = gn;
-      }).catch(function() { /* decode/fetch failed — silently leave this biome without music */ });
+      const pair = getAmbientPair(cfg.file);
+      // If a stale swap timer is still pending from the previous run,
+      // cancel it before we re-start.
+      if (pair._swapTimer) { clearTimeout(pair._swapTimer); pair._swapTimer = 0; }
+      pair.active = 'A';
+      const startEl = pair.elA;
+      const idleEl  = pair.elB;
+      try { idleEl.pause(); } catch (e) {}
+      try { startEl.currentTime = 0; } catch (e) {}
+      startEl.volume = 0;
+      const p = startEl.play();
+      if (p && typeof p.catch === 'function') p.catch(function() {});
+      fadeEl(startEl, targetVol, 600);
+      scheduleAmbientSwap(pair, targetVol, myToken);
+      activeAmbientPair = pair;
       return;
     }
     // ---- Oscillator-based theme (default) ----
@@ -1631,24 +1634,19 @@ const DLX_BUILD = 'v56';
   }
 
   function stopThemeAmbient(fade) {
-    // Bump the token so any in-flight decode promise aborts
+    // Bump the token so any scheduled crossfade swap aborts
     activeAmbientToken++;
     const ft = (typeof fade === 'number') ? fade : 0.4;
-    // Fade + stop the file-based source if there is one
-    if (activeAmbientSource && audioCtx) {
-      const src = activeAmbientSource;
-      const gn  = activeAmbientGain;
-      const t   = audioCtx.currentTime;
-      activeAmbientSource = null;
-      activeAmbientGain   = null;
-      if (gn) {
-        try {
-          gn.gain.cancelScheduledValues(t);
-          gn.gain.setValueAtTime(gn.gain.value, t);
-          gn.gain.linearRampToValueAtTime(0.0001, t + ft);
-        } catch (e) {}
-      }
-      try { src.stop(t + ft + 0.05); } catch (e) {}
+    // Fade + pause both elements of the active file-based pair
+    if (activeAmbientPair) {
+      const pair = activeAmbientPair;
+      activeAmbientPair = null;
+      if (pair._swapTimer) { clearTimeout(pair._swapTimer); pair._swapTimer = 0; }
+      const stopEl = function(el) {
+        fadeEl(el, 0, ft * 1000, function() { try { el.pause(); } catch (e) {} });
+      };
+      stopEl(pair.elA);
+      stopEl(pair.elB);
     }
     if (!audioCtx) { ambientNodes = []; ambientTheme = null; return; }
     const t = audioCtx.currentTime;
