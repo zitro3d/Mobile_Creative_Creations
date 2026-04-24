@@ -354,6 +354,28 @@
     line-height: 1.4;
   }
   .dailyChip.hidden { display: none; }
+  /* Purple SHARE RESULT button on game-over / victory panels.
+     Hidden by default; shown only after a daily run. */
+  .dailyShareBtn {
+    display: block;
+    margin: 6px auto 8px;
+    padding: 7px 18px;
+    background: rgba(140, 100, 255, 0.22);
+    border: 1.5px solid #a070ff;
+    color: #f0e8ff;
+    border-radius: 8px;
+    font-family: inherit;
+    font-weight: 900;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-shadow: 1px 1px 0 #000;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: transform 0.08s, box-shadow 0.15s;
+    pointer-events: auto;
+  }
+  .dailyShareBtn:active { transform: scale(0.96); box-shadow: 0 0 16px rgba(160, 100, 255, 0.55); }
+  .dailyShareBtn.hidden { display: none; }
   .dailyChip .dailyNew {
     color: #ffd280;
     text-shadow: 0 0 6px rgba(255, 200, 80, 0.7);
@@ -873,6 +895,7 @@
         <div class="row"><span class="label">BEST</span> <span id="bestScore">0</span></div>
         <div class="row"><span class="label">SHIP</span> <span id="finalShip">HAULER</span></div>
         <div id="gameOverDaily" class="dailyChip hidden"></div>
+        <button id="gameOverShareBtn" class="dailyShareBtn hidden">SHARE RESULT</button>
         <button id="restartBtn">RESTART</button>
       </div>
     </div>
@@ -906,6 +929,7 @@
         <div class="statCell"><div class="statLabel">MAX COMBO</div><div class="statValue" id="victoryCombo">×1</div></div>
         <div class="statCell"><div class="statLabel">BIOMES</div><div class="statValue" id="victoryBiomes">8/8</div></div>
       </div>
+      <button id="victoryShareBtn" class="dailyShareBtn hidden">SHARE RESULT</button>
       <button id="victoryBtn">PLAY AGAIN</button>
     </div>
   </div>
@@ -958,7 +982,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v51';
+const DLX_BUILD = 'v52';
 
 (function() {
   // ---------- iOS gate ----------
@@ -9022,6 +9046,7 @@ const DLX_BUILD = 'v51';
   // attempts, best score saved. Streak counts consecutive days played.
   let isDaily = false;
   let dailyWasNewBest = false;     // set at finalize so over-screen can highlight
+  let lastDailyRun = null;         // captured at finalize so Share can recall it
   const _origRandom = Math.random;
   function todayStr() {
     const d = new Date();
@@ -9119,8 +9144,73 @@ const DLX_BUILD = 'v51';
     if (isNew) saveDailyBest(today, score);
     dailyWasNewBest = isNew;
     bumpStreakForToday(today);
+    // Snapshot the run for the Share button. state is set to VICTORY or
+    // OVER by the caller; we infer victory via STATE_VICTORY.
+    const shipLabel = (SHIPS[selectedShip] && SHIPS[selectedShip].label) || selectedShip;
+    lastDailyRun = {
+      date: today,
+      score: score,
+      endLevelIndex: levelIndex,
+      isVictory: (state === STATE_VICTORY),
+      ship: shipLabel,
+      streak: currentStreakCount(),
+      isNewBest: isNew,
+    };
     disableDailyRandom();
     isDaily = false;
+  }
+  // Render a Wordle-style share card:
+  //   DLX Hauler · Daily Apr 22 [🏆]
+  //   🟩🟩🟩🟥⬛⬛⬛⬛
+  //   Score 487 · Hauler · 🔥 3-day streak
+  //   <url>
+  function buildDailyShareText(run) {
+    if (!run) return '';
+    const cells = [];
+    for (let i = 0; i < LEVEL_ORDER.length; i++) {
+      if (run.isVictory)               cells.push('🟩');         // cleared everything
+      else if (i < run.endLevelIndex)  cells.push('🟩');         // cleared this biome
+      else if (i === run.endLevelIndex) cells.push('🟥');         // died here
+      else                              cells.push('⬛');         // never reached
+    }
+    const trophy  = run.isVictory ? ' 🏆' : '';
+    const streakS = run.streak > 0 ? ' · 🔥 ' + run.streak + '-day streak' : '';
+    const url = (typeof location !== 'undefined' && location.href)
+      ? location.href.split('?')[0]
+      : 'zitro3d.github.io/Mobile_Creative_Creations/dlx-garbage-hauler-v2.html';
+    return 'DLX Hauler · Daily ' + formatDailyDate(run.date) + trophy + '\n'
+         + cells.join('') + '\n'
+         + 'Score ' + run.score + ' · ' + run.ship + streakS + '\n'
+         + url;
+  }
+  // Share the last daily run. Prefers the native share sheet (iOS
+  // Safari 15+), then the clipboard, then a final prompt fallback.
+  // Briefly rewrites the button's label so the player knows it worked.
+  function shareDailyResult(btn) {
+    const run = lastDailyRun;
+    if (!run) return;
+    const text = buildDailyShareText(run);
+    const flash = (msg) => {
+      if (!btn) return;
+      const orig = btn.textContent;
+      btn.textContent = msg;
+      setTimeout(function() { if (btn) btn.textContent = orig; }, 1500);
+    };
+    if (navigator.share) {
+      navigator.share({ text: text }).then(function() {
+        flash('SHARED ✓');
+      }).catch(function() { /* user cancelled — no toast */ });
+      return;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() {
+        flash('COPIED ✓');
+      }).catch(function() {
+        window.prompt('Copy your Daily result:', text);
+      });
+      return;
+    }
+    window.prompt('Copy your Daily result:', text);
   }
   function spawnVictoryConfetti() {
     if (!victoryFanfare) return;
@@ -9205,7 +9295,17 @@ const DLX_BUILD = 'v51';
       }
     }
     victoryFreshUnlock = false;
+    const wasDaily = isDaily;
     finalizeDailyRunIfNeeded();   // harmless if this wasn't a daily run
+    // Share button: visible only if this was a daily victory.
+    if (victoryShareBtn) {
+      if (wasDaily && lastDailyRun) {
+        victoryShareBtn.textContent = 'SHARE RESULT';
+        victoryShareBtn.classList.remove('hidden');
+      } else {
+        victoryShareBtn.classList.add('hidden');
+      }
+    }
     spawnVictoryConfetti();
     victoryScreen.classList.remove('hidden');
   }
@@ -9236,6 +9336,21 @@ const DLX_BUILD = 'v51';
   if (victoryBtn) {
     victoryBtn.addEventListener('touchstart', victoryRestart, { passive: false });
     victoryBtn.addEventListener('click', victoryRestart);
+  }
+  // SHARE RESULT buttons — identical handler, both share the lastDailyRun.
+  const gameOverShareBtn = document.getElementById('gameOverShareBtn');
+  const victoryShareBtn  = document.getElementById('victoryShareBtn');
+  function onShareBtnTap(e, btn) {
+    if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    shareDailyResult(btn);
+  }
+  if (gameOverShareBtn) {
+    gameOverShareBtn.addEventListener('touchend', function(e) { onShareBtnTap(e, gameOverShareBtn); }, { passive: false });
+    gameOverShareBtn.addEventListener('click',    function(e) { onShareBtnTap(e, gameOverShareBtn); });
+  }
+  if (victoryShareBtn) {
+    victoryShareBtn.addEventListener('touchend', function(e) { onShareBtnTap(e, victoryShareBtn); }, { passive: false });
+    victoryShareBtn.addEventListener('click',    function(e) { onShareBtnTap(e, victoryShareBtn); });
   }
   // Auto-pause when the tab is backgrounded (incoming call, app switch, etc.)
   document.addEventListener('visibilitychange', function() {
@@ -9425,6 +9540,15 @@ const DLX_BUILD = 'v51';
         gameOverDaily.classList.remove('hidden');
       } else {
         gameOverDaily.classList.add('hidden');
+      }
+    }
+    // Share button: visible only if this was a daily run with a snapshot.
+    if (gameOverShareBtn) {
+      if (wasDaily && lastDailyRun) {
+        gameOverShareBtn.textContent = 'SHARE RESULT';
+        gameOverShareBtn.classList.remove('hidden');
+      } else {
+        gameOverShareBtn.classList.add('hidden');
       }
     }
     overlay.classList.add('show');
