@@ -89,7 +89,7 @@
   #overlay #themePicker, #overlay .themeBtn,
   #overlay #helpBtn, #overlay #helpScreen, #overlay #helpScreen *,
   #overlay #resumeRow, #overlay #resumeResetBtn,
-  #overlay #skinToggleBtn { pointer-events: auto; }
+  #overlay #skinToggleBtn, #overlay #dailyBtn { pointer-events: auto; }
 
   #resumeRow {
     display: flex;
@@ -141,6 +141,50 @@
     box-shadow: 0 0 12px rgba(255, 200, 80, 0.35);
   }
   #skinToggleBtn.hidden { display: none; }
+  /* Daily Challenge button — prominent pill above the help "?" */
+  #dailyBtn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    margin: 10px auto 0;
+    padding: 8px 16px;
+    min-width: 220px;
+    background: linear-gradient(180deg, rgba(80, 30, 120, 0.55), rgba(40, 10, 80, 0.55));
+    border: 1.5px solid #a070ff;
+    border-radius: 10px;
+    color: #f0e8ff;
+    font-family: inherit;
+    font-weight: 900;
+    font-size: 11px;
+    letter-spacing: 1px;
+    -webkit-appearance: none;
+    cursor: pointer;
+    box-shadow: 0 0 14px rgba(160, 100, 255, 0.35);
+    transition: transform 0.08s, box-shadow 0.15s, border-color 0.15s;
+  }
+  #dailyBtn:active { transform: scale(0.97); box-shadow: 0 0 22px rgba(160, 100, 255, 0.55); }
+  #dailyBtn .dailyHead {
+    color: #e8d8ff;
+    font-size: 11.5px;
+    letter-spacing: 1.3px;
+  }
+  #dailyBtn .dailyMeta {
+    color: #c0b0e8;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+  }
+  #dailyBtn .dailyDot { color: #7050c0; }
+  #dailyBtn.done {
+    border-color: #ffd280;
+    background: linear-gradient(180deg, rgba(120, 80, 20, 0.4), rgba(60, 30, 10, 0.5));
+    box-shadow: 0 0 14px rgba(255, 200, 80, 0.3);
+  }
+  #dailyBtn.done .dailyHead { color: #ffe8b8; }
   #resumeResetBtn.confirming {
     background: rgba(170, 30, 30, 0.35);
     border-color: #ff6a4a;
@@ -294,6 +338,26 @@
     font-weight: 700;
   }
   .victoryUnlock.hidden { display: none; }
+  /* Daily Challenge summary chip, shown on the Game Over panel after a
+     daily run. Same frame as victoryUnlock but purple-tinted. */
+  .dailyChip {
+    margin: 6px 0 10px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(140, 100, 255, 0.14);
+    border: 1px solid rgba(160, 120, 255, 0.55);
+    color: #e0d0ff;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-align: center;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+  .dailyChip.hidden { display: none; }
+  .dailyChip .dailyNew {
+    color: #ffd280;
+    text-shadow: 0 0 6px rgba(255, 200, 80, 0.7);
+  }
   .statsGrid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -740,6 +804,14 @@
         <span id="resumeLabel">Resuming: —</span>
         <button id="resumeResetBtn">START OVER</button>
       </div>
+      <button id="dailyBtn" class="dailyBtn">
+        <span class="dailyHead">🗓 DAILY CHALLENGE · <span id="dailyDate">—</span></span>
+        <span class="dailyMeta">
+          <span id="dailyBestLabel">no best yet</span>
+          <span class="dailyDot">·</span>
+          <span id="dailyStreakLabel">🔥 0-day streak</span>
+        </span>
+      </button>
       <button id="helpBtn" aria-label="Help">?</button>
       <div id="buildStamp"></div>
     </div>
@@ -800,6 +872,7 @@
         <div class="row"><span class="label">SCORE</span> <span id="finalScore">0</span></div>
         <div class="row"><span class="label">BEST</span> <span id="bestScore">0</span></div>
         <div class="row"><span class="label">SHIP</span> <span id="finalShip">HAULER</span></div>
+        <div id="gameOverDaily" class="dailyChip hidden"></div>
         <button id="restartBtn">RESTART</button>
       </div>
     </div>
@@ -885,7 +958,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v50';
+const DLX_BUILD = 'v51';
 
 (function() {
   // ---------- iOS gate ----------
@@ -2143,16 +2216,19 @@ const DLX_BUILD = 'v50';
     }
     playSound('levelup');
     startThemeAmbient();
-    // Persist the furthest level ever reached across deaths. New runs
-    // start at this level; a reset button on the start screen wipes it.
-    try {
-      const prev = parseInt(localStorage.getItem('dlx_resume_v2') || '0', 10);
-      if (levelIndex > prev) localStorage.setItem('dlx_resume_v2', String(levelIndex));
-      // Dev mode also reads dlx_theme_v2 on boot — keep it in sync so a
-      // reload mid-run doesn't snap the player back to the last picker
-      // click.
-      localStorage.setItem('dlx_theme_v2', selectedTheme);
-    } catch (e) {}
+    // Persist the furthest level ever reached across deaths — but only
+    // for campaign runs. Daily Challenge is a separate track so its
+    // progress shouldn't leak into the campaign resume.
+    if (!isDaily) {
+      try {
+        const prev = parseInt(localStorage.getItem('dlx_resume_v2') || '0', 10);
+        if (levelIndex > prev) localStorage.setItem('dlx_resume_v2', String(levelIndex));
+        // Dev mode also reads dlx_theme_v2 on boot — keep it in sync so
+        // a reload mid-run doesn't snap the player back to the last
+        // picker click.
+        localStorage.setItem('dlx_theme_v2', selectedTheme);
+      } catch (e) {}
+    }
     // Picker highlights were set at boot; update them so the UI shows the
     // current theme next time the overlay is visible.
     for (const btn of themeBtns || []) {
@@ -8795,6 +8871,29 @@ const DLX_BUILD = 'v50';
     startThemeAmbient();
   }
 
+  // Launch the Daily Challenge: identical RNG for every player on the
+  // same date, always starts at Sunset, keeps the campaign resume
+  // untouched. Uses the currently picked ship + skin.
+  function startDailyChallenge() {
+    applyShipStats(selectedShip);
+    const today = todayStr();
+    enableDailyRandom(dateSeed(today));
+    isDaily = true;
+    dailyWasNewBest = false;
+    // Force Sunset start regardless of campaign resume
+    selectedTheme = 'sunset';
+    buildBgCache();
+    reset();
+    state = STATE_PLAY;
+    bird.x = Math.round(W * BIRD_X_FRAC);
+    bird.vy = FLAP;
+    thrusterFrames = 5;
+    markRunStart();
+    setLevelBanner('DAILY · ' + formatDailyDate(today));
+    hideOverlay();
+    startThemeAmbient();
+  }
+
   // IMPORTANT: hook on touchstart and stop propagation so the stage's
   // touchstart (which launches the game) never sees the tap. Otherwise the
   // stage handler fires first with selectedShip unchanged → you'd always
@@ -8916,6 +9015,113 @@ const DLX_BUILD = 'v50';
     const s = Math.floor(elapsed) % 60;
     return m + ':' + String(s).padStart(2, '0');
   }
+
+  // ---------- Daily Challenge ----------
+  // One seeded run per day — every player gets the same RNG sequence so
+  // pipe layouts, debris, and power-up drops are identical. Unlimited
+  // attempts, best score saved. Streak counts consecutive days played.
+  let isDaily = false;
+  let dailyWasNewBest = false;     // set at finalize so over-screen can highlight
+  const _origRandom = Math.random;
+  function todayStr() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+  function yesterdayStr(todayS) {
+    const parts = todayS.split('-').map(Number);
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    d.setDate(d.getDate() - 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+  function formatDailyDate(s) {
+    // "2026-04-22" → "Apr 22"
+    const parts = s.split('-').map(Number);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return months[parts[1] - 1] + ' ' + parts[2];
+  }
+  // FNV-1a 32-bit hash → 32-bit integer seed.
+  function dateSeed(s) {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h;
+  }
+  // Mulberry32 — compact, high-quality PRNG.
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function() {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function enableDailyRandom(seed) { Math.random = mulberry32(seed); }
+  function disableDailyRandom()    { Math.random = _origRandom; }
+  function loadDailyBest() {
+    try {
+      const raw = localStorage.getItem('dlx_daily_best_v1');
+      if (!raw) return null;
+      const o = JSON.parse(raw);
+      if (o && o.date && typeof o.score === 'number') return o;
+    } catch (e) {}
+    return null;
+  }
+  function saveDailyBest(date, score) {
+    try { localStorage.setItem('dlx_daily_best_v1', JSON.stringify({ date: date, score: score })); }
+    catch (e) {}
+  }
+  function loadDailyStreak() {
+    try {
+      const raw = localStorage.getItem('dlx_daily_streak_v1');
+      if (!raw) return { count: 0, lastDate: '' };
+      const o = JSON.parse(raw);
+      if (o && typeof o.count === 'number' && typeof o.lastDate === 'string') return o;
+    } catch (e) {}
+    return { count: 0, lastDate: '' };
+  }
+  function saveDailyStreak(s) {
+    try { localStorage.setItem('dlx_daily_streak_v1', JSON.stringify(s)); }
+    catch (e) {}
+  }
+  function currentStreakCount() {
+    // Streak is the stored count if lastDate is today or yesterday;
+    // otherwise the chain is broken and the display should read 0.
+    const s = loadDailyStreak();
+    if (!s.lastDate) return 0;
+    const today = todayStr();
+    if (s.lastDate === today) return s.count;
+    if (s.lastDate === yesterdayStr(today)) return s.count;
+    return 0;
+  }
+  function bumpStreakForToday(today) {
+    const s = loadDailyStreak();
+    if (s.lastDate === today) return;   // already counted today
+    const yest = yesterdayStr(today);
+    s.count = (s.lastDate === yest) ? s.count + 1 : 1;
+    s.lastDate = today;
+    saveDailyStreak(s);
+  }
+  function finalizeDailyRunIfNeeded() {
+    if (!isDaily) return;
+    const today = todayStr();
+    const prev = loadDailyBest();
+    const isNew = !prev || prev.date !== today || score > prev.score;
+    if (isNew) saveDailyBest(today, score);
+    dailyWasNewBest = isNew;
+    bumpStreakForToday(today);
+    disableDailyRandom();
+    isDaily = false;
+  }
   function spawnVictoryConfetti() {
     if (!victoryFanfare) return;
     victoryFanfare.innerHTML = '';
@@ -8999,6 +9205,7 @@ const DLX_BUILD = 'v50';
       }
     }
     victoryFreshUnlock = false;
+    finalizeDailyRunIfNeeded();   // harmless if this wasn't a daily run
     spawnVictoryConfetti();
     victoryScreen.classList.remove('hidden');
   }
@@ -9136,6 +9343,39 @@ const DLX_BUILD = 'v50';
     skinToggleBtn.addEventListener('click', toggleSkin);
   }
 
+  // ---------- Daily Challenge button ----------
+  const dailyBtn         = document.getElementById('dailyBtn');
+  const dailyDateEl      = document.getElementById('dailyDate');
+  const dailyBestLabelEl = document.getElementById('dailyBestLabel');
+  const dailyStreakLabelEl = document.getElementById('dailyStreakLabel');
+  function refreshDailyRow() {
+    if (!dailyBtn) return;
+    const today = todayStr();
+    if (dailyDateEl) dailyDateEl.textContent = formatDailyDate(today);
+    const best = loadDailyBest();
+    const todayBest = (best && best.date === today) ? best.score : null;
+    if (dailyBestLabelEl) {
+      dailyBestLabelEl.textContent = todayBest == null
+        ? 'no best yet'
+        : "today's best: " + todayBest;
+    }
+    const streak = currentStreakCount();
+    if (dailyStreakLabelEl) {
+      dailyStreakLabelEl.textContent = '🔥 ' + streak + '-day streak';
+    }
+    // Amber tint if the player has already logged a run today
+    dailyBtn.classList.toggle('done', todayBest != null);
+  }
+  function onDailyTap(e) {
+    if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    if (state !== STATE_READY) return;
+    startDailyChallenge();
+  }
+  if (dailyBtn) {
+    dailyBtn.addEventListener('touchend', onDailyTap, { passive: false });
+    dailyBtn.addEventListener('click', onDailyTap);
+  }
+
   function showStart() {
     overlay.classList.add('show');
     startScreen.classList.remove('hidden');
@@ -9146,6 +9386,7 @@ const DLX_BUILD = 'v50';
     if (playBtnsEl) playBtnsEl.style.display = 'none';
     refreshResumeRow();
     refreshSkinToggle();
+    refreshDailyRow();
     // Sync picker highlight with the current selectedTheme so players see
     // which level they'll launch into (especially after dying mid-run).
     for (const btn of themeBtns) {
@@ -9160,9 +9401,32 @@ const DLX_BUILD = 'v50';
     if (playBtnsEl) playBtnsEl.style.display = 'flex';
   }
   function showGameOver() {
+    const wasDaily = isDaily;
+    finalizeDailyRunIfNeeded();   // safe on non-daily runs (no-op)
     finalScoreEl.textContent = String(score);
     bestScoreEl.textContent = String(best);
     if (finalShipEl) finalShipEl.textContent = SHIPS[selectedShip].label;
+    // Daily summary — only shown if this was a daily run
+    const gameOverDaily = document.getElementById('gameOverDaily');
+    if (gameOverDaily) {
+      if (wasDaily) {
+        const today = todayStr();
+        const best = loadDailyBest();
+        const bestScore = (best && best.date === today) ? best.score : score;
+        const streak = currentStreakCount();
+        const tag = dailyWasNewBest
+          ? '<span class="dailyNew">★ NEW DAILY BEST!</span><br>'
+          : '';
+        gameOverDaily.innerHTML =
+          tag +
+          'DAILY · ' + formatDailyDate(today) +
+          ' · best ' + bestScore +
+          '<br>🔥 ' + streak + '-day streak';
+        gameOverDaily.classList.remove('hidden');
+      } else {
+        gameOverDaily.classList.add('hidden');
+      }
+    }
     overlay.classList.add('show');
     startScreen.classList.add('hidden');
     gameOverScreen.classList.remove('hidden');
