@@ -12,6 +12,9 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="dlx-icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="dlx-icon.svg">
+<!-- Preload the Sunset ambient so the browser starts downloading it in
+     parallel with the HTML/JS parse, not after the player taps. -->
+<link rel="preload" href="audio/sunset-ambient.m4a" as="audio" type="audio/mp4">
 <title>DLX Garbage Hauler</title>
 <style>
   :root {
@@ -982,7 +985,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v54';
+const DLX_BUILD = 'v55';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1377,12 +1380,20 @@ const DLX_BUILD = 'v54';
 
   // ---------- Audio (Web Audio, synthesised — no asset files) ----------
   let audioCtx = null;
+  let audioCtxDidWarm = false;
   function audio() {
     if (!audioCtx) {
       try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
       catch (e) { return null; }
     }
     if (audioCtx.state === 'suspended') audioCtx.resume();
+    // First time we get a live context, start pre-decoding any
+    // file-based ambient tracks so startThemeAmbient has the buffer
+    // ready instantly.
+    if (!audioCtxDidWarm) {
+      audioCtxDidWarm = true;
+      if (typeof warmDecodeAmbientFiles === 'function') warmDecodeAmbientFiles();
+    }
     return audioCtx;
   }
   function tone(freq, dur, type, gain, slide) {
@@ -1480,27 +1491,46 @@ const DLX_BUILD = 'v54';
   // once (cached per URL) and play it through a looping
   // AudioBufferSourceNode so the loop wrap is sample-accurate with
   // no click or gap (HTMLAudioElement's .loop inserts silence on
-  // iOS Safari).
-  const ambientBufferCache = Object.create(null);
-  const ambientBufferPromise = Object.create(null);
+  // iOS Safari). Loading is split into two stages:
+  //   1. fetch → ArrayBuffer (no AudioContext required, can start
+  //      immediately at page boot so the file is already on-device
+  //      by the time the player taps a ship).
+  //   2. decode → AudioBuffer (requires an unlocked AudioContext,
+  //      which typically comes with the first user gesture). We
+  //      kick this off as soon as audio() returns a live context.
+  const ambientArrayCache  = Object.create(null);   // url → ArrayBuffer
+  const ambientArrayInflight = Object.create(null); // url → Promise
+  const ambientBufferCache = Object.create(null);   // url → AudioBuffer
+  const ambientBufferPromise = Object.create(null); // url → Promise
   let activeAmbientSource = null;
   let activeAmbientGain   = null;
   let activeAmbientToken  = 0;
+  function prefetchAmbient(url) {
+    if (ambientArrayCache[url])    return Promise.resolve(ambientArrayCache[url]);
+    if (ambientArrayInflight[url]) return ambientArrayInflight[url];
+    const p = fetch(url)
+      .then(function(r) { return r.arrayBuffer(); })
+      .then(function(arr) {
+        ambientArrayCache[url] = arr;
+        delete ambientArrayInflight[url];
+        return arr;
+      })
+      .catch(function(err) { delete ambientArrayInflight[url]; throw err; });
+    ambientArrayInflight[url] = p;
+    return p;
+  }
   function loadAmbientBuffer(url) {
     if (ambientBufferCache[url]) return Promise.resolve(ambientBufferCache[url]);
     if (ambientBufferPromise[url]) return ambientBufferPromise[url];
     const a = audio(); if (!a) return Promise.resolve(null);
-    const p = fetch(url)
-      .then(function(r) { return r.arrayBuffer(); })
+    const p = prefetchAmbient(url)
       .then(function(arr) {
-        // Promise variant (decodeAudioData returns a Promise on modern
-        // browsers; on older Safari it only accepts callback form,
-        // so we wrap both).
+        // decodeAudioData consumes the ArrayBuffer; clone so the
+        // prefetch cache remains re-usable for any future decode.
+        const clone = arr.slice(0);
         return new Promise(function(resolve, reject) {
-          const maybePromise = a.decodeAudioData(arr, resolve, reject);
-          if (maybePromise && typeof maybePromise.then === 'function') {
-            maybePromise.then(resolve, reject);
-          }
+          const ret = a.decodeAudioData(clone, resolve, reject);
+          if (ret && typeof ret.then === 'function') ret.then(resolve, reject);
         });
       })
       .then(function(buf) {
@@ -1508,12 +1538,32 @@ const DLX_BUILD = 'v54';
         delete ambientBufferPromise[url];
         return buf;
       })
-      .catch(function(err) {
-        delete ambientBufferPromise[url];
-        throw err;
-      });
+      .catch(function(err) { delete ambientBufferPromise[url]; throw err; });
     ambientBufferPromise[url] = p;
     return p;
+  }
+  // Walk THEME_AMBIENT, start fetching every file-based track now so
+  // the bytes are cached by the time the player actually picks a ship.
+  // Safe to call multiple times (every call is idempotent via the
+  // in-flight cache).
+  function prefetchAllAmbientFiles() {
+    try {
+      for (const key of Object.keys(THEME_AMBIENT)) {
+        const cfg = THEME_AMBIENT[key];
+        if (cfg && cfg.file) prefetchAmbient(cfg.file).catch(function() {});
+      }
+    } catch (e) {}
+  }
+  // And once the audio context is live (after the first tap), start
+  // decoding so the first startThemeAmbient call has an AudioBuffer
+  // ready immediately instead of decoding on-demand.
+  function warmDecodeAmbientFiles() {
+    try {
+      for (const key of Object.keys(THEME_AMBIENT)) {
+        const cfg = THEME_AMBIENT[key];
+        if (cfg && cfg.file) loadAmbientBuffer(cfg.file).catch(function() {});
+      }
+    } catch (e) {}
   }
 
   function startThemeAmbient() {
@@ -9723,6 +9773,9 @@ const DLX_BUILD = 'v54';
   reset();
   bestScoreEl.textContent = String(best);
   showStart();
+  // Start downloading file-based ambient tracks immediately so the
+  // bytes are in memory before the player taps a ship.
+  prefetchAllAmbientFiles();
   // Dev preview: ?victory=1 boots straight into the Victory screen
   // with sample stats so the end-of-campaign screen can be designed
   // and reviewed without playing the full run.
