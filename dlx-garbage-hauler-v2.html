@@ -982,7 +982,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v53';
+const DLX_BUILD = 'v54';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1427,7 +1427,7 @@ const DLX_BUILD = 'v53';
     // Sunset now streams a real composed track (m4a / AAC). Keep the
     // old synth layers commented in case we ever want a procedural
     // fallback for offline-before-first-cache situations.
-    sunset: { file: 'audio/sunset-ambient.m4a', volume: 0.55 },
+    sunset: { file: 'audio/sunset-ambient.m4a', volume: 0.56 },
     /* sunset (synth fallback):
        layers: [
          { type: 'sine',     freq: 220, gain: 0.020, lfoFreq: 0.3,  lfoDepth: 4 },
@@ -1476,28 +1476,44 @@ const DLX_BUILD = 'v53';
   };
   let ambientNodes = [];
   let ambientTheme = null;
-  // For file-based themes: a long-lived HTMLAudioElement that loops the
-  // track. We keep one element per file so re-entering a biome doesn't
-  // re-decode; volume is faded with rAF instead of Web Audio gain.
-  const ambientAudioCache = Object.create(null);
-  let activeAmbientAudio = null;
-  let ambientAudioFadeRAF = 0;
-  function fadeAmbientAudio(audioEl, targetVol, durationMs, onDone) {
-    if (!audioEl) { if (onDone) onDone(); return; }
-    if (ambientAudioFadeRAF) cancelAnimationFrame(ambientAudioFadeRAF);
-    const startVol = audioEl.volume;
-    const startMs  = performance.now();
-    const tick = function(now) {
-      const t = Math.min(1, (now - startMs) / Math.max(1, durationMs));
-      audioEl.volume = startVol + (targetVol - startVol) * t;
-      if (t < 1) {
-        ambientAudioFadeRAF = requestAnimationFrame(tick);
-      } else {
-        ambientAudioFadeRAF = 0;
-        if (onDone) onDone();
-      }
-    };
-    ambientAudioFadeRAF = requestAnimationFrame(tick);
+  // File-based themes: decode the track into a Web Audio AudioBuffer
+  // once (cached per URL) and play it through a looping
+  // AudioBufferSourceNode so the loop wrap is sample-accurate with
+  // no click or gap (HTMLAudioElement's .loop inserts silence on
+  // iOS Safari).
+  const ambientBufferCache = Object.create(null);
+  const ambientBufferPromise = Object.create(null);
+  let activeAmbientSource = null;
+  let activeAmbientGain   = null;
+  let activeAmbientToken  = 0;
+  function loadAmbientBuffer(url) {
+    if (ambientBufferCache[url]) return Promise.resolve(ambientBufferCache[url]);
+    if (ambientBufferPromise[url]) return ambientBufferPromise[url];
+    const a = audio(); if (!a) return Promise.resolve(null);
+    const p = fetch(url)
+      .then(function(r) { return r.arrayBuffer(); })
+      .then(function(arr) {
+        // Promise variant (decodeAudioData returns a Promise on modern
+        // browsers; on older Safari it only accepts callback form,
+        // so we wrap both).
+        return new Promise(function(resolve, reject) {
+          const maybePromise = a.decodeAudioData(arr, resolve, reject);
+          if (maybePromise && typeof maybePromise.then === 'function') {
+            maybePromise.then(resolve, reject);
+          }
+        });
+      })
+      .then(function(buf) {
+        ambientBufferCache[url] = buf;
+        delete ambientBufferPromise[url];
+        return buf;
+      })
+      .catch(function(err) {
+        delete ambientBufferPromise[url];
+        throw err;
+      });
+    ambientBufferPromise[url] = p;
+    return p;
   }
 
   function startThemeAmbient() {
@@ -1508,25 +1524,26 @@ const DLX_BUILD = 'v53';
     ambientTheme = selectedTheme;
     const cfg = THEME_AMBIENT[selectedTheme];
     if (!cfg) return;
-    // ---- File-based theme: stream + loop a real audio file ----
+    // ---- File-based theme: Web Audio gapless loop ----
     if (cfg.file) {
-      let el = ambientAudioCache[cfg.file];
-      if (!el) {
-        el = new Audio(cfg.file);
-        el.loop = true;
-        el.preload = 'auto';
-        el.volume = 0;
-        ambientAudioCache[cfg.file] = el;
-      }
-      activeAmbientAudio = el;
-      el.volume = 0;
-      try { el.currentTime = 0; } catch (e) {}
       const targetVol = (typeof cfg.volume === 'number') ? cfg.volume : 0.55;
-      const playP = el.play();
-      if (playP && typeof playP.catch === 'function') {
-        playP.catch(function() { /* autoplay blocked — first tap will retry via the next startThemeAmbient call */ });
-      }
-      fadeAmbientAudio(el, targetVol, 600);
+      const myToken = ++activeAmbientToken;
+      const themeAtStart = selectedTheme;
+      loadAmbientBuffer(cfg.file).then(function(buf) {
+        // Bail if the player moved on (or muted / restarted ambient) before the decode finished.
+        if (!buf || myToken !== activeAmbientToken || ambientTheme !== themeAtStart) return;
+        const src = a.createBufferSource();
+        src.buffer = buf;
+        src.loop = true;
+        const gn = a.createGain();
+        const t = a.currentTime;
+        gn.gain.setValueAtTime(0.0001, t);
+        gn.gain.linearRampToValueAtTime(targetVol, t + 0.6);
+        src.connect(gn).connect(a.destination);
+        src.start(0);
+        activeAmbientSource = src;
+        activeAmbientGain   = gn;
+      }).catch(function() { /* decode/fetch failed — silently leave this biome without music */ });
       return;
     }
     // ---- Oscillator-based theme (default) ----
@@ -1556,16 +1573,27 @@ const DLX_BUILD = 'v53';
   }
 
   function stopThemeAmbient(fade) {
-    // Stop a streaming file ambient if one is active
-    if (activeAmbientAudio) {
-      const el = activeAmbientAudio;
-      const ft = (typeof fade === 'number') ? fade : 0.4;
-      fadeAmbientAudio(el, 0, ft * 1000, function() { try { el.pause(); } catch (e) {} });
-      activeAmbientAudio = null;
+    // Bump the token so any in-flight decode promise aborts
+    activeAmbientToken++;
+    const ft = (typeof fade === 'number') ? fade : 0.4;
+    // Fade + stop the file-based source if there is one
+    if (activeAmbientSource && audioCtx) {
+      const src = activeAmbientSource;
+      const gn  = activeAmbientGain;
+      const t   = audioCtx.currentTime;
+      activeAmbientSource = null;
+      activeAmbientGain   = null;
+      if (gn) {
+        try {
+          gn.gain.cancelScheduledValues(t);
+          gn.gain.setValueAtTime(gn.gain.value, t);
+          gn.gain.linearRampToValueAtTime(0.0001, t + ft);
+        } catch (e) {}
+      }
+      try { src.stop(t + ft + 0.05); } catch (e) {}
     }
     if (!audioCtx) { ambientNodes = []; ambientTheme = null; return; }
     const t = audioCtx.currentTime;
-    const ft = (typeof fade === 'number') ? fade : 0.4;
     for (const n of ambientNodes) {
       if (n.gn) {
         try {
