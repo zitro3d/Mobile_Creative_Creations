@@ -982,7 +982,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v52';
+const DLX_BUILD = 'v53';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1424,11 +1424,16 @@ const DLX_BUILD = 'v52';
     // triangle=1.3x, saw=2.5x, square=3x to approximate harmonic brightness).
     // This keeps the ambient pad well under the SFX floor (~0.07-0.13) on
     // every biome so the music never competes with gameplay cues.
-    sunset: { layers: [
-      { type: 'sine',     freq: 220, gain: 0.020, lfoFreq: 0.3,  lfoDepth: 4 },
-      { type: 'triangle', freq: 110, gain: 0.016 },
-      { type: 'sine',     freq: 330, gain: 0.012, lfoFreq: 0.18, lfoDepth: 3 },
-    ]},
+    // Sunset now streams a real composed track (m4a / AAC). Keep the
+    // old synth layers commented in case we ever want a procedural
+    // fallback for offline-before-first-cache situations.
+    sunset: { file: 'audio/sunset-ambient.m4a', volume: 0.55 },
+    /* sunset (synth fallback):
+       layers: [
+         { type: 'sine',     freq: 220, gain: 0.020, lfoFreq: 0.3,  lfoDepth: 4 },
+         { type: 'triangle', freq: 110, gain: 0.016 },
+         { type: 'sine',     freq: 330, gain: 0.012, lfoFreq: 0.18, lfoDepth: 3 },
+       ] */
     city: { layers: [
       { type: 'sawtooth', freq: 110, gain: 0.008, detune:  8 },
       { type: 'sawtooth', freq: 165, gain: 0.006, detune: -6, lfoFreq: 0.22, lfoDepth: 2 },
@@ -1471,6 +1476,29 @@ const DLX_BUILD = 'v52';
   };
   let ambientNodes = [];
   let ambientTheme = null;
+  // For file-based themes: a long-lived HTMLAudioElement that loops the
+  // track. We keep one element per file so re-entering a biome doesn't
+  // re-decode; volume is faded with rAF instead of Web Audio gain.
+  const ambientAudioCache = Object.create(null);
+  let activeAmbientAudio = null;
+  let ambientAudioFadeRAF = 0;
+  function fadeAmbientAudio(audioEl, targetVol, durationMs, onDone) {
+    if (!audioEl) { if (onDone) onDone(); return; }
+    if (ambientAudioFadeRAF) cancelAnimationFrame(ambientAudioFadeRAF);
+    const startVol = audioEl.volume;
+    const startMs  = performance.now();
+    const tick = function(now) {
+      const t = Math.min(1, (now - startMs) / Math.max(1, durationMs));
+      audioEl.volume = startVol + (targetVol - startVol) * t;
+      if (t < 1) {
+        ambientAudioFadeRAF = requestAnimationFrame(tick);
+      } else {
+        ambientAudioFadeRAF = 0;
+        if (onDone) onDone();
+      }
+    };
+    ambientAudioFadeRAF = requestAnimationFrame(tick);
+  }
 
   function startThemeAmbient() {
     if (muted) { stopThemeAmbient(0.1); return; }
@@ -1480,8 +1508,30 @@ const DLX_BUILD = 'v52';
     ambientTheme = selectedTheme;
     const cfg = THEME_AMBIENT[selectedTheme];
     if (!cfg) return;
+    // ---- File-based theme: stream + loop a real audio file ----
+    if (cfg.file) {
+      let el = ambientAudioCache[cfg.file];
+      if (!el) {
+        el = new Audio(cfg.file);
+        el.loop = true;
+        el.preload = 'auto';
+        el.volume = 0;
+        ambientAudioCache[cfg.file] = el;
+      }
+      activeAmbientAudio = el;
+      el.volume = 0;
+      try { el.currentTime = 0; } catch (e) {}
+      const targetVol = (typeof cfg.volume === 'number') ? cfg.volume : 0.55;
+      const playP = el.play();
+      if (playP && typeof playP.catch === 'function') {
+        playP.catch(function() { /* autoplay blocked — first tap will retry via the next startThemeAmbient call */ });
+      }
+      fadeAmbientAudio(el, targetVol, 600);
+      return;
+    }
+    // ---- Oscillator-based theme (default) ----
     const t = a.currentTime;
-    for (const layer of cfg.layers) {
+    for (const layer of cfg.layers || []) {
       const osc = a.createOscillator();
       const gn  = a.createGain();
       osc.type = layer.type;
@@ -1506,6 +1556,13 @@ const DLX_BUILD = 'v52';
   }
 
   function stopThemeAmbient(fade) {
+    // Stop a streaming file ambient if one is active
+    if (activeAmbientAudio) {
+      const el = activeAmbientAudio;
+      const ft = (typeof fade === 'number') ? fade : 0.4;
+      fadeAmbientAudio(el, 0, ft * 1000, function() { try { el.pause(); } catch (e) {} });
+      activeAmbientAudio = null;
+    }
     if (!audioCtx) { ambientNodes = []; ambientTheme = null; return; }
     const t = audioCtx.currentTime;
     const ft = (typeof fade === 'number') ? fade : 0.4;
