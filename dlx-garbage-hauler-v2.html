@@ -985,7 +985,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v55';
+const DLX_BUILD = 'v56';
 
 (function() {
   // ---------- iOS gate ----------
@@ -1381,15 +1381,20 @@ const DLX_BUILD = 'v55';
   // ---------- Audio (Web Audio, synthesised — no asset files) ----------
   let audioCtx = null;
   let audioCtxDidWarm = false;
+  // Create the AudioContext itself (it starts in 'suspended' state on
+  // iOS until a user gesture resumes it). decodeAudioData works on a
+  // suspended context, which means we can decode file-based ambient
+  // tracks in the background at boot without waiting for a tap.
+  function ensureAudioCtx() {
+    if (audioCtx) return audioCtx;
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { return null; }
+    return audioCtx;
+  }
   function audio() {
-    if (!audioCtx) {
-      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-      catch (e) { return null; }
-    }
+    if (!audioCtx) ensureAudioCtx();
+    if (!audioCtx) return null;
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    // First time we get a live context, start pre-decoding any
-    // file-based ambient tracks so startThemeAmbient has the buffer
-    // ready instantly.
     if (!audioCtxDidWarm) {
       audioCtxDidWarm = true;
       if (typeof warmDecodeAmbientFiles === 'function') warmDecodeAmbientFiles();
@@ -1522,7 +1527,10 @@ const DLX_BUILD = 'v55';
   function loadAmbientBuffer(url) {
     if (ambientBufferCache[url]) return Promise.resolve(ambientBufferCache[url]);
     if (ambientBufferPromise[url]) return ambientBufferPromise[url];
-    const a = audio(); if (!a) return Promise.resolve(null);
+    // Use ensureAudioCtx() instead of audio() so a boot-time decode
+    // doesn't try to resume a not-yet-unlocked context. decodeAudioData
+    // works fine on a suspended context.
+    const a = ensureAudioCtx(); if (!a) return Promise.resolve(null);
     const p = prefetchAmbient(url)
       .then(function(arr) {
         // decodeAudioData consumes the ArrayBuffer; clone so the
@@ -9773,9 +9781,17 @@ const DLX_BUILD = 'v55';
   reset();
   bestScoreEl.textContent = String(best);
   showStart();
-  // Start downloading file-based ambient tracks immediately so the
-  // bytes are in memory before the player taps a ship.
+  // Pre-warm the audio pipeline so ambient music starts on the very
+  // first sample of the first tap:
+  //   1. Create the AudioContext right now. iOS Safari allows this; the
+  //      context just sits in "suspended" state until a user gesture
+  //      resumes it. decodeAudioData still works while suspended.
+  //   2. Fetch the raw file bytes in parallel with HTML/JS parsing.
+  //   3. Kick off the decode immediately so by the time the player
+  //      taps a ship, the AudioBuffer is already in the cache.
+  ensureAudioCtx();
   prefetchAllAmbientFiles();
+  warmDecodeAmbientFiles();
   // Dev preview: ?victory=1 boots straight into the Victory screen
   // with sample stats so the end-of-campaign screen can be designed
   // and reviewed without playing the full run.
