@@ -1189,8 +1189,24 @@
             <div class="garageItemDesc">Electric cyan exhaust plume. Pure cosmetic — looks fast, sounds fast, isn't actually faster.</div>
             <button class="garageItemBtn" data-action="buy" data-trail="plasma">BUY 600 🗑</button>
           </div>
+          <div class="garageItem" data-trail="toxic">
+            <div class="garageItemHead">
+              <div class="garageItemName">TOXIC TRAIL</div>
+              <div class="garageItemTag">1200 🗑</div>
+            </div>
+            <div class="garageItemDesc">Radioactive lime-green sludge spewing from the engine. Not OSHA compliant.</div>
+            <button class="garageItemBtn" data-action="buy" data-trail="toxic">BUY 1200 🗑</button>
+          </div>
+          <div class="garageItem" data-trail="void">
+            <div class="garageItemHead">
+              <div class="garageItemName">VOID TRAIL</div>
+              <div class="garageItemTag">2000 🗑</div>
+            </div>
+            <div class="garageItemDesc">Deep purple plasma straight from the abyss. Endgame flex.</div>
+            <button class="garageItemBtn" data-action="buy" data-trail="void">BUY 2000 🗑</button>
+          </div>
         </div>
-        <div class="garageHint">More trails &amp; perks coming soon.</div>
+        <div class="garageHint">More cosmetics &amp; perks coming soon.</div>
         <button id="garageCloseBtn">DONE</button>
       </div>
     </div>
@@ -1290,7 +1306,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v60';
+const DLX_BUILD = 'v61';
 
 (function() {
   // ---------- iOS gate ----------
@@ -2591,7 +2607,10 @@ const DLX_BUILD = 'v60';
   let selectedTrail = 'default';
   try {
     const t = localStorage.getItem('dlx_trail_v1');
-    if (t === 'plasma' || t === 'default') selectedTrail = t;
+    // Validation against TRAIL_PALETTES happens lazily in trailPalette()
+    // (which falls back to default if the key is unknown) — TRAIL_PALETTES
+    // isn't defined yet at this point in script order.
+    if (t && typeof t === 'string') selectedTrail = t;
   } catch (e) {}
   function ownsTrail(key) {
     if (key === 'default') return true;
@@ -2615,6 +2634,7 @@ const DLX_BUILD = 'v60';
   const TRAIL_PALETTES = {
     default: {
       label: 'STOCK',
+      cost: 0,
       flameStops: [
         [0,   'rgba(255, 230, 140, 0.9)'],
         [0.4, 'rgba(255, 110, 20, 0.7)'],
@@ -2634,6 +2654,7 @@ const DLX_BUILD = 'v60';
     },
     plasma: {
       label: 'PLASMA',
+      cost: 600,
       flameStops: [
         [0,   'rgba(240, 255, 255, 0.95)'],
         [0.4, 'rgba(80, 220, 255, 0.85)'],
@@ -2651,9 +2672,53 @@ const DLX_BUILD = 'v60';
         [1,   'rgba(5, 10, 30, 0)'],
       ],
     },
+    toxic: {
+      label: 'TOXIC',
+      cost: 1200,
+      flameStops: [
+        [0,   'rgba(240, 255, 200, 0.95)'],
+        [0.4, 'rgba(140, 240, 60, 0.85)'],
+        [1,   'rgba(40, 80, 10, 0)'],
+      ],
+      flameGlow: '#80ff40',
+      smokeStops: [
+        [0,   'rgba(180, 240, 90, 0.85)'],
+        [0.5, 'rgba(90, 170, 40, 0.55)'],
+        [1,   'rgba(20, 50, 10, 0)'],
+      ],
+      dirtyStops: [
+        [0,   'rgba(50, 90, 30, 0.85)'],
+        [0.7, 'rgba(25, 50, 15, 0.4)'],
+        [1,   'rgba(5, 15, 5, 0)'],
+      ],
+    },
+    void: {
+      label: 'VOID',
+      cost: 2000,
+      flameStops: [
+        [0,   'rgba(240, 200, 255, 0.95)'],
+        [0.4, 'rgba(170, 80, 230, 0.85)'],
+        [1,   'rgba(30, 10, 50, 0)'],
+      ],
+      flameGlow: '#a850ff',
+      smokeStops: [
+        [0,   'rgba(200, 130, 255, 0.85)'],
+        [0.5, 'rgba(120, 60, 200, 0.55)'],
+        [1,   'rgba(20, 10, 50, 0)'],
+      ],
+      dirtyStops: [
+        [0,   'rgba(60, 30, 90, 0.85)'],
+        [0.7, 'rgba(30, 15, 60, 0.4)'],
+        [1,   'rgba(5, 0, 15, 0)'],
+      ],
+    },
   };
   function trailPalette() {
     return TRAIL_PALETTES[selectedTrail] || TRAIL_PALETTES.default;
+  }
+  function trailCost(key) {
+    const p = TRAIL_PALETTES[key];
+    return p ? (p.cost || 0) : 0;
   }
   let stars = [];
   let dust  = [];
@@ -10125,14 +10190,21 @@ const DLX_BUILD = 'v60';
     if (garageTokensEl) garageTokensEl.textContent = String(tokensTotal);
     if (garageMetaEl) {
       const trail = TRAIL_PALETTES[selectedTrail] || TRAIL_PALETTES.default;
-      const ownsPlasma = ownsTrail('plasma');
-      if (ownsPlasma) {
-        garageMetaEl.textContent = 'Trail: ' + (trail.label || 'STOCK');
-      } else {
-        const need = Math.max(0, 600 - tokensTotal);
+      // Find the cheapest unowned trail to advertise as the next goal.
+      let next = null;
+      const order = ['plasma', 'toxic', 'void'];
+      for (const k of order) {
+        if (!ownsTrail(k)) { next = k; break; }
+      }
+      if (next) {
+        const cost = trailCost(next);
+        const need = Math.max(0, cost - tokensTotal);
+        const label = (TRAIL_PALETTES[next].label || next.toUpperCase()) + ' TRAIL';
         garageMetaEl.textContent = need > 0
-          ? need + ' more for PLASMA TRAIL'
-          : 'PLASMA TRAIL ready to unlock';
+          ? need + ' more for ' + label
+          : label + ' ready to unlock';
+      } else {
+        garageMetaEl.textContent = 'Trail: ' + (trail.label || 'STOCK');
       }
     }
   }
@@ -10158,8 +10230,7 @@ const DLX_BUILD = 'v60';
         btn.textContent = 'EQUIP';
         if (tag) tag.textContent = 'OWNED';
       } else {
-        // Trail isn't owned yet; assume cost = 600 for the v1 plasma item.
-        const cost = 600;
+        const cost = trailCost(trail);
         if (tokensTotal >= cost) {
           btn.textContent = 'BUY ' + cost + ' 🗑';
         } else {
@@ -10191,8 +10262,8 @@ const DLX_BUILD = 'v60';
     const trail = target.dataset.trail;
     if (!trail) return;
     if (action === 'buy') {
-      const cost = 600;   // v1: only the plasma trail is buyable
-      if (tokensTotal < cost) return;
+      const cost = trailCost(trail);
+      if (cost <= 0 || tokensTotal < cost) return;
       tokensTotal -= cost;
       saveTokensTotal();
       setTrailOwned(trail);
