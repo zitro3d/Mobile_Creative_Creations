@@ -199,6 +199,81 @@
     to   { box-shadow: 0 0 12px rgba(255, 80, 40, 0.55); }
   }
 
+  /* Campaign best-score grid — eight biome cells in a 4×2 grid showing
+     each level's name, best total score, and a bronze/silver/gold medal.
+     Read-only; inherits #overlay's pointer-events:none so it never blocks
+     taps. Hidden until the player has touched at least one biome. */
+  #campaignLabel {
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: #ffd280;
+    margin-top: 10px;
+    text-shadow: 1px 1px 0 #000;
+  }
+  #campaignLabel.hidden, #medalGrid.hidden { display: none; }
+  #medalGrid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    margin: 4px 0 6px;
+    width: 100%;
+    max-width: 320px;
+  }
+  .medalCell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 2px 5px;
+    min-height: 44px;
+    border-radius: 6px;
+    background: rgba(0,0,0,0.45);
+    border: 1.5px solid rgba(255,255,255,0.12);
+    color: #cbd0d6;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .medalCell .medalIcon {
+    font-size: 14px;
+    line-height: 1;
+    margin-bottom: 1px;
+    filter: grayscale(0.4) opacity(0.55);
+  }
+  .medalCell .medalName {
+    font-size: 8px;
+    letter-spacing: 0.5px;
+    color: #f4e9d6;
+    font-weight: 900;
+    text-shadow: 1px 1px 0 #000;
+  }
+  .medalCell .medalScore {
+    font-size: 10px;
+    line-height: 1.1;
+    color: #ffd280;
+    font-weight: 900;
+    text-shadow: 1px 1px 0 #000;
+    margin-top: 1px;
+  }
+  .medalCell.bronze {
+    border-color: #c08050;
+    background: rgba(120, 60, 30, 0.28);
+  }
+  .medalCell.bronze .medalIcon { filter: none; }
+  .medalCell.silver {
+    border-color: #c8d4e0;
+    background: rgba(120, 140, 160, 0.22);
+  }
+  .medalCell.silver .medalIcon { filter: none; }
+  .medalCell.gold {
+    border-color: #ffd280;
+    background: rgba(180, 130, 30, 0.28);
+    box-shadow: 0 0 8px rgba(255, 200, 80, 0.35);
+  }
+  .medalCell.gold .medalIcon { filter: none; }
+  .medalCell.locked {
+    opacity: 0.5;
+  }
+  .medalCell.locked .medalScore { color: #888; }
+
   #themeLabel {
     font-size: 12px;
     letter-spacing: 2px;
@@ -829,6 +904,8 @@
         <span id="resumeLabel">Resuming: —</span>
         <button id="resumeResetBtn">START OVER</button>
       </div>
+      <div id="campaignLabel" class="hidden">Campaign bests</div>
+      <div id="medalGrid" class="hidden"></div>
       <button id="dailyBtn" class="dailyBtn">
         <span class="dailyHead">🗓 DAILY CHALLENGE · <span id="dailyDate">—</span></span>
         <span class="dailyMeta">
@@ -985,7 +1062,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v58';
+const DLX_BUILD = 'v59';
 
 (function() {
   // ---------- iOS gate ----------
@@ -2321,6 +2398,21 @@ const DLX_BUILD = 'v58';
     { speedMul: 1.72, gapMul: 0.80 },   // swamp (sinking kraken boss)
     { speedMul: 1.80, gapMul: 0.86 },   // icecave — frost wraith final boss
   ];
+  // Per-biome medal thresholds. Index = biome, value = [bronze, silver, gold]
+  // expressed in TOTAL run score. Bronze = entered the biome, silver = cleared
+  // it, gold = went meaningfully past. Icecave's gold is sentinel-based:
+  // beating the wraith bumps the saved score to >= 9999 so the medal locks in.
+  const MEDAL_THRESHOLDS = [
+    [10,  50,  110],   // sunset
+    [50,  110, 180],   // city
+    [110, 180, 240],   // volcano
+    [180, 240, 300],   // trench
+    [240, 300, 390],   // neoncity
+    [300, 390, 470],   // canyon
+    [390, 470, 530],   // swamp
+    [470, 510, 9999],  // icecave (gold = victory)
+  ];
+  const MEDAL_VICTORY_SENTINEL = 9999;
   let levelIndex      = 0;
   let levelScoreStart = 0;   // score at the moment current level began
   let levelBanner     = { text: '', life: 0 };
@@ -9436,6 +9528,7 @@ const DLX_BUILD = 'v58';
     }
     victoryFreshUnlock = false;
     const wasDaily = isDaily;
+    recordLevelBests(score, true, levelIndex, wasDaily);
     finalizeDailyRunIfNeeded();   // harmless if this wasn't a daily run
     // Share button: visible only if this was a daily victory.
     if (victoryShareBtn) {
@@ -9598,6 +9691,95 @@ const DLX_BUILD = 'v58';
     skinToggleBtn.addEventListener('click', toggleSkin);
   }
 
+  // ---------- Campaign best scores per biome ----------
+  // dlx_level_bests_v1 stores an 8-length array of "highest total score
+  // ever achieved on a run that reached this biome." Bronze/silver/gold
+  // thresholds are read from MEDAL_THRESHOLDS. Daily runs do NOT write
+  // here so seeded RNG attempts can't pollute campaign records.
+  function loadLevelBests() {
+    try {
+      const raw = localStorage.getItem('dlx_level_bests_v1');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length === LEVEL_ORDER.length) {
+          return arr.map(function(n) { return (typeof n === 'number' && n > 0) ? n : 0; });
+        }
+      }
+    } catch (e) {}
+    return new Array(LEVEL_ORDER.length).fill(0);
+  }
+  function saveLevelBests(arr) {
+    try { localStorage.setItem('dlx_level_bests_v1', JSON.stringify(arr)); } catch (e) {}
+  }
+  function recordLevelBests(finalScore, isVictory, endLevelIdx, wasDaily) {
+    if (wasDaily) return;   // keep campaign records separate from daily runs
+    const arr = loadLevelBests();
+    const last = Math.min(endLevelIdx, LEVEL_ORDER.length - 1);
+    let changed = false;
+    for (let i = 0; i <= last; i++) {
+      if (finalScore > arr[i]) { arr[i] = finalScore; changed = true; }
+    }
+    if (isVictory && arr[LEVEL_ORDER.length - 1] < MEDAL_VICTORY_SENTINEL) {
+      arr[LEVEL_ORDER.length - 1] = MEDAL_VICTORY_SENTINEL;
+      changed = true;
+    }
+    if (changed) saveLevelBests(arr);
+  }
+  function medalFor(biomeIdx, score) {
+    const t = MEDAL_THRESHOLDS[biomeIdx];
+    if (!t || !score) return null;
+    if (score >= t[2]) return 'gold';
+    if (score >= t[1]) return 'silver';
+    if (score >= t[0]) return 'bronze';
+    return null;
+  }
+  const MEDAL_GLYPHS = { gold: '🥇', silver: '🥈', bronze: '🥉', locked: '·' };
+  const BIOME_SHORT_LABEL = {
+    sunset: 'SUNSET', city: 'CITY', volcano: 'VOLCANO', underwater: 'TRENCH',
+    neoncity: 'NEON', canyon: 'CANYON', swamp: 'SWAMP', icecave: 'ICE',
+  };
+  const medalGridEl   = document.getElementById('medalGrid');
+  const campaignLabel = document.getElementById('campaignLabel');
+  function refreshMedalGrid() {
+    if (!medalGridEl || !campaignLabel) return;
+    const bests = loadLevelBests();
+    // Hide the whole section until the player has earned at least one entry.
+    const anyTouched = bests.some(function(s) { return s > 0; });
+    if (!anyTouched) {
+      medalGridEl.classList.add('hidden');
+      campaignLabel.classList.add('hidden');
+      return;
+    }
+    medalGridEl.classList.remove('hidden');
+    campaignLabel.classList.remove('hidden');
+    medalGridEl.innerHTML = '';
+    for (let i = 0; i < LEVEL_ORDER.length; i++) {
+      const key = LEVEL_ORDER[i];
+      const s = bests[i] || 0;
+      const m = medalFor(i, s);
+      const cell = document.createElement('div');
+      cell.className = 'medalCell ' + (m || 'locked');
+      const icon = document.createElement('span');
+      icon.className = 'medalIcon';
+      icon.textContent = m ? MEDAL_GLYPHS[m] : MEDAL_GLYPHS.locked;
+      const name = document.createElement('span');
+      name.className = 'medalName';
+      name.textContent = BIOME_SHORT_LABEL[key] || key.toUpperCase();
+      const sc = document.createElement('span');
+      sc.className = 'medalScore';
+      // Sentinel score for an icecave victory shows a trophy instead of 9999.
+      if (i === LEVEL_ORDER.length - 1 && s >= MEDAL_VICTORY_SENTINEL) {
+        sc.textContent = '🏆';
+      } else {
+        sc.textContent = s ? String(s) : '—';
+      }
+      cell.appendChild(icon);
+      cell.appendChild(name);
+      cell.appendChild(sc);
+      medalGridEl.appendChild(cell);
+    }
+  }
+
   // ---------- Daily Challenge button ----------
   const dailyBtn         = document.getElementById('dailyBtn');
   const dailyDateEl      = document.getElementById('dailyDate');
@@ -9642,6 +9824,7 @@ const DLX_BUILD = 'v58';
     refreshResumeRow();
     refreshSkinToggle();
     refreshDailyRow();
+    refreshMedalGrid();
     // Sync picker highlight with the current selectedTheme so players see
     // which level they'll launch into (especially after dying mid-run).
     for (const btn of themeBtns) {
@@ -9657,6 +9840,7 @@ const DLX_BUILD = 'v58';
   }
   function showGameOver() {
     const wasDaily = isDaily;
+    recordLevelBests(score, false, levelIndex, wasDaily);
     finalizeDailyRunIfNeeded();   // safe on non-daily runs (no-op)
     finalScoreEl.textContent = String(score);
     bestScoreEl.textContent = String(best);
