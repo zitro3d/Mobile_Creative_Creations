@@ -1480,7 +1480,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v63';
+const DLX_BUILD = 'v64';
 
 (function() {
   // ---------- iOS gate ----------
@@ -2958,7 +2958,6 @@ const DLX_BUILD = 'v63';
   let boss            = null;
   let pirate          = null;   // canyon: pirate cargo ship chasing from behind
   let pirateRespawnFrames = 0;  // canyon: ticks until a defeated pirate returns
-  let pirateIntroShown = false; // play the intro card only on the first pirate of the run
   let projectiles     = [];     // lasers fired by the pirate
   let angler          = null;   // underwater: anglerfish boss
   let anglerHitsLeft  = 3;      // underwater: HP left before advance
@@ -3045,82 +3044,9 @@ const DLX_BUILD = 'v63';
     levelBanner.life = 120;
   }
 
-  // ---------- Boss intro card ----------
-  // Cinematic name card that slides in from the right, holds, then slides
-  // out to the left whenever a boss appears. Doesn't pause gameplay — the
-  // player can keep flapping under it. Lives 90 frames total (~1.5s).
-  let bossIntro = { name:'', tagline:'', color:'#ffd280', life:0, maxLife:90 };
-  function showBossIntro(name, tagline, color) {
-    bossIntro = {
-      name: name || '',
-      tagline: tagline || '',
-      color: color || '#ffd280',
-      life: 90,
-      maxLife: 90,
-    };
-  }
-  function updateBossIntro() {
-    if (bossIntro.life > 0) bossIntro.life--;
-  }
-  function drawBossIntro() {
-    if (bossIntro.life <= 0 || !bossIntro.name) return;
-    const phase = bossIntro.maxLife - bossIntro.life;   // 0..maxLife
-    let offsetX = 0;
-    if (phase < 18) {
-      // Slide in from the right with cubic ease-out.
-      const t = phase / 18;
-      const eased = 1 - Math.pow(1 - t, 3);
-      offsetX = (1 - eased) * W;
-    } else if (phase < 72) {
-      offsetX = 0;
-    } else {
-      // Slide out to the left with cubic ease-in.
-      const t = (phase - 72) / 18;
-      const eased = Math.pow(t, 3);
-      offsetX = -eased * W;
-    }
-    const cardH = 92;
-    const cardY = Math.round(PLAY_H * 0.42);
-
-    ctx.save();
-    ctx.translate(offsetX, 0);
-
-    // Backdrop band — dark with accent-tinted edges so the card reads
-    // as a UI overlay rather than a world object.
-    const grad = ctx.createLinearGradient(0, cardY, 0, cardY + cardH);
-    grad.addColorStop(0,   'rgba(8, 6, 12, 0)');
-    grad.addColorStop(0.18,'rgba(8, 6, 12, 0.92)');
-    grad.addColorStop(0.82,'rgba(8, 6, 12, 0.92)');
-    grad.addColorStop(1,   'rgba(8, 6, 12, 0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, cardY, W, cardH);
-
-    // Top + bottom accent rules
-    ctx.fillStyle = bossIntro.color;
-    ctx.fillRect(0, cardY + 16, W, 1.5);
-    ctx.fillRect(0, cardY + cardH - 17, W, 1.5);
-
-    // Boss name — big, bold, glow-tinted
-    ctx.shadowBlur = 18;
-    ctx.shadowColor = bossIntro.color;
-    ctx.fillStyle = '#fff4d0';
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 28px "Courier New", "Lucida Console", monospace';
-    ctx.fillText(bossIntro.name, W / 2, cardY + 50);
-
-    // Tagline — smaller, italic, accent colored
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = bossIntro.color;
-    ctx.font = 'italic 600 13px "Courier New", monospace';
-    ctx.fillText(bossIntro.tagline, W / 2, cardY + 72);
-
-    ctx.restore();
-  }
-
 
   // ---------- Boss state (swamp) ----------
   function spawnBoss() {
-    showBossIntro('MIREMAW', 'Hunger of the Swamp', '#a4ee40');
     boss = {
       cx: W / 2,
       // baseY=PLAY_H+18 keeps the upper half of the dome (face, eyes,
@@ -3177,10 +3103,6 @@ const DLX_BUILD = 'v63';
   // ---------- Pirate cargo ship (canyon level 6) ----------
   let piratesDefeated = 0;     // running tally for stats / future use
   function spawnPirate() {
-    if (!pirateIntroShown) {
-      showBossIntro('CAPTAIN BLACKVOLT', "The Canyon's Reaper", '#ff8a3a');
-      pirateIntroShown = true;
-    }
     pirate = {
       x: -80,            // starts off-screen left, slides in
       targetX: 40,       // final hover x
@@ -3418,7 +3340,6 @@ const DLX_BUILD = 'v63';
 
   // ---------- Anglerfish boss (underwater level 4) ----------
   function spawnAngler() {
-    showBossIntro('TIDEWARDEN', 'Guardian of the Trench', '#40e0ff');
     angler = {
       x: W + 80,           // enters from the right
       targetX: W - 80,     // hovers in front of the player
@@ -3673,7 +3594,6 @@ const DLX_BUILD = 'v63';
   // from its mouth. The head is both the collider and the weak spot; each
   // missile hit strips 1 HP. Defeating it triggers VICTORY.
   function spawnDragon() {
-    showBossIntro('BYTEFANG', 'Apex of the Neon Sky', '#ff40c0');
     const headX = W + 80;
     const headY = PLAY_H / 2;
     const segs = [];
@@ -3955,7 +3875,6 @@ const DLX_BUILD = 'v63';
   // Shard attacks radiate outward from the core in a spinning ring instead
   // of aiming straight at the ship.
   function spawnWraith() {
-    showBossIntro('FROST WRAITH', 'The Final Hand', '#bce8ff');
     // 5 shrine points scattered across the right 60% of the play area.
     // Player ship hovers around x=W*0.28, so these keep the wraith far
     // enough away that the player can't trivially bump into it.
@@ -4311,8 +4230,6 @@ const DLX_BUILD = 'v63';
       levelScoreStart = cum;
     }
     levelBanner = { text: '', life: 0 };
-    bossIntro = { name:'', tagline:'', color:'#ffd280', life:0, maxLife:90 };
-    pirateIntroShown = false;
     boss = null;
     pirate = null;
     pirateRespawnFrames = 0;
@@ -4685,7 +4602,6 @@ const DLX_BUILD = 'v63';
     if (thrusterFrames > 0) thrusterFrames--;
     if (burstFrames > 0) burstFrames--;
     if (scorePulse > 0) scorePulse = Math.max(0, scorePulse - 0.1);
-    updateBossIntro();
 
     // Idle sputter — constant trickle of dirty smoke from the back
     if (state !== STATE_OVER && frame % 3 === 0) {
@@ -9488,7 +9404,6 @@ const DLX_BUILD = 'v63';
     drawScore();
     drawComboHud();
     drawLevelBanner();
-    drawBossIntro();
     drawFlash();
     ctx.restore();
   }
