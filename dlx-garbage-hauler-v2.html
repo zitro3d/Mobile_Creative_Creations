@@ -281,6 +281,15 @@
     letter-spacing: 1px;
   }
   .garageItems { display: flex; flex-direction: column; gap: 10px; }
+  .garageSectionHead {
+    margin: 18px 0 6px;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    color: #a4d8ff;
+    text-align: center;
+    font-weight: 900;
+    text-shadow: 1px 1px 0 #000;
+  }
   .garageItem {
     border: 1px solid rgba(120, 200, 255, 0.35);
     border-radius: 8px;
@@ -1380,6 +1389,49 @@
             <button class="garageItemBtn" data-action="buy" data-trail="void">BUY 2000 🗑</button>
           </div>
         </div>
+        <div class="garageSectionHead">RUN MODIFIERS · score multiplier</div>
+        <div class="garageItems" id="garageMods">
+          <div class="garageItem garageMod" data-mod="off">
+            <div class="garageItemHead">
+              <div class="garageItemName">— NO MODIFIER —</div>
+              <div class="garageItemTag">×1.0</div>
+            </div>
+            <div class="garageItemDesc">Standard rules. The way the game ships.</div>
+            <button class="garageItemBtn" data-modaction="equip" data-mod="off">EQUIP</button>
+          </div>
+          <div class="garageItem garageMod" data-mod="fog">
+            <div class="garageItemHead">
+              <div class="garageItemName">🌫 FOG</div>
+              <div class="garageItemTag">800 🗑 · ×1.5</div>
+            </div>
+            <div class="garageItemDesc">Half-vision haze closes around the ship — sight a few pipes ahead at most.</div>
+            <button class="garageItemBtn" data-modaction="buy" data-mod="fog">BUY 800 🗑</button>
+          </div>
+          <div class="garageItem garageMod" data-mod="pinpoint">
+            <div class="garageItemHead">
+              <div class="garageItemName">🎯 PINPOINT</div>
+              <div class="garageItemTag">1200 🗑 · ×1.5</div>
+            </div>
+            <div class="garageItemDesc">Pipe gaps tighten 30%. Razor-thin threading.</div>
+            <button class="garageItemBtn" data-modaction="buy" data-mod="pinpoint">BUY 1200 🗑</button>
+          </div>
+          <div class="garageItem garageMod" data-mod="blitz">
+            <div class="garageItemHead">
+              <div class="garageItemName">⚡ BLITZ</div>
+              <div class="garageItemTag">1500 🗑 · ×2.0</div>
+            </div>
+            <div class="garageItemDesc">Pipes scream past 50% faster. Reaction-test mode.</div>
+            <button class="garageItemBtn" data-modaction="buy" data-mod="blitz">BUY 1500 🗑</button>
+          </div>
+          <div class="garageItem garageMod" data-mod="hardcore">
+            <div class="garageItemHead">
+              <div class="garageItemName">💀 HARDCORE</div>
+              <div class="garageItemTag">2500 🗑 · ×3.0</div>
+            </div>
+            <div class="garageItemDesc">No power-ups spawn. No starting shield. Just you and the pipes.</div>
+            <button class="garageItemBtn" data-modaction="buy" data-mod="hardcore">BUY 2500 🗑</button>
+          </div>
+        </div>
         <div class="garageHint">More cosmetics &amp; perks coming soon.</div>
         <button id="garageCloseBtn">DONE</button>
       </div>
@@ -1480,7 +1532,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v64';
+const DLX_BUILD = 'v65';
 
 (function() {
   // ---------- iOS gate ----------
@@ -2751,11 +2803,13 @@ const DLX_BUILD = 'v64';
   }
   function currentPipeSpeed() {
     const d = (typeof LEVEL_DIFF !== 'undefined' && LEVEL_DIFF[levelIndex]) || { speedMul: 1 };
-    return Math.min(PIPE_SPEED_MAX, (PIPE_SPEED_BASE + levelProgress() * 0.02) * d.speedMul);
+    const blitzMul = isMod('blitz') ? 1.5 : 1;
+    return Math.min(PIPE_SPEED_MAX * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.02) * d.speedMul * blitzMul);
   }
   function currentPipeGap() {
     const d = (typeof LEVEL_DIFF !== 'undefined' && LEVEL_DIFF[levelIndex]) || { gapMul: 1 };
-    return Math.max(PIPE_GAP_MIN, (PIPE_GAP_BASE - levelProgress() * 0.35) * d.gapMul);
+    const pinpointMul = isMod('pinpoint') ? 0.7 : 1;
+    return Math.max(PIPE_GAP_MIN * pinpointMul, (PIPE_GAP_BASE - levelProgress() * 0.35) * d.gapMul * pinpointMul);
   }
 
   const BIRD_X_FRAC = 0.28;
@@ -2893,6 +2947,67 @@ const DLX_BUILD = 'v64';
   function trailCost(key) {
     const p = TRAIL_PALETTES[key];
     return p ? (p.cost || 0) : 0;
+  }
+
+  // ---------- Run modifiers (mutators) ----------
+  // Optional pre-launch toggles that change a single gameplay knob in
+  // exchange for a score multiplier. Only one can be equipped at a
+  // time. Score multiplier applies to score only — token earnings stay
+  // flat so the meta-economy stays predictable.
+  const MODIFIERS = {
+    fog: {
+      label: 'FOG', icon: '🌫', cost: 800, scoreMul: 1.5,
+      desc: 'Half-vision haze. The world fades around you.',
+    },
+    pinpoint: {
+      label: 'PINPOINT', icon: '🎯', cost: 1200, scoreMul: 1.5,
+      desc: 'Gaps tighten 30%. Razor-thin threading required.',
+    },
+    blitz: {
+      label: 'BLITZ', icon: '⚡', cost: 1500, scoreMul: 2.0,
+      desc: 'Pipes scream past 50% faster. Reflexes only.',
+    },
+    hardcore: {
+      label: 'HARDCORE', icon: '💀', cost: 2500, scoreMul: 3.0,
+      desc: 'No power-ups. No starting shield. Pure flight.',
+    },
+  };
+  const MODIFIER_ORDER = ['fog', 'pinpoint', 'blitz', 'hardcore'];
+  let selectedModifier = null;
+  try {
+    const m = localStorage.getItem('dlx_modifier_v1');
+    if (m && MODIFIERS[m]) selectedModifier = m;
+  } catch (e) {}
+  function ownsModifier(key) {
+    if (!key || !MODIFIERS[key]) return false;
+    try { return localStorage.getItem('dlx_modifier_owned_' + key) === '1'; } catch (e) { return false; }
+  }
+  function setModifierOwned(key) {
+    try { localStorage.setItem('dlx_modifier_owned_' + key, '1'); } catch (e) {}
+  }
+  function setSelectedModifier(key) {
+    if (!key) {
+      selectedModifier = null;
+      try { localStorage.removeItem('dlx_modifier_v1'); } catch (e) {}
+      return true;
+    }
+    if (!MODIFIERS[key] || !ownsModifier(key)) return false;
+    selectedModifier = key;
+    try { localStorage.setItem('dlx_modifier_v1', key); } catch (e) {}
+    return true;
+  }
+  function currentModifier() {
+    return (selectedModifier && MODIFIERS[selectedModifier]) || null;
+  }
+  function modifierCost(key) {
+    return MODIFIERS[key] ? (MODIFIERS[key].cost || 0) : 0;
+  }
+  function runScoreMul() {
+    const m = currentModifier();
+    return m ? (m.scoreMul || 1) : 1;
+  }
+  function isMod(key) {
+    return selectedModifier === key;
   }
   let stars = [];
   let dust  = [];
@@ -4249,8 +4364,9 @@ const DLX_BUILD = 'v64';
     if (levelIndex === 7) spawnWraith();
     // Chrome Hot Rod perk: launches with a shield charge primed.
     // Default ships start clean so each ship is differentiated by
-    // stats only — perks are reserved for the unlock skin.
-    shieldCharges = (selectedSkin === 'hotrod') ? 1 : 0;
+    // stats only — perks are reserved for the unlock skin. Hardcore
+    // mutator strips the Hot Rod starting shield too.
+    shieldCharges = (selectedSkin === 'hotrod' && !isMod('hardcore')) ? 1 : 0;
     slowFrames = 0;
     doubleFrames = 0;
     magnetFrames = 0;
@@ -4388,7 +4504,7 @@ const DLX_BUILD = 'v64';
     const pool = theme().obstacleTypes || ['cargo', 'junk'];
     const type = pool[Math.floor(Math.random() * pool.length)];
     // Every ~5th pipe swaps its debris for a glowing power-up capsule
-    const spawnPowerUp = pipeSpawnCount > 2 && Math.random() < 0.3;
+    const spawnPowerUp = pipeSpawnCount > 2 && Math.random() < 0.3 && !isMod('hardcore');
     pipeSpawnCount++;
 
     // Motion: after a few pipes, some obstacles drift vertically or pulse
@@ -5358,11 +5474,11 @@ const DLX_BUILD = 'v64';
   function grantScore(n) {
     // Bigger hulls eat more gap, so they earn a bigger cut per point.
     const ship = SHIPS[selectedShip] || SHIPS.hauler;
-    const mul = (doubleFrames > 0 ? 2 : 1) * comboMultiplier() * (ship.scoreMul || 1);
+    const mul = (doubleFrames > 0 ? 2 : 1) * comboMultiplier() * (ship.scoreMul || 1) * runScoreMul();
     score += Math.round(n * mul);
     // Trash Tokens use the raw event weight, no multipliers — keeps the
     // economy predictable so a 600-token cosmetic always feels the same
-    // distance away regardless of combo / ship / double-score timing.
+    // distance away regardless of combo / ship / double-score / modifier.
     if (state === STATE_PLAY) runTokens += n;
     maybeAdvanceLevel();
   }
@@ -9401,10 +9517,44 @@ const DLX_BUILD = 'v64';
     drawWraith();
     drawProjectiles();
     drawBird();
+    drawFog();              // mutator vignette — over world, under HUD
     drawScore();
     drawComboHud();
+    drawModifierHud();
     drawLevelBanner();
     drawFlash();
+    ctx.restore();
+  }
+  function drawFog() {
+    if (!isMod('fog') || state !== STATE_PLAY) return;
+    const cx = bird.x;
+    const cy = bird.y;
+    const inner = BIRD_R * 3.5;
+    const outer = Math.max(W, PLAY_H) * 0.55;
+    const g = ctx.createRadialGradient(cx, cy, inner, cx, cy, outer);
+    g.addColorStop(0,    'rgba(20, 22, 32, 0)');
+    g.addColorStop(0.55, 'rgba(20, 22, 32, 0.58)');
+    g.addColorStop(1,    'rgba(8, 10, 18, 0.94)');
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, PLAY_H);
+    ctx.restore();
+  }
+  function drawModifierHud() {
+    if (state !== STATE_PLAY) return;
+    const m = currentModifier();
+    if (!m) return;
+    const txt = m.icon + ' ' + m.label + '  ×' + (m.scoreMul || 1);
+    const size = Math.max(11, Math.round(H * 0.018));
+    const y = Math.max(80, H * 0.14) + Math.round(H * 0.055) * 1.2 + 14;
+    ctx.save();
+    ctx.font = 'bold ' + size + 'px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#1a0e05';
+    ctx.fillStyle = '#ffd280';
+    ctx.strokeText(txt, W / 2, y);
+    ctx.fillText(txt, W / 2, y);
     ctx.restore();
   }
 
@@ -10376,6 +10526,7 @@ const DLX_BUILD = 'v64';
     { key:'streak_seven', icon:'📅', title:'WEEK WARRIOR', desc:'Hit a 7-day daily streak', reward:500, dailyStreak:7 },
     { key:'first_buy',  icon:'🛒', title:'FIRST BUY', desc:'Spend tokens at the garage', reward:50, trailBuy:true },
     { key:'full_garage', icon:'🏁', title:'FULL GARAGE', desc:'Own every paid trail', reward:500, ownAllTrails:true },
+    { key:'mutator_master', icon:'🧪', title:'MUTATOR MASTER', desc:'Own every run modifier', reward:500, ownAllModifiers:true },
   ];
   function loadAchievements() {
     try {
@@ -10452,10 +10603,14 @@ const DLX_BUILD = 'v64';
       } else if (a.dailyStreak) {
         if (ev === 'dailyDone' && (ctx.streak || 0) >= a.dailyStreak) pass = true;
       } else if (a.trailBuy) {
-        if (ev === 'trailBuy') pass = true;
+        if (ev === 'trailBuy' || ev === 'modifierBuy') pass = true;
       } else if (a.ownAllTrails) {
         if (ev === 'trailBuy') {
           pass = ['plasma','toxic','void'].every(function(k) { return ownsTrail(k); });
+        }
+      } else if (a.ownAllModifiers) {
+        if (ev === 'modifierBuy') {
+          pass = MODIFIER_ORDER.every(function(k) { return ownsModifier(k); });
         }
       }
       if (pass) unlockAchievement(a);
@@ -10474,6 +10629,10 @@ const DLX_BUILD = 'v64';
     if (a.ownAllTrails) {
       const owned = ['plasma','toxic','void'].filter(function(k) { return ownsTrail(k); }).length;
       return { current: owned, target: 3 };
+    }
+    if (a.ownAllModifiers) {
+      const owned = MODIFIER_ORDER.filter(function(k) { return ownsModifier(k); }).length;
+      return { current: owned, target: MODIFIER_ORDER.length };
     }
     return null;
   }
@@ -10593,30 +10752,45 @@ const DLX_BUILD = 'v64';
     if (!garageBtn) return;
     if (garageTokensEl) garageTokensEl.textContent = String(tokensTotal);
     if (garageMetaEl) {
-      const trail = TRAIL_PALETTES[selectedTrail] || TRAIL_PALETTES.default;
-      // Find the cheapest unowned trail to advertise as the next goal.
-      let next = null;
-      const order = ['plasma', 'toxic', 'void'];
-      for (const k of order) {
-        if (!ownsTrail(k)) { next = k; break; }
+      // Find the cheapest unowned trail or modifier to advertise as the next goal.
+      let nextLabel = null;
+      let nextCost = 0;
+      const trailOrder = ['plasma', 'toxic', 'void'];
+      for (const k of trailOrder) {
+        if (!ownsTrail(k)) {
+          nextLabel = (TRAIL_PALETTES[k].label || k.toUpperCase()) + ' TRAIL';
+          nextCost = trailCost(k);
+          break;
+        }
       }
-      if (next) {
-        const cost = trailCost(next);
-        const need = Math.max(0, cost - tokensTotal);
-        const label = (TRAIL_PALETTES[next].label || next.toUpperCase()) + ' TRAIL';
+      if (!nextLabel) {
+        for (const k of MODIFIER_ORDER) {
+          if (!ownsModifier(k)) {
+            nextLabel = (MODIFIERS[k].icon + ' ' + MODIFIERS[k].label);
+            nextCost = modifierCost(k);
+            break;
+          }
+        }
+      }
+      if (nextLabel) {
+        const need = Math.max(0, nextCost - tokensTotal);
         garageMetaEl.textContent = need > 0
-          ? need + ' more for ' + label
-          : label + ' ready to unlock';
+          ? need + ' more for ' + nextLabel
+          : nextLabel + ' ready to unlock';
       } else {
-        garageMetaEl.textContent = 'Trail: ' + (trail.label || 'STOCK');
+        const trail = TRAIL_PALETTES[selectedTrail] || TRAIL_PALETTES.default;
+        const m = currentModifier();
+        garageMetaEl.textContent = m
+          ? trail.label + ' · ' + m.icon + ' ' + m.label
+          : 'Trail: ' + trail.label;
       }
     }
   }
   function refreshGaragePanel() {
     if (!garageScreen) return;
     if (garageBalanceLabel) garageBalanceLabel.textContent = String(tokensTotal);
-    const items = garageScreen.querySelectorAll('.garageItem');
-    items.forEach(function(item) {
+    // Trail rows — palette swap cosmetic
+    garageScreen.querySelectorAll('.garageItem[data-trail]').forEach(function(item) {
       const trail = item.dataset.trail;
       const btn = item.querySelector('.garageItemBtn');
       const tag = item.querySelector('.garageItemTag');
@@ -10644,6 +10818,39 @@ const DLX_BUILD = 'v64';
         if (tag) tag.textContent = cost + ' 🗑';
       }
     });
+    // Modifier rows — gameplay mutators with score multipliers
+    garageScreen.querySelectorAll('.garageItem[data-mod]').forEach(function(item) {
+      const mod = item.dataset.mod;
+      const btn = item.querySelector('.garageItemBtn');
+      if (!btn) return;
+      btn.classList.remove('equipped', 'cantAfford');
+      if (mod === 'off') {
+        const equipped = (selectedModifier === null);
+        item.classList.toggle('equipped', equipped);
+        btn.dataset.modaction = 'equip';
+        btn.textContent = equipped ? 'EQUIPPED' : 'EQUIP';
+        if (equipped) btn.classList.add('equipped');
+        return;
+      }
+      const owns = ownsModifier(mod);
+      const equipped = (selectedModifier === mod);
+      item.classList.toggle('equipped', equipped);
+      btn.dataset.modaction = equipped ? 'noop' : (owns ? 'equip' : 'buy');
+      if (equipped) {
+        btn.textContent = 'EQUIPPED';
+        btn.classList.add('equipped');
+      } else if (owns) {
+        btn.textContent = 'EQUIP';
+      } else {
+        const cost = modifierCost(mod);
+        if (tokensTotal >= cost) {
+          btn.textContent = 'BUY ' + cost + ' 🗑';
+        } else {
+          btn.textContent = 'NEED ' + (cost - tokensTotal) + ' MORE';
+          btn.classList.add('cantAfford');
+        }
+      }
+    });
   }
   function openGarage(e) {
     if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
@@ -10662,21 +10869,50 @@ const DLX_BUILD = 'v64';
     if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
     const target = e.target && e.target.closest && e.target.closest('.garageItemBtn');
     if (!target) return;
-    const action = target.dataset.action;
+    // Trail row
     const trail = target.dataset.trail;
-    if (!trail) return;
+    if (trail) {
+      const action = target.dataset.action;
+      if (action === 'buy') {
+        const cost = trailCost(trail);
+        if (cost <= 0 || tokensTotal < cost) return;
+        tokensTotal -= cost;
+        saveTokensTotal();
+        setTrailOwned(trail);
+        setSelectedTrail(trail);
+        evaluateAchievements({ event:'trailBuy' });
+        refreshGaragePanel();
+        refreshGarageBtn();
+      } else if (action === 'equip') {
+        if (setSelectedTrail(trail)) {
+          refreshGaragePanel();
+          refreshGarageBtn();
+        }
+      }
+      return;
+    }
+    // Modifier row
+    const mod = target.dataset.mod;
+    if (!mod) return;
+    if (mod === 'off') {
+      setSelectedModifier(null);
+      refreshGaragePanel();
+      refreshGarageBtn();
+      return;
+    }
+    const action = target.dataset.modaction;
     if (action === 'buy') {
-      const cost = trailCost(trail);
+      const cost = modifierCost(mod);
       if (cost <= 0 || tokensTotal < cost) return;
       tokensTotal -= cost;
       saveTokensTotal();
-      setTrailOwned(trail);
-      setSelectedTrail(trail);
-      evaluateAchievements({ event:'trailBuy' });
+      setModifierOwned(mod);
+      setSelectedModifier(mod);
+      evaluateAchievements({ event:'modifierBuy' });
       refreshGaragePanel();
       refreshGarageBtn();
     } else if (action === 'equip') {
-      if (setSelectedTrail(trail)) {
+      if (setSelectedModifier(mod)) {
         refreshGaragePanel();
         refreshGarageBtn();
       }
