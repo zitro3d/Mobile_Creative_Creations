@@ -1064,7 +1064,7 @@
     font-size: 11px;
     letter-spacing: 3px;
     color: #ffd280;
-    margin-top: -8px;
+    margin-top: 10px;          /* clear the HAULER drop-shadow */
     margin-bottom: 6px;
     font-weight: 700;
     text-shadow: 1px 1px 0 #000;
@@ -1606,7 +1606,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v75';
+const DLX_BUILD = 'v76';
 
 (function() {
   // ---------- iOS gate ----------
@@ -5619,7 +5619,8 @@ const DLX_BUILD = 'v75';
       ctx.translate(l.x, l.y + bob);
       ctx.rotate(rot);
       ctx.scale(l.scale, l.scale);
-      drawDebrisItem(l.kind);
+      if (l.gold) drawDLXCargoCrate();
+      else drawDebrisItem(l.kind);
       ctx.restore();
     }
   }
@@ -6579,7 +6580,8 @@ const DLX_BUILD = 'v75';
         ctx.translate(cx, cy + bob);
         ctx.rotate(rot);
         ctx.scale(p.debris.scale, p.debris.scale);
-        drawDebrisItem(p.debris.kind);
+        if (p.debris.gold) drawDLXCargoCrate();
+        else drawDebrisItem(p.debris.kind);
         ctx.restore();
       }
       if (p.powerUp && !p.powerUp.collected) {
@@ -6727,6 +6729,73 @@ const DLX_BUILD = 'v75';
     ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
     const fn = DEBRIS_DRAWERS[kind];
     if (fn) fn();
+  }
+
+  // ---------- DLX Cargo Crate ----------
+  // Sealed DLX-branded blind box. Replaces the generic gold pickup
+  // visual with a procedural orange-red crate sporting the yellow
+  // DLX logo and green slime drips from the top edges (matches the
+  // "THE CARGO" page in the GDD). Drawn at the pickup's own
+  // transform — caller handles position/rotation/scale.
+  function drawDLXCargoCrate() {
+    const w = 22, h = 22;
+    // Warm backing halo
+    if (bgCache.debrisHalo) {
+      ctx.fillStyle = bgCache.debrisHalo;
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    // Crate body — orange-to-deep-red gradient
+    const grad = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+    grad.addColorStop(0,    '#f06030');
+    grad.addColorStop(0.55, '#d8421a');
+    grad.addColorStop(1,    '#982612');
+    ctx.fillStyle = grad;
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+    // Black outline
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = '#1a0a06';
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    // Inner accent ring (recessed panel feel)
+    ctx.lineWidth = 0.7;
+    ctx.strokeStyle = 'rgba(255, 184, 77, 0.55)';
+    ctx.strokeRect(-w / 2 + 2.5, -h / 2 + 2.5, w - 5, h - 5);
+    // Corner rivets
+    ctx.fillStyle = '#1a0a06';
+    const rivetR = 1, inset = 3;
+    ctx.beginPath();
+    ctx.arc(-w / 2 + inset, -h / 2 + inset, rivetR, 0, Math.PI * 2);
+    ctx.arc( w / 2 - inset, -h / 2 + inset, rivetR, 0, Math.PI * 2);
+    ctx.arc(-w / 2 + inset,  h / 2 - inset, rivetR, 0, Math.PI * 2);
+    ctx.arc( w / 2 - inset,  h / 2 - inset, rivetR, 0, Math.PI * 2);
+    ctx.fill();
+    // DLX logo text — bold yellow centered
+    ctx.fillStyle = '#ffd83d';
+    ctx.font = 'bold 9px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DLX', 0, 0.5);
+    // Green slime drips from the top edges (GDD blind-box motif)
+    ctx.fillStyle = '#a4ee40';
+    ctx.shadowBlur = 5;
+    ctx.shadowColor = '#a4ee40';
+    // Drip 1
+    ctx.beginPath();
+    ctx.moveTo(-w / 3, -h / 2);
+    ctx.lineTo(-w / 3 - 1.4, -h / 2 + 6);
+    ctx.lineTo(-w / 3 + 1.4, -h / 2 + 6);
+    ctx.closePath();
+    ctx.fill();
+    // Drip 2
+    ctx.beginPath();
+    ctx.moveTo(w / 3, -h / 2);
+    ctx.lineTo(w / 3 - 1.2, -h / 2 + 4);
+    ctx.lineTo(w / 3 + 1.2, -h / 2 + 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
   }
 
   function drawBurger() {
