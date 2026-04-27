@@ -1865,7 +1865,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v94';
+const DLX_BUILD = 'v95';
 
 (function() {
   // ---------- iOS gate ----------
@@ -4402,105 +4402,207 @@ const DLX_BUILD = 'v94';
   function drawDragon() {
     if (!dragon) return;
     ctx.save();
-    // --- Body segments (draw tail-first so head sits on top) ---
+    const h = dragon.head;
+    const flash = dragon.hitFlash > 0 ? dragon.hitFlash / 12 : 0;
+
+    // --- Glowing neon spine running through all segments (drawn first, behind ribs) ---
+    ctx.shadowBlur = 14; ctx.shadowColor = '#ff30c0';
+    ctx.strokeStyle = '#ff60d8';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(h.x, h.y);
+    for (let i = 0; i < dragon.segs.length; i++) {
+      const s = dragon.segs[i];
+      ctx.lineTo(s.x, s.y);
+    }
+    ctx.stroke();
+    // Inner cyan spine core
+    ctx.shadowBlur = 8; ctx.shadowColor = '#60f0ff';
+    ctx.strokeStyle = '#d8fbff';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(h.x, h.y);
+    for (let i = 0; i < dragon.segs.length; i++) {
+      const s = dragon.segs[i];
+      ctx.lineTo(s.x, s.y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // --- Chrome rib-cage segments (draw tail-first so head sits on top) ---
     for (let i = dragon.segs.length - 1; i >= 0; i--) {
       const s = dragon.segs[i];
-      // Outer magenta glow
-      ctx.shadowBlur = 14; ctx.shadowColor = '#ff50e0';
-      ctx.fillStyle = '#ff50e0';
-      ctx.globalAlpha = 0.85;
+      // Each rib points perpendicular to spine direction at this segment
+      const next = i === 0 ? h : dragon.segs[i - 1];
+      const ang = Math.atan2(next.y - s.y, next.x - s.x) + Math.PI / 2;
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.rotate(ang);
+      const ribLen = s.r * 1.7;
+      const ribThk = 3.2;
+      // Chrome shading: dark band, bright highlight, dark band
+      // Outer dark casing
+      ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#1a1626';
       ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, ribLen, ribThk + 1.4, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Inner cyan core
-      ctx.shadowBlur = 10; ctx.shadowColor = '#60f0ff';
-      ctx.fillStyle = '#c0f8ff';
+      // Bright chrome highlight along top edge
+      ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#e8eef8';
       ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r * 0.55, 0, Math.PI * 2);
+      ctx.ellipse(0, -0.6, ribLen * 0.92, ribThk * 0.55, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.globalAlpha = 1;
+      // Dark groove down the centre
+      ctx.fillStyle = '#0a0716';
+      ctx.fillRect(-ribLen * 0.85, -0.5, ribLen * 1.7, 1);
+      // Pink tip caps glowing where the rib meets the spine (visible neon innards)
+      ctx.shadowBlur = 6; ctx.shadowColor = '#ff60d8';
+      ctx.fillStyle = '#ff8ae8';
+      ctx.beginPath(); ctx.arc(-ribLen * 0.92, 0, 1.6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( ribLen * 0.92, 0, 1.6, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
     }
-    ctx.shadowBlur = 0;
-    // --- Head ---
-    const h = dragon.head;
+
+    // --- Head: CRT TV with cracked screen ---
     ctx.translate(h.x, h.y);
     ctx.rotate(h.ang);
-    const flash = dragon.hitFlash > 0 ? dragon.hitFlash / 12 : 0;
-    // Skull outline — angular neon-dragon head
-    ctx.shadowBlur = 16; ctx.shadowColor = flash > 0.1 ? '#ffffff' : '#ff50e0';
-    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#1a0430';
+    // Antenna stub (back of casing — points away from player)
+    ctx.strokeStyle = '#9aa6c0';
+    ctx.lineWidth = 1.4;
     ctx.beginPath();
-    ctx.moveTo(-18, -12);
-    ctx.lineTo(  4, -14);
-    ctx.lineTo( 22,  -6);   // snout top
-    ctx.lineTo( 22,   6);   // snout bottom
-    ctx.lineTo(  4,  14);
-    ctx.lineTo(-18,  12);
-    ctx.lineTo(-12,   0);
+    ctx.moveTo(-14, -8); ctx.lineTo(-22, -18);
+    ctx.moveTo(-14,  8); ctx.lineTo(-22,  18);
+    ctx.stroke();
+    // Antenna ball tips
+    ctx.fillStyle = '#d8e0ee';
+    ctx.beginPath(); ctx.arc(-22, -18, 1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-22,  18, 1.8, 0, Math.PI * 2); ctx.fill();
+
+    // Chrome casing (rounded TV bezel)
+    ctx.shadowBlur = 14; ctx.shadowColor = flash > 0.1 ? '#ffffff' : '#ff50e0';
+    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#2a2438';
+    ctx.beginPath();
+    ctx.moveTo(-18, -16);
+    ctx.lineTo( 16, -16);
+    ctx.quadraticCurveTo(22, -16, 22, -10);
+    ctx.lineTo( 22,  10);
+    ctx.quadraticCurveTo(22,  16, 16,  16);
+    ctx.lineTo(-18,  16);
+    ctx.quadraticCurveTo(-22, 16, -22, 10);
+    ctx.lineTo(-22, -10);
+    ctx.quadraticCurveTo(-22, -16, -18, -16);
     ctx.closePath();
     ctx.fill();
     ctx.shadowBlur = 0;
-    // Neon outline
-    ctx.strokeStyle = '#ff50e0';
-    ctx.lineWidth = 1.6;
+    // Chrome bevel highlight (top edge)
+    ctx.strokeStyle = '#e8eef8';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-16, -14); ctx.lineTo(14, -14);
     ctx.stroke();
-    // Horns back-swept
-    ctx.fillStyle = '#60f0ff';
-    ctx.shadowBlur = 8; ctx.shadowColor = '#60f0ff';
+    // Magenta hot edge
+    ctx.strokeStyle = '#ff50e0';
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.moveTo(-6, -12); ctx.lineTo(-18, -22); ctx.lineTo(-8, -10);
-    ctx.closePath(); ctx.fill();
+    ctx.moveTo(-18, 16); ctx.lineTo(16, 16);
+    ctx.stroke();
+
+    // Inset CRT screen (dark glass)
+    ctx.fillStyle = '#0a0518';
     ctx.beginPath();
-    ctx.moveTo(-6,  12); ctx.lineTo(-18,  22); ctx.lineTo(-8,  10);
-    ctx.closePath(); ctx.fill();
-    ctx.shadowBlur = 0;
-    // Glowing eyes
-    ctx.shadowBlur = 8; ctx.shadowColor = '#ffee40';
-    ctx.fillStyle = '#ffee40';
-    ctx.beginPath(); ctx.arc(-4, -5, 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(-4,  5, 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
-    // Mouth (opens to reveal plasma glow)
-    const open = dragon.mouthOpen;
-    if (open > 0.05) {
-      ctx.fillStyle = '#ff30a0';
+    ctx.moveTo(-14, -10);
+    ctx.lineTo( 16, -10);
+    ctx.quadraticCurveTo(20, 0, 16, 10);
+    ctx.lineTo(-14, 10);
+    ctx.quadraticCurveTo(-18, 0, -14, -10);
+    ctx.closePath();
+    ctx.fill();
+
+    // Scanlines
+    ctx.strokeStyle = 'rgba(255, 96, 216, 0.18)';
+    ctx.lineWidth = 0.6;
+    for (let sy = -8; sy <= 8; sy += 2) {
       ctx.beginPath();
-      ctx.moveTo(22, -4 * open);
-      ctx.lineTo(8,  -8 * open);
-      ctx.lineTo(8,   8 * open);
-      ctx.lineTo(22,  4 * open);
-      ctx.closePath();
-      ctx.fill();
-      // Inner plasma glow when wide open
-      if (open > 0.4) {
-        ctx.shadowBlur = 12; ctx.shadowColor = '#ffee40';
-        ctx.fillStyle = '#ffffa0';
-        ctx.beginPath();
-        ctx.arc(16, 0, 4 * open, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
+      ctx.moveTo(-14, sy); ctx.lineTo(18, sy);
+      ctx.stroke();
+    }
+
+    // Static glitch flicker — when mouth is opening, screen pulses with static
+    const open = dragon.mouthOpen;
+    const glitch = open > 0.05 ? open : (Math.sin(frame * 0.4) > 0.92 ? 0.4 : 0);
+    if (glitch > 0.05) {
+      ctx.fillStyle = 'rgba(216, 248, 255, ' + (0.3 * glitch) + ')';
+      for (let g = 0; g < 5; g++) {
+        const gy = -8 + Math.random() * 16;
+        const gw = 6 + Math.random() * 18;
+        const gx = -14 + Math.random() * 12;
+        ctx.fillRect(gx, gy, gw, 1);
       }
     }
-    // Teeth rows
-    ctx.fillStyle = '#e0f8ff';
-    for (let i = 0; i < 4; i++) {
-      const tx = 10 + i * 3;
+
+    // Two glowing eye-zones (laser aim crosshairs)
+    const eyeGlow = open > 0.05 ? 1 : 0.55;
+    ctx.shadowBlur = 8 + open * 12; ctx.shadowColor = '#60f0ff';
+    ctx.fillStyle = open > 0.4 ? '#ffffff' : '#a0f8ff';
+    ctx.globalAlpha = eyeGlow;
+    ctx.beginPath(); ctx.arc(2, -4, 2.4 + open * 1.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(2,  4, 2.4 + open * 1.4, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // Crosshair brackets around eye-targets
+    ctx.strokeStyle = 'rgba(255, 96, 216, 0.7)';
+    ctx.lineWidth = 0.8;
+    for (const ey of [-4, 4]) {
       ctx.beginPath();
-      ctx.moveTo(tx, -4 * open); ctx.lineTo(tx + 1.5, -2); ctx.lineTo(tx + 3, -4 * open);
-      ctx.closePath(); ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(tx,  4 * open); ctx.lineTo(tx + 1.5,  2); ctx.lineTo(tx + 3,  4 * open);
-      ctx.closePath(); ctx.fill();
+      ctx.moveTo(-3, ey); ctx.lineTo(-1, ey);
+      ctx.moveTo( 5, ey); ctx.lineTo( 7, ey);
+      ctx.moveTo( 2, ey - 3); ctx.lineTo( 2, ey - 1);
+      ctx.moveTo( 2, ey + 1); ctx.lineTo( 2, ey + 3);
+      ctx.stroke();
     }
+
+    // Cracked-screen lightning lines (always visible)
+    ctx.strokeStyle = 'rgba(216, 232, 255, 0.55)';
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(-12, -7); ctx.lineTo(-6, -3); ctx.lineTo(-9, 1); ctx.lineTo(-2, 6);
+    ctx.moveTo(10, -8); ctx.lineTo(7, -2); ctx.lineTo(12, 2);
+    ctx.stroke();
+
+    // Laser charge bloom when mouth is wide open (telegraph for the shot)
+    if (open > 0.4) {
+      ctx.shadowBlur = 14; ctx.shadowColor = '#ff50e0';
+      ctx.fillStyle = 'rgba(255, 96, 216, ' + (open - 0.4) + ')';
+      ctx.beginPath();
+      ctx.arc(20, 0, 5 * open, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Power LED on the bezel
+    ctx.fillStyle = '#ff60a0';
+    ctx.shadowBlur = 4; ctx.shadowColor = '#ff60a0';
+    ctx.beginPath(); ctx.arc(-16, 12, 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Brand mark "DLX" tiny tag on the bezel
+    ctx.fillStyle = '#ffd83d';
+    ctx.font = 'bold 6px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('DLX', -10, 14.5);
+
     ctx.rotate(-h.ang);
     ctx.translate(-h.x, -h.y);
-    // HP pips above the head (fixed in world space, not rotated)
+
+    // HP pips above the head — pink to match VAPORHEAD vibe
     for (let i = 0; i < 4; i++) {
-      ctx.fillStyle = i < dragonHitsLeft ? '#60f0ff' : 'rgba(40, 40, 90, 0.6)';
+      ctx.fillStyle = i < dragonHitsLeft ? '#ff60d8' : 'rgba(60, 30, 60, 0.6)';
       ctx.shadowBlur = i < dragonHitsLeft ? 6 : 0;
-      ctx.shadowColor = '#60f0ff';
+      ctx.shadowColor = '#ff60d8';
       ctx.beginPath();
-      ctx.arc(h.x - 24 + i * 16, h.y - 32, 3, 0, Math.PI * 2);
+      ctx.arc(h.x - 24 + i * 16, h.y - 34, 3, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.shadowBlur = 0;
