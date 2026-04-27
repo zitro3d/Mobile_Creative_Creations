@@ -1612,7 +1612,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v81';
+const DLX_BUILD = 'v82';
 
 (function() {
   // ---------- iOS gate ----------
@@ -10151,108 +10151,277 @@ const DLX_BUILD = 'v81';
     c.shadowBlur = 0;
   }
 
-  // NUGGET (×1.00) — small narrow body, pointed front nose, tail fin
-  // on top. Reads as the agile/fast rig at a glance. Native palette:
-  // bright yellow/gold with cyan cockpit.
-  function drawNuggetThumb(c, s) {
-    c.scale(1.05, 1.05);
-    drawShipBody(c, s, { w: 22, h: 14, engW: 5, engH: 9 });
-    // Pointed nose triangle off the front (the fast cue)
-    const noseGrad = c.createLinearGradient(0, -7, 0, 7);
-    noseGrad.addColorStop(0,   s.bodyTop);
-    noseGrad.addColorStop(0.5, s.bodyMid);
-    noseGrad.addColorStop(1,   s.bodyBot);
-    c.fillStyle = noseGrad;
+  // Truck wheel — black tire + chrome hub. Standard for all rigs so
+  // they share visual DNA.
+  function drawWheel(c, x, y, r) {
+    c.fillStyle = '#0a0506';
     c.beginPath();
-    c.moveTo(11, -7);
-    c.lineTo(18,  0);
-    c.lineTo(11,  7);
+    c.arc(x, y, r, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = '#3a2a20';
+    c.lineWidth = 0.8;
+    c.stroke();
+    c.fillStyle = '#7a6650';
+    c.beginPath();
+    c.arc(x, y, r * 0.45, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = '#1a0a05';
+    c.beginPath();
+    c.arc(x, y, r * 0.18, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  // Cab front face: grille + headlight + windshield. Built so each
+  // truck class can position the same components on a different cab.
+  function drawCabFront(c, s, opts) {
+    const fx = opts.frontX, top = opts.cabTop, bot = opts.cabBot;
+    // Sloped windshield (cockpit color)
+    c.shadowBlur = 4;
+    c.shadowColor = s.cockpitGlow;
+    c.fillStyle = s.cockpit;
+    c.beginPath();
+    c.moveTo(opts.windX0, top + 1);
+    c.lineTo(opts.windX1, top + 1);
+    c.lineTo(fx - 0.5,    opts.windFootY);
+    c.lineTo(opts.windX0, opts.windFootY);
+    c.closePath();
+    c.fill();
+    c.shadowBlur = 0;
+    c.strokeStyle = '#1a0a05';
+    c.lineWidth = 0.8;
+    c.stroke();
+    // Headlight
+    c.fillStyle = '#fff4b0';
+    c.shadowBlur = 4;
+    c.shadowColor = '#fff080';
+    c.beginPath();
+    c.arc(fx - 1.2, opts.windFootY + 2, 1.2, 0, Math.PI * 2);
+    c.fill();
+    c.shadowBlur = 0;
+    // Grille — three horizontal bars on the lower face
+    c.strokeStyle = '#1a0a05';
+    c.lineWidth = 0.7;
+    for (let i = 0; i < 3; i++) {
+      const gy = opts.windFootY + 4 + i * 1.6;
+      if (gy < bot - 1) {
+        c.beginPath();
+        c.moveTo(fx - 4, gy);
+        c.lineTo(fx - 0.5, gy);
+        c.stroke();
+      }
+    }
+  }
+
+  // NUGGET (×1.00) — compact pickup-style hover-rig. Cab on the
+  // right with sloped windshield, short open cargo bed on the left,
+  // two wheels, single exhaust stack.
+  function drawNuggetThumb(c, s) {
+    c.scale(1.0, 1.0);
+    // Cargo bed (left, lower height)
+    const bedY = -2, bedH = 8;
+    c.fillStyle = s.bodyBot;
+    c.fillRect(-15, bedY, 14, bedH);
+    c.strokeStyle = '#1a0a05';
+    c.lineWidth = 1.2;
+    c.strokeRect(-15, bedY, 14, bedH);
+    // Bed cargo content (a sealed crate poking up)
+    c.fillStyle = s.secondary;
+    c.fillRect(-12, bedY - 4, 8, 4);
+    c.strokeRect(-12, bedY - 4, 8, 4);
+    // Cab body — taller than the bed, with sloped windshield
+    const cabTop = -9, cabBot = bedY + bedH;
+    const cabGrad = c.createLinearGradient(0, cabTop, 0, cabBot);
+    cabGrad.addColorStop(0,   s.bodyTop);
+    cabGrad.addColorStop(0.5, s.bodyMid);
+    cabGrad.addColorStop(1,   s.bodyBot);
+    c.fillStyle = cabGrad;
+    c.beginPath();
+    c.moveTo(-1, cabTop);
+    c.lineTo( 6, cabTop);
+    c.lineTo(11, -2);          // sloped front
+    c.lineTo(11, cabBot);
+    c.lineTo(-1, cabBot);
     c.closePath();
     c.fill();
     c.strokeStyle = '#1a0a05';
     c.lineWidth = 1.2;
     c.stroke();
-    // Tail fin (rear top) — angular fast-look
-    c.fillStyle = s.warning;
-    c.beginPath();
-    c.moveTo(-11, -7);
-    c.lineTo(-7,  -13);
-    c.lineTo(-3,  -7);
-    c.closePath();
-    c.fill();
-    c.strokeStyle = '#1a0a05';
-    c.lineWidth = 0.9;
-    c.stroke();
-    // Cockpit (small) tucked toward the nose
-    drawCockpit(c, s, 4, -4, 5, 5);
-    // Stripe accent down the side
-    c.fillStyle = s.secondary;
-    c.fillRect(-10, 4, 18, 1.5);
-    // Single exhaust
-    drawExhaustPlume(c, -22, -1, 5);
-  }
-
-  // SAUSAGE BUS (×1.25) — medium body, longer cargo box.
-  // Native palette: red sausage body with gold cockpit.
-  function drawSausageBusThumb(c, s) {
-    drawShipBody(c, s, { w: 28, h: 18, engW: 7, engH: 12 });
-    // Longer cargo box on top
-    drawCargoBlock(c, s, -8, -14, 16, 5);
-    // Cockpit
-    drawCockpit(c, s, 5, -5, 6, 7);
-    // Roof warning
-    c.fillStyle = s.warning;
-    c.beginPath();
-    c.arc(2, -15, 1.2, 0, Math.PI * 2);
-    c.fill();
-    // Side cargo door (porthole)
-    c.fillStyle = '#1a0a05';
-    c.beginPath();
-    c.arc(-9, 4, 1.6, 0, Math.PI * 2);
-    c.fill();
-    // Exhaust
-    drawExhaustPlume(c, -27, -1, 6);
-  }
-
-  // MEAT WAGON (×1.60) — wide armored body, twin smokestacks on top,
-  // front bumper plate with spikes, twin rear exhausts.
-  // Native palette: dark olive/brown body with green cockpit.
-  function drawMeatWagonThumb(c, s) {
-    c.scale(0.92, 0.92);
-    drawShipBody(c, s, { w: 32, h: 22, engW: 8, engH: 14 });
-    // Wide cargo block with hazard stripes
-    drawCargoBlock(c, s, -10, -18, 18, 5);
-    // Twin smokestacks on top of the cargo block
-    c.fillStyle = '#1a0a05';
-    c.fillRect(-7, -22, 3, 5);
-    c.fillRect( 1, -22, 3, 5);
-    c.fillStyle = '#3a2418';
-    c.fillRect(-8, -23, 5, 2);
-    c.fillRect( 0, -23, 5, 2);
-    // Front armor bumper plate
-    c.fillStyle = '#2a1612';
-    c.fillRect(16, -11, 4, 22);
-    c.strokeStyle = '#1a0a05';
-    c.lineWidth = 1;
-    c.strokeRect(16, -11, 4, 22);
-    // Bumper spikes
-    c.fillStyle = '#1a0a05';
-    c.beginPath();
-    c.moveTo(20, -8);  c.lineTo(24, -5); c.lineTo(20, -2);
-    c.moveTo(20,  0);  c.lineTo(25,  3); c.lineTo(20,  6);
-    c.moveTo(20,  8);  c.lineTo(24, 11); c.lineTo(20, 11);
-    c.closePath();
-    c.fill();
-    // Cockpit (bigger)
-    drawCockpit(c, s, 5, -7, 8, 8);
+    // Cab windshield + grille + headlight
+    drawCabFront(c, s, {
+      frontX: 11, cabTop: cabTop, cabBot: cabBot,
+      windX0: 1, windX1: 6, windFootY: -2,
+    });
     // Roof warning beacon
     c.fillStyle = s.warning;
     c.beginPath();
-    c.arc(0, -19, 1.4, 0, Math.PI * 2);
+    c.arc(2.5, cabTop - 1.2, 1.1, 0, Math.PI * 2);
     c.fill();
-    // Twin rear exhausts
-    drawExhaustPlume(c, -28, -5, 6);
-    drawExhaustPlume(c, -28,  3, 6);
+    // Side mirror
+    c.fillStyle = '#1a0a05';
+    c.fillRect(-1.5, -7, 1.5, 1);
+    // Wheels (front under cab, rear under bed)
+    drawWheel(c, -10, 7,  2.4);
+    drawWheel(c,  6,  7,  2.4);
+    // Stub engine + single exhaust pipe rising from the rear
+    c.fillStyle = '#1a0a05';
+    c.fillRect(-17, -4, 2.5, 5);
+    drawExhaustPlume(c, -22, -3, 5);
+  }
+
+  // SAUSAGE BUS (×1.25) — box-truck delivery van. Cab on the right,
+  // long cargo box on the left, four wheels, side cargo door.
+  function drawSausageBusThumb(c, s) {
+    c.scale(0.92, 0.92);
+    // Cargo box (long left section, full height)
+    const boxY = -10, boxH = 18;
+    const boxGrad = c.createLinearGradient(0, boxY, 0, boxY + boxH);
+    boxGrad.addColorStop(0,   s.bodyTop);
+    boxGrad.addColorStop(0.5, s.bodyMid);
+    boxGrad.addColorStop(1,   s.bodyBot);
+    c.fillStyle = boxGrad;
+    c.fillRect(-22, boxY, 22, boxH);
+    c.strokeStyle = '#1a0a05';
+    c.lineWidth = 1.2;
+    c.strokeRect(-22, boxY, 22, boxH);
+    // Yellow/black hazard stripes along the bottom of the cargo box
+    drawCargoBlock(c, s, -22, boxY + boxH - 4, 22, 4);
+    // Side cargo door (rectangle with handle dot)
+    c.strokeStyle = '#1a0a05';
+    c.lineWidth = 1;
+    c.strokeRect(-15, boxY + 2, 8, 10);
+    c.fillStyle = '#1a0a05';
+    c.beginPath();
+    c.arc(-9, boxY + 8, 0.9, 0, Math.PI * 2);
+    c.fill();
+    // Cab on the right — slightly shorter than the box
+    const cabTop = boxY + 4, cabBot = boxY + boxH;
+    const cabGrad = c.createLinearGradient(0, cabTop, 0, cabBot);
+    cabGrad.addColorStop(0,   s.bodyTop);
+    cabGrad.addColorStop(0.5, s.bodyMid);
+    cabGrad.addColorStop(1,   s.bodyBot);
+    c.fillStyle = cabGrad;
+    c.beginPath();
+    c.moveTo(0,  cabTop);
+    c.lineTo(11, cabTop);
+    c.lineTo(15, cabTop + 4);   // sloped front above grille
+    c.lineTo(15, cabBot);
+    c.lineTo(0,  cabBot);
+    c.closePath();
+    c.fill();
+    c.strokeStyle = '#1a0a05';
+    c.lineWidth = 1.2;
+    c.stroke();
+    // Cab windshield + grille + headlight
+    drawCabFront(c, s, {
+      frontX: 15, cabTop: cabTop, cabBot: cabBot,
+      windX0: 2, windX1: 11, windFootY: cabTop + 5,
+    });
+    // Smokestack on top of the cab
+    c.fillStyle = '#1a0a05';
+    c.fillRect(2, boxY, 2.5, 5);
+    c.fillStyle = '#3a2418';
+    c.fillRect(1, boxY - 1, 4.5, 2);
+    // Roof warning beacon over the box
+    c.fillStyle = s.warning;
+    c.beginPath();
+    c.arc(-12, boxY - 1, 1.3, 0, Math.PI * 2);
+    c.fill();
+    // Side mirror on cab
+    c.fillStyle = '#1a0a05';
+    c.fillRect(0.5, cabTop + 2, 2, 1.4);
+    // Wheels — two under cargo, two under cab
+    drawWheel(c, -18, boxY + boxH + 0.5, 2.7);
+    drawWheel(c, -7,  boxY + boxH + 0.5, 2.7);
+    drawWheel(c,  4,  boxY + boxH + 0.5, 2.7);
+    drawWheel(c, 12,  boxY + boxH + 0.5, 2.7);
+    // Engine + exhaust at the rear
+    c.fillStyle = '#1a0a05';
+    c.fillRect(-25, -4, 3, 6);
+    drawExhaustPlume(c, -30, -3, 6);
+  }
+
+  // MEAT WAGON (×1.60) — semi/big-rig. Massive cab on the right with
+  // twin smokestacks rising from the roof, long armored trailer on
+  // the left, heavy front bumper plate with spikes, six visible
+  // wheels, twin rear exhausts.
+  function drawMeatWagonThumb(c, s) {
+    c.scale(0.78, 0.78);
+    // Trailer (long left section)
+    const trY = -14, trH = 22;
+    const trGrad = c.createLinearGradient(0, trY, 0, trY + trH);
+    trGrad.addColorStop(0,   s.bodyTop);
+    trGrad.addColorStop(0.5, s.bodyMid);
+    trGrad.addColorStop(1,   s.bodyBot);
+    c.fillStyle = trGrad;
+    c.fillRect(-28, trY, 26, trH);
+    c.strokeStyle = '#1a0a05';
+    c.lineWidth = 1.4;
+    c.strokeRect(-28, trY, 26, trH);
+    // Hazard stripe band along trailer top
+    drawCargoBlock(c, s, -28, trY, 26, 5);
+    // Trailer rivets along the side
+    c.fillStyle = '#1a0a05';
+    [-25, -18, -11].forEach(function(rx) {
+      c.beginPath();
+      c.arc(rx, trY + 9, 1, 0, Math.PI * 2);
+      c.fill();
+    });
+    // Cab — boxy, big, on the right
+    const cabTop = trY + 2, cabBot = trY + trH;
+    const cabGrad = c.createLinearGradient(0, cabTop, 0, cabBot);
+    cabGrad.addColorStop(0,   s.bodyTop);
+    cabGrad.addColorStop(0.5, s.bodyMid);
+    cabGrad.addColorStop(1,   s.bodyBot);
+    c.fillStyle = cabGrad;
+    c.beginPath();
+    c.moveTo(-2, cabTop);
+    c.lineTo(13, cabTop);
+    c.lineTo(18, cabTop + 5);
+    c.lineTo(18, cabBot);
+    c.lineTo(-2, cabBot);
+    c.closePath();
+    c.fill();
+    c.strokeStyle = '#1a0a05';
+    c.lineWidth = 1.4;
+    c.stroke();
+    // Cab windshield + grille + headlight
+    drawCabFront(c, s, {
+      frontX: 18, cabTop: cabTop, cabBot: cabBot,
+      windX0: 0, windX1: 13, windFootY: cabTop + 6,
+    });
+    // Twin smokestacks on top of the cab
+    c.fillStyle = '#1a0a05';
+    c.fillRect(2,  cabTop - 7, 2.5, 7);
+    c.fillRect(8,  cabTop - 7, 2.5, 7);
+    c.fillStyle = '#3a2418';
+    c.fillRect(1.2,  cabTop - 9, 4, 2);
+    c.fillRect(7.2,  cabTop - 9, 4, 2);
+    // Front bumper armor plate
+    c.fillStyle = '#1a0a05';
+    c.fillRect(18, cabTop + 6, 3, cabBot - cabTop - 6);
+    // Bumper spikes
+    c.beginPath();
+    c.moveTo(21, cabTop + 8);  c.lineTo(24, cabTop + 11); c.lineTo(21, cabTop + 14);
+    c.moveTo(21, cabTop + 14); c.lineTo(25, cabTop + 16); c.lineTo(21, cabTop + 18);
+    c.closePath();
+    c.fill();
+    // Roof warning beacon on cab
+    c.fillStyle = s.warning;
+    c.beginPath();
+    c.arc(5.5, cabTop - 1, 1.4, 0, Math.PI * 2);
+    c.fill();
+    // Side mirror
+    c.fillStyle = '#1a0a05';
+    c.fillRect(-1.5, cabTop + 4, 2, 1.6);
+    // Six wheels along the chassis
+    [-25, -18, -11, -4, 4, 12].forEach(function(wx) {
+      drawWheel(c, wx, cabBot + 0.5, 3);
+    });
+    // Big engine block + twin rear exhausts
+    c.fillStyle = '#1a0a05';
+    c.fillRect(-32, -6, 4, 8);
+    drawExhaustPlume(c, -38, -5, 6);
+    drawExhaustPlume(c, -38,  3, 6);
   }
   drawShipThumbs();
 
