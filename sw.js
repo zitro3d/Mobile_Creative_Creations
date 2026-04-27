@@ -3,11 +3,14 @@
 //   when they're online; the old cached HTML is only used as a fallback
 //   when offline.
 // - The icon + manifest are CACHE-FIRST (they almost never change).
-const CACHE = 'dlx-hauler-v77';
+const CACHE = 'dlx-hauler-v78';
 const PRECACHE = [
   './manifest.webmanifest',
   './dlx-icon.svg',
-  './audio/sunset-ambient.m4a'
+  './audio/DLX.m4a',
+  './audio/sunset-ambient 2.m4a',
+  './audio/TENTACLE.m4a',
+  './audio/DLX_SHREDD.m4a'
 ];
 
 self.addEventListener('install', (e) => {

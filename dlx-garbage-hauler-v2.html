@@ -14,7 +14,10 @@
 <link rel="apple-touch-icon" href="dlx-icon.svg">
 <!-- Preload the Sunset ambient so the browser starts downloading it in
      parallel with the HTML/JS parse, not after the player taps. -->
-<link rel="preload" href="audio/sunset-ambient.m4a" as="audio" type="audio/mp4">
+<link rel="preload" href="audio/DLX.m4a" as="audio" type="audio/mp4">
+<link rel="preload" href="audio/sunset-ambient 2.m4a" as="audio" type="audio/mp4">
+<link rel="preload" href="audio/TENTACLE.m4a" as="audio" type="audio/mp4">
+<link rel="preload" href="audio/DLX_SHREDD.m4a" as="audio" type="audio/mp4">
 <title>DLX Garbage Hauler</title>
 <style>
   :root {
@@ -1609,7 +1612,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v77';
+const DLX_BUILD = 'v78';
 
 (function() {
   // ---------- iOS gate ----------
@@ -2018,6 +2021,9 @@ const DLX_BUILD = 'v77';
     if (!audioCtx) ensureAudioCtx();
     if (!audioCtx) return null;
     if (audioCtx.state === 'suspended') audioCtx.resume();
+    // First user gesture on the home screen is also the cue to start
+    // the splash music. iOS blocks autoplay until this point.
+    if (state === STATE_READY) startSplashMusic();
     return audioCtx;
   }
   function tone(freq, dur, type, gain, slide) {
@@ -2065,14 +2071,17 @@ const DLX_BUILD = 'v77';
     // handles the 52-second loop seam. The legacy synth layer configs
     // are preserved below (commented) in case we want to revert or
     // assign unique tracks per biome later.
-    sunset:     { file: 'audio/sunset-ambient.m4a', volume: 0.56 },
-    city:       { file: 'audio/sunset-ambient.m4a', volume: 0.56 },
-    volcano:    { file: 'audio/sunset-ambient.m4a', volume: 0.56 },
-    swamp:      { file: 'audio/sunset-ambient.m4a', volume: 0.56 },
-    canyon:     { file: 'audio/sunset-ambient.m4a', volume: 0.56 },
-    underwater: { file: 'audio/sunset-ambient.m4a', volume: 0.56 },
-    neoncity:   { file: 'audio/sunset-ambient.m4a', volume: 0.56 },
-    icecave:    { file: 'audio/sunset-ambient.m4a', volume: 0.56 },
+    // sunset-ambient 2 is the updated 52s loop (LUFS -19, fixed seam).
+    // Used as the campaign-wide soundtrack for most zones; underwater
+    // and icecave have their own composer-delivered tracks.
+    sunset:     { file: 'audio/sunset-ambient 2.m4a', volume: 0.56 },
+    city:       { file: 'audio/sunset-ambient 2.m4a', volume: 0.56 },
+    volcano:    { file: 'audio/sunset-ambient 2.m4a', volume: 0.56 },
+    swamp:      { file: 'audio/sunset-ambient 2.m4a', volume: 0.56 },
+    canyon:     { file: 'audio/sunset-ambient 2.m4a', volume: 0.56 },
+    underwater: { file: 'audio/TENTACLE.m4a',          volume: 0.56 },
+    neoncity:   { file: 'audio/sunset-ambient 2.m4a', volume: 0.56 },
+    icecave:    { file: 'audio/DLX_SHREDD.m4a',        volume: 0.56 },
     /* Synth fallbacks (unused while every biome points at the file):
        sunset:     { layers: [ { type: 'sine',     freq: 220, gain: 0.020, lfoFreq: 0.3,  lfoDepth: 4 },
                                 { type: 'triangle', freq: 110, gain: 0.016 },
@@ -2193,7 +2202,37 @@ const DLX_BUILD = 'v77';
     }
   }
 
+  // ---------- Splash music (DLX.m4a, plays on the home screen) ----------
+  let splashEl = null;
+  let splashOn = false;
+  function getSplashEl() {
+    if (splashEl) return splashEl;
+    splashEl = new Audio('audio/DLX.m4a');
+    splashEl.loop = true;
+    splashEl.preload = 'auto';
+    splashEl.volume = 0;
+    return splashEl;
+  }
+  function startSplashMusic() {
+    if (muted || splashOn) return;
+    const el = getSplashEl();
+    splashOn = true;
+    try { el.currentTime = 0; } catch (e) {}
+    el.volume = 0;
+    const p = el.play();
+    if (p && typeof p.catch === 'function') p.catch(function() {});
+    fadeEl(el, 0.5, 800);
+  }
+  function stopSplashMusic(fadeMs) {
+    if (!splashOn || !splashEl) return;
+    splashOn = false;
+    fadeEl(splashEl, 0, fadeMs || 400, function() {
+      try { splashEl.pause(); } catch (e) {}
+    });
+  }
+
   function startThemeAmbient() {
+    stopSplashMusic(300);
     if (muted) { stopThemeAmbient(0.1); return; }
     const a = audio(); if (!a) return;
     if (ambientTheme === selectedTheme) return;   // already running this theme
@@ -10464,8 +10503,14 @@ const DLX_BUILD = 'v77';
     muted = !muted;
     try { localStorage.setItem('dlx_muted_v2', muted ? '1' : '0'); } catch(e){}
     updateMuteBtn();
-    if (muted) stopThemeAmbient(0.2);
-    else if (state === STATE_PLAY) { ambientTheme = null; startThemeAmbient(); }
+    if (muted) {
+      stopThemeAmbient(0.2);
+      stopSplashMusic(200);
+    } else if (state === STATE_PLAY) {
+      ambientTheme = null; startThemeAmbient();
+    } else if (state === STATE_READY) {
+      startSplashMusic();
+    }
   }
   function pauseGame(e) {
     if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
@@ -11256,6 +11301,9 @@ const DLX_BUILD = 'v77';
     if (victoryScreen) victoryScreen.classList.add('hidden');
     cancelResetConfirm();   // back to default START OVER state
     if (playBtnsEl) playBtnsEl.style.display = 'none';
+    // Returning to home from a game — splash music kicks back in
+    // (no-op on first boot since iOS hasn't unlocked audio yet).
+    startSplashMusic();
     refreshResumeRow();
     refreshSkinToggle();
     refreshDailyRow();
