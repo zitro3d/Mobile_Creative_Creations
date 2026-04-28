@@ -1865,7 +1865,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v96';
+const DLX_BUILD = 'v97';
 
 (function() {
   // ---------- iOS gate ----------
@@ -4262,24 +4262,41 @@ const DLX_BUILD = 'v96';
     h.targetY = weave * 0.55 + chase * 0.45;
     h.y += (h.targetY - h.y) * 0.05;
     h.y = Math.max(28, Math.min(PLAY_H - 28, h.y));
-    // Aim angle points toward player for the mouth direction
+    // Aim angle points toward player (used only for cigarette spit direction —
+    // the body itself stays upright on the skiff, NOT rotated to match)
     h.ang = Math.atan2(bird.y - h.y, bird.x - h.x);
-    // Body segments trail the head via a rolling history buffer
-    dragon.trail.push({ x: h.x, y: h.y });
-    if (dragon.trail.length > 64) dragon.trail.shift();
-    for (let i = 0; i < dragon.segs.length; i++) {
-      const idx = Math.max(0, dragon.trail.length - 1 - (i + 1) * 7);
-      const pt = dragon.trail[idx];
-      if (pt) {
-        dragon.segs[i].x = pt.x;
-        dragon.segs[i].y = pt.y;
-      }
+    // Two batons swinging like windshield wipers. Right baton uses segs[0..2],
+    // left baton uses segs[3..5]. Each is anchored at a shoulder and sweeps an
+    // arc on the player side of the boss. The phases are 180° offset so the
+    // wipers form a closing/opening gap the player has to time.
+    const sweep = Math.PI * 0.55;
+    const swingSpeed = 0.07;
+    const ang1 = -Math.PI / 2 + Math.sin(frame * swingSpeed) * sweep;            // right hand
+    const ang2 =  Math.PI / 2 + Math.sin(frame * swingSpeed + Math.PI) * sweep;  // left hand
+    dragon.batonAng1 = ang1;
+    dragon.batonAng2 = ang2;
+    const px1 = h.x + 14;   // right shoulder pivot (player-facing side, deck level)
+    const py1 = h.y + 4;
+    const px2 = h.x - 14;   // left shoulder pivot
+    const py2 = h.y + 4;
+    dragon.batonPiv1 = { x: px1, y: py1 };
+    dragon.batonPiv2 = { x: px2, y: py2 };
+    const linkSpacing = 11;
+    const segR = 6;
+    for (let i = 0; i < 3; i++) {
+      const d = (i + 1) * linkSpacing;
+      dragon.segs[i].x = px1 + Math.cos(ang1) * d;
+      dragon.segs[i].y = py1 + Math.sin(ang1) * d;
+      dragon.segs[i].r = segR;
+      dragon.segs[i + 3].x = px2 + Math.cos(ang2) * d;
+      dragon.segs[i + 3].y = py2 + Math.sin(ang2) * d;
+      dragon.segs[i + 3].r = segR;
     }
-    // Mouth snap cycle
+    // Mouth snap cycle (= cigarette flick telegraph)
     const cyc = (frame % 110) / 110;
     dragon.mouthOpen = cyc < 0.2 ? Math.sin(cyc / 0.2 * Math.PI) : 0;
     if (dragon.hitFlash > 0) dragon.hitFlash--;
-    // Fire laser projectiles at the player
+    // Flick a lit cigarette at the player
     dragon.fireCooldown--;
     if (dragon.fireCooldown <= 0) {
       dragon.fireCooldown = 90 + Math.floor(Math.random() * 50);
@@ -4405,269 +4422,328 @@ const DLX_BUILD = 'v96';
     const h = dragon.head;
     const flash = dragon.hitFlash > 0 ? dragon.hitFlash / 12 : 0;
     const open = dragon.mouthOpen;
+    const skin     = flash > 0.1 ? '#ffffff' : '#d89060';
+    const skinDark = flash > 0.1 ? '#ffffff' : '#b87248';
+    const jumpsuit       = flash > 0.1 ? '#ffffff' : '#d8421a';
+    const jumpsuitLight  = flash > 0.1 ? '#ffffff' : '#f06030';
+    const jumpsuitShadow = flash > 0.1 ? '#ffffff' : '#982612';
+    const outline = '#1a0a06';
 
-    // --- Trailing rebar chain (the dragon.segs become a swinging baton-chain) ---
-    // Drawn behind the skiff so the Landlord sits on top of it.
-    // Each seg is a chunky rebar link; electric arcs zap between adjacent links.
-    for (let i = dragon.segs.length - 1; i >= 0; i--) {
-      const s = dragon.segs[i];
-      const prev = i === 0 ? h : dragon.segs[i - 1];
-      const ang = Math.atan2(prev.y - s.y, prev.x - s.x);
-      const linkLen = s.r * 1.6;
-      const linkThk = s.r * 0.55;
+    // Helper: draw one electrified rebar baton spanning a pivot through 3 seg nodes.
+    function drawBaton(piv, segs) {
+      const tip = segs[2];
+      const ang = Math.atan2(tip.y - piv.y, tip.x - piv.x);
+      const len = Math.sqrt((tip.x - piv.x) * (tip.x - piv.x) + (tip.y - piv.y) * (tip.y - piv.y));
       ctx.save();
-      ctx.translate(s.x, s.y);
+      ctx.translate(piv.x, piv.y);
       ctx.rotate(ang);
-      // Rusty rebar body
-      ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#3a1a08';
-      ctx.fillRect(-linkLen, -linkThk, linkLen * 2, linkThk * 2);
-      // Chrome highlight
-      ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#d8a460';
-      ctx.fillRect(-linkLen * 0.95, -linkThk * 0.5, linkLen * 1.9, linkThk * 0.5);
-      // Rust spots
+      // Outer dark rebar
+      ctx.fillStyle = outline;
+      ctx.fillRect(0, -3.6, len, 7.2);
+      // Rusty orange highlight
+      ctx.fillStyle = '#d8a460';
+      ctx.fillRect(0, -1.6, len, 2);
+      // Rust speckles
       ctx.fillStyle = '#982612';
-      ctx.fillRect(-linkLen * 0.6, -linkThk * 0.2, linkLen * 0.3, linkThk * 0.4);
-      // Black hairline outline (DLX brand)
-      ctx.strokeStyle = '#1a0a06';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(-linkLen, -linkThk, linkLen * 2, linkThk * 2);
-      // Electric arc to next link (yellow zap)
-      if (i > 0) {
-        ctx.shadowBlur = 6; ctx.shadowColor = '#ffee40';
-        ctx.strokeStyle = '#ffffa0';
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.moveTo(-linkLen, 0);
-        const mid = -linkLen * 0.6 + Math.sin(frame * 0.6 + i) * 1.2;
-        ctx.lineTo(mid, (Math.random() - 0.5) * 1.4);
-        ctx.lineTo(0, 0);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
+      ctx.fillRect(len * 0.25, -2, 4, 2);
+      ctx.fillRect(len * 0.6, -1, 5, 2);
+      // Spike head on the tip
+      ctx.fillStyle = outline;
+      ctx.beginPath();
+      ctx.moveTo(len, -5); ctx.lineTo(len + 8, 0); ctx.lineTo(len, 5);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ffd83d';
+      ctx.beginPath();
+      ctx.moveTo(len, -3); ctx.lineTo(len + 5, 0); ctx.lineTo(len, 3);
+      ctx.closePath(); ctx.fill();
+      // Electric zap arcing along the bar (bright yellow)
+      ctx.shadowBlur = 8; ctx.shadowColor = '#ffee40';
+      ctx.strokeStyle = '#ffffa0';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      const steps = 6;
+      for (let s = 1; s < steps; s++) {
+        const t = s / steps;
+        ctx.lineTo(len * t, (Math.sin(frame * 0.5 + s) + (Math.random() - 0.5)) * 2.4);
       }
-      // Spike on the very last (tip) link
-      if (i === dragon.segs.length - 1) {
-        ctx.fillStyle = '#1a0a06';
+      ctx.lineTo(len, 0);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      // Tiny crackle sparks at the tip
+      ctx.fillStyle = '#ffffa0';
+      ctx.shadowBlur = 4; ctx.shadowColor = '#ffee40';
+      for (let s = 0; s < 3; s++) {
         ctx.beginPath();
-        ctx.moveTo(-linkLen - 6, 0);
-        ctx.lineTo(-linkLen, -linkThk * 1.4);
-        ctx.lineTo(-linkLen, linkThk * 1.4);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = '#d8a460';
-        ctx.beginPath();
-        ctx.moveTo(-linkLen - 4, 0);
-        ctx.lineTo(-linkLen, -linkThk * 0.9);
-        ctx.lineTo(-linkLen, linkThk * 0.9);
-        ctx.closePath();
+        ctx.arc(len + (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, 0.8, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.shadowBlur = 0;
       ctx.restore();
     }
 
-    // --- Head: hover-skiff + The Landlord ---
-    ctx.translate(h.x, h.y);
-    ctx.rotate(h.ang);
-
-    // Skiff under-glow (engine wash beneath the platform)
+    // --- Skiff (always horizontal — does NOT rotate with h.ang) ---
+    // Engine wash glow
     ctx.shadowBlur = 14; ctx.shadowColor = '#ff60a0';
     ctx.fillStyle = 'rgba(255, 96, 160, 0.35)';
     ctx.beginPath();
-    ctx.ellipse(0, 18, 28, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(h.x, h.y + 26, 36, 7, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
-
-    // Skiff platform (chunky orange-red hover-board)
-    ctx.shadowBlur = 10; ctx.shadowColor = flash > 0.1 ? '#ffffff' : '#ff60a0';
-    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#d8421a';
+    // Hover platform
+    ctx.shadowBlur = 10; ctx.shadowColor = flash > 0.1 ? '#ffffff' : '#982612';
+    ctx.fillStyle = jumpsuit;
     ctx.beginPath();
-    ctx.moveTo(-26, 8);
-    ctx.lineTo( 26, 8);
-    ctx.lineTo( 22, 16);
-    ctx.lineTo(-22, 16);
+    ctx.moveTo(h.x - 32, h.y + 14);
+    ctx.lineTo(h.x + 32, h.y + 14);
+    ctx.lineTo(h.x + 26, h.y + 24);
+    ctx.lineTo(h.x - 26, h.y + 24);
     ctx.closePath();
     ctx.fill();
     ctx.shadowBlur = 0;
-    // Skiff dark base (under-shadow)
+    // Dark under-shadow
     ctx.fillStyle = '#3a1208';
     ctx.beginPath();
-    ctx.moveTo(-22, 16); ctx.lineTo(22, 16); ctx.lineTo(18, 19); ctx.lineTo(-18, 19);
+    ctx.moveTo(h.x - 26, h.y + 24);
+    ctx.lineTo(h.x + 26, h.y + 24);
+    ctx.lineTo(h.x + 22, h.y + 28);
+    ctx.lineTo(h.x - 22, h.y + 28);
     ctx.closePath(); ctx.fill();
-    // Black hairline outline
-    ctx.strokeStyle = '#1a0a06';
+    // Outline
+    ctx.strokeStyle = outline;
     ctx.lineWidth = 1.4;
     ctx.beginPath();
-    ctx.moveTo(-26, 8); ctx.lineTo(26, 8); ctx.lineTo(22, 16); ctx.lineTo(-22, 16); ctx.closePath();
-    ctx.stroke();
-    // Yellow racing stripe along the deck
+    ctx.moveTo(h.x - 32, h.y + 14);
+    ctx.lineTo(h.x + 32, h.y + 14);
+    ctx.lineTo(h.x + 26, h.y + 24);
+    ctx.lineTo(h.x - 26, h.y + 24);
+    ctx.closePath(); ctx.stroke();
+    // Yellow racing stripe + DLX stencil
     ctx.fillStyle = '#ffd83d';
-    ctx.fillRect(-22, 9, 44, 1.4);
-
-    // Chrome handlebars (front of skiff)
-    ctx.strokeStyle = '#e8eef8';
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.moveTo(14, 8); ctx.lineTo(20, 2); ctx.lineTo(24, 4);
-    ctx.stroke();
-
-    // Exhaust vents (back of skiff, opposite the player)
-    ctx.fillStyle = '#1a0a06';
-    ctx.fillRect(-24, 10, 4, 4);
-    ctx.fillRect(-19, 10, 3, 4);
-    // Vent glow
+    ctx.fillRect(h.x - 28, h.y + 15, 56, 1.6);
+    ctx.font = 'bold 7px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('DLX', h.x, h.y + 22);
+    // Exhaust vents on both sides
+    ctx.fillStyle = outline;
+    ctx.fillRect(h.x - 30, h.y + 16, 4, 5);
+    ctx.fillRect(h.x + 26, h.y + 16, 4, 5);
     ctx.shadowBlur = 6; ctx.shadowColor = '#60f0ff';
     ctx.fillStyle = '#a0f8ff';
-    ctx.fillRect(-23, 11, 2, 2);
+    ctx.fillRect(h.x - 29, h.y + 17, 2, 2);
+    ctx.fillRect(h.x + 27, h.y + 17, 2, 2);
     ctx.shadowBlur = 0;
 
-    // --- The Landlord himself, sitting on the deck ---
-    // Big bald head
-    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#d89060';
+    // --- The Landlord (bloated, upright, faces the camera) ---
+    // Bloated jumpsuit torso/belly (big oval)
+    ctx.fillStyle = jumpsuit;
     ctx.beginPath();
-    ctx.arc(2, -10, 11, 0, Math.PI * 2);
+    ctx.ellipse(h.x, h.y + 4, 22, 16, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#1a0a06';
-    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    // Belly highlight
+    ctx.fillStyle = jumpsuitLight;
+    ctx.beginPath();
+    ctx.ellipse(h.x - 4, h.y - 1, 14, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Belly shadow under-curve
+    ctx.fillStyle = jumpsuitShadow;
+    ctx.beginPath();
+    ctx.ellipse(h.x + 4, h.y + 11, 18, 5, 0, 0, Math.PI);
+    ctx.fill();
+    // Yellow chest stripe (DLX uniform)
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(h.x - 3, h.y - 6, 6, 18);
+    ctx.fillStyle = outline;
+    ctx.fillRect(h.x - 3, h.y - 6, 6, 1);
+    ctx.fillRect(h.x - 3, h.y + 11, 6, 1);
+    // Two zipper studs on the chest stripe
+    ctx.fillStyle = outline;
+    ctx.beginPath(); ctx.arc(h.x, h.y - 2, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(h.x, h.y + 4, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(h.x, h.y + 9, 1, 0, Math.PI * 2); ctx.fill();
+    // DLX patch on the right chest
+    ctx.fillStyle = outline;
+    ctx.fillRect(h.x + 7, h.y - 4, 9, 5);
+    ctx.fillStyle = '#ffd83d';
+    ctx.font = 'bold 4px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('DLX', h.x + 11.5, h.y);
+
+    // Big bald head
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.arc(h.x, h.y - 18, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 1.4;
     ctx.stroke();
     // Skull-shine highlight
-    ctx.fillStyle = 'rgba(255, 232, 200, 0.45)';
+    ctx.fillStyle = 'rgba(255, 232, 200, 0.5)';
     ctx.beginPath();
-    ctx.arc(-1, -14, 5, 0, Math.PI * 2);
+    ctx.arc(h.x - 3, h.y - 24, 6, 0, Math.PI * 2);
     ctx.fill();
-    // Welder goggles (chrome rims with yellow lenses)
-    ctx.fillStyle = '#1a0a06';
-    ctx.fillRect(-7, -12, 18, 4);
-    ctx.fillStyle = '#ffd83d';
-    ctx.fillRect(-6, -11, 6, 2);
-    ctx.fillRect( 1, -11, 6, 2);
-    ctx.shadowBlur = 4; ctx.shadowColor = '#ffd83d';
-    ctx.fillStyle = '#ffffa0';
-    ctx.fillRect(-4, -11, 1.5, 1.5);
-    ctx.fillRect( 3, -11, 1.5, 1.5);
-    ctx.shadowBlur = 0;
-    // Goggle strap behind head
-    ctx.strokeStyle = '#1a0a06';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(2, -10, 11.4, -0.3, 0.3); ctx.stroke();
-    ctx.beginPath(); ctx.arc(2, -10, 11.4, Math.PI - 0.3, Math.PI + 0.3); ctx.stroke();
-
-    // Jowls / chin
-    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#b87248';
+    // Brow ridge
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.ellipse(2, -3, 9, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#1a0a06';
-    ctx.lineWidth = 1;
+    ctx.moveTo(h.x - 10, h.y - 19); ctx.lineTo(h.x + 10, h.y - 19);
     ctx.stroke();
 
-    // Cigar (telegraph for projectile fire — glows when about to spit)
-    const cigGlow = open > 0.4 ? 1 : 0.5;
-    ctx.fillStyle = '#3a1208';
-    ctx.fillRect(8, -5, 10, 2);
-    // Lit ember
-    ctx.shadowBlur = 4 + open * 10;
+    // Welder goggles strap around head
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(h.x - 14, h.y - 17); ctx.lineTo(h.x + 14, h.y - 17);
+    ctx.stroke();
+    // Goggle rims (chrome)
+    ctx.fillStyle = '#1a1a26';
+    ctx.beginPath(); ctx.arc(h.x - 5, h.y - 17, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(h.x + 5, h.y - 17, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#e8eef8';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(h.x - 5, h.y - 17, 4, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(h.x + 5, h.y - 17, 4, 0, Math.PI * 2); ctx.stroke();
+    // Yellow lenses (eyes follow player horizontally)
+    const lookDx = Math.max(-1.2, Math.min(1.2, (bird.x - h.x) * 0.02));
+    const lookDy = Math.max(-1.2, Math.min(1.2, (bird.y - h.y) * 0.01));
+    ctx.shadowBlur = 4; ctx.shadowColor = '#ffd83d';
+    ctx.fillStyle = '#ffee40';
+    ctx.beginPath(); ctx.arc(h.x - 5 + lookDx, h.y - 17 + lookDy, 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(h.x + 5 + lookDx, h.y - 17 + lookDy, 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    // Pupils
+    ctx.fillStyle = outline;
+    ctx.beginPath(); ctx.arc(h.x - 5 + lookDx, h.y - 17 + lookDy, 0.9, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(h.x + 5 + lookDx, h.y - 17 + lookDy, 0.9, 0, Math.PI * 2); ctx.fill();
+
+    // Big jowls hanging off the jaw
+    ctx.fillStyle = skinDark;
+    ctx.beginPath();
+    ctx.ellipse(h.x, h.y - 6, 12, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // Snarled mouth — open during the cigarette-flick telegraph
+    if (open > 0.05) {
+      ctx.fillStyle = outline;
+      ctx.beginPath();
+      ctx.ellipse(h.x - 1, h.y - 5, 4, 2 * open + 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Yellow teeth
+      ctx.fillStyle = '#ffd83d';
+      for (let t = 0; t < 3; t++) {
+        ctx.fillRect(h.x - 3 + t * 2, h.y - 6, 1.4, 1);
+      }
+    } else {
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(h.x - 4, h.y - 5); ctx.lineTo(h.x + 4, h.y - 5);
+      ctx.stroke();
+    }
+
+    // Lit cigarette in the corner of the mouth — telegraphs the next flick
+    const cigGlow = open > 0.4 ? 1 : 0.55;
+    ctx.fillStyle = '#e8e2d0';
+    ctx.fillRect(h.x + 4, h.y - 6, 7, 1.6);
+    ctx.fillStyle = outline;
+    ctx.fillRect(h.x + 4, h.y - 6, 1.4, 1.6);
+    // Glowing ember
+    ctx.shadowBlur = 4 + open * 12;
     ctx.shadowColor = '#ff8a3a';
     ctx.fillStyle = open > 0.4 ? '#ffee40' : '#ff8a3a';
     ctx.globalAlpha = cigGlow;
-    ctx.fillRect(17, -5, 2, 2);
+    ctx.fillRect(h.x + 10, h.y - 6, 1.6, 1.6);
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
-    // Smoke puff when telegraphing
-    if (open > 0.3) {
+    // Smoke wisp
+    if (open > 0.25) {
       ctx.fillStyle = 'rgba(216, 216, 232, ' + (open * 0.4) + ')';
       ctx.beginPath();
-      ctx.arc(22 + open * 4, -7 - open * 3, 2 + open * 2, 0, Math.PI * 2);
+      ctx.arc(h.x + 13 + open * 3, h.y - 10 - open * 3, 1.6 + open * 2, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Tank-top torso (bare arms with neon tattoos)
-    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#1a1a26';
+    // --- Four arms ---
+    // Two sit-arms gripping the handlebars (forward-cocked elbows)
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = jumpsuit;
+    ctx.lineWidth = 6;
+    // Right handlebar arm
     ctx.beginPath();
-    ctx.moveTo(-9, 1);
-    ctx.lineTo( 13, 1);
-    ctx.lineTo( 12, 9);
-    ctx.lineTo(-10, 9);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = '#1a0a06';
-    ctx.lineWidth = 1.2;
+    ctx.moveTo(h.x + 16, h.y + 4); ctx.lineTo(h.x + 24, h.y + 12); ctx.lineTo(h.x + 28, h.y + 14);
     ctx.stroke();
-    // Tank-top yellow stripe (DLX brand mark)
-    ctx.fillStyle = '#ffd83d';
-    ctx.fillRect(0, 2, 3, 7);
+    // Left handlebar arm
+    ctx.beginPath();
+    ctx.moveTo(h.x - 16, h.y + 4); ctx.lineTo(h.x - 24, h.y + 12); ctx.lineTo(h.x - 28, h.y + 14);
+    ctx.stroke();
+    // Outline pass
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(h.x + 16, h.y + 4); ctx.lineTo(h.x + 24, h.y + 12); ctx.lineTo(h.x + 28, h.y + 14);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(h.x - 16, h.y + 4); ctx.lineTo(h.x - 24, h.y + 12); ctx.lineTo(h.x - 28, h.y + 14);
+    ctx.stroke();
+    // Hands
+    ctx.fillStyle = skinDark;
+    ctx.beginPath(); ctx.arc(h.x + 28, h.y + 14, 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = outline; ctx.stroke();
+    ctx.fillStyle = skinDark;
+    ctx.beginPath(); ctx.arc(h.x - 28, h.y + 14, 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.stroke();
 
-    // Bare shoulders (skin tone) extending out for the four arms
-    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#b87248';
-    // Front-right shoulder (player side)
-    ctx.beginPath(); ctx.arc(13, 3, 3, 0, Math.PI * 2); ctx.fill();
-    // Front-left shoulder
-    ctx.beginPath(); ctx.arc(-9, 3, 3, 0, Math.PI * 2); ctx.fill();
-
-    // Neon tattoo glyphs on right shoulder (cyan ink)
+    // Two upper arms gripping the swinging batons.
+    // Each upper arm reaches from a shoulder out to the baton pivot, then the
+    // baton itself extends from the pivot to the seg-tip (already overridden
+    // in updateDragon).
+    const piv1 = dragon.batonPiv1 || { x: h.x + 14, y: h.y + 4 };
+    const piv2 = dragon.batonPiv2 || { x: h.x - 14, y: h.y + 4 };
+    // Right upper arm
+    ctx.strokeStyle = jumpsuit;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(h.x + 12, h.y - 6);
+    ctx.lineTo(piv1.x, piv1.y);
+    ctx.stroke();
+    // Left upper arm
+    ctx.beginPath();
+    ctx.moveTo(h.x - 12, h.y - 6);
+    ctx.lineTo(piv2.x, piv2.y);
+    ctx.stroke();
+    // Arm outline
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(h.x + 12, h.y - 6); ctx.lineTo(piv1.x, piv1.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(h.x - 12, h.y - 6); ctx.lineTo(piv2.x, piv2.y); ctx.stroke();
+    // Bare hand (skin) at the pivot — looks like he's gripping the rebar
+    ctx.fillStyle = skinDark;
+    ctx.beginPath(); ctx.arc(piv1.x, piv1.y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = outline; ctx.stroke();
+    ctx.beginPath(); ctx.arc(piv2.x, piv2.y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.stroke();
+    // Neon tattoo glyphs on the upper arms (cyan ink)
     ctx.shadowBlur = 4; ctx.shadowColor = '#60f0ff';
     ctx.strokeStyle = '#a0f8ff';
     ctx.lineWidth = 0.7;
     ctx.beginPath();
-    ctx.moveTo(11, 3); ctx.lineTo(15, 5); ctx.moveTo(13, 1); ctx.lineTo(13, 5);
+    // Right arm "X"
+    ctx.moveTo(h.x + 14, h.y - 4); ctx.lineTo(h.x + 18, h.y);
+    ctx.moveTo(h.x + 18, h.y - 4); ctx.lineTo(h.x + 14, h.y);
+    // Left arm "/"
+    ctx.moveTo(h.x - 18, h.y - 4); ctx.lineTo(h.x - 14, h.y);
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // Four arms:
-    // Front arm A — gripping handlebar
-    ctx.strokeStyle = flash > 0.1 ? '#ffffff' : '#b87248';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(13, 3); ctx.lineTo(18, 6); ctx.lineTo(20, 4);
-    ctx.stroke();
-    // Front arm B — cocked back, fist clenched (intimidation pose)
-    ctx.beginPath();
-    ctx.moveTo(13, 3); ctx.lineTo(8, -2); ctx.lineTo(4, -4);
-    ctx.stroke();
-    // Fist on front-arm B
-    ctx.lineWidth = 1;
-    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#b87248';
-    ctx.beginPath(); ctx.arc(4, -4, 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#1a0a06';
-    ctx.stroke();
-    // Back arm A — gripping the trailing rebar chain
-    ctx.strokeStyle = flash > 0.1 ? '#ffffff' : '#b87248';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(-9, 3); ctx.lineTo(-16, 8); ctx.lineTo(-22, 8);
-    ctx.stroke();
-    // Back arm B — second fist, cocked back high
-    ctx.beginPath();
-    ctx.moveTo(-9, 3); ctx.lineTo(-12, -3); ctx.lineTo(-16, -6);
-    ctx.stroke();
-    ctx.lineWidth = 1;
-    ctx.fillStyle = flash > 0.1 ? '#ffffff' : '#b87248';
-    ctx.beginPath(); ctx.arc(-16, -6, 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#1a0a06';
-    ctx.stroke();
-
-    // Yelling mouth (opens during cig-flick telegraph)
-    if (open > 0.05) {
-      ctx.fillStyle = '#1a0a06';
-      ctx.beginPath();
-      ctx.ellipse(2, 0, 3, 2 * open, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // Tongue
-      if (open > 0.4) {
-        ctx.fillStyle = '#ff60a0';
-        ctx.beginPath();
-        ctx.ellipse(2, 0.5, 1.6, 1 * open, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    // DLX tag stenciled on the deck
-    ctx.fillStyle = '#ffd83d';
-    ctx.font = 'bold 6px Impact, "Arial Black", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('DLX', 0, 15);
-
-    ctx.rotate(-h.ang);
-    ctx.translate(-h.x, -h.y);
+    // --- The two SWINGING REBAR BATONS ---
+    drawBaton(piv1, [dragon.segs[0], dragon.segs[1], dragon.segs[2]]);
+    drawBaton(piv2, [dragon.segs[3], dragon.segs[4], dragon.segs[5]]);
 
     // HP pips above the head — yellow (DLX brand)
     for (let i = 0; i < 4; i++) {
@@ -4675,7 +4751,7 @@ const DLX_BUILD = 'v96';
       ctx.shadowBlur = i < dragonHitsLeft ? 6 : 0;
       ctx.shadowColor = '#ffd83d';
       ctx.beginPath();
-      ctx.arc(h.x - 24 + i * 16, h.y - 38, 3, 0, Math.PI * 2);
+      ctx.arc(h.x - 24 + i * 16, h.y - 40, 3, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.shadowBlur = 0;
