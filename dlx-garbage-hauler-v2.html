@@ -1888,7 +1888,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v123';
+const DLX_BUILD = 'v124';
 
 (function() {
   // ---------- iOS gate ----------
@@ -3748,36 +3748,37 @@ const DLX_BUILD = 'v123';
       }
       return;
     }
-    // Hold a fixed hover column — no horizontal oscillation, so the
-    // ship doesn't feel like it's "falling back and speeding up."
-    pirate.targetX = 40;
-    pirate.x += (pirate.targetX - pirate.x) * 0.04;
+    // Horizontal drift — slides between "way back" and "close behind" on a
+    // ~7-second cycle so the pirate doesn't sit on the player's tail.
+    const xCycle  = Math.sin(frame * 0.014);                    // -1..+1
+    const xJitter = Math.sin(frame * 0.06) * 4;                  // small fast wobble
+    pirate.targetX = 45 + xCycle * 30 + xJitter;                 // ~15..75 px
+    pirate.x += (pirate.targetX - pirate.x) * 0.025;             // slower lerp = drifty
 
-    // Continuously aim toward the next pipe's gap (or mid-screen if
-    // there isn't one coming up) with a small wobble for life. This
-    // replaces the previous drift-then-dart pattern with one smooth
-    // path that follows the actual terrain.
+    // Vertical: still anchor loosely on the next pipe's gap so the rig
+    // doesn't fly into terrain, but with a much wider independent wander
+    // so it doesn't lock onto the player's path.
     const PIRATE_HW = 22;
     let targetPipe = null;
     for (const p of pipes) {
       if (p.destroyed) continue;
       if (p.x + PIPE_W < pirate.x - PIRATE_HW - 20) continue;  // fully passed
       targetPipe = p;
-      break;   // the leftmost non-passed pipe is the one to thread
+      break;
     }
-    let goalY;
+    let gapCenter;
     if (targetPipe) {
       const dy = targetPipe.driftY || 0;
-      goalY = targetPipe.top + dy + targetPipe.gap * 0.5;
+      gapCenter = targetPipe.top + dy + targetPipe.gap * 0.5;
     } else {
-      goalY = PLAY_H * 0.5;
+      gapCenter = PLAY_H * 0.5;
     }
-    // Small sine wobble around the gap center so motion doesn't feel
-    // robotic. Amplitude is small enough that the pirate stays well
-    // inside the pipe gap.
-    goalY += Math.sin(frame * 0.025) * 14;
-    pirate.targetY = goalY;
-    pirate.y += (pirate.targetY - pirate.y) * 0.06;
+    // Multi-frequency vertical wander (~50 px peak amplitude) so the rig
+    // bobs/dips/climbs on its own rhythm instead of mirroring the player.
+    const yWander = Math.sin(frame * 0.020) * 30
+                  + Math.sin(frame * 0.011) * 20;
+    pirate.targetY = gapCenter + yWander;
+    pirate.y += (pirate.targetY - pirate.y) * 0.04;
     pirate.y = Math.max(BIRD_R + 10, Math.min(PLAY_H - BIRD_R - 10, pirate.y));
     // Fire projectiles toward the player
     pirate.fireCooldown--;
