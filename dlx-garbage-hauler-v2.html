@@ -1888,7 +1888,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v113';
+const DLX_BUILD = 'v114';
 
 (function() {
   // ---------- iOS gate ----------
@@ -2235,40 +2235,46 @@ const DLX_BUILD = 'v113';
       return { kind: 'icecave', baseY: baseY, stalagmites: stalagmites, stalactites: stalactites, aurora: auroraPts };
     }
     if (selectedTheme === 'neoncity') {
-      // Back layer: distant stacked-container apartment blocks. The "window
-      // grid" is now a sparse pattern of dim sodium-lit container windows.
+      // Back layer: distant stacked container columns. Each "tower" is a
+      // 1-3-high stack of containers in different rust hues.
       const far = [];
-      for (let i = 0; i < 13; i++) {
+      for (let i = 0; i < 11; i++) {
+        const stackH = 1 + ((i * 7 + 3) % 3);          // 1..3 containers tall
         far.push({
-          x: (W / 13) * i,
-          w: (W / 13) - 2,
-          h: 40 + ((i * 41 + 11) % 60),
-          hue: ['#ffa040', '#ff8a30', '#ffc060', '#d8721a'][(i + 2) % 4],
-          blink: ((i * 17 + 5) % 60) / 60,
+          x: (W / 11) * i,
+          w: (W / 11) - 4,
+          stackH: stackH,
+          hueIdx: (i * 5 + 1) % 4,
+          accent: (i % 3 === 0),                        // some have a yellow stripe
         });
       }
-      // Near layer: chunky scrap-stack tenements with a single yellow
-      // caution stripe band running down their facade.
+      // Near layer: chunky 2-3-high container stacks with corrugation
+      // and a yellow caution stripe band.
       const near = [];
-      for (let i = 0; i < 7; i++) {
-        const bx = (W / 7) * i + ((i * 11) % 6);
-        const bw = (W / 7) - 10;
-        const bh = 80 + ((i * 31 + 17) % 100);
-        const stripHue = ['#ffc83d', '#ffa040', '#ff8a30', '#ffd83d'][(i + 1) % 4];
-        near.push({ bx: bx, bw: bw, bh: bh, stripHue: stripHue, i: i });
+      for (let i = 0; i < 6; i++) {
+        const bx = (W / 6) * i + ((i * 11) % 6);
+        const bw = (W / 6) - 12;
+        const stackH = 2 + ((i * 17 + 5) % 2);          // 2..3 high
+        near.push({ bx: bx, bw: bw, stackH: stackH, hueIdx: (i + 2) % 4, i: i });
       }
-      // Smoke wisps rising from oil-drum fires scattered along the horizon.
-      // Reusing the "drones" slot so drawNeonCityHorizon can iterate it.
+      // Distant gantry crane silhouette — a single dark skeletal shape
+      // anchored at one of the back columns so the eye reads "yard," not
+      // "skyline."
+      const crane = {
+        baseX: W * 0.62,
+        h: 110,
+      };
+      // Oil-drum fires scattered along the horizon (kept under "drones").
       const drones = [];
       for (let i = 0; i < 5; i++) {
         drones.push({
           x: (W / 5) * i + ((i * 19) % 40),
-          y: baseY - 6 - ((i * 11) % 14),     // anchored just above ground
+          y: baseY - 6 - ((i * 11) % 14),
           hue: (i % 2) ? '#ff8a30' : '#d8721a',
           phase: i * 1.1,
         });
       }
-      return { kind: 'neoncity', baseY: baseY, far: far, near: near, drones: drones };
+      return { kind: 'neoncity', baseY: baseY, far: far, near: near, drones: drones, crane: crane };
     }
     // sunset — simple peak profile
     const peaks = [];
@@ -7155,73 +7161,146 @@ const DLX_BUILD = 'v113';
       ctx.fillRect(0, PLAY_H * 0.55, W, PLAY_H * 0.3);
     }
 
-    // Distant stacked-container apartment blocks — rusty silhouettes with
-    // horizontal corrugation lines and sparse dim sodium windows.
-    ctx.fillStyle = 'rgba(20, 12, 8, 0.95)';
-    for (const b of layout.far) {
-      ctx.fillRect(b.x, baseY - b.h, b.w, b.h);
-    }
-    // Horizontal corrugation strips (the visual signature of a container)
-    ctx.strokeStyle = 'rgba(60, 36, 18, 0.85)';
-    ctx.lineWidth = 0.6;
-    for (const b of layout.far) {
-      for (let cy = baseY - b.h + 3; cy < baseY - 2; cy += 4) {
-        ctx.beginPath();
-        ctx.moveTo(b.x, cy); ctx.lineTo(b.x + b.w, cy);
-        ctx.stroke();
+    // Distant gantry crane silhouette — drawn FIRST so containers paint
+    // over its base, leaving the upper boom + cab visible above the stacks.
+    if (layout.crane) {
+      const c = layout.crane;
+      const topY = baseY - c.h;
+      ctx.fillStyle = 'rgba(8, 4, 2, 0.92)';
+      ctx.strokeStyle = 'rgba(20, 12, 6, 0.95)';
+      ctx.lineWidth = 1.4;
+      // Two vertical legs
+      ctx.fillRect(c.baseX - 22, topY + 18, 4, c.h - 18);
+      ctx.fillRect(c.baseX + 18, topY + 18, 4, c.h - 18);
+      // Diagonal cross-bracing between the legs
+      ctx.beginPath();
+      for (let s = 0; s < 6; s++) {
+        const ya = topY + 24 + s * ((c.h - 30) / 6);
+        const yb = topY + 24 + (s + 1) * ((c.h - 30) / 6);
+        ctx.moveTo(c.baseX - 18, ya); ctx.lineTo(c.baseX + 18, yb);
+        ctx.moveTo(c.baseX + 18, ya); ctx.lineTo(c.baseX - 18, yb);
       }
-    }
-    // Sparse dim sodium-lit windows
-    for (const b of layout.far) {
-      const blink = 0.5 + Math.sin(frame * 0.04 + b.blink * 6) * 0.4;
-      ctx.fillStyle = b.hue;
-      ctx.globalAlpha = blink * 0.7;
-      for (let wy = baseY - b.h + 6; wy < baseY - 4; wy += 8) {
-        for (let wx = b.x + 3; wx < b.x + b.w - 2; wx += 6) {
-          if (((wx + wy) % 11) < 3) ctx.fillRect(wx, wy, 2, 2);
-        }
-      }
-    }
-    ctx.globalAlpha = 1;
-
-    // Near layer: chunky scrap-stack tenements
-    ctx.fillStyle = 'rgba(10, 6, 4, 0.96)';
-    for (const b of layout.near) {
-      ctx.fillRect(b.bx, baseY - b.bh, b.bw, b.bh);
-    }
-    // Yellow caution stripe band on each near tenement + roof TV-antenna
-    for (const b of layout.near) {
-      // Caution stripe band running across the middle of the facade
-      const bandY = baseY - b.bh + b.bh * 0.42;
-      ctx.fillStyle = b.stripHue;
-      ctx.shadowBlur = 4;
-      ctx.shadowColor = b.stripHue;
-      ctx.fillRect(b.bx + 2, bandY, b.bw - 4, 3);
-      // Hazard slashes inside the stripe
-      ctx.fillStyle = '#1a0a06';
-      ctx.shadowBlur = 0;
-      for (let s = 0; s < 8; s++) {
-        ctx.fillRect(b.bx + 3 + s * (b.bw / 8), bandY, 1.4, 3);
-      }
-      // Corrugation lines on near tenements too
-      ctx.strokeStyle = 'rgba(50, 30, 14, 0.7)';
-      ctx.lineWidth = 0.6;
-      for (let cy = baseY - b.bh + 4; cy < baseY - 2; cy += 5) {
-        ctx.beginPath();
-        ctx.moveTo(b.bx, cy); ctx.lineTo(b.bx + b.bw, cy);
-        ctx.stroke();
-      }
-      // Roof TV-antenna stub with a faint warning blinker
-      const blinkOn = (Math.floor(frame / 20) + b.i) % 3 === 0;
-      if (blinkOn) {
+      ctx.stroke();
+      // Horizontal boom across the top
+      ctx.fillRect(c.baseX - 60, topY + 8, 120, 6);
+      // Cab box hanging at one end
+      ctx.fillRect(c.baseX + 36, topY + 14, 14, 10);
+      // Cable + hook dangling near the centre
+      ctx.beginPath();
+      ctx.moveTo(c.baseX - 12, topY + 14);
+      ctx.lineTo(c.baseX - 12, topY + 60);
+      ctx.stroke();
+      ctx.fillRect(c.baseX - 15, topY + 60, 6, 4);
+      // Roof warning blinker on the boom tip
+      const craneBlink = (Math.floor(frame / 30) % 2) === 0;
+      if (craneBlink) {
         ctx.shadowBlur = 4;
         ctx.shadowColor = '#ff8a30';
-        ctx.fillStyle = '#ff8a30';
+        ctx.fillStyle = '#ffa040';
         ctx.beginPath();
-        ctx.arc(b.bx + b.bw * 0.5, baseY - b.bh - 4, 1.6, 0, Math.PI * 2);
+        ctx.arc(c.baseX - 60, topY + 8, 1.6, 0, Math.PI * 2);
         ctx.fill();
+        ctx.shadowBlur = 0;
       }
-      ctx.shadowBlur = 0;
+    }
+
+    // Distant stacked container columns — rusty silhouettes with corrugation
+    // lines, twist-lock corner dots, and (sparingly) a yellow caution stripe.
+    // No windows — these are CONTAINERS, not apartments.
+    const farContH = 16;
+    const farHues = [
+      { body: '#3a1a08', band: '#5a2614' },
+      { body: '#2a1606', band: '#4a2210' },
+      { body: '#3a2010', band: '#5a2e16' },
+      { body: '#241208', band: '#3e1c0c' },
+    ];
+    for (const b of layout.far) {
+      const stackTop = baseY - b.stackH * farContH;
+      for (let s = 0; s < b.stackH; s++) {
+        const cy = stackTop + s * farContH;
+        const hue = farHues[(b.hueIdx + s) % 4];
+        // Body
+        ctx.fillStyle = hue.body;
+        ctx.fillRect(b.x, cy, b.w, farContH);
+        // Top + bottom rim bands
+        ctx.fillStyle = hue.band;
+        ctx.fillRect(b.x, cy, b.w, 2);
+        ctx.fillRect(b.x, cy + farContH - 2, b.w, 2);
+        // Corrugation strips
+        ctx.strokeStyle = 'rgba(8, 4, 2, 0.7)';
+        ctx.lineWidth = 0.5;
+        for (let yy = cy + 4; yy < cy + farContH - 3; yy += 3) {
+          ctx.beginPath();
+          ctx.moveTo(b.x, yy); ctx.lineTo(b.x + b.w, yy);
+          ctx.stroke();
+        }
+        // Twist-lock corner dots
+        ctx.fillStyle = '#0a0604';
+        ctx.fillRect(b.x + 1,         cy + 1,                0.8, 0.8);
+        ctx.fillRect(b.x + b.w - 1.8, cy + 1,                0.8, 0.8);
+        ctx.fillRect(b.x + 1,         cy + farContH - 1.8,   0.8, 0.8);
+        ctx.fillRect(b.x + b.w - 1.8, cy + farContH - 1.8,   0.8, 0.8);
+      }
+      // One yellow caution band on tagged stacks (top container)
+      if (b.accent) {
+        const bandY = stackTop + farContH * 0.45;
+        ctx.fillStyle = '#ffc83d';
+        ctx.fillRect(b.x + 1, bandY, b.w - 2, 2);
+      }
+    }
+
+    // Near layer: chunky 2-3-high container stacks
+    const nearContH = 26;
+    const nearHues = [
+      { body: '#5a2810', band: '#7a3818' },
+      { body: '#4a200c', band: '#6a3010' },
+      { body: '#3a1808', band: '#5a280e' },
+      { body: '#6a3010', band: '#8a4014' },
+    ];
+    for (const b of layout.near) {
+      const stackTop = baseY - b.stackH * nearContH;
+      for (let s = 0; s < b.stackH; s++) {
+        const cy = stackTop + s * nearContH;
+        const hue = nearHues[(b.hueIdx + s) % 4];
+        // Body
+        ctx.fillStyle = hue.body;
+        ctx.fillRect(b.bx, cy, b.bw, nearContH);
+        // Rim bands
+        ctx.fillStyle = hue.band;
+        ctx.fillRect(b.bx, cy, b.bw, 3);
+        ctx.fillRect(b.bx, cy + nearContH - 3, b.bw, 3);
+        // Corrugation
+        ctx.strokeStyle = 'rgba(20, 10, 4, 0.78)';
+        ctx.lineWidth = 0.6;
+        for (let yy = cy + 5; yy < cy + nearContH - 4; yy += 3) {
+          ctx.beginPath();
+          ctx.moveTo(b.bx, yy); ctx.lineTo(b.bx + b.bw, yy);
+          ctx.stroke();
+        }
+        // Vertical seam
+        ctx.strokeStyle = '#3a1a08';
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(b.bx + b.bw / 2, cy);
+        ctx.lineTo(b.bx + b.bw / 2, cy + nearContH);
+        ctx.stroke();
+        // Twist-lock corner dots
+        ctx.fillStyle = '#0a0604';
+        ctx.fillRect(b.bx + 2,           cy + 2,                  1.2, 1.2);
+        ctx.fillRect(b.bx + b.bw - 3.2,  cy + 2,                  1.2, 1.2);
+        ctx.fillRect(b.bx + 2,           cy + nearContH - 3.2,    1.2, 1.2);
+        ctx.fillRect(b.bx + b.bw - 3.2,  cy + nearContH - 3.2,    1.2, 1.2);
+        // One container per stack gets a yellow caution stripe (deterministic)
+        if (s === b.stackH - 1) {
+          const bandY = cy + nearContH * 0.45;
+          ctx.fillStyle = '#ffc83d';
+          ctx.fillRect(b.bx + 2, bandY, b.bw - 4, 3);
+          ctx.fillStyle = '#1a0a06';
+          for (let h = 0; h < 6; h++) {
+            ctx.fillRect(b.bx + 3 + h * (b.bw / 6), bandY, 1.2, 3);
+          }
+        }
+      }
     }
 
     // Oil-drum fires scattered along the horizon with smoke wisps trailing up
@@ -9959,165 +10038,258 @@ const DLX_BUILD = 'v113';
     if (h <= 0) return;
     ctx.save();
     ctx.translate(x, y);
-    // Pitch-black silhouette
-    ctx.fillStyle = '#040012';
-    ctx.fillRect(-2, 0, w + 4, h);
-    // Pick one of 4 neon hues per tower (seeded so a single tower keeps one color)
-    const hues = ['#ff40b0', '#00f0ff', '#ff70e0', '#9060ff'];
-    const hue = hues[Math.floor(srand(seed) * 4)];
-    const altHue = hues[(Math.floor(srand(seed) * 4) + 2) % 4];
-    // Vertical neon strips on both edges
-    ctx.shadowBlur = 8; ctx.shadowColor = hue;
-    ctx.fillStyle = hue;
-    ctx.fillRect(2, 4, 1.6, h - 8);
-    ctx.fillRect(w - 3.6, 4, 1.6, h - 8);
-    ctx.shadowBlur = 0;
-    // Horizontal floor bands (blinking pattern)
-    const floorH = 12;
-    const floors = Math.floor(h / floorH);
-    for (let i = 0; i < floors; i++) {
-      const fy = i * floorH + 3;
-      const t = (frame * 0.03 + i * 0.6 + seed * 0.3) % (Math.PI * 2);
-      const lit = Math.sin(t) > -0.2;
-      if (!lit) continue;
-      const useAlt = (i % 3 === 0);
-      const c = useAlt ? altHue : hue;
-      ctx.fillStyle = c;
-      ctx.globalAlpha = 0.75;
-      // 3 window segments per floor
-      ctx.fillRect(6, fy, 3, 2);
-      ctx.fillRect(11, fy, 3, 2);
-      ctx.fillRect(16, fy, 3, 2);
-      if (w > 32) {
-        ctx.fillRect(w - 19, fy, 3, 2);
-        ctx.fillRect(w - 14, fy, 3, 2);
-        ctx.fillRect(w - 9, fy, 3, 2);
+    // SCRAP CITY — stack of burning oil drums leaking sparks and black
+    // smoke. The drum nearest the gap has a tall dancing flame on top.
+    const outline = '#1a0a06';
+    const drumH = 22;
+    const drums = Math.max(1, Math.ceil(h / drumH));
+    const sign = isTop ? 1 : -1;
+    const gapEdgeY = isTop ? h : 0;
+
+    for (let d = 0; d < drums; d++) {
+      const top = isTop ? (d * drumH) : (h - (d + 1) * drumH);
+      const isLast = (d === drums - 1);
+      const drawH = isLast ? Math.min(drumH, h - d * drumH) : drumH;
+      // Body (rusty steel drum)
+      ctx.fillStyle = '#5a2a10';
+      ctx.fillRect(3, top, w - 6, drawH);
+      // Top + bottom rim bands lighter
+      ctx.fillStyle = '#7a3818';
+      ctx.fillRect(3, top, w - 6, 3);
+      ctx.fillRect(3, top + drawH - 3, w - 6, 3);
+      // Vertical seam down the centre
+      ctx.strokeStyle = '#3a1a08';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(w / 2, top); ctx.lineTo(w / 2, top + drawH);
+      ctx.stroke();
+      // Rust streaks dripping down the drum
+      ctx.fillStyle = 'rgba(150, 70, 20, 0.65)';
+      ctx.fillRect(8, top + 4, 1.4, drawH - 8);
+      ctx.fillRect(w - 14, top + 6, 1.2, drawH - 12);
+      ctx.fillRect(w / 2 + 6, top + 5, 1, drawH - 10);
+      // Flammable hazard stripe (yellow + black) on every other drum
+      if (d % 2 === 0 && drawH > 12) {
+        const stripeY = top + drawH * 0.42;
+        ctx.fillStyle = '#ffc83d';
+        ctx.fillRect(3, stripeY, w - 6, 3);
+        ctx.fillStyle = outline;
+        for (let s = 0; s < 6; s++) {
+          ctx.fillRect(4 + s * 8, stripeY, 1.4, 3);
+        }
       }
+      // Charred soot blackening on the lid nearer the flame
+      const distToGap = isTop ? (drums - 1 - d) : (drums - 1 - d);
+      if (distToGap <= 1) {
+        ctx.fillStyle = 'rgba(8, 4, 2, 0.55)';
+        ctx.fillRect(3, top, w - 6, 5);
+        ctx.fillRect(3, top + drawH - 5, w - 6, 5);
+      }
+      // Bung holes (two black dots on the lid)
+      ctx.fillStyle = outline;
+      ctx.beginPath();
+      ctx.arc(w * 0.35, top + 1.6, 0.9, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath();
+      ctx.arc(w * 0.65, top + 1.6, 0.9, 0, Math.PI * 2); ctx.fill();
+      // Outline
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(3, top, w - 6, drawH);
     }
-    ctx.globalAlpha = 1;
-    // Gap-facing edge: a bright neon cap so collisions read clearly
-    const capY = isTop ? h - 3 : 0;
-    ctx.shadowBlur = 10; ctx.shadowColor = hue;
-    ctx.fillStyle = hue;
-    ctx.fillRect(0, capY, w, 3);
-    ctx.shadowBlur = 0;
-    // Antenna/spike on the gap-facing end
-    const spikeY = isTop ? h : 0;
-    const spikeDir = isTop ? -1 : 1;
-    ctx.fillStyle = '#0a0418';
+
+    // Big dancing flame on the drum NEAREST the gap, drawn into the gap
+    // edge (not into the gap itself — collision is by PIPE_W, the flame
+    // is purely cosmetic).
+    const flameH = 16 + Math.sin(frame * 0.45 + seed) * 4;
+    const flameW = 14;
+    const flameX0 = w / 2 - flameW / 2;
+    ctx.shadowBlur = 14;
+    ctx.shadowColor = '#ff8a30';
+    // Outer orange flame tongue
+    ctx.fillStyle = '#ff8a30';
     ctx.beginPath();
-    ctx.moveTo(w * 0.5 - 2, spikeY);
-    ctx.lineTo(w * 0.5 + 2, spikeY);
-    ctx.lineTo(w * 0.5,     spikeY + spikeDir * (-8));
+    ctx.moveTo(flameX0,            gapEdgeY);
+    ctx.quadraticCurveTo(w / 2 - 4, gapEdgeY + sign * -flameH * 0.4,
+                         w / 2 - 2, gapEdgeY + sign * -flameH * 0.7);
+    ctx.quadraticCurveTo(w / 2,     gapEdgeY + sign * -flameH,
+                         w / 2 + 2, gapEdgeY + sign * -flameH * 0.7);
+    ctx.quadraticCurveTo(w / 2 + 4, gapEdgeY + sign * -flameH * 0.4,
+                         flameX0 + flameW, gapEdgeY);
     ctx.closePath();
     ctx.fill();
-    // Antenna tip red blinker
-    const blinkOn = (Math.floor(frame / 18) + Math.floor(seed)) % 2 === 0;
-    if (blinkOn) {
-      ctx.shadowBlur = 6; ctx.shadowColor = '#ff3030';
-      ctx.fillStyle = '#ff5050';
+    // Inner yellow tongue
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = '#ffd83d';
+    ctx.fillStyle = '#ffd83d';
+    ctx.beginPath();
+    ctx.moveTo(flameX0 + 3,                gapEdgeY);
+    ctx.quadraticCurveTo(w / 2 - 1.5, gapEdgeY + sign * -flameH * 0.45,
+                         w / 2 - 0.8, gapEdgeY + sign * -flameH * 0.65);
+    ctx.quadraticCurveTo(w / 2,       gapEdgeY + sign * -flameH * 0.85,
+                         w / 2 + 0.8, gapEdgeY + sign * -flameH * 0.65);
+    ctx.quadraticCurveTo(w / 2 + 1.5, gapEdgeY + sign * -flameH * 0.45,
+                         flameX0 + flameW - 3, gapEdgeY);
+    ctx.closePath();
+    ctx.fill();
+    // White-hot core
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = '#ffffff';
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.ellipse(w / 2, gapEdgeY + sign * -flameH * 0.4, 1.6, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Black smoke wisps rising off the flame, AWAY from the gap (fades
+    // back into the smoggy backdrop).
+    for (let s = 0; s < 4; s++) {
+      const tt = ((frame * 0.012 + s * 0.25 + seed * 0.1) % 1);
+      const sx = w / 2 + Math.sin(frame * 0.05 + s) * (3 + tt * 8);
+      const sy = (gapEdgeY + sign * -flameH) + sign * -tt * 28;
+      const r  = 2 + tt * 5;
+      ctx.fillStyle = 'rgba(40, 30, 28, ' + (0.55 * (1 - tt)) + ')';
       ctx.beginPath();
-      ctx.arc(w * 0.5, spikeY + spikeDir * (-9), 1.6, 0, Math.PI * 2);
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
       ctx.fill();
-      ctx.shadowBlur = 0;
     }
-    // Outer edge
-    ctx.strokeStyle = '#020008';
-    ctx.lineWidth = 1.2;
-    ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+
+    // Random ember sparks popping out of the flame
+    ctx.fillStyle = 'rgba(255, 200, 80, 0.85)';
+    for (let e = 0; e < 3; e++) {
+      const et = ((frame * 0.08 + e * 0.4 + seed * 0.2) % 1);
+      const ex = w / 2 + Math.sin(frame * 0.6 + e * 2) * (4 + et * 6);
+      const ey = (gapEdgeY + sign * -flameH * 0.6) + sign * -et * 14;
+      ctx.fillRect(ex, ey, 1.3, 1.3);
+    }
     ctx.restore();
   }
 
-  // Neoncity billboard pillar — giant holographic ad panel on a pole
+  // SCRAP CITY — stack of shipping containers crowned with yellow strobing
+  // caution lights at the gap-facing end.
   function drawNeonBillboard(x, y, w, h, isTop, seed) {
     if (h <= 0) return;
     ctx.save();
     ctx.translate(x, y);
-    // Support post running the full length (dark steel)
-    ctx.fillStyle = '#15102a';
-    ctx.fillRect(w * 0.5 - 3, 0, 6, h);
-    ctx.strokeStyle = '#060218';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(w * 0.5 - 3, 0, 6, h);
+    const outline = '#1a0a06';
+    const containerH = 26;
+    const containers = Math.max(1, Math.ceil(h / containerH));
+    const sign = isTop ? 1 : -1;
+    const gapEdgeY = isTop ? h : 0;
 
-    // The ad panel sits at the GAP-facing end (where the player threads the needle)
-    const panelH = Math.min(46, h * 0.55);
-    const panelY = isTop ? h - panelH : 0;
-    const panelW = w + 10;
-    const panelX = -5;
+    for (let d = 0; d < containers; d++) {
+      const top = isTop ? (d * containerH) : (h - (d + 1) * containerH);
+      const isLast = (d === containers - 1);
+      const drawH = isLast ? Math.min(containerH, h - d * containerH) : containerH;
+      // Per-container hue variation from the seed
+      const colorRoll = Math.floor(srand(seed + d * 5) * 3);
+      const bodyHue = ['#6a3010', '#7a3818', '#5a2810'][colorRoll];
+      const bandHue = ['#8a4014', '#9a4818', '#7a3814'][colorRoll];
 
-    // Backing frame
-    ctx.fillStyle = '#0a0418';
-    ctx.fillRect(panelX, panelY, panelW, panelH);
-    ctx.strokeStyle = '#ff50d0';
-    ctx.lineWidth = 1.6;
-    ctx.shadowBlur = 8; ctx.shadowColor = '#ff50d0';
-    ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1);
-    ctx.shadowBlur = 0;
+      // Body
+      ctx.fillStyle = bodyHue;
+      ctx.fillRect(2, top, w - 4, drawH);
+      // Top + bottom rim bands
+      ctx.fillStyle = bandHue;
+      ctx.fillRect(2, top, w - 4, 3);
+      ctx.fillRect(2, top + drawH - 3, w - 4, 3);
 
-    // Scrolling holographic lines — fake animated ad
-    const hues = ['#ff40b0', '#00f0ff', '#ffcc40', '#9060ff'];
-    const hue  = hues[Math.floor(srand(seed) * 4)];
-    ctx.fillStyle = hue;
-    ctx.globalAlpha = 0.55;
-    for (let i = 0; i < 5; i++) {
-      const ly = panelY + 4 + i * (panelH - 8) / 5;
-      const offset = (frame * 0.8 + i * 20) % (panelW - 6);
-      const lw = 12 + (i % 3) * 8;
-      ctx.fillRect(panelX + 3 + offset, ly, lw, 2);
-    }
-    ctx.globalAlpha = 1;
+      // Horizontal corrugation strips
+      ctx.strokeStyle = 'rgba(35, 18, 6, 0.7)';
+      ctx.lineWidth = 0.6;
+      for (let cy = top + 5; cy < top + drawH - 4; cy += 3) {
+        ctx.beginPath();
+        ctx.moveTo(2, cy); ctx.lineTo(w - 2, cy);
+        ctx.stroke();
+      }
 
-    // Big glyph in the middle (different per tower) — stylized logo block
-    ctx.shadowBlur = 6; ctx.shadowColor = hue;
-    ctx.fillStyle = hue;
-    const gcx = panelX + panelW * 0.5;
-    const gcy = panelY + panelH * 0.5;
-    const glyph = Math.floor(srand(seed + 7) * 4);
-    if (glyph === 0) {
-      // Triangle
+      // Vertical seam
+      ctx.strokeStyle = '#3a1a08';
+      ctx.lineWidth = 0.9;
       ctx.beginPath();
-      ctx.moveTo(gcx - 8, gcy + 6);
-      ctx.lineTo(gcx + 8, gcy + 6);
-      ctx.lineTo(gcx,     gcy - 8);
-      ctx.closePath();
-      ctx.fill();
-    } else if (glyph === 1) {
-      // Circle
-      ctx.beginPath();
-      ctx.arc(gcx, gcy, 8, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (glyph === 2) {
-      // Square
-      ctx.fillRect(gcx - 7, gcy - 7, 14, 14);
-    } else {
-      // Diamond
-      ctx.beginPath();
-      ctx.moveTo(gcx, gcy - 9);
-      ctx.lineTo(gcx + 9, gcy);
-      ctx.lineTo(gcx, gcy + 9);
-      ctx.lineTo(gcx - 9, gcy);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.shadowBlur = 0;
+      ctx.moveTo(w / 2, top); ctx.lineTo(w / 2, top + drawH);
+      ctx.stroke();
 
-    // Panel flicker — occasional dark band
-    if ((frame + Math.floor(seed * 10)) % 120 < 4) {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      ctx.fillRect(panelX, panelY + panelH * 0.3, panelW, 6);
+      // Corner lock hardware (twist-locks)
+      ctx.fillStyle = outline;
+      for (const [rx, ry] of [[5, 3], [w - 5, 3], [5, drawH - 3], [w - 5, drawH - 3]]) {
+        ctx.beginPath();
+        ctx.arc(rx, top + ry, 1.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Tiny container number stencil on the side of every other container
+      if (d % 2 === 0 && drawH > 18) {
+        const numS = ['DLX-04', 'TS-22', 'PRT-91', 'SCR-77'][Math.floor(srand(seed + d) * 4)];
+        ctx.fillStyle = 'rgba(220, 180, 130, 0.55)';
+        ctx.font = 'bold 6px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(numS, w / 2, top + drawH * 0.5);
+      }
+      // Rust streaks
+      ctx.fillStyle = 'rgba(120, 50, 18, 0.55)';
+      ctx.fillRect(8, top + 6, 1.4, drawH - 12);
+      ctx.fillRect(w - 14, top + 8, 1.2, drawH - 14);
+
+      // Outline
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(2, top, w - 4, drawH);
     }
 
-    // Wiring drips along the post away from the panel
-    ctx.strokeStyle = 'rgba(120, 60, 180, 0.6)';
+    // Yellow caution-light bar mounted on the gap-facing end of the stack.
+    // Three round strobe lamps that flash in sequence so the gap edge
+    // reads loud against the dark scrap palette.
+    const barY = gapEdgeY + sign * -1;
+    const barH = 6;
+    // Mounting bar (dark steel)
+    ctx.fillStyle = '#1a1a22';
+    ctx.fillRect(0, barY + sign * -barH, w, barH);
+    ctx.strokeStyle = outline;
     ctx.lineWidth = 0.9;
-    const wireStart = isTop ? panelY : panelY + panelH;
-    const wireEnd   = isTop ? 0 : h;
+    ctx.strokeRect(0, barY + sign * -barH, w, barH);
+    // Three strobe lamps
+    const strobePhase = Math.floor(frame / 9) % 3;
+    for (let i = 0; i < 3; i++) {
+      const lx = (i + 0.5) * (w / 3);
+      const ly = barY + sign * -barH * 0.5;
+      const lit = (i === strobePhase);
+      // Lamp housing
+      ctx.fillStyle = '#0a0604';
+      ctx.beginPath();
+      ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+      ctx.fill();
+      // Lamp face
+      if (lit) {
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#ffd83d';
+        ctx.fillStyle = '#ffee40';
+      } else {
+        ctx.fillStyle = '#3a2810';
+      }
+      ctx.beginPath();
+      ctx.arc(lx, ly, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Lamp ring
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Cone of cast light shining out from the lit lamp into the gap so the
+    // edge stays visible during the flash.
+    const litX = (strobePhase + 0.5) * (w / 3);
+    const litY = barY + sign * -barH * 0.5;
+    const coneTip = sign * 18;
+    ctx.fillStyle = 'rgba(255, 216, 61, 0.18)';
     ctx.beginPath();
-    ctx.moveTo(w * 0.5, wireStart);
-    ctx.lineTo(w * 0.5 - 2, (wireStart + wireEnd) / 2);
-    ctx.lineTo(w * 0.5, wireEnd);
-    ctx.stroke();
+    ctx.moveTo(litX - 2, litY);
+    ctx.lineTo(litX + coneTip, litY + coneTip);
+    ctx.lineTo(litX - 2 + coneTip * 0.8, litY + coneTip);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 
@@ -10521,29 +10693,27 @@ const DLX_BUILD = 'v113';
     ctx.fillStyle = '#15050a';
     ctx.fillRect(3, panelTop + 3, w - 6, panelH - 6);
 
-    // Flickering hot-pink neon — letter "$" plus side accents
+    // Flickering sodium-amber neon "VACANCY" badge with warm accent dots
     const onPattern = (frame % 96);
     const flicker = (onPattern < 6 || (onPattern > 12 && onPattern < 16)) ? 0.25 : 1;
     ctx.globalAlpha = flicker;
     ctx.shadowBlur = 10 * flicker;
-    ctx.shadowColor = '#ff60a0';
-    ctx.strokeStyle = '#ff60a0';
+    ctx.shadowColor = '#ffa040';
+    ctx.strokeStyle = '#ffc060';
     ctx.lineWidth = 2.2;
-    // Big neon "$" symbol centered in the panel
+    // Big neon "$" symbol centered in the panel — same shape, recoloured amber
     const sx = w / 2, sy = panelTop + panelH / 2;
-    // S curve
     ctx.beginPath();
     ctx.arc(sx, sy - 4, 5, Math.PI * 0.2, Math.PI * 1.1, true);
     ctx.arc(sx, sy + 4, 5, Math.PI * 1.2, Math.PI * 0.1, true);
     ctx.stroke();
-    // Vertical bar through the S
     ctx.beginPath();
     ctx.moveTo(sx, sy - 10); ctx.lineTo(sx, sy + 10);
     ctx.stroke();
-    // Cyan accent dots
+    // Warm amber accent dots in each panel corner
     ctx.shadowBlur = 6 * flicker;
-    ctx.shadowColor = '#60f0ff';
-    ctx.fillStyle = '#a0f8ff';
+    ctx.shadowColor = '#ffa040';
+    ctx.fillStyle = '#ffd070';
     ctx.beginPath(); ctx.arc(8,     panelTop + 6,             1.6, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(w - 8, panelTop + 6,             1.6, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(8,     panelTop + panelH - 6,    1.6, 0, Math.PI * 2); ctx.fill();
