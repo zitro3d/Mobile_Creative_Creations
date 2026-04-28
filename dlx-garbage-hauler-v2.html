@@ -1865,7 +1865,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v109';
+const DLX_BUILD = 'v110';
 
 (function() {
   // ---------- iOS gate ----------
@@ -5768,8 +5768,8 @@ const DLX_BUILD = 'v109';
 
   // Missile is duplicated to roughly triple its draw weight relative to the
   // other power-ups, since players want it to show up more often.
-  const POWER_KINDS = ['shield', 'slow', 'double', 'magnet', 'ghost',
-                       'missile', 'missile', 'missile'];
+  const POWER_KINDS = ['shield', 'shield', 'slow', 'double', 'magnet', 'ghost',
+                       'missile', 'missile'];
   // Canyon (level 6) is harder with the pirate chase, so shields appear
   // much more often and missiles skew higher for shooting the pirate back.
   const POWER_KINDS_CANYON = ['shield', 'shield', 'shield', 'shield',
@@ -6004,7 +6004,8 @@ const DLX_BUILD = 'v109';
       for (const p of pipes) {
         if (!p.passed && p.x + PIPE_W < bird.x) {
           p.passed = true;
-          if (p.debris && !p.debris.collected) breakCombo(); // missed pickup resets chain
+          // Combo no longer breaks on a missed pickup — only collision/death
+          // resets it. Lets younger players actually reach the 4x cap.
           grantScore(1);
           burstFrames = 14;
           scorePulse = 1;
@@ -6223,7 +6224,7 @@ const DLX_BUILD = 'v109';
     else if (kind === 'slow')    slowFrames    = Math.max(slowFrames, 300);    // ~5s
     else if (kind === 'double')  doubleFrames  = Math.max(doubleFrames, 360);  // ~6s
     else if (kind === 'magnet')  magnetFrames  = Math.max(magnetFrames, 360);  // ~6s
-    else if (kind === 'ghost')   ghostFrames   = Math.max(ghostFrames, 180);   // ~3s
+    else if (kind === 'ghost')   ghostFrames   = Math.max(ghostFrames, 240);   // ~4s
     else if (kind === 'missile') fireMissile();
     refreshHud();
     playSound('powerup');
@@ -11840,6 +11841,7 @@ const DLX_BUILD = 'v109';
   let isDaily = false;
   let dailyWasNewBest = false;     // set at finalize so over-screen can highlight
   let lastDailyRun = null;         // captured at finalize so Share can recall it
+  let dailyTokenPayout = 0;        // tokens earned from the most recent daily
   const _origRandom = Math.random;
   function todayStr() {
     const d = new Date();
@@ -11938,7 +11940,24 @@ const DLX_BUILD = 'v109';
     dailyWasNewBest = isNew;
     bumpStreakForToday(today);
     bumpStat('dailies', 1);
-    evaluateAchievements({ event:'dailyDone', streak: currentStreakCount() });
+    // Daily token payout — base + per-biome cleared past sunset + streak bonus
+    // at 3 / 7 / 14 / 30 day milestones.
+    const streak = currentStreakCount();
+    const biomesCleared = Math.max(0, levelIndex - 0);  // sunset = 0
+    let dailyPayout = 100;                              // base completion
+    dailyPayout += 25 * biomesCleared;                  // depth bonus
+    if (streak >= 30)      dailyPayout += 200;
+    else if (streak >= 14) dailyPayout += 150;
+    else if (streak >= 7)  dailyPayout += 100;
+    else if (streak >= 3)  dailyPayout += 50;
+    tokensTotal += dailyPayout;
+    saveTokensTotal();
+    dailyTokenPayout = dailyPayout;
+    if (state === STATE_PLAY || state === STATE_VICTORY || state === STATE_OVER) {
+      setLevelBanner('+' + dailyPayout + ' 🪙 DAILY DROP');
+    }
+    if (typeof refreshGarageBtn === 'function') refreshGarageBtn();
+    evaluateAchievements({ event:'dailyDone', streak: streak });
     // Snapshot the run for the Share button. state is set to VICTORY or
     // OVER by the caller; we infer victory via STATE_VICTORY.
     const shipLabel = (SHIPS[selectedShip] && SHIPS[selectedShip].label) || selectedShip;
@@ -12355,12 +12374,13 @@ const DLX_BUILD = 'v109';
   //   ownAllTrails: true → owns plasma + toxic + void
   const ACHIEVEMENTS = [
     { key:'first_haul', icon:'🚀', title:'FIRST HAUL', desc:'Score 50 on a single run', reward:50, runScore:50 },
-    { key:'long_hauler', icon:'🛻', title:'LONG HAULER', desc:'Score 200 on a single run', reward:100, runScore:200 },
+    { key:'century_haul', icon:'💯', title:'CENTURY HAUL', desc:'Score 100 on a single run', reward:75, runScore:100 },
+    { key:'long_hauler', icon:'🛻', title:'LONG HAULER', desc:'Score 200 on a single run', reward:150, runScore:200 },
     { key:'angler_kill', icon:'🐟', title:"OL' SLITHER DOWN", desc:'Survive the Tentacle Trench', reward:100, bossKill:'anglerfish' },
     { key:'dragon_kill', icon:'👊', title:'LANDLORD DOWN', desc:'Survive the Neon Slums', reward:100, bossKill:'dragon' },
     { key:'pirate_kill', icon:'☠️', title:'RAZORHANK REPELLED', desc:'Drop a bandit in Bandit Canyon', reward:100, bossKill:'pirate' },
     { key:'kraken_kill', icon:'🐙', title:'BARRELHEAD DOWN', desc:'Crawl out of the Toxic Fen', reward:100, bossKill:'kraken' },
-    { key:'wraith_kill', icon:'❄️', title:'NIGHT SHIFT DOWN', desc:'Outrun the cops at Frostfall Pass', reward:500, bossKill:'wraith' },
+    { key:'wraith_kill', icon:'❄️', title:'NIGHT SHIFT DOWN', desc:'Survive Frostfall Pass', reward:500, bossKill:'wraith' },
     { key:'combo_ten',  icon:'🔥', title:'STREAK OF TEN', desc:'Build a 10-pickup combo', reward:100, runCombo:10 },
     { key:'pack_rat',   icon:'📦', title:'PACK RAT', desc:'Snag 100 loose loot pieces', reward:100, stat:{ key:'pickups', target:100 } },
     { key:'hoarder',    icon:'🛒', title:'HOARDER', desc:'Snag 500 loose loot pieces', reward:250, stat:{ key:'pickups', target:500 } },
