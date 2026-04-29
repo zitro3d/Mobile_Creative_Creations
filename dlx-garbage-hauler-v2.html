@@ -1888,7 +1888,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v130';
+const DLX_BUILD = 'v131';
 
 (function() {
   // ---------- iOS gate ----------
@@ -3462,6 +3462,7 @@ const DLX_BUILD = 'v130';
   let lastFlapFrame = 0;   // frame of the previous flap (for Scout double-flap)
   let victoryFreshUnlock = false;   // true on the first wraith kill of this save
   let ghostFrames   = 0;   // phase through obstacles
+  let empFrames     = 0;   // EMP pulse — bosses frozen (no movement, no firing)
   let invulnFrames  = 0;   // brief i-frames after shield break / spawn
   let combo         = 0;   // consecutive pickups without miss
   let comboMax      = 0;
@@ -3541,6 +3542,7 @@ const DLX_BUILD = 'v130';
     // Clear any in-flight hazard so it doesn't bleed across the level transition
     hazard = null;
     hazardCooldown = 600;
+    empFrames = 0;
     setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
     // (Dispatcher zone quip will play here as VO once audio clips ship.
     //  On-screen text was unreadable mid-flight — removed.)
@@ -3737,6 +3739,7 @@ const DLX_BUILD = 'v130';
   }
   function bossTipHits() {
     if (!boss) return false;
+    if (empFrames > 0) return false;    // EMP — tentacle tips dead while stunned
     const r = BIRD_R - 2;
     const reach = r + 7;
     for (const t of boss.tentacles) {
@@ -3785,6 +3788,7 @@ const DLX_BUILD = 'v130';
     projectiles = [];
   }
   function updatePirate() {
+    if (empFrames > 0) return;          // EMP — gunship hangs frozen mid-air
     // Respawn after the player missiles one down
     if (!pirate) {
       if (selectedTheme === 'canyon' && pirateRespawnFrames > 0) {
@@ -3977,6 +3981,50 @@ const DLX_BUILD = 'v130';
     }
     return false;
   }
+  function drawEmpStun() {
+    if (empFrames <= 0) return;
+    // Pick the active boss's centre for the arc origin so the effect lands
+    // on whatever the player just stunned.
+    let cx = W * 0.5, cy = PLAY_H * 0.5;
+    if      (boss)   { cx = boss.cx; cy = boss.baseY - 28; }
+    else if (pirate) { cx = pirate.x; cy = pirate.y; }
+    else if (angler) { cx = angler.x; cy = angler.y; }
+    else if (dragon) { cx = dragon.head.x; cy = dragon.head.y; }
+    else if (wraith) { cx = wraith.mx; cy = wraith.my; }
+    ctx.save();
+    // Cyan ring around the stun origin
+    const ringR = 30 + Math.sin(frame * 0.4) * 6;
+    ctx.shadowBlur = 12; ctx.shadowColor = '#a0f8ff';
+    ctx.strokeStyle = 'rgba(160, 248, 255, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+    ctx.stroke();
+    // Random crackling arcs around the boss
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = '#a0f8ff';
+    for (let i = 0; i < 4; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r1 = ringR * 0.4;
+      const r2 = ringR * 1.05;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+      const midA = a + (Math.random() - 0.5) * 0.6;
+      ctx.lineTo(cx + Math.cos(midA) * (r1 + r2) / 2 + (Math.random() - 0.5) * 6,
+                 cy + Math.sin(midA) * (r1 + r2) / 2 + (Math.random() - 0.5) * 6);
+      ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    // EMP label tag at the top of the stun ring
+    ctx.fillStyle = '#a0f8ff';
+    ctx.font = 'bold 9px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⚡ STUNNED', cx, cy - ringR - 8);
+    ctx.restore();
+  }
+
   function drawHazard() {
     if (!hazard) return;
     ctx.save();
@@ -4436,6 +4484,7 @@ const DLX_BUILD = 'v130';
   }
   function updateAngler() {
     if (!angler) return;
+    if (empFrames > 0) return;          // EMP — angler dazed in place
     angler.x += (angler.targetX - angler.x) * 0.035;
     // Stalk the player with a wobble
     angler.targetY = bird.y + Math.sin(frame * 0.012) * 60;
@@ -4741,6 +4790,7 @@ const DLX_BUILD = 'v130';
   }
   function updateDragon() {
     if (!dragon) return;
+    if (empFrames > 0) return;          // EMP — LANDLORD's batons + lasers stalled
     const h = dragon.head;
     h.x += (h.targetX - h.x) * 0.035;
     // Weaving sine pattern + player chase mix
@@ -5290,6 +5340,7 @@ const DLX_BUILD = 'v130';
   }
   function updateWraith() {
     if (!wraith) return;
+    if (empFrames > 0) return;          // EMP — PLOWMASTER's phase + ring fire frozen
     wraith.phaseFrames++;
     if (wraith.hitFlash > 0) wraith.hitFlash--;
 
@@ -5792,6 +5843,7 @@ const DLX_BUILD = 'v130';
     doubleFrames = 0;
     magnetFrames = 0;
     ghostFrames = 0;
+    empFrames = 0;
     invulnFrames = 0;
     combo = 0;
     comboMax = 0;
@@ -6009,7 +6061,8 @@ const DLX_BUILD = 'v130';
   // much more often and missiles skew higher for shooting the pirate back.
   const POWER_KINDS_CANYON = ['shield', 'shield', 'shield', 'shield',
                               'slow', 'double', 'magnet', 'ghost',
-                              'missile', 'missile', 'missile', 'missile'];
+                              'missile', 'missile', 'missile', 'missile',
+                              'emp', 'emp'];
   function powerKindsForTheme() {
     // Boss levels all skew toward shields + missiles so the player can brawl.
     if (selectedTheme === 'canyon' || selectedTheme === 'underwater' ||
@@ -6210,6 +6263,7 @@ const DLX_BUILD = 'v130';
       if (doubleFrames > 0)  doubleFrames--;
       if (magnetFrames > 0)  magnetFrames--;
       if (ghostFrames > 0)   ghostFrames--;
+      if (empFrames > 0)     empFrames--;
       if (invulnFrames > 0)  invulnFrames--;
 
       bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
@@ -6461,6 +6515,7 @@ const DLX_BUILD = 'v130';
     if (kind === 'magnet')  return '#ff6b9d';
     if (kind === 'missile') return '#ff5a2a';
     if (kind === 'ghost')   return '#b8ffe8';
+    if (kind === 'emp')     return '#a0f8ff';
     return '#ffd280';
   }
 
@@ -6470,6 +6525,7 @@ const DLX_BUILD = 'v130';
     else if (kind === 'double')  doubleFrames  = Math.max(doubleFrames, 360);  // ~6s
     else if (kind === 'magnet')  magnetFrames  = Math.max(magnetFrames, 360);  // ~6s
     else if (kind === 'ghost')   ghostFrames   = Math.max(ghostFrames, 240);   // ~4s
+    else if (kind === 'emp')     empFrames     = Math.max(empFrames, 180);     // ~3s
     else if (kind === 'missile') fireMissile();
     refreshHud();
     playSound('powerup');
@@ -8437,6 +8493,28 @@ const DLX_BUILD = 'v130';
       ctx.beginPath(); ctx.arc( 2.3, -2, 1.4, 0, Math.PI * 2); ctx.fill();
       // Tiny mouth
       ctx.beginPath(); ctx.arc(0, 1.5, 0.9, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'emp') {
+      // EMP pulse — three concentric rings + a central spark (radio-wave look)
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(0, 0, 7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.arc(0, 0, 4, 0, Math.PI * 2);
+      ctx.stroke();
+      // Lightning-bolt zigzag through the centre
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(-1.5, -4);
+      ctx.lineTo( 0.5, -1);
+      ctx.lineTo(-0.8, -1);
+      ctx.lineTo( 1.5,  4);
+      ctx.lineTo(-0.5,  1);
+      ctx.lineTo( 0.8,  1);
+      ctx.closePath();
+      ctx.fill();
     } else {
       ctx.font = '900 10px "Courier New", monospace';
       ctx.textAlign = 'center';
@@ -12145,6 +12223,7 @@ const DLX_BUILD = 'v130';
     drawDragon();
     drawWraith();
     drawProjectiles();
+    drawEmpStun();
     drawHazard();
     drawBird();
     drawFog();              // mutator vignette — over world, under HUD
