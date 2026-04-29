@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v139';
+const DLX_BUILD = 'v140';
 
 (function() {
   // ---------- Device detection ----------
@@ -3580,9 +3580,30 @@ const DLX_BUILD = 'v139';
     return i < 0 ? 0 : i;
   }
   function maybeAdvanceLevel() {
+    // Daily Challenge runs as a single procedural delivery course rather
+    // than the 8-level campaign — no zone transitions, no bosses, just a
+    // run from origin to GOOD BUDDY TRUCK STOP. Hits delivery success at
+    // a fixed target score.
+    if (isDaily) {
+      if (!dailyDelivered && score - levelScoreStart >= DELIVERY_TARGET) {
+        dailyDelivered = true;
+        triggerDeliverySuccess();
+      }
+      return;
+    }
     if (levelIndex >= LEVEL_ORDER.length - 1) return;
     const need = LEVEL_GAPS[levelIndex];
     if (score - levelScoreStart >= need) advanceLevel(levelIndex + 1);
+  }
+  function triggerDeliverySuccess() {
+    // Daily delivery course reached the GOOD BUDDY TRUCK STOP.
+    setLevelBanner('★ DELIVERY MADE!');
+    burstFrames = Math.max(burstFrames, 30);
+    flashAlpha = 0.4;
+    playSound('levelup');
+    stopThemeAmbient(0.8);
+    state = STATE_VICTORY;
+    setTimeout(showVictory, 600);
   }
   function advanceLevel(idx) {
     levelIndex = idx;
@@ -12660,11 +12681,18 @@ const DLX_BUILD = 'v139';
   function startDailyChallenge() {
     applyShipStats(selectedShip);
     const today = todayStr();
-    enableDailyRandom(dateSeed(today));
+    const seed = dateSeed(today);
+    enableDailyRandom(seed);
     isDaily = true;
     dailyWasNewBest = false;
-    // Force Sunset start regardless of campaign resume
-    selectedTheme = 'sunset';
+    dailyDelivered = false;
+    // Phase A delivery course: the daily run is a single procedural haul
+    // through ONE zone (rotates daily by date seed) instead of the 8-level
+    // campaign. Theme rotates so Monday looks different from Tuesday.
+    const themeIdx = seed % LEVEL_ORDER.length;
+    selectedTheme = LEVEL_ORDER[themeIdx];
+    levelIndex = themeIdx;
+    levelScoreStart = 0;
     buildBgCache();
     reset();
     state = STATE_PLAY;
@@ -12672,7 +12700,7 @@ const DLX_BUILD = 'v139';
     bird.vy = FLAP;
     thrusterFrames = 5;
     markRunStart();
-    setLevelBanner('DAILY DROP · ' + formatDailyDate(today));
+    setLevelBanner('DLX DIST. CENTER → GOOD BUDDY · ' + formatDailyDate(today));
     // (Dispatcher daily-boot greeting + Today's Haul will play as VO
     //  when audio clips ship. Today's Haul still shown on the
     //  game-over daily chip where the player has time to read it.)
@@ -12822,6 +12850,11 @@ const DLX_BUILD = 'v139';
   let dailyWasNewBest = false;     // set at finalize so over-screen can highlight
   let lastDailyRun = null;         // captured at finalize so Share can recall it
   let dailyTokenPayout = 0;        // tokens earned from the most recent daily
+  let dailyDelivered = false;      // true once the run reaches DELIVERY_TARGET (delivery success)
+  // Score the daily run needs to reach to count as "delivery made". Below
+  // this and a crash counts as a failed delivery; at or above it the run
+  // ends in DELIVERY MADE victory state.
+  const DELIVERY_TARGET = 120;
   const _origRandom = Math.random;
   function todayStr() {
     const d = new Date();
@@ -13072,6 +13105,18 @@ const DLX_BUILD = 'v139';
   }
   function showVictory() {
     if (!victoryScreen) return;
+    // Daily delivery wins reuse the victory screen but with delivery-flavoured
+    // subtitle / biome cell so the player sees "DELIVERY MADE" framing instead
+    // of the campaign-completion copy.
+    const deliveredDaily = (isDaily && dailyDelivered);
+    const titleEl = document.getElementById('victoryTitle');
+    const subEl   = document.querySelector('#victoryScreen .victorySubtitle');
+    if (titleEl) titleEl.textContent = deliveredDaily ? 'DELIVERY MADE' : 'DELIVERY COMPLETE';
+    if (subEl) {
+      subEl.innerHTML = deliveredDaily
+        ? '<b>GOOD BUDDY TRUCK STOP</b> reached.<br>Cargo intact. Pay\'s in your account.'
+        : '<b>Night Shift</b> outrun.<br>Cargo intact. Pay\'s in your account.';
+    }
     // Dispatcher victory quip lives here once VO clips are wired up.
     victoryScoreEl.textContent = String(score);
     victoryBestEl.textContent  = String(best);
@@ -13081,7 +13126,7 @@ const DLX_BUILD = 'v139';
     }
     if (victoryTimeEl)   victoryTimeEl.textContent   = formatRunTime();
     if (victoryComboEl)  victoryComboEl.textContent  = '×' + (comboMax || 1);
-    if (victoryBiomesEl) victoryBiomesEl.textContent = LEVEL_ORDER.length + '/' + LEVEL_ORDER.length;
+    if (victoryBiomesEl) victoryBiomesEl.textContent = deliveredDaily ? 'DELIVERED' : (LEVEL_ORDER.length + '/' + LEVEL_ORDER.length);
     // Unlock callout: fresh unlock gets the "just earned it" copy,
     // return visits get the "still golden" nod.
     if (victoryUnlockEl) {
