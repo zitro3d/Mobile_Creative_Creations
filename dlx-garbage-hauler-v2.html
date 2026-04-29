@@ -1888,7 +1888,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v128';
+const DLX_BUILD = 'v129';
 
 (function() {
   // ---------- iOS gate ----------
@@ -5831,14 +5831,27 @@ const DLX_BUILD = 'v128';
 
   function makeDebris(gap) {
     const set = theme().debrisSet;
-    const gold = Math.random() < 0.16;
+    // Roll which tier of cargo crate this pipe carries (or no crate at all).
+    // Lower tiers are common, mythic is ultra-rare.
+    //   none   83% — just regular debris worth 1 point
+    //   bronze 10% — copper crate worth 2
+    //   silver  5% — chrome crate worth 4
+    //   gold  1.5% — DLX flagship crate worth 8
+    //   mythic 0.5% — rainbow blind-box worth 20
+    const r = Math.random();
+    let tier = null;
+    if      (r < 0.005) tier = 'mythic';
+    else if (r < 0.020) tier = 'gold';
+    else if (r < 0.070) tier = 'silver';
+    else if (r < 0.170) tier = 'bronze';
     return {
       kind: set[Math.floor(Math.random() * set.length)],
       offY: (Math.random() - 0.5) * (gap * 0.32),
       scale: 0.85 + Math.random() * 0.35,
       spin: (Math.random() - 0.5) * 0.025,
       phase: Math.random() * Math.PI * 2,
-      gold: gold,
+      tier: tier,
+      gold: tier !== null,        // legacy flag — any tier triggers crate art + crate sound
       collected: false,
     };
   }
@@ -6259,17 +6272,24 @@ const DLX_BUILD = 'v128';
       const dx = bird.x - cx, dy = bird.y - cy;
       if (dx * dx + dy * dy < reach * reach) {
         p.debris.collected = true;
-        const isGold = !!p.debris.gold;
-        const points = isGold ? 5 : 1;
+        const tier = p.debris.tier;
+        // Per-tier point payout. Regular debris (no tier) = 1 pt baseline.
+        const tierPoints = { bronze: 2, silver: 4, gold: 8, mythic: 20 };
+        const tierSparks = { bronze: '#d8a060', silver: '#cdd4dc', gold: '#ffe066', mythic: '#ff70e0' };
+        const points = tier ? tierPoints[tier] : 1;
+        const sparkColor = tier ? tierSparks[tier] : '#fff3a8';
         addCombo();
         grantScore(points);
         scorePulse = 1;
-        burstFrames = 10;
-        emitPickupSparks(cx, cy, isGold ? '#ffe066' : '#fff3a8', points);
-        safeVibrate(8);
-        playSound(isGold ? 'gold' : 'pickup');
+        burstFrames = tier === 'mythic' ? 22 : (tier ? 14 : 10);
+        emitPickupSparks(cx, cy, sparkColor, points);
+        safeVibrate(tier === 'mythic' ? 18 : 8);
+        playSound(tier ? 'gold' : 'pickup');
         bumpStat('pickups', 1);
-        if (isGold) bumpStat('gold', 1);
+        if (tier) bumpStat('gold', 1);
+        if (tier === 'mythic') {
+          setLevelBanner('★ MYTHIC CARGO  +' + points);
+        }
         evaluateAchievements({ event:'pickup', combo: combo });
       }
     }
@@ -8128,13 +8148,21 @@ const DLX_BUILD = 'v128';
         const bob = Math.sin(frame * 0.04 + p.debris.phase) * 3;
         ctx.save();
         if (p.debris.gold) {
-          ctx.shadowBlur = 14;
-          ctx.shadowColor = '#ffd85c';
+          // Per-tier glow halo so higher-tier crates pop loud at a glance.
+          const haloByTier = {
+            bronze: { color: '#ffae5c', blur: 10 },
+            silver: { color: '#dde4ee', blur: 12 },
+            gold:   { color: '#ffd85c', blur: 14 },
+            mythic: { color: '#ff8af0', blur: 18 },
+          };
+          const halo = haloByTier[p.debris.tier] || haloByTier.gold;
+          ctx.shadowBlur = halo.blur;
+          ctx.shadowColor = halo.color;
         }
         ctx.translate(cx, cy + bob);
         ctx.rotate(rot);
         ctx.scale(p.debris.scale, p.debris.scale);
-        if (p.debris.gold) drawDLXCargoCrate();
+        if (p.debris.gold) drawDLXCargoCrate(p.debris.tier);
         else drawDebrisItem(p.debris.kind);
         ctx.restore();
       }
@@ -8291,30 +8319,78 @@ const DLX_BUILD = 'v128';
   // DLX logo and green slime drips from the top edges (matches the
   // "THE CARGO" page in the GDD). Drawn at the pickup's own
   // transform — caller handles position/rotation/scale.
-  function drawDLXCargoCrate() {
+  function drawDLXCargoCrate(tier) {
+    tier = tier || 'gold';
     const w = 22, h = 22;
-    // Warm backing halo
+    // Per-tier palette + label. The shape is identical across tiers — only
+    // the body gradient, accent ring, label, drip colour and glow change.
+    const TIERS = {
+      bronze: {
+        bodyTop: '#d8843a', bodyMid: '#b8662a', bodyBot: '#6a3a14',
+        accent:  'rgba(255, 200, 120, 0.55)',
+        label:   'DLX',
+        drip:    '#c87830',
+        glow:    null,
+        sparkleHue: null,
+      },
+      silver: {
+        bodyTop: '#e8edf2', bodyMid: '#a8b0bc', bodyBot: '#4a525a',
+        accent:  'rgba(220, 230, 240, 0.6)',
+        label:   'DLX',
+        drip:    '#a0d8ff',
+        glow:    null,
+        sparkleHue: null,
+      },
+      gold: {
+        bodyTop: '#f06030', bodyMid: '#d8421a', bodyBot: '#982612',
+        accent:  'rgba(255, 184, 77, 0.55)',
+        label:   'DLX',
+        drip:    '#a4ee40',
+        glow:    null,
+        sparkleHue: null,
+      },
+      mythic: {
+        bodyTop: '#ff70e0', bodyMid: '#a060ff', bodyBot: '#3050ff',
+        accent:  'rgba(255, 240, 180, 0.7)',
+        label:   '★',
+        drip:    '#ffe066',
+        glow:    '#ff70e0',
+        sparkleHue: '#fff8c0',
+      },
+    };
+    const t = TIERS[tier] || TIERS.gold;
+
+    // Warm backing halo (kept for all tiers)
     if (bgCache.debrisHalo) {
       ctx.fillStyle = bgCache.debrisHalo;
       ctx.beginPath();
       ctx.arc(0, 0, 18, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.shadowBlur = 0;
-    // Crate body — orange-to-deep-red gradient
+    // Mythic gets a pulsing aura behind the crate
+    if (t.glow) {
+      ctx.shadowBlur = 12 + Math.sin(frame * 0.18) * 4;
+      ctx.shadowColor = t.glow;
+      ctx.fillStyle = 'rgba(255, 200, 240, 0.18)';
+      ctx.beginPath();
+      ctx.arc(0, 0, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    // Crate body — per-tier vertical gradient
     const grad = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
-    grad.addColorStop(0,    '#f06030');
-    grad.addColorStop(0.55, '#d8421a');
-    grad.addColorStop(1,    '#982612');
+    grad.addColorStop(0,    t.bodyTop);
+    grad.addColorStop(0.55, t.bodyMid);
+    grad.addColorStop(1,    t.bodyBot);
     ctx.fillStyle = grad;
     ctx.fillRect(-w / 2, -h / 2, w, h);
     // Black outline
     ctx.lineWidth = 1.4;
     ctx.strokeStyle = '#1a0a06';
     ctx.strokeRect(-w / 2, -h / 2, w, h);
-    // Inner accent ring (recessed panel feel)
+    // Inner accent ring (recessed panel feel) — per-tier hue
     ctx.lineWidth = 0.7;
-    ctx.strokeStyle = 'rgba(255, 184, 77, 0.55)';
+    ctx.strokeStyle = t.accent;
     ctx.strokeRect(-w / 2 + 2.5, -h / 2 + 2.5, w - 5, h - 5);
     // Corner rivets
     ctx.fillStyle = '#1a0a06';
@@ -8325,24 +8401,22 @@ const DLX_BUILD = 'v128';
     ctx.arc(-w / 2 + inset,  h / 2 - inset, rivetR, 0, Math.PI * 2);
     ctx.arc( w / 2 - inset,  h / 2 - inset, rivetR, 0, Math.PI * 2);
     ctx.fill();
-    // DLX logo text — bold yellow centered
+    // Label (DLX or ★) — bold yellow centered
     ctx.fillStyle = '#ffd83d';
-    ctx.font = 'bold 9px Impact, "Arial Black", sans-serif';
+    ctx.font = 'bold ' + (t.label === '★' ? 14 : 9) + 'px Impact, "Arial Black", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('DLX', 0, 0.5);
-    // Green slime drips from the top edges (GDD blind-box motif)
-    ctx.fillStyle = '#a4ee40';
-    ctx.shadowBlur = 5;
-    ctx.shadowColor = '#a4ee40';
-    // Drip 1
+    ctx.fillText(t.label, 0, t.label === '★' ? 0.5 : 0.5);
+    // Slime drips from the top edges (per-tier hue)
+    ctx.fillStyle = t.drip;
+    if (t.glow) { ctx.shadowBlur = 5; ctx.shadowColor = t.drip; }
+    else        { ctx.shadowBlur = (tier === 'gold') ? 5 : 0; ctx.shadowColor = t.drip; }
     ctx.beginPath();
     ctx.moveTo(-w / 3, -h / 2);
     ctx.lineTo(-w / 3 - 1.4, -h / 2 + 6);
     ctx.lineTo(-w / 3 + 1.4, -h / 2 + 6);
     ctx.closePath();
     ctx.fill();
-    // Drip 2
     ctx.beginPath();
     ctx.moveTo(w / 3, -h / 2);
     ctx.lineTo(w / 3 - 1.2, -h / 2 + 4);
@@ -8350,6 +8424,19 @@ const DLX_BUILD = 'v128';
     ctx.closePath();
     ctx.fill();
     ctx.shadowBlur = 0;
+    // Mythic sparkle motes — three rotating dots
+    if (t.sparkleHue) {
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = t.sparkleHue;
+      ctx.fillStyle = t.sparkleHue;
+      for (let s = 0; s < 3; s++) {
+        const a = frame * 0.06 + s * (Math.PI * 2 / 3);
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * 14, Math.sin(a) * 14, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+    }
   }
 
   function drawBurger() {
