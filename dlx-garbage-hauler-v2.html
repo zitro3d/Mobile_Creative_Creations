@@ -1888,7 +1888,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v129';
+const DLX_BUILD = 'v130';
 
 (function() {
   // ---------- iOS gate ----------
@@ -3521,6 +3521,8 @@ const DLX_BUILD = 'v129';
   let dragonHitsLeft  = 4;      // neoncity: HP left before advance
   let wraith          = null;   // icecave: frost wraith final boss
   let wraithHitsLeft  = 4;      // icecave: HP left before VICTORY
+  let hazard          = null;   // mid-run environmental hazard (telegraph + active)
+  let hazardCooldown  = 600;    // frames before the next hazard can roll (10s start)
 
   function themeToLevelIndex(key) {
     const i = LEVEL_ORDER.indexOf(key);
@@ -3536,6 +3538,9 @@ const DLX_BUILD = 'v129';
     levelScoreStart = score;
     selectedTheme = LEVEL_ORDER[levelIndex];
     buildBgCache();
+    // Clear any in-flight hazard so it doesn't bleed across the level transition
+    hazard = null;
+    hazardCooldown = 600;
     setLevelBanner('LEVEL ' + (levelIndex + 1) + ' — ' + THEMES[selectedTheme].label);
     // (Dispatcher zone quip will play here as VO once audio clips ship.
     //  On-screen text was unreadable mid-flight — removed.)
@@ -3879,6 +3884,144 @@ const DLX_BUILD = 'v129';
       if (p.hitBird) { return true; }
     }
     return false;
+  }
+
+  // ---------- Mid-run hazards ----------
+  // Two hazards rotate randomly between pipes:
+  //   wind_shear   — a quick vertical kick to bird.vy after a 1.5s telegraph
+  //   debris_storm — a 3s cross-screen volley of tumbling junk to dodge
+  // Each hazard has a telegraph phase (warning banner + flashing border) so
+  // the player can react before the active phase lands.
+  const HAZARD_CFG = {
+    wind_shear:   { telegraph: 90, duration: 8,   label: '⚠ WIND SHEAR' },
+    debris_storm: { telegraph: 90, duration: 180, label: '⚠ DEBRIS STORM' },
+  };
+  function hazardEligible() {
+    if (state !== STATE_PLAY) return false;
+    if (boss || pirate || dragon || angler || wraith) return false;
+    if (levelProgress() < 8) return false;            // grace at level start
+    return true;
+  }
+  function maybeSpawnHazard() {
+    if (hazard) return;
+    if (hazardCooldown > 0) { hazardCooldown--; return; }
+    if (!hazardEligible()) return;
+    if (Math.random() < 0.0035) {                     // ~once every ~5s on average
+      const types = ['wind_shear', 'debris_storm'];
+      spawnHazard(types[Math.floor(Math.random() * types.length)]);
+    }
+  }
+  function spawnHazard(type) {
+    const cfg = HAZARD_CFG[type];
+    hazard = {
+      type: type,
+      phase: 'telegraph',
+      frames: 0,
+      cfg: cfg,
+      debris: [],
+      direction: Math.random() < 0.5 ? -1 : 1,
+    };
+    setLevelBanner(cfg.label);
+  }
+  function updateHazard() {
+    if (!hazard) return;
+    hazard.frames++;
+    if (hazard.phase === 'telegraph' && hazard.frames >= hazard.cfg.telegraph) {
+      hazard.phase = 'active';
+      hazard.frames = 0;
+      if (hazard.type === 'wind_shear') {
+        // Single sharp impulse — pushes bird up or down depending on direction
+        bird.vy += hazard.direction * 7;
+      } else if (hazard.type === 'debris_storm') {
+        // Spawn a volley of tumbling junk pieces flying right→left
+        for (let i = 0; i < 14; i++) {
+          hazard.debris.push({
+            x: W + 20 + Math.random() * 240,
+            y: 30 + Math.random() * (PLAY_H - 60),
+            vx: -3.6 - Math.random() * 2.4,
+            vy: (Math.random() - 0.5) * 1.2,
+            r:  4 + Math.random() * 4,
+            rot: Math.random() * Math.PI * 2,
+            vr:  (Math.random() - 0.5) * 0.22,
+          });
+        }
+      }
+    }
+    if (hazard.phase === 'active') {
+      if (hazard.type === 'debris_storm') {
+        for (let i = hazard.debris.length - 1; i >= 0; i--) {
+          const d = hazard.debris[i];
+          d.x += d.vx;
+          d.y += d.vy;
+          d.rot += d.vr;
+          if (d.x < -40) hazard.debris.splice(i, 1);
+        }
+      }
+      if (hazard.frames >= hazard.cfg.duration && hazard.debris.length === 0) {
+        hazard = null;
+        hazardCooldown = 1800 + Math.floor(Math.random() * 1800);  // 30-60s
+      } else if (hazard.frames >= hazard.cfg.duration && hazard.type !== 'debris_storm') {
+        hazard = null;
+        hazardCooldown = 1800 + Math.floor(Math.random() * 1800);
+      }
+    }
+  }
+  function hazardHit() {
+    if (!hazard || hazard.phase !== 'active' || hazard.type !== 'debris_storm') return false;
+    const r = BIRD_R + 1;
+    for (const d of hazard.debris) {
+      const dx = bird.x - d.x;
+      const dy = bird.y - d.y;
+      const reach = r + d.r;
+      if (dx * dx + dy * dy < reach * reach) return true;
+    }
+    return false;
+  }
+  function drawHazard() {
+    if (!hazard) return;
+    ctx.save();
+    if (hazard.phase === 'telegraph') {
+      // Pulsing red top-and-bottom border so the warning is unmissable
+      const pulse = 0.35 + Math.abs(Math.sin(frame * 0.4)) * 0.35;
+      ctx.fillStyle = 'rgba(255, 60, 30, ' + pulse + ')';
+      ctx.fillRect(0, 0, W, 5);
+      ctx.fillRect(0, PLAY_H - 5, W, 5);
+      // Small directional arrow for wind shear so the player sees which way
+      if (hazard.type === 'wind_shear') {
+        const ay = PLAY_H * 0.5;
+        const ax = W * 0.5;
+        const dir = hazard.direction;
+        ctx.shadowBlur = 10; ctx.shadowColor = '#ff8030';
+        ctx.fillStyle = 'rgba(255, 130, 60, ' + pulse + ')';
+        ctx.beginPath();
+        ctx.moveTo(ax,      ay - 30 * dir);
+        ctx.lineTo(ax - 14, ay - 10 * dir);
+        ctx.lineTo(ax - 5,  ay - 10 * dir);
+        ctx.lineTo(ax - 5,  ay + 30 * dir);
+        ctx.lineTo(ax + 5,  ay + 30 * dir);
+        ctx.lineTo(ax + 5,  ay - 10 * dir);
+        ctx.lineTo(ax + 14, ay - 10 * dir);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    } else if (hazard.phase === 'active' && hazard.type === 'debris_storm') {
+      for (const d of hazard.debris) {
+        ctx.save();
+        ctx.translate(d.x, d.y);
+        ctx.rotate(d.rot);
+        // Chunky junk piece
+        ctx.fillStyle = '#3a2614';
+        ctx.fillRect(-d.r, -d.r * 0.45, d.r * 2, d.r * 0.9);
+        ctx.fillStyle = '#5a3818';
+        ctx.fillRect(-d.r, -d.r * 0.45, d.r * 2, 1);
+        ctx.strokeStyle = '#1a0a06';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(-d.r, -d.r * 0.45, d.r * 2, d.r * 0.9);
+        ctx.restore();
+      }
+    }
+    ctx.restore();
   }
   function drawPirate() {
     if (!pirate) return;
@@ -5632,6 +5775,8 @@ const DLX_BUILD = 'v129';
     dragonHitsLeft = 4;
     wraith = null;
     wraithHitsLeft = 4;
+    hazard = null;
+    hazardCooldown = 600;
     lightningAt = -999;   // reset volcano flicker timer so since stays valid
     if (levelIndex === 3) spawnAngler();
     if (levelIndex === 4) spawnDragon();
@@ -6111,6 +6256,8 @@ const DLX_BUILD = 'v129';
       updateDragon();
       updateWraith();
       updateProjectiles();
+      maybeSpawnHazard();
+      updateHazard();
       updateSparks();
       updatePickupSparks();
       if (frame % 6 === 0) refreshHud();
@@ -6237,6 +6384,7 @@ const DLX_BUILD = 'v129';
     if (angler && (anglerMouthHits() || anglerLureHits())) return true;
     if (dragon && (dragonHeadHits() || dragonBodyHits())) return true;
     if (wraith && wraithBodyHits()) return true;
+    if (hazardHit()) return true;
     return false;
   }
 
@@ -11997,6 +12145,7 @@ const DLX_BUILD = 'v129';
     drawDragon();
     drawWraith();
     drawProjectiles();
+    drawHazard();
     drawBird();
     drawFog();              // mutator vignette — over world, under HUD
     drawScore();
