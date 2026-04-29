@@ -1691,6 +1691,18 @@
       <div class="panel garagePanel">
         <div id="garageTitle">GARAGE</div>
         <div class="garageBalance">🔩 <span id="garageBalanceLabel">0</span> <span class="garageBalanceSub">SCRAP</span></div>
+        <div class="garageSectionHead">RIG UPGRADES · permanent buffs</div>
+        <div class="garageItems">
+          <div class="garageItem" id="garageLevelCard">
+            <div class="garageItemHead">
+              <div class="garageItemName" id="garageLevelName">L0 STOCK RIG</div>
+              <div class="garageItemTag" id="garageLevelTag">LV 0/5</div>
+            </div>
+            <div class="garageItemDesc" id="garageLevelDesc">Factory rig — no upgrades yet.</div>
+            <div class="garageItemDesc" id="garageLevelOwned" style="margin-top:4px;color:#a4d8ff;"></div>
+            <button class="garageItemBtn" id="garageLevelBuyBtn" data-action="buyLevel">BUY</button>
+          </div>
+        </div>
         <div class="garageSectionHead">SHIP SKINS</div>
         <div class="garageItems" id="garageSkins">
           <div class="garageItem garageSkin" data-skin="default">
@@ -1890,7 +1902,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v137';
+const DLX_BUILD = 'v138';
 
 (function() {
   // ---------- Device detection ----------
@@ -13712,6 +13724,48 @@ const DLX_BUILD = 'v137';
   function refreshGaragePanel() {
     if (!garageScreen) return;
     if (garageBalanceLabel) garageBalanceLabel.textContent = String(tokensTotal);
+    // ---- Garage Level card ----
+    const lvlCard = document.getElementById('garageLevelCard');
+    const lvlName = document.getElementById('garageLevelName');
+    const lvlTag  = document.getElementById('garageLevelTag');
+    const lvlDesc = document.getElementById('garageLevelDesc');
+    const lvlOwn  = document.getElementById('garageLevelOwned');
+    const lvlBtn  = document.getElementById('garageLevelBuyBtn');
+    if (lvlCard && lvlName && lvlTag && lvlDesc && lvlOwn && lvlBtn) {
+      const cur = GARAGE_LEVELS[garageLevel] || GARAGE_LEVELS[0];
+      const next = GARAGE_LEVELS[garageLevel + 1];
+      // Build the cumulative bonus summary — what every active level grants
+      const ownedSummary = [];
+      const ss = garageStartingShields();
+      const sm = Math.round((garageScoreMul() - 1) * 100);
+      if (ss > 0) ownedSummary.push('Start with ' + ss + ' shield' + (ss > 1 ? 's' : ''));
+      if (sm > 0) ownedSummary.push('+' + sm + '% score');
+      if (garageLevel >= 5) ownedSummary.push('Max-shield cap 4');
+      lvlOwn.textContent = ownedSummary.length
+        ? 'Active: ' + ownedSummary.join(' · ')
+        : 'No upgrades yet.';
+      if (next) {
+        lvlName.textContent = 'NEXT — ' + next.label;
+        lvlTag.textContent  = 'LV ' + garageLevel + '/' + (GARAGE_LEVELS.length - 1);
+        lvlDesc.textContent = next.desc;
+        lvlBtn.disabled = false;
+        lvlBtn.classList.remove('equipped', 'cantAfford');
+        if (tokensTotal >= next.cost) {
+          lvlBtn.textContent = 'BUY ' + next.cost + ' 🔩';
+        } else {
+          lvlBtn.textContent = 'NEED ' + (next.cost - tokensTotal) + ' MORE';
+          lvlBtn.classList.add('cantAfford');
+        }
+      } else {
+        lvlName.textContent = '★ ' + cur.label + ' (MAX)';
+        lvlTag.textContent  = 'LV ' + garageLevel + '/' + (GARAGE_LEVELS.length - 1);
+        lvlDesc.textContent = 'Fully upgraded. The dispatcher knows your name.';
+        lvlBtn.textContent = 'MAX LEVEL';
+        lvlBtn.disabled = true;
+        lvlBtn.classList.add('equipped');
+        lvlBtn.classList.remove('cantAfford');
+      }
+    }
     // Skin rows — Hot Rod is unlocked by beating the Wraith, not bought
     garageScreen.querySelectorAll('.garageItem[data-skin]').forEach(function(item) {
       const skin = item.dataset.skin;
@@ -13828,6 +13882,22 @@ const DLX_BUILD = 'v137';
     if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
     const target = e.target && e.target.closest && e.target.closest('.garageItemBtn');
     if (!target || target.disabled) return;
+    // Garage Level row — single buy action that advances the level by 1
+    if (target.id === 'garageLevelBuyBtn') {
+      const next = GARAGE_LEVELS[garageLevel + 1];
+      if (!next || tokensTotal < next.cost) return;
+      tokensTotal -= next.cost;
+      saveTokensTotal();
+      garageLevel += 1;
+      saveGarageLevel();
+      // Brief banner so the upgrade feels tangible even before the next run
+      if (typeof setLevelBanner === 'function') {
+        setLevelBanner('🔧 ' + GARAGE_LEVELS[garageLevel].label + ' UNLOCKED');
+      }
+      refreshGaragePanel();
+      refreshGarageBtn();
+      return;
+    }
     // Skin row
     const skin = target.dataset.skin;
     if (skin) {
