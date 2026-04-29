@@ -1888,7 +1888,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v127';
+const DLX_BUILD = 'v128';
 
 (function() {
   // ---------- iOS gate ----------
@@ -2157,7 +2157,16 @@ const DLX_BUILD = 'v127';
         const kind = (i * 7 + 3) % 4;
         near.push({ bx: bx, bw: bw, bh: bh, kind: kind, i: i });
       }
-      return { kind: 'city', baseY: baseY, far: far, rubble: rubble, near: near, towerX: W * 0.72, towerY: baseY - 90 };
+      // Three factory smokestacks rising above the skyline pumping smoke
+      const stacks = [];
+      for (let i = 0; i < 3; i++) {
+        stacks.push({
+          x: W * (0.18 + i * 0.32) + ((i * 13) % 12) - 6,
+          h: 80 + ((i * 17) % 24),
+          phase: i * 1.3,
+        });
+      }
+      return { kind: 'city', baseY: baseY, far: far, rubble: rubble, near: near, towerX: W * 0.72, towerY: baseY - 90, stacks: stacks };
     }
     if (selectedTheme === 'volcano') {
       const peaks = [];
@@ -2179,7 +2188,16 @@ const DLX_BUILD = 'v127';
         plume.addColorStop(1, 'rgba(60, 30, 20, 0.75)');
         cones.push({ cx: c.cx, scale: c.scale, topH: topH, topW: topW, lava: lava, plume: plume });
       }
-      return { kind: 'volcano', baseY: baseY, peaks: peaks, cones: cones };
+      // Two nodding oil-pump jacks against the lava-lit horizon — turns
+      // the zone from "generic volcano" into "bandit refinery on fire."
+      const pumpJacks = [];
+      for (let i = 0; i < 2; i++) {
+        pumpJacks.push({
+          x: W * (0.18 + i * 0.42) + ((i * 19) % 14) - 7,
+          phase: i * 1.7,
+        });
+      }
+      return { kind: 'volcano', baseY: baseY, peaks: peaks, cones: cones, pumpJacks: pumpJacks };
     }
     if (selectedTheme === 'canyon') {
       // Two layers of jagged mountain spires (far + near) for canyon depth
@@ -2206,7 +2224,17 @@ const DLX_BUILD = 'v127';
       for (let i = 0; i < 4; i++) {
         shafts.push({ x: (W / 4) * (i + 0.5) + ((i * 29) % 30) - 15, w: 36 + (i % 2) * 14, phase: i * 1.3 });
       }
-      return { kind: 'underwater', baseY: baseY, kelp: kelp, shafts: shafts };
+      // Two sunken DLX hauler hulks half-buried in the silt — gives the
+      // trench a story link with OL' SLITHER (cargo wrecks pulled down).
+      const wrecks = [];
+      for (let i = 0; i < 2; i++) {
+        wrecks.push({
+          x: W * (0.22 + i * 0.5) + ((i * 23) % 20) - 10,
+          tilt: (i % 2 === 0) ? -0.18 : 0.22,
+          scale: 0.85 + (i % 2) * 0.25,
+        });
+      }
+      return { kind: 'underwater', baseY: baseY, kelp: kelp, shafts: shafts, wrecks: wrecks };
     }
     if (selectedTheme === 'icecave') {
       // Jagged stalagmites rising from the floor + hanging stalactites
@@ -2276,7 +2304,8 @@ const DLX_BUILD = 'v127';
       }
       return { kind: 'neoncity', baseY: baseY, far: far, near: near, drones: drones, crane: crane };
     }
-    // sunset — simple peak profile
+    // sunset — simple peak profile + a few rusted oil derricks and one
+    // roadside DLX-MILE-0 sign poking up off the wasteland horizon.
     const peaks = [];
     const count = 14;
     for (let i = 0; i <= count; i++) {
@@ -2287,7 +2316,16 @@ const DLX_BUILD = 'v127';
         peaks.push({ x: x + (W / count) * 0.5, h: 6 + Math.abs(Math.cos(i * 2.3) * 14) });
       }
     }
-    return { kind: 'sunset', baseY: baseY, peaks: peaks };
+    const derricks = [];
+    for (let i = 0; i < 3; i++) {
+      derricks.push({
+        x: W * (0.16 + i * 0.32) + ((i * 19) % 20) - 10,
+        h: 44 + (i * 13) % 18,
+        phase: i * 0.7,
+      });
+    }
+    const sunsetSign = { x: W * 0.58, h: 22 };
+    return { kind: 'sunset', baseY: baseY, peaks: peaks, derricks: derricks, sign: sunsetSign };
   }
 
   // ---------- Audio (Web Audio, synthesised — no asset files) ----------
@@ -7424,6 +7462,71 @@ const DLX_BUILD = 'v127';
       ctx.fillRect(fx, fy, 2, 1);
     }
     ctx.restore();
+
+    // Sunken DLX hauler wrecks half-buried in the silt at the seabed
+    if (layout.wrecks) {
+      const baseY = layout.baseY;
+      for (const w of layout.wrecks) {
+        ctx.save();
+        ctx.translate(w.x, baseY - 6);
+        ctx.rotate(w.tilt);
+        ctx.scale(w.scale, w.scale);
+        // Hauler hull silhouette (rough cargo-rig profile, partially buried)
+        ctx.fillStyle = 'rgba(8, 14, 18, 0.85)';
+        ctx.beginPath();
+        ctx.moveTo(-32, 4);                // buried tail end
+        ctx.lineTo(-26, -10);               // engine block
+        ctx.lineTo(-2, -10);
+        ctx.lineTo(6,  -16);                // cab roof
+        ctx.lineTo(20, -16);
+        ctx.lineTo(26, -10);                // cab front
+        ctx.lineTo(30,  4);                 // nose into the silt
+        ctx.lineTo(30,  10);                // below seabed (clipped by silt)
+        ctx.lineTo(-32, 10);
+        ctx.closePath();
+        ctx.fill();
+        // Crimson belly stripe
+        ctx.fillStyle = 'rgba(80, 12, 18, 0.85)';
+        ctx.fillRect(-30, -2, 58, 2);
+        // Broken cargo-bay outline lines
+        ctx.strokeStyle = 'rgba(180, 200, 220, 0.18)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(-26, -10); ctx.lineTo(-26, 4);
+        ctx.moveTo(-12, -10); ctx.lineTo(-12, 4);
+        ctx.moveTo( 4, -10); ctx.lineTo( 4, 4);
+        ctx.stroke();
+        // Cracked window on the cab
+        ctx.fillStyle = 'rgba(40, 60, 80, 0.75)';
+        ctx.fillRect(10, -14, 8, 4);
+        ctx.strokeStyle = 'rgba(180, 200, 220, 0.4)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(11, -13); ctx.lineTo(15, -11); ctx.lineTo(13, -10);
+        ctx.stroke();
+        // Rusty patches
+        ctx.fillStyle = 'rgba(120, 50, 18, 0.45)';
+        ctx.beginPath(); ctx.arc(-18, -4, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(  8, -2, 2, 0, Math.PI * 2); ctx.fill();
+        // Faint DLX stencil on the side
+        ctx.fillStyle = 'rgba(220, 180, 80, 0.35)';
+        ctx.font = 'bold 6px Impact, "Arial Black", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('DLX', -8, -2);
+        // Bubbles drifting up off the wreck
+        ctx.fillStyle = 'rgba(200, 240, 255, 0.55)';
+        for (let b = 0; b < 3; b++) {
+          const bt = ((frame * 0.012 + b * 0.33 + w.x * 0.001) % 1);
+          const bx = Math.sin(frame * 0.04 + b) * 8;
+          const by = -16 - bt * 30;
+          ctx.beginPath();
+          ctx.arc(bx, by, 1 + bt * 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
     ctx.restore();
   }
 
@@ -7461,13 +7564,87 @@ const DLX_BUILD = 'v127';
   function drawSunsetMountains() {
     const layout = bgCache.horizon;
     if (!layout || layout.kind !== 'sunset') return;
+    const baseY = layout.baseY;
     ctx.save();
+
+    // Distant rusted oil derricks — drawn FIRST so the mountain silhouette
+    // paints over their bases, leaving the upper scaffolding visible above
+    // the ridgeline.
+    if (layout.derricks) {
+      ctx.fillStyle = 'rgba(20, 8, 4, 0.92)';
+      ctx.strokeStyle = 'rgba(20, 8, 4, 0.92)';
+      ctx.lineWidth = 1;
+      for (const d of layout.derricks) {
+        const topY = baseY - d.h;
+        // Two tapered legs
+        ctx.beginPath();
+        ctx.moveTo(d.x - 8, baseY);
+        ctx.lineTo(d.x - 2, topY);
+        ctx.lineTo(d.x + 2, topY);
+        ctx.lineTo(d.x + 8, baseY);
+        ctx.closePath();
+        ctx.fill();
+        // X-bracing inside the derrick
+        ctx.beginPath();
+        for (let s = 0; s < 4; s++) {
+          const t1 = s / 4, t2 = (s + 1) / 4;
+          const ya = baseY - d.h * t1;
+          const yb = baseY - d.h * t2;
+          const xal = d.x - 8 + 6 * t1, xar = d.x + 8 - 6 * t1;
+          const xbl = d.x - 8 + 6 * t2, xbr = d.x + 8 - 6 * t2;
+          ctx.moveTo(xal, ya); ctx.lineTo(xbr, yb);
+          ctx.moveTo(xar, ya); ctx.lineTo(xbl, yb);
+        }
+        ctx.stroke();
+        // Walking-beam pump head bobbing on top
+        const bob = Math.sin(frame * 0.04 + d.phase) * 3;
+        ctx.fillStyle = 'rgba(40, 18, 8, 0.95)';
+        ctx.fillRect(d.x - 6, topY - 4 + bob, 12, 3);
+        ctx.fillRect(d.x + 4, topY - 6 + bob, 4, 5);
+        // Tip warning blinker
+        const blinkOn = (Math.floor(frame / 24) + Math.floor(d.x)) % 2 === 0;
+        if (blinkOn) {
+          ctx.shadowBlur = 4;
+          ctx.shadowColor = '#ff3030';
+          ctx.fillStyle = '#ff5040';
+          ctx.beginPath();
+          ctx.arc(d.x, topY - 1, 1, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+        // Reset stroke style after fillStyle changes
+        ctx.strokeStyle = 'rgba(20, 8, 4, 0.92)';
+        ctx.fillStyle = 'rgba(20, 8, 4, 0.92)';
+      }
+    }
+
+    // Roadside DLX MILE 0 sign post
+    if (layout.sign) {
+      const sx = layout.sign.x, signH = layout.sign.h;
+      const signTopY = baseY - signH;
+      ctx.fillStyle = '#1a0a06';
+      ctx.fillRect(sx - 0.6, signTopY + 4, 1.2, signH - 4);
+      // Sign panel — rust-orange with yellow stencil
+      ctx.fillStyle = '#982612';
+      ctx.fillRect(sx - 9, signTopY, 18, 9);
+      ctx.fillStyle = '#1a0a06';
+      ctx.strokeStyle = '#1a0a06';
+      ctx.lineWidth = 0.6;
+      ctx.strokeRect(sx - 9, signTopY, 18, 9);
+      ctx.fillStyle = '#ffd83d';
+      ctx.font = 'bold 5px Impact, "Arial Black", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('DLX 0', sx, signTopY + 4.5);
+    }
+
+    // Mountain silhouette painted over the bottoms of the derricks
     ctx.fillStyle = theme().ridge;
     ctx.beginPath();
     ctx.moveTo(0, PLAY_H);
-    ctx.lineTo(0, layout.baseY);
-    for (const p of layout.peaks) ctx.lineTo(p.x, layout.baseY - p.h);
-    ctx.lineTo(W, layout.baseY);
+    ctx.lineTo(0, baseY);
+    for (const p of layout.peaks) ctx.lineTo(p.x, baseY - p.h);
+    ctx.lineTo(W, baseY);
     ctx.lineTo(W, PLAY_H);
     ctx.closePath();
     ctx.fill();
@@ -7720,6 +7897,43 @@ const DLX_BUILD = 'v127';
     ctx.fillStyle = smogGrad;
     ctx.fillRect(0, baseY - 80, W, 80);
 
+    // Factory smokestacks rising above the skyline pumping smoke
+    if (bgCache.horizon.stacks) {
+      for (const s of bgCache.horizon.stacks) {
+        const topY = baseY - s.h;
+        // Stack body — dark steel with a thin red warning band near the top
+        ctx.fillStyle = 'rgba(8, 4, 2, 0.95)';
+        ctx.fillRect(s.x - 3, topY, 6, s.h);
+        ctx.fillStyle = '#6a0a12';
+        ctx.fillRect(s.x - 3, topY + 6, 6, 1.6);
+        // Stack rim
+        ctx.fillStyle = 'rgba(20, 8, 4, 0.95)';
+        ctx.fillRect(s.x - 4, topY - 1, 8, 2);
+        // Tip blinker
+        const blinkOn = (Math.floor(frame / 22) + Math.floor(s.x)) % 2 === 0;
+        if (blinkOn) {
+          ctx.shadowBlur = 4;
+          ctx.shadowColor = '#ff3030';
+          ctx.fillStyle = '#ff5040';
+          ctx.beginPath();
+          ctx.arc(s.x, topY - 1, 1.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+        // Smoke billowing up out of the stack
+        for (let p = 0; p < 4; p++) {
+          const tt = ((frame * 0.014 + p * 0.25 + s.phase) % 1);
+          const sx = s.x + Math.sin(frame * 0.03 + p + s.phase) * (3 + tt * 10);
+          const sy = topY - tt * 70;
+          const r  = 4 + tt * 10;
+          ctx.fillStyle = 'rgba(50, 30, 22, ' + (0.55 * (1 - tt)) + ')';
+          ctx.beginPath();
+          ctx.arc(sx, sy, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
     ctx.restore();
   }
 
@@ -7776,6 +7990,47 @@ const DLX_BUILD = 'v127';
       ctx.lineTo(cx + topW * 2, baseY - topH * 0.4);
       ctx.lineTo(cx + topW * 3, baseY - 6);
       ctx.stroke();
+    }
+
+    // Nodding oil-pump jacks — bandit refinery silhouettes on the horizon
+    if (bgCache.horizon.pumpJacks) {
+      ctx.fillStyle = 'rgba(8, 4, 2, 0.95)';
+      ctx.strokeStyle = 'rgba(8, 4, 2, 0.95)';
+      ctx.lineWidth = 1.4;
+      ctx.lineCap = 'round';
+      for (const pj of bgCache.horizon.pumpJacks) {
+        const px = pj.x;
+        const py = baseY;
+        // Base pad
+        ctx.fillRect(px - 12, py - 4, 24, 4);
+        // A-frame triangle (the support)
+        ctx.beginPath();
+        ctx.moveTo(px - 8, py - 4);
+        ctx.lineTo(px,     py - 22);
+        ctx.lineTo(px + 8, py - 4);
+        ctx.closePath();
+        ctx.fill();
+        // Walking-beam (horse head) pivots up/down
+        const ang = Math.sin(frame * 0.05 + pj.phase) * 0.35;
+        ctx.save();
+        ctx.translate(px, py - 22);
+        ctx.rotate(ang);
+        // Beam
+        ctx.fillRect(-2, -2, 24, 4);
+        // Horse-head counterweight at the tail
+        ctx.beginPath();
+        ctx.moveTo(-2, -2); ctx.lineTo(-12, 0); ctx.lineTo(-12, 6); ctx.lineTo(-2, 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        // Cable + pump head dangling at the front (bobbing with the beam)
+        const tipX = px + Math.cos(ang) * 22;
+        const tipY = (py - 22) + Math.sin(ang) * 22;
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY); ctx.lineTo(tipX, py - 4);
+        ctx.stroke();
+        ctx.fillRect(tipX - 1.4, py - 6, 2.8, 4);
+      }
     }
 
     ctx.restore();
