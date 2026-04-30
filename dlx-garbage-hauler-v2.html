@@ -817,6 +817,50 @@
     animation-timing-function: linear;
     animation-fill-mode: forwards;
   }
+  /* DLX-themed delivery fanfare — replaces generic confetti with the
+     game's iconography: caution tape, scrap cogs, cargo crates,
+     magnet pulses, SCRAP bolts. Each piece falls with the same
+     confettiFall keyframes but has its own visual style. */
+  .dlxFanfare-caution {
+    background: repeating-linear-gradient(45deg,
+      #ffd83d, #ffd83d 3px, #1a0408 3px, #1a0408 5px);
+    width: 7px; height: 16px;
+    border-radius: 0;
+    border: 0.5px solid #1a0408;
+  }
+  .dlxFanfare-cog {
+    background: radial-gradient(circle, #3ad0ff 30%, #1a8ac8 70%, #0a2840 100%);
+    border-radius: 50%;
+    box-shadow: 0 0 8px #3ad0ff, 0 0 12px rgba(58, 208, 255, 0.5);
+    width: 9px; height: 9px;
+    border: 0.5px solid #0a2840;
+  }
+  .dlxFanfare-crate {
+    background: linear-gradient(180deg, #8a9098 0%, #5a6068 50%, #3a3e44 100%);
+    width: 10px; height: 11px;
+    position: relative;
+    border: 1px solid #1a1c20;
+  }
+  .dlxFanfare-crate::before {
+    content: '';
+    position: absolute;
+    left: 1px; right: 1px;
+    top: 4px;
+    height: 2.5px;
+    background: #ffd060;
+  }
+  .dlxFanfare-magnet {
+    background: radial-gradient(circle, #ffffff 0%, #ff80c0 40%, #ff60a0 80%);
+    border-radius: 50%;
+    box-shadow: 0 0 10px #ff60a0, 0 0 18px rgba(255, 96, 160, 0.6);
+    width: 7px; height: 7px;
+  }
+  .dlxFanfare-bolt {
+    background: linear-gradient(135deg, #ffe070 0%, #f0a830 100%);
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+    width: 10px; height: 10px;
+    box-shadow: 0 0 4px #ffd060;
+  }
   @keyframes confettiFall {
     0%   { transform: translate3d(0, -10vh, 0) rotate(0deg);   opacity: 0; }
     10%  { opacity: 1; }
@@ -1907,7 +1951,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v177-preview';
+const DLX_BUILD = 'v178-preview';
 
 (function() {
   // ---------- Device detection ----------
@@ -17560,18 +17604,33 @@ const DLX_BUILD = 'v177-preview';
   function spawnVictoryConfetti() {
     if (!victoryFanfare) return;
     victoryFanfare.innerHTML = '';
-    const colors = ['#ffd280', '#ffee40', '#60f0ff', '#ff80c0', '#a0f080', '#ff9a40'];
-    const count = 48;
+    // DLX-themed delivery fanfare — five iconographic piece types.
+    // Weighted so caution tape + SCRAP bolts dominate (most "branded"),
+    // with scrap cogs, cargo crates, and magnet pulses sprinkled in.
+    const types = [
+      { cls: 'dlxFanfare-caution', weight: 0.30 },     // yellow + black caution tape
+      { cls: 'dlxFanfare-bolt',    weight: 0.25 },     // SCRAP currency bolt
+      { cls: 'dlxFanfare-cog',     weight: 0.20 },     // cyan scrap cogs (pickup currency)
+      { cls: 'dlxFanfare-crate',   weight: 0.15 },     // mini DLX cargo crates
+      { cls: 'dlxFanfare-magnet',  weight: 0.10 },     // pink magnet pulses
+    ];
+    const count = 56;
     for (let i = 0; i < count; i++) {
+      // Weighted pick of piece type
+      let r = Math.random();
+      let pick = types[0];
+      for (const t of types) {
+        if (r < t.weight) { pick = t; break; }
+        r -= t.weight;
+      }
       const c = document.createElement('div');
-      c.className = 'confetti';
+      c.className = 'confetti ' + pick.cls;
       c.style.left = (Math.random() * 100) + '%';
-      c.style.background = colors[i % colors.length];
-      c.style.width = (4 + Math.random() * 4) + 'px';
-      c.style.height = (8 + Math.random() * 8) + 'px';
       c.style.animationDuration = (2.4 + Math.random() * 1.8) + 's';
       c.style.animationDelay = (Math.random() * 1.2) + 's';
-      c.style.transform = 'rotate(' + (Math.random() * 360) + 'deg)';
+      // Slight scale variation per piece so the shower looks varied
+      const scale = 0.85 + Math.random() * 0.5;
+      c.style.transform = 'scale(' + scale + ') rotate(' + (Math.random() * 360) + 'deg)';
       victoryFanfare.appendChild(c);
     }
   }
