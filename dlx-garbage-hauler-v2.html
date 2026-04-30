@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v143';
+const DLX_BUILD = 'v144';
 
 (function() {
   // ---------- Device detection ----------
@@ -6367,12 +6367,13 @@ const DLX_BUILD = 'v143';
           grantScore(1);
           dailyDistanceForScore += 24;
         }
-        // Flying cargo thieves — periodic spawn + per-thief AI
+        // Flying cargo thieves — chase from BEHIND (off-screen left) and
+        // catch up to the cargo from the rear. Periodic spawn + per-thief AI.
         if (frame >= dailyNextThiefAt && !dailyDelivered) {
           dailyThieves.push({
-            x: W + 36,
-            y: 40 + Math.random() * (PLAY_H * 0.35),
-            vx: -3.4 - Math.random() * 0.8,
+            x: -50,
+            y: 60 + Math.random() * (PLAY_H * 0.55),
+            vx: 2.6 + Math.random() * 0.9,    // accelerates right to catch up
             vy: 0,
             state: 'approach',
             stateFrames: 0,
@@ -6393,7 +6394,7 @@ const DLX_BUILD = 'v143';
             if (cargo && cargo.attached && !cargo.lost) {
               const ddx = tf.x - cargo.x;
               const ddy = tf.y - cargo.y;
-              if (ddx * ddx + ddy * ddy < 22 * 22) {
+              if (ddx * ddx + ddy * ddy < 28 * 28) {
                 cargo.attached = false;
                 cargo.vy = -2.5;
                 tf.state = 'retreat';
@@ -6402,14 +6403,20 @@ const DLX_BUILD = 'v143';
                 playSound('boom');
               }
             }
-            if (tf.x < -50) dailyThieves.splice(i, 1);
+            // If it overshoots past the player without striking, peel off
+            if (tf.x > bird.x + 60) {
+              tf.state = 'retreat';
+              tf.stateFrames = 0;
+            }
+            if (tf.x < -60 || tf.x > W + 60) dailyThieves.splice(i, 1);
           } else {
-            // retreat — peel off and fly out the bottom-left
-            tf.vx = Math.min(tf.vx + 0.04, -1);
+            // retreat — drop down, slow down, world scroll carries it off-screen
+            tf.vx *= 0.92;
+            tf.vx -= 0.05;                  // small leftward drift on top
             tf.vy = Math.min(tf.vy + 0.18, 4);
             tf.x += tf.vx;
             tf.y += tf.vy;
-            if (tf.y > PLAY_H + 30 || tf.x < -50) dailyThieves.splice(i, 1);
+            if (tf.y > PLAY_H + 30 || tf.x < -60 || tf.x > W + 80) dailyThieves.splice(i, 1);
           }
         }
         // Cargo physics
@@ -6611,7 +6618,7 @@ const DLX_BUILD = 'v143';
       for (const tf of dailyThieves) {
         const dx = bird.x - tf.x;
         const dy = bird.y - tf.y;
-        if (dx * dx + dy * dy < (r + 9) * (r + 9)) return true;
+        if (dx * dx + dy * dy < (r + 14) * (r + 14)) return true;
       }
       if (hazardHit()) return true;               // shared mid-run hazards
       return false;
@@ -8666,56 +8673,157 @@ const DLX_BUILD = 'v143';
       // Slight bank tilt based on vertical speed
       const tilt = Math.max(-0.25, Math.min(0.25, tf.vy * 0.06));
       ctx.rotate(tilt);
-      // Engine flame trailing behind (drawn first so the hull paints over it)
-      ctx.shadowBlur = 6; ctx.shadowColor = '#ff8a30';
-      ctx.fillStyle = 'rgba(255, 138, 58, 0.9)';
+      // ---- Twin engine flame trail behind the hull ----
+      ctx.shadowBlur = 8; ctx.shadowColor = '#ff8a30';
+      ctx.fillStyle = 'rgba(255, 138, 58, 0.95)';
+      const flickX = Math.random() * 4;
       ctx.beginPath();
-      ctx.moveTo(-12, -3);
-      ctx.lineTo(-20 - Math.random() * 3, 0);
-      ctx.lineTo(-12, 3);
-      ctx.closePath();
-      ctx.fill();
+      ctx.moveTo(-18, -7); ctx.lineTo(-30 - flickX, -4); ctx.lineTo(-18, -1);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-18,  4); ctx.lineTo(-30 - flickX,  7); ctx.lineTo(-18, 10);
+      ctx.closePath(); ctx.fill();
+      // Inner yellow flame core
+      ctx.shadowBlur = 4; ctx.shadowColor = '#ffd83d';
+      ctx.fillStyle = '#ffd83d';
+      ctx.beginPath();
+      ctx.moveTo(-18, -6); ctx.lineTo(-25, -4); ctx.lineTo(-18, -2);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-18,  5); ctx.lineTo(-25,  7); ctx.lineTo(-18,  9);
+      ctx.closePath(); ctx.fill();
       ctx.shadowBlur = 0;
-      // Hull (dark crimson)
-      ctx.fillStyle = '#6a0a12';
-      ctx.fillRect(-12, -7, 22, 14);
+
+      // ---- Hull (32 wide x 20 tall — was 22x14) ----
+      const hw = 16, hh = 10;
+      // Bottom belly (darker crimson)
       ctx.fillStyle = '#3a0a08';
-      ctx.fillRect(-12, 0, 22, 7);
-      ctx.strokeStyle = '#1a0408';
+      ctx.fillRect(-hw, 0, hw * 2, hh);
+      // Top body (mid crimson)
+      ctx.fillStyle = '#6a0a12';
+      ctx.fillRect(-hw, -hh, hw * 2, hh);
+      // Top highlight band
+      ctx.fillStyle = '#982612';
+      ctx.fillRect(-hw, -hh, hw * 2, 2);
+      // Yellow caution stripe across the bottom
+      ctx.fillStyle = '#ffd83d';
+      ctx.fillRect(-hw, hh - 2, hw * 2, 2);
+      ctx.fillStyle = '#1a0408';
+      for (let s = 0; s < 6; s++) {
+        ctx.fillRect(-hw + 2 + s * (hw * 2 / 6), hh - 2, 1.4, 2);
+      }
+      // Heavy hairline outline
+      ctx.strokeStyle = '#0a0204';
+      ctx.lineWidth = 1.6;
+      ctx.strokeRect(-hw, -hh, hw * 2, hh * 2);
+
+      // ---- Cab visor (tinted dark-red, no friendly green) ----
+      ctx.fillStyle = '#0a0204';
+      ctx.fillRect(-2, -hh + 2, 10, 6);
+      ctx.fillStyle = '#a01828';
+      ctx.fillRect(-1, -hh + 3, 8, 4);
+      // Visor glint
+      ctx.fillStyle = 'rgba(255, 130, 130, 0.55)';
+      ctx.fillRect( 0, -hh + 3, 2, 1);
+
+      // ---- Spike rams on the front (above the electromagnet) ----
+      ctx.fillStyle = '#1a0a06';
+      for (let s = 0; s < 3; s++) {
+        const sx = hw - 2 + s * 2;
+        ctx.beginPath();
+        ctx.moveTo(sx - 1.6, -hh);
+        ctx.lineTo(sx,       -hh - 6);
+        ctx.lineTo(sx + 1.6, -hh);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Chrome highlight on the spike tips
+      ctx.fillStyle = '#e8eef8';
+      for (let s = 0; s < 3; s++) {
+        const sx = hw - 2 + s * 2;
+        ctx.beginPath();
+        ctx.moveTo(sx,       -hh - 6);
+        ctx.lineTo(sx - 0.5, -hh - 3.5);
+        ctx.lineTo(sx + 0.5, -hh - 3.5);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // ---- Front grille with chrome teeth (the menace) ----
+      ctx.fillStyle = '#1a1c20';
+      ctx.fillRect(hw - 2, -2, 6, 8);
+      ctx.fillStyle = '#e8eef8';
+      for (let s = 0; s < 3; s++) {
+        ctx.fillRect(hw - 1 + s * 1.6, -1, 0.8, 6);
+      }
+
+      // ---- Big skull-and-crossbones decal on the side ----
+      ctx.strokeStyle = '#f4e6c0';
       ctx.lineWidth = 1.4;
-      ctx.strokeRect(-12, -7, 22, 14);
-      // Cab window — sickly green (matches the campaign pirate's visor)
-      ctx.fillStyle = '#a8ff40';
-      ctx.fillRect(-2, -4, 7, 4);
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(0, -3, 1.5, 1.5);
-      // Skull-and-crossbones decal on the side
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-9, -3); ctx.lineTo(-2, 4);
+      ctx.moveTo(-9,  4); ctx.lineTo(-2, -3);
+      ctx.stroke();
       ctx.fillStyle = '#f4e6c0';
       ctx.beginPath();
-      ctx.arc(-6, 2, 2, 0, Math.PI * 2);
+      ctx.arc(-5.5, 0.5, 3.4, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#1a0408';
-      ctx.beginPath(); ctx.arc(-6.7, 1.6, 0.4, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(-5.3, 1.6, 0.4, 0, Math.PI * 2); ctx.fill();
-      // Front-mounted electromagnet (the cargo grappler — GDD page 9)
+      // Skull eyes (deep black with red glow)
+      ctx.fillStyle = '#0a0204';
+      ctx.beginPath(); ctx.arc(-7,   0,   0.85, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(-4,   0,   0.85, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 4; ctx.shadowColor = '#ff4020';
+      ctx.fillStyle = '#ff5040';
+      ctx.beginPath(); ctx.arc(-7,   0,   0.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(-4,   0,   0.4, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      // Skull jaw teeth
+      ctx.fillStyle = '#0a0204';
+      ctx.fillRect(-7.5, 2.2, 4, 1.2);
+      ctx.fillStyle = '#f4e6c0';
+      ctx.fillRect(-7,   2.4, 0.5, 0.8);
+      ctx.fillRect(-6,   2.4, 0.5, 0.8);
+      ctx.fillRect(-5,   2.4, 0.5, 0.8);
+      ctx.fillRect(-4,   2.4, 0.5, 0.8);
+
+      // ---- Front-mounted electromagnet (the cargo grappler — GDD pg 9) ----
       ctx.fillStyle = '#3a3a44';
-      ctx.fillRect(10, -3, 5, 6);
+      ctx.fillRect(hw - 2, 4, 6, 6);
       ctx.strokeStyle = '#1a1c20';
-      ctx.lineWidth = 0.6;
-      ctx.strokeRect(10, -3, 5, 6);
-      // Pulsing pink magnet glow when approaching, fading when retreating
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(hw - 2, 4, 6, 6);
+      // Pulsing pink magnet glow when approaching, fades when retreating
       const glow = tf.state === 'approach' ? 1 : Math.max(0, 1 - tf.stateFrames / 20);
       if (glow > 0.05) {
-        ctx.shadowBlur = 6 * glow; ctx.shadowColor = '#ff60a0';
+        ctx.shadowBlur = 10 * glow; ctx.shadowColor = '#ff60a0';
         ctx.fillStyle = 'rgba(255, 128, 200, ' + glow + ')';
         ctx.beginPath();
-        ctx.arc(15, 0, 2.4, 0, Math.PI * 2);
+        ctx.arc(hw + 3, 7, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 255, 255, ' + (glow * 0.9) + ')';
+        ctx.beginPath();
+        ctx.arc(hw + 3, 7, 1.2, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
       }
-      // Skids underneath
-      ctx.fillStyle = '#1a0408';
-      ctx.fillRect(-10, 7, 18, 1.4);
+
+      // ---- Battle damage scars + rivets ----
+      ctx.strokeStyle = 'rgba(20, 4, 8, 0.85)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(2, -hh + 1); ctx.lineTo(8, -hh + 4);
+      ctx.moveTo(hw - 5, -3); ctx.lineTo(hw - 1, 0);
+      ctx.stroke();
+      ctx.fillStyle = '#0a0204';
+      for (let r2 = 0; r2 < 4; r2++) {
+        ctx.beginPath();
+        ctx.arc(-hw + 3 + r2 * 8, -hh + 4, 0.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(-hw + 3 + r2 * 8,  hh - 4, 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
   }
