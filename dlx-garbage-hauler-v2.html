@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v142';
+const DLX_BUILD = 'v143';
 
 (function() {
   // ---------- Device detection ----------
@@ -6367,6 +6367,51 @@ const DLX_BUILD = 'v142';
           grantScore(1);
           dailyDistanceForScore += 24;
         }
+        // Flying cargo thieves — periodic spawn + per-thief AI
+        if (frame >= dailyNextThiefAt && !dailyDelivered) {
+          dailyThieves.push({
+            x: W + 36,
+            y: 40 + Math.random() * (PLAY_H * 0.35),
+            vx: -3.4 - Math.random() * 0.8,
+            vy: 0,
+            state: 'approach',
+            stateFrames: 0,
+          });
+          dailyNextThiefAt = frame + 240 + Math.floor(Math.random() * 220);  // 4-7s
+        }
+        for (let i = dailyThieves.length - 1; i >= 0; i--) {
+          const tf = dailyThieves[i];
+          tf.stateFrames++;
+          if (tf.state === 'approach') {
+            // Steer toward cargo height (or rig if cargo gone)
+            const targetY = (cargo && !cargo.lost) ? cargo.y : bird.y;
+            tf.vy += (targetY - tf.y) * 0.006;
+            tf.vy *= 0.92;
+            tf.x += tf.vx;
+            tf.y += tf.vy;
+            // Strike: if in range of cargo, snap the bond
+            if (cargo && cargo.attached && !cargo.lost) {
+              const ddx = tf.x - cargo.x;
+              const ddy = tf.y - cargo.y;
+              if (ddx * ddx + ddy * ddy < 22 * 22) {
+                cargo.attached = false;
+                cargo.vy = -2.5;
+                tf.state = 'retreat';
+                tf.stateFrames = 0;
+                emitPickupSparks(cargo.x, cargo.y, '#a0f0ff', 6);
+                playSound('boom');
+              }
+            }
+            if (tf.x < -50) dailyThieves.splice(i, 1);
+          } else {
+            // retreat — peel off and fly out the bottom-left
+            tf.vx = Math.min(tf.vx + 0.04, -1);
+            tf.vy = Math.min(tf.vy + 0.18, 4);
+            tf.x += tf.vx;
+            tf.y += tf.vy;
+            if (tf.y > PLAY_H + 30 || tf.x < -50) dailyThieves.splice(i, 1);
+          }
+        }
         // Cargo physics
         if (cargo) {
           if (cargo.attached && !cargo.lost) {
@@ -6561,6 +6606,12 @@ const DLX_BUILD = 'v142';
         const gh = terrainHeightAt(h.worldX);
         const topY = h.kind === 'cactusBig' ? gh - 22 : gh - 14;
         if (bird.y + r > topY) return true;       // clipped a cactus / rock
+      }
+      // Flying cargo thieves — direct hit on the rig kills you
+      for (const tf of dailyThieves) {
+        const dx = bird.x - tf.x;
+        const dy = bird.y - tf.y;
+        if (dx * dx + dy * dy < (r + 9) * (r + 9)) return true;
       }
       if (hazardHit()) return true;               // shared mid-run hazards
       return false;
@@ -8606,6 +8657,68 @@ const DLX_BUILD = 'v142';
     ctx.restore();
   }
 
+  // Flying rival rig — swoops in to snap the magnetic bond and steal cargo.
+  function drawDailyThieves() {
+    if (!isDaily || !dailyThieves.length) return;
+    for (const tf of dailyThieves) {
+      ctx.save();
+      ctx.translate(tf.x, tf.y);
+      // Slight bank tilt based on vertical speed
+      const tilt = Math.max(-0.25, Math.min(0.25, tf.vy * 0.06));
+      ctx.rotate(tilt);
+      // Engine flame trailing behind (drawn first so the hull paints over it)
+      ctx.shadowBlur = 6; ctx.shadowColor = '#ff8a30';
+      ctx.fillStyle = 'rgba(255, 138, 58, 0.9)';
+      ctx.beginPath();
+      ctx.moveTo(-12, -3);
+      ctx.lineTo(-20 - Math.random() * 3, 0);
+      ctx.lineTo(-12, 3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Hull (dark crimson)
+      ctx.fillStyle = '#6a0a12';
+      ctx.fillRect(-12, -7, 22, 14);
+      ctx.fillStyle = '#3a0a08';
+      ctx.fillRect(-12, 0, 22, 7);
+      ctx.strokeStyle = '#1a0408';
+      ctx.lineWidth = 1.4;
+      ctx.strokeRect(-12, -7, 22, 14);
+      // Cab window — sickly green (matches the campaign pirate's visor)
+      ctx.fillStyle = '#a8ff40';
+      ctx.fillRect(-2, -4, 7, 4);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(0, -3, 1.5, 1.5);
+      // Skull-and-crossbones decal on the side
+      ctx.fillStyle = '#f4e6c0';
+      ctx.beginPath();
+      ctx.arc(-6, 2, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#1a0408';
+      ctx.beginPath(); ctx.arc(-6.7, 1.6, 0.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(-5.3, 1.6, 0.4, 0, Math.PI * 2); ctx.fill();
+      // Front-mounted electromagnet (the cargo grappler — GDD page 9)
+      ctx.fillStyle = '#3a3a44';
+      ctx.fillRect(10, -3, 5, 6);
+      ctx.strokeStyle = '#1a1c20';
+      ctx.lineWidth = 0.6;
+      ctx.strokeRect(10, -3, 5, 6);
+      // Pulsing pink magnet glow when approaching, fading when retreating
+      const glow = tf.state === 'approach' ? 1 : Math.max(0, 1 - tf.stateFrames / 20);
+      if (glow > 0.05) {
+        ctx.shadowBlur = 6 * glow; ctx.shadowColor = '#ff60a0';
+        ctx.fillStyle = 'rgba(255, 128, 200, ' + glow + ')';
+        ctx.beginPath();
+        ctx.arc(15, 0, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+      // Skids underneath
+      ctx.fillStyle = '#1a0408';
+      ctx.fillRect(-10, 7, 18, 1.4);
+      ctx.restore();
+    }
+  }
   function drawDailyCargo() {
     if (!isDaily || !cargo || cargo.lost) return;
     ctx.save();
@@ -12603,6 +12716,7 @@ const DLX_BUILD = 'v142';
     else drawGround();
     if (isDaily) {
       drawDailyHazards();
+      drawDailyThieves();
       drawCargoBond();
       drawDailyCargo();
     }
@@ -13021,6 +13135,8 @@ const DLX_BUILD = 'v142';
     dailyNextHazardX = 220;              // first hazard about a screen away
     dailyDistanceForScore = 0;
     cargo = { x: 0, y: 0, vy: 0, attached: true, lost: false };
+    dailyThieves = [];
+    dailyNextThiefAt = frame + 600;      // first thief swoops in ~10s after launch
     state = STATE_PLAY;
     bird.x = Math.round(W * BIRD_X_FRAC);
     bird.vy = FLAP;
@@ -13186,6 +13302,8 @@ const DLX_BUILD = 'v142';
   let dailyNextHazardX = 0;        // next worldX to spawn a hazard
   let dailyDistanceForScore = 0;   // tracker so grantScore fires once per chunk
   let cargo = null;                // { x, y, vy, attached, lost } — magnetically tethered crate
+  let dailyThieves = [];           // [{ x, y, vx, vy, state, stateFrames }] — flying cargo thieves
+  let dailyNextThiefAt = 0;        // frame index when next flying thief enters
   // Score the daily run needs to reach to count as "delivery made". Below
   // this and a crash counts as a failed delivery; at or above it the run
   // ends in DELIVERY MADE victory state.
