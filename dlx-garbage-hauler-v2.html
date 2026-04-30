@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v154';
+const DLX_BUILD = 'v160';
 
 (function() {
   // ---------- Device detection ----------
@@ -6348,15 +6348,28 @@ const DLX_BUILD = 'v154';
       if (isDaily) {
         // ---- Daily delivery course — terrain + ground hazards + cargo ----
         dailyScrollX += speed;
-        // Procedurally drop hazards out at the right edge as we travel
+        // Procedurally drop hazards out at the right edge as we travel.
+        // Stage-aware mix — 'spikes' (jagged formations) introduced from
+        // stage 2 onward so the early dunes stay easy to learn on.
         while (dailyNextHazardX < dailyScrollX + W + 200) {
           const r = Math.random();
           let kind;
-          if      (r < 0.55) kind = 'cactus';
-          else if (r < 0.85) kind = 'rock';
-          else               kind = 'cactusBig';
+          if (dailyCurrentStage >= 1) {
+            // Stage 2+: heavier mix with spike clusters
+            if      (r < 0.30) kind = 'cactus';
+            else if (r < 0.55) kind = 'rock';
+            else if (r < 0.70) kind = 'cactusBig';
+            else               kind = 'spikes';
+          } else {
+            // Stage 1: gentle acclimation, no spike formations
+            if      (r < 0.55) kind = 'cactus';
+            else if (r < 0.85) kind = 'rock';
+            else               kind = 'cactusBig';
+          }
           dailyHazards.push({ worldX: dailyNextHazardX, kind: kind });
-          dailyNextHazardX += 160 + Math.floor(Math.random() * 220);
+          // Tighter spacing in later stages keeps pressure up
+          const baseGap = dailyCurrentStage >= 2 ? 130 : 160;
+          dailyNextHazardX += baseGap + Math.floor(Math.random() * 200);
         }
         // Cleanup off-screen hazards (already passed)
         while (dailyHazards.length && dailyHazards[0].worldX - dailyScrollX < -80) {
@@ -6446,6 +6459,155 @@ const DLX_BUILD = 'v154';
             // retreat — slowly drift left and away
             dr.x += dr.vx * 1.4;
             if (dr.x < -50) dailyDrones.splice(i, 1);
+          }
+        }
+        // ---- Ground-level rival haulers — enter from stage 3 onward ----
+        // Rusty pickup chases on the dunes from behind, fires a magnetic
+        // grappling hook straight up at the cargo. Player evades by
+        // climbing high or speeding away (cruise speed boost not in scope
+        // for v157 — it's purely a vertical dodge).
+        if (dailyCurrentStage >= 2 && frame >= dailyNextGroundOpAt && !dailyDelivered) {
+          const startWorldX = dailyScrollX + W + 40;
+          dailyGroundOps.push({
+            worldX: startWorldX,
+            relSpeed: 0.6 + Math.random() * 0.4,    // slightly slower than world scroll → drifts left
+            state: 'chase',
+            stateFrames: 0,
+            hookY: 0,                                // 0 = retracted; > 0 = extending up
+            hookMaxY: 0,
+          });
+          dailyNextGroundOpAt = frame + 540 + Math.floor(Math.random() * 360);
+          setLevelBanner('⚠ GROUND HAULER');
+        }
+        for (let i = dailyGroundOps.length - 1; i >= 0; i--) {
+          const op = dailyGroundOps[i];
+          op.stateFrames++;
+          // World-X drift — move left slightly slower than world so it
+          // gradually approaches from the right.
+          op.worldX -= op.relSpeed;
+          const sx = op.worldX - dailyScrollX;
+          if (op.state === 'chase') {
+            // Once the rival pulls alongside the player's column (within
+            // ~50px), fire the hook up
+            if (Math.abs(sx - bird.x) < 50) {
+              op.state = 'hook';
+              op.stateFrames = 0;
+              op.hookMaxY = 220;
+            }
+            if (sx < -60) dailyGroundOps.splice(i, 1);
+          } else if (op.state === 'hook') {
+            // Extend hook upward
+            op.hookY = Math.min(op.hookY + 6, op.hookMaxY);
+            const opGy = terrainHeightAt(op.worldX);
+            const hookTipY = opGy - 14 - op.hookY;
+            // Check cargo grab while attached
+            if (cargo && cargo.attached && !cargo.lost) {
+              if (Math.abs(sx - cargo.x) < 14 && Math.abs(hookTipY - cargo.y) < 14) {
+                cargo.attached = false;
+                cargo.vy = 0.5;
+                cargoZapFrames = 30;
+                emitPickupSparks(cargo.x, cargo.y, '#ffd060', 6);
+                playSound('boom');
+                op.state = 'retract';
+                op.stateFrames = 0;
+              }
+            }
+            if (op.hookY >= op.hookMaxY) {
+              op.state = 'retract';
+              op.stateFrames = 0;
+            }
+          } else if (op.state === 'retract') {
+            op.hookY = Math.max(0, op.hookY - 8);
+            if (op.hookY <= 0) {
+              op.state = 'chase';
+              op.stateFrames = 0;
+            }
+            if (sx < -60) dailyGroundOps.splice(i, 1);
+          }
+        }
+        // ---- Moving sand patches (Phase A4) — enter during stage 3 ----
+        // Conveyor-belt strip on the ground. If cargo lands on it while
+        // detached, the cargo drifts toward the right edge of the patch
+        // where a stationary opponent waits to grab it.
+        if (dailyCurrentStage >= 2 && (dailyNextSandAt === 0 || dailyScrollX >= dailyNextSandAt)) {
+          const sandStart = dailyScrollX + W + 200;
+          dailySandPatches.push({
+            worldX: sandStart,
+            w: 200 + Math.floor(Math.random() * 120),
+            phase: 0,
+          });
+          dailyNextSandAt = sandStart + 1100 + Math.floor(Math.random() * 600);
+        }
+        // Sand patch animation phase
+        for (const sp of dailySandPatches) sp.phase += 0.05;
+        // Cleanup off-screen sand patches
+        while (dailySandPatches.length && dailySandPatches[0].worldX + dailySandPatches[0].w - dailyScrollX < -60) {
+          dailySandPatches.shift();
+        }
+        // Apply moving-sand drift to detached cargo sitting on a patch
+        if (cargo && !cargo.attached && !cargo.lost) {
+          const cargoWorldX = cargo.x + dailyScrollX;
+          const cargoGy = terrainHeightAt(cargoWorldX);
+          if (cargo.y >= cargoGy - 12) {
+            for (const sp of dailySandPatches) {
+              if (cargoWorldX >= sp.worldX && cargoWorldX <= sp.worldX + sp.w) {
+                cargo.x += 1.4;     // pushed RIGHT toward waiting opponent at end of patch
+                break;
+              }
+            }
+          }
+        }
+        // ---- Tentacle monsters (Phase A5) — stage 4 only ----
+        if (dailyCurrentStage >= 3 && frame >= dailyNextTentacleAt && !dailyDelivered) {
+          dailyTentacles.push({
+            worldX: dailyScrollX + W + 80,
+            phase: Math.random() * Math.PI * 2,
+            life: 0,
+            maxLife: 240,
+            captured: false,
+            capFrames: 0,
+          });
+          dailyNextTentacleAt = frame + 720 + Math.floor(Math.random() * 480);
+          setLevelBanner('⚠ TENTACLE!');
+        }
+        for (let i = dailyTentacles.length - 1; i >= 0; i--) {
+          const t = dailyTentacles[i];
+          t.life++;
+          t.phase += 0.06;
+          // The tentacle "grabs" if the rig overlaps the strike zone
+          const sx = t.worldX - dailyScrollX;
+          const gy = terrainHeightAt(t.worldX);
+          // Tentacle reach at peak: ~150px above the ground
+          const reachT = Math.min(1, t.life / 60);
+          const tipY = gy - 150 * reachT;
+          if (
+            !t.captured &&
+            Math.abs(bird.x - sx) < 22 &&
+            bird.y > tipY - 10 &&
+            bird.y < gy
+          ) {
+            // Capture: snap player back ~600 worldX (a "thrown to start of
+            // section" mini-penalty per the GDD without ending the run)
+            t.captured = true;
+            t.capFrames = 30;
+            dailyScrollX = Math.max(0, dailyScrollX - 600);
+            setLevelBanner('★ THROWN BACK!');
+            playSound('boom');
+            shakeFrames = 24;
+            flashAlpha = 0.6;
+          }
+          if (t.life >= t.maxLife) dailyTentacles.splice(i, 1);
+        }
+
+        // Truck stop finish — once the rig passes the truck stop landmark,
+        // count the delivery as made (overrides score-based delivery).
+        if (!dailyDeliveredAtFinish && dailyScrollX >= 9300) {
+          dailyDeliveredAtFinish = true;
+          if (!dailyDelivered) {
+            // Mark as delivered and trigger the victory path (handled by
+            // existing delivery-target check in maybeAdvanceLevel)
+            dailyDelivered = true;
+            triggerDeliverySuccess();
           }
         }
         // Flying cargo thieves — fly in from the FRONT (right side), hover
@@ -6717,10 +6879,14 @@ const DLX_BUILD = 'v154';
       for (const h of dailyHazards) {
         const sx = h.worldX - dailyScrollX;
         const dx = bird.x - sx;
-        if (Math.abs(dx) > r + 8) continue;
+        // Spike clusters are wider than the other hazards
+        const halfW = h.kind === 'spikes' ? 28 : 8;
+        if (Math.abs(dx) > r + halfW) continue;
         const gh = terrainHeightAt(h.worldX);
-        const topY = h.kind === 'cactusBig' ? gh - 22 : gh - 14;
-        if (bird.y + r > topY) return true;       // clipped a cactus / rock
+        const topY = h.kind === 'spikes'   ? gh - 52
+                   : h.kind === 'cactusBig' ? gh - 22
+                   :                          gh - 14;
+        if (bird.y + r > topY) return true;       // clipped a hazard
       }
       // Flying cargo thieves are aerial cargo predators — they hover high
       // above the rig and only threaten the cargo via their dropped claw.
@@ -9110,11 +9276,14 @@ const DLX_BUILD = 'v154';
     ctx.save();
     for (const h of dailyHazards) {
       const sx = h.worldX - dailyScrollX;
-      if (sx < -30 || sx > W + 30) continue;
+      // Spike clusters are wider so let them draw a touch off-screen
+      const margin = h.kind === 'spikes' ? 60 : 30;
+      if (sx < -margin || sx > W + margin) continue;
       const gy = terrainHeightAt(h.worldX);
-      if (h.kind === 'cactusBig') drawDailyCactus(sx, gy, true);
-      else if (h.kind === 'cactus') drawDailyCactus(sx, gy, false);
-      else drawDailyRock(sx, gy);
+      if      (h.kind === 'cactusBig') drawDailyCactus(sx, gy, true);
+      else if (h.kind === 'cactus')    drawDailyCactus(sx, gy, false);
+      else if (h.kind === 'spikes')    drawDailySpikes(sx, gy, h.worldX);
+      else                              drawDailyRock(sx, gy);
     }
     ctx.restore();
   }
@@ -9179,6 +9348,441 @@ const DLX_BUILD = 'v154';
     ctx.lineTo( 9, 0);
     ctx.closePath();
     ctx.stroke();
+    ctx.restore();
+  }
+
+  // Jagged spike cluster — wide ground hazard with 4-6 sharp peaks
+  // rising 30-50px from the dune. Per-cluster jaggedness is seeded by
+  // the cluster's worldX so the same shape appears on replays.
+  function drawDailySpikes(x, y, worldX) {
+    const peakCount = 4 + Math.floor(srand(worldX * 0.013 + 1.7) * 3);   // 4-6
+    ctx.save();
+    ctx.translate(x, y);
+    // Build the polygon: bottom-left, alternating rising peaks, bottom-right
+    const totalW = 56;
+    const startX = -totalW / 2;
+    const peakStep = totalW / (peakCount - 1);
+    const points = [{ x: startX - 4, y: 1 }];
+    for (let i = 0; i < peakCount; i++) {
+      const px = startX + i * peakStep;
+      const seed = worldX * 0.013 + i * 0.71;
+      const peakH = 28 + Math.floor(srand(seed + 0.3) * 22);   // 28-50
+      // Saw-tooth: every peak is its own up-down (so we get sharp jagged shape)
+      points.push({ x: px - 1.5, y: 0 });
+      points.push({ x: px,       y: -peakH });
+      points.push({ x: px + 1.5, y: 0 });
+    }
+    points.push({ x: -startX + 4, y: 1 });
+    // Filled body — warm dark rust
+    const grad = ctx.createLinearGradient(0, -50, 0, 0);
+    grad.addColorStop(0, '#8a3818');
+    grad.addColorStop(1, '#3a1408');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+    ctx.fill();
+    // Sun-lit right edges of each peak
+    ctx.strokeStyle = 'rgba(232, 132, 88, 0.85)';
+    ctx.lineWidth = 1.2;
+    for (let i = 1; i < points.length - 1; i += 3) {
+      const a = points[i + 1];
+      const b = points[i + 2];
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    // Hairline outline along the silhouette
+    ctx.strokeStyle = '#1a0604';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.stroke();
+    // A few cracked-rock detail flecks at the base
+    ctx.fillStyle = 'rgba(20, 6, 4, 0.6)';
+    for (let i = 0; i < 5; i++) {
+      const fx = startX + i * (totalW / 5) + 4;
+      ctx.fillRect(fx, -3 - (i % 2), 1.4, 1.4);
+    }
+    ctx.restore();
+  }
+
+  // Roadside landmarks — fixed-position scenery placed on the highway.
+  // Drawn between the dune scenery and hazards. Most are visual-only;
+  // the McDonald's-style arches act as a fly-through (no collision since
+  // the arch frame is wide and you're meant to pass under it).
+  function drawDailyLandmarks() {
+    if (!isDaily) return;
+    for (const lm of DAILY_LANDMARKS) {
+      const sx = lm.worldX - dailyScrollX;
+      if (sx < -180 || sx > W + 180) continue;
+      const gy = terrainHeightAt(lm.worldX);
+      if      (lm.kind === 'fromBurger')      drawLandmarkFromBurger(sx, gy);
+      else if (lm.kind === 'arches')          drawLandmarkArches(sx, gy);
+      else if (lm.kind === 'driveIn')         drawLandmarkDriveIn(sx, gy);
+      else if (lm.kind === 'sphinx')          drawLandmarkSphinx(sx, gy);
+      else if (lm.kind === 'collapsedOffice') drawLandmarkOffice(sx, gy);
+      else if (lm.kind === 'truckStop')       drawLandmarkTruckStop(sx, gy);
+      else if (lm.kind === 'origin')          drawLandmarkOrigin(sx, gy);
+    }
+  }
+
+  // "From Burger It Came" — kitschy 50s burger sign on a tall post,
+  // orange / yellow sesame-bun lettering, neon-style.
+  function drawLandmarkFromBurger(x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+    // Post
+    ctx.fillStyle = '#3a2418';
+    ctx.fillRect(-2, -40, 4, 40);
+    // Sign body — rounded rectangle in orange-yellow
+    ctx.fillStyle = '#f0a830';
+    ctx.fillRect(-22, -68, 44, 28);
+    ctx.fillStyle = '#d8861a';
+    ctx.fillRect(-22, -50, 44, 10);
+    ctx.strokeStyle = '#1a0604';
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(-22, -68, 44, 28);
+    // "FROM" top line (red)
+    ctx.fillStyle = '#c81818';
+    ctx.font = 'bold 7px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('FROM', 0, -60);
+    // "BURGER" middle (cream + outline)
+    ctx.fillStyle = '#fcf0c8';
+    ctx.font = 'bold 11px Impact, "Arial Black", sans-serif';
+    ctx.fillText('BURGER', 0, -50);
+    ctx.strokeStyle = '#3a1408';
+    ctx.lineWidth = 0.8;
+    ctx.strokeText('BURGER', 0, -50);
+    // "IT CAME" bottom
+    ctx.fillStyle = '#f8e0a0';
+    ctx.font = 'bold 7px Impact, "Arial Black", sans-serif';
+    ctx.fillText('IT CAME', 0, -42);
+    // Bulbous neon dots around the frame
+    ctx.fillStyle = '#ffe070';
+    for (let i = 0; i < 6; i++) {
+      ctx.beginPath();
+      ctx.arc(-19 + i * 7.6, -67, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Twin curving arches like a rusted highway McDonald's, gigantic and
+  // gold-tinted. Player flies UNDER the central span — no collision
+  // (the arches sit way above the rig's altitude band).
+  function drawLandmarkArches(x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+    // Two side-by-side arches
+    const archHeights = [80, 80];
+    const archXs = [-22, 22];
+    for (let i = 0; i < 2; i++) {
+      const ax = archXs[i];
+      const ah = archHeights[i];
+      // Arch body — golden yellow curve
+      ctx.strokeStyle = '#f0c038';
+      ctx.lineWidth = 9;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(ax - 14, 0);
+      ctx.quadraticCurveTo(ax, -ah, ax + 14, 0);
+      ctx.stroke();
+      // Inner highlight
+      ctx.strokeStyle = '#ffe070';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(ax - 12, -2);
+      ctx.quadraticCurveTo(ax, -ah + 4, ax + 12, -2);
+      ctx.stroke();
+      // Edge outline
+      ctx.strokeStyle = '#1a0604';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(ax - 14, 0);
+      ctx.quadraticCurveTo(ax, -ah, ax + 14, 0);
+      ctx.stroke();
+    }
+    // Rust streaks / weathering
+    ctx.fillStyle = 'rgba(120, 50, 20, 0.55)';
+    ctx.fillRect(-32, -10, 4, 6);
+    ctx.fillRect( 28, -10, 4, 6);
+    ctx.fillRect(-12, -45, 2, 4);
+    ctx.fillRect( 11, -45, 2, 4);
+    ctx.restore();
+  }
+
+  // Drive-in theater silhouette — flat screen on a frame plus a row
+  // of parked classic cars (50s American iron, just the silhouettes).
+  function drawLandmarkDriveIn(x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+    // Screen frame poles
+    ctx.fillStyle = '#3a2418';
+    ctx.fillRect(-30, -42, 3, 42);
+    ctx.fillRect( 27, -42, 3, 42);
+    // Screen body
+    ctx.fillStyle = '#2a2a32';
+    ctx.fillRect(-30, -42, 60, 30);
+    // Screen frame trim (yellow border)
+    ctx.fillStyle = '#f0c038';
+    ctx.fillRect(-30, -42, 60, 2);
+    ctx.fillRect(-30, -14, 60, 2);
+    ctx.fillRect(-30, -42, 2, 30);
+    ctx.fillRect( 28, -42, 2, 30);
+    // Faint film image (warm wash with a silhouette figure)
+    ctx.fillStyle = 'rgba(200, 100, 50, 0.45)';
+    ctx.fillRect(-28, -40, 56, 26);
+    ctx.fillStyle = 'rgba(20, 10, 6, 0.8)';
+    ctx.fillRect(-4, -28, 4, 12);     // tiny figure mid-screen
+    ctx.fillRect(-3, -32, 2, 5);
+    // "DRIVE-IN" plate at the top
+    ctx.fillStyle = '#d8421a';
+    ctx.fillRect(-18, -50, 36, 7);
+    ctx.fillStyle = '#fce0a8';
+    ctx.font = 'bold 6px Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('DRIVE-IN', 0, -45);
+    // A row of parked classic cars on the ground in front
+    drawDriveInCar(-26, 0, '#8a3018');
+    drawDriveInCar(-12, 0, '#506a8a');
+    drawDriveInCar(  4, 0, '#3a8a4a');
+    drawDriveInCar( 20, 0, '#a89030');
+    ctx.restore();
+  }
+
+  function drawDriveInCar(cx, cy, color) {
+    // Side silhouette of a 50s American sedan
+    ctx.fillStyle = color;
+    // Body
+    ctx.fillRect(cx - 7, cy - 4, 14, 4);
+    // Roof
+    ctx.beginPath();
+    ctx.moveTo(cx - 5, cy - 4);
+    ctx.lineTo(cx - 3, cy - 8);
+    ctx.lineTo(cx + 3, cy - 8);
+    ctx.lineTo(cx + 5, cy - 4);
+    ctx.closePath();
+    ctx.fill();
+    // Windows
+    ctx.fillStyle = 'rgba(180, 220, 240, 0.5)';
+    ctx.fillRect(cx - 4, cy - 7, 3, 3);
+    ctx.fillRect(cx + 1, cy - 7, 3, 3);
+    // Wheels
+    ctx.fillStyle = '#1a0a06';
+    ctx.beginPath(); ctx.arc(cx - 4, cy, 1.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 4, cy, 1.4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#1a0604';
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(cx - 7, cy - 4, 14, 4);
+  }
+
+  // Sphinx-like rock formation with a "From Burger" plaque tucked at
+  // its base — alien archaeology meets fast-food ruins.
+  function drawLandmarkSphinx(x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+    // Body silhouette — eroded rock with a head profile
+    ctx.fillStyle = '#7a3818';
+    ctx.beginPath();
+    ctx.moveTo(-46, 0);
+    ctx.lineTo(-46, -20);
+    ctx.lineTo(-30, -36);
+    ctx.lineTo(-10, -42);
+    ctx.lineTo(  6, -64);     // top of the head
+    ctx.lineTo( 16, -66);
+    ctx.lineTo( 22, -60);
+    ctx.lineTo( 24, -50);
+    ctx.lineTo( 18, -42);     // jaw / chin
+    ctx.lineTo( 28, -38);
+    ctx.lineTo( 38, -22);
+    ctx.lineTo( 42, 0);
+    ctx.closePath();
+    ctx.fill();
+    // Sun-lit right face
+    ctx.fillStyle = 'rgba(232, 132, 88, 0.55)';
+    ctx.beginPath();
+    ctx.moveTo(  6, -64); ctx.lineTo( 16, -66); ctx.lineTo( 22, -60);
+    ctx.lineTo( 24, -50); ctx.lineTo( 28, -38); ctx.lineTo( 38, -22);
+    ctx.lineTo( 42,   0); ctx.lineTo( 18,   0);
+    ctx.closePath();
+    ctx.fill();
+    // Eye socket
+    ctx.fillStyle = 'rgba(20, 8, 4, 0.8)';
+    ctx.beginPath();
+    ctx.arc(12, -54, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    // Mouth crack
+    ctx.strokeStyle = 'rgba(20, 8, 4, 0.7)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(8, -46); ctx.lineTo(16, -44);
+    ctx.stroke();
+    // Outline
+    ctx.strokeStyle = '#1a0604';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-46, 0);
+    ctx.lineTo(-46, -20);
+    ctx.lineTo(-30, -36);
+    ctx.lineTo(-10, -42);
+    ctx.lineTo(  6, -64);
+    ctx.lineTo( 16, -66);
+    ctx.lineTo( 22, -60);
+    ctx.lineTo( 24, -50);
+    ctx.lineTo( 18, -42);
+    ctx.lineTo( 28, -38);
+    ctx.lineTo( 38, -22);
+    ctx.lineTo( 42, 0);
+    ctx.stroke();
+    // Small "FROM BURGER" plaque tucked at the base
+    ctx.fillStyle = '#f0a830';
+    ctx.fillRect(-18, -10, 26, 7);
+    ctx.fillStyle = '#1a0604';
+    ctx.font = 'bold 4px Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('FROM BURGER', -5, -5);
+    ctx.restore();
+  }
+
+  // Collapsed office tower at an angle — workers still going to work
+  // in tiny window squares (the dark gag from the GDD).
+  function drawLandmarkOffice(x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+    // Tilt the entire building ~22° so it reads as collapsed
+    ctx.rotate(-0.38);
+    // Body — tall slab
+    const w = 32, h = 110;
+    ctx.fillStyle = '#a06038';
+    ctx.fillRect(-w / 2, -h, w, h);
+    // Sun-lit edge
+    ctx.fillStyle = '#c87c4a';
+    ctx.fillRect(w / 2 - 3, -h, 3, h);
+    // Shadow side
+    ctx.fillStyle = 'rgba(50, 22, 10, 0.55)';
+    ctx.fillRect(-w / 2, -h, 3, h);
+    // Window grid
+    const cols = 4, rows = 18;
+    const cellW = (w - 6) / cols, cellH = (h - 8) / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const wx = -w / 2 + 3 + c * cellW;
+        const wy = -h + 4 + r * cellH;
+        // Random window state via deterministic hash
+        const lit = (((r * 7 + c * 11 + 3) * 31) % 5) === 0;
+        ctx.fillStyle = lit ? '#ffd060' : '#2a1408';
+        ctx.fillRect(wx, wy, cellW - 2, cellH - 2);
+        // Tiny worker silhouette in some lit windows
+        if (lit && (((r + c) % 3) === 0)) {
+          ctx.fillStyle = '#1a0604';
+          ctx.fillRect(wx + cellW * 0.4, wy + 0.6, 0.8, 1.6);
+        }
+      }
+    }
+    // Hairline outline
+    ctx.strokeStyle = '#1a0604';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(-w / 2, -h, w, h);
+    // Roof cap (lit yellow band)
+    ctx.fillStyle = '#f0c038';
+    ctx.fillRect(-w / 2, -h, w, 3);
+    ctx.restore();
+    // Crumbled rubble at the base
+    ctx.fillStyle = '#5a2818';
+    ctx.beginPath();
+    ctx.moveTo(x - 26, y);
+    ctx.lineTo(x - 12, y - 6);
+    ctx.lineTo(x,      y - 4);
+    ctx.lineTo(x + 14, y - 8);
+    ctx.lineTo(x + 26, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Good Buddy Truck Stop — orange + purple striped finish marker
+  // with a neon "GOOD BUDDY" sign on a tall pole.
+  function drawLandmarkTruckStop(x, y) {
+    ctx.save();
+    // Pole
+    ctx.fillStyle = '#2a1408';
+    ctx.fillRect(x - 2, y - 90, 4, 90);
+    // Sign top — neon "GOOD BUDDY"
+    ctx.fillStyle = '#1a0408';
+    ctx.fillRect(x - 36, y - 110, 72, 22);
+    ctx.strokeStyle = '#ffd060';
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(x - 36, y - 110, 72, 22);
+    ctx.shadowBlur = 10; ctx.shadowColor = '#ffd060';
+    ctx.fillStyle = '#ffd060';
+    ctx.font = 'bold 9px Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('GOOD BUDDY', x, -101 + y);
+    ctx.font = 'bold 6px Impact, sans-serif';
+    ctx.fillText('TRUCK STOP', x, -93 + y);
+    ctx.shadowBlur = 0;
+    // Striped destination block at the base (mirrors the GDD origin marker)
+    drawStripedMarker(x, y, '#d8421a', '#5a2880');
+    // Small bunkhouse / diner silhouette to its right
+    ctx.fillStyle = '#a06038';
+    ctx.fillRect(x + 24, y - 16, 28, 16);
+    ctx.fillStyle = '#c87c4a';
+    ctx.fillRect(x + 24, y - 16, 28, 2);
+    ctx.fillStyle = '#1a0604';
+    ctx.fillRect(x + 28, y - 12, 4, 4);     // door
+    ctx.fillStyle = '#ffd060';
+    ctx.fillRect(x + 36, y - 12, 4, 3);     // window
+    ctx.fillRect(x + 44, y - 12, 4, 3);
+    ctx.strokeStyle = '#1a0604';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 24, y - 16, 28, 16);
+    ctx.restore();
+  }
+
+  // DLX Distribution Center — origin marker (orange + purple stripes
+  // with a yellow DLX badge).
+  function drawLandmarkOrigin(x, y) {
+    ctx.save();
+    drawStripedMarker(x, y, '#d8421a', '#5a2880');
+    // DLX badge plate on top
+    ctx.fillStyle = '#1a0604';
+    ctx.fillRect(x - 18, y - 50, 36, 16);
+    ctx.fillStyle = '#d8421a';
+    ctx.fillRect(x - 17, y - 49, 34, 14);
+    ctx.fillStyle = '#ffd060';
+    ctx.font = 'bold 11px Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('DLX', x, y - 38);
+    ctx.fillStyle = '#fce0a8';
+    ctx.font = 'bold 5px Impact, sans-serif';
+    ctx.fillText('DIST. CENT.', x, y - 30);
+    ctx.restore();
+  }
+
+  // Diagonal candy-striped block used for both origin and finish markers.
+  function drawStripedMarker(x, y, c1, c2) {
+    const w = 36, h = 28;
+    ctx.save();
+    ctx.fillStyle = c1;
+    ctx.fillRect(x - w / 2, y - h, w, h);
+    // Stripe overlay
+    ctx.fillStyle = c2;
+    ctx.beginPath();
+    for (let i = -h; i < w + h; i += 8) {
+      ctx.moveTo(x - w / 2 + i,     y - h);
+      ctx.lineTo(x - w / 2 + i + 4, y - h);
+      ctx.lineTo(x - w / 2 + i + 4 + h, y);
+      ctx.lineTo(x - w / 2 + i + h,     y);
+      ctx.closePath();
+    }
+    ctx.fill();
+    ctx.strokeStyle = '#1a0604';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(x - w / 2, y - h, w, h);
     ctx.restore();
   }
 
@@ -9399,6 +10003,236 @@ const DLX_BUILD = 'v154';
     ctx.fill();
     ctx.shadowBlur = 0;
     ctx.restore();
+  }
+
+  // Ground-level rival haulers — rusty pickup trucks racing the dunes
+  // with a magnetic grappling hook on a telescoping mast. Drawn against
+  // the terrain so they ride the dune surface.
+  function drawDailyGroundOps() {
+    if (!isDaily || !dailyGroundOps.length) return;
+    for (const op of dailyGroundOps) {
+      const sx = op.worldX - dailyScrollX;
+      if (sx < -50 || sx > W + 50) continue;
+      const gy = terrainHeightAt(op.worldX);
+      ctx.save();
+      ctx.translate(sx, gy);
+      // Wheels
+      ctx.fillStyle = '#1a0604';
+      ctx.beginPath(); ctx.arc(-9, -3, 3.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 9, -3, 3.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#3a3e44';
+      ctx.beginPath(); ctx.arc(-9, -3, 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 9, -3, 1.8, 0, Math.PI * 2); ctx.fill();
+      // Truck body — boxy rusted pickup, faces LEFT (chasing the rig)
+      ctx.fillStyle = '#7a3018';
+      ctx.fillRect(-13, -12, 26, 8);
+      // Cab rising on the LEFT
+      ctx.beginPath();
+      ctx.moveTo(-13, -12);
+      ctx.lineTo(-10, -18);
+      ctx.lineTo(  0, -18);
+      ctx.lineTo(  2, -12);
+      ctx.closePath();
+      ctx.fill();
+      // Window
+      ctx.fillStyle = 'rgba(160, 200, 220, 0.5)';
+      ctx.fillRect(-9, -17, 8, 5);
+      // Hazard stripe along the bed
+      ctx.fillStyle = '#ffd83d';
+      ctx.fillRect(2, -8, 11, 2);
+      ctx.fillStyle = '#1a0408';
+      for (let s = 0; s < 4; s++) ctx.fillRect(3 + s * 3, -8, 1.2, 2);
+      // Outline
+      ctx.strokeStyle = '#1a0604';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(-13, -12, 26, 8);
+      // Rust streaks
+      ctx.fillStyle = 'rgba(200, 80, 30, 0.45)';
+      ctx.fillRect(-7, -10, 1, 5);
+      ctx.fillRect( 5, -10, 1, 5);
+      // Telescoping hook mast on the bed (rises during 'hook' state)
+      if (op.hookY > 0) {
+        ctx.strokeStyle = '#3a3e44';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(8, -12);
+        ctx.lineTo(8, -12 - op.hookY);
+        ctx.stroke();
+        // Magnet head at the top
+        ctx.fillStyle = '#3a3a44';
+        ctx.fillRect(4, -12 - op.hookY - 4, 8, 5);
+        ctx.strokeStyle = '#0a0204';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(4, -12 - op.hookY - 4, 8, 5);
+        ctx.shadowBlur = 6; ctx.shadowColor = '#ffd060';
+        ctx.fillStyle = 'rgba(255, 224, 96, 0.85)';
+        ctx.beginPath();
+        ctx.arc(8, -12 - op.hookY - 6, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      } else {
+        // Stub mast when retracted
+        ctx.fillStyle = '#3a3e44';
+        ctx.fillRect(7, -14, 2, 3);
+      }
+      // Exhaust puff trailing right (since rig faces LEFT, exhaust comes out RIGHT)
+      ctx.fillStyle = 'rgba(80, 60, 50, 0.55)';
+      const puffOff = (frame * 0.4) % 6;
+      for (let p = 0; p < 3; p++) {
+        ctx.beginPath();
+        ctx.arc(14 + p * 3 + puffOff, -8 - p, 1.6 + p * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  // Moving sand patches — animated horizontal stripes on the dune
+  // surface that conveyor-belt fallen cargo toward a stationary
+  // opponent waiting at the right edge.
+  function drawDailySandPatches() {
+    if (!isDaily || !dailySandPatches.length) return;
+    for (const sp of dailySandPatches) {
+      const sx = sp.worldX - dailyScrollX;
+      if (sx + sp.w < -60 || sx > W + 60) continue;
+      // Approximate ground band along the patch
+      const gyL = terrainHeightAt(sp.worldX);
+      const gyR = terrainHeightAt(sp.worldX + sp.w);
+      const gyMid = (gyL + gyR) * 0.5;
+      ctx.save();
+      // Patch base — slightly darker rust band on top of the dunes
+      ctx.fillStyle = 'rgba(110, 50, 24, 0.65)';
+      ctx.fillRect(sx, gyMid - 3, sp.w, 6);
+      // Animated chevron arrows showing flow direction (left → right)
+      ctx.strokeStyle = 'rgba(252, 224, 168, 0.7)';
+      ctx.lineWidth = 1.2;
+      const chevSpacing = 14;
+      const chevPhase = (sp.phase * 30) % chevSpacing;
+      for (let cx = sx + chevPhase; cx < sx + sp.w; cx += chevSpacing) {
+        if (cx < -10 || cx > W + 10) continue;
+        ctx.beginPath();
+        ctx.moveTo(cx,     gyMid - 1);
+        ctx.lineTo(cx + 4, gyMid + 0.5);
+        ctx.lineTo(cx,     gyMid + 2);
+        ctx.stroke();
+      }
+      // Stationary waiting opponent at the right edge — small figure
+      // standing with a magnet, ready to grab incoming cargo.
+      const oppSx = sx + sp.w;
+      if (oppSx > -20 && oppSx < W + 20) {
+        const oppGy = terrainHeightAt(sp.worldX + sp.w);
+        ctx.translate(oppSx, oppGy);
+        // Body
+        ctx.fillStyle = '#3a0a08';
+        ctx.fillRect(-3, -12, 6, 9);
+        // Head
+        ctx.fillStyle = '#7a4030';
+        ctx.beginPath();
+        ctx.arc(0, -15, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+        // Outstretched arms holding magnet
+        ctx.strokeStyle = '#3a0a08';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(0, -10); ctx.lineTo(-7, -10);
+        ctx.stroke();
+        ctx.fillStyle = '#3a3e44';
+        ctx.fillRect(-10, -12, 4, 4);
+        ctx.shadowBlur = 5; ctx.shadowColor = '#ff60a0';
+        ctx.fillStyle = 'rgba(255, 128, 200, 0.85)';
+        ctx.beginPath();
+        ctx.arc(-8, -8, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // Outline
+        ctx.strokeStyle = '#1a0604';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(-3, -12, 6, 9);
+      }
+      ctx.restore();
+    }
+  }
+
+  // Tentacle monsters — wavy serpentine arms that erupt from the dunes
+  // for a few seconds, sweep through their reach, then sink back.
+  function drawDailyTentacles() {
+    if (!isDaily || !dailyTentacles.length) return;
+    for (const t of dailyTentacles) {
+      const sx = t.worldX - dailyScrollX;
+      if (sx < -80 || sx > W + 80) continue;
+      const gy = terrainHeightAt(t.worldX);
+      // 0..1 reach factor — rises in first 60 frames, sustains, then sinks
+      let reach = 0;
+      if (t.life < 60)            reach = t.life / 60;
+      else if (t.life < t.maxLife - 60) reach = 1;
+      else                         reach = (t.maxLife - t.life) / 60;
+      const peakLen = 150 * Math.max(0, reach);
+      ctx.save();
+      ctx.translate(sx, gy);
+      // Three tentacles fanning out — each a wavy stroke
+      const armCount = 3;
+      for (let a = 0; a < armCount; a++) {
+        const angOffset = (a - 1) * 0.45;
+        const swayPhase = t.phase + a * 1.7;
+        // Build the wavy spine path
+        ctx.strokeStyle = '#5a1830';
+        ctx.lineWidth = 8;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        for (let s = 1; s <= 12; s++) {
+          const tt = s / 12;
+          const px = Math.sin(tt * 1.6 + swayPhase) * 16 * tt
+                   + angOffset * peakLen * tt;
+          const py = -tt * peakLen;
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        // Inner highlight stripe
+        ctx.strokeStyle = '#a0405a';
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        for (let s = 1; s <= 12; s++) {
+          const tt = s / 12;
+          const px = Math.sin(tt * 1.6 + swayPhase) * 16 * tt
+                   + angOffset * peakLen * tt;
+          const py = -tt * peakLen;
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        // Suckers along the inner side (small light circles)
+        ctx.fillStyle = '#fce0a8';
+        for (let s = 1; s <= 4; s++) {
+          const tt = s / 4;
+          const px = Math.sin(tt * 1.6 + swayPhase) * 16 * tt
+                   + angOffset * peakLen * tt;
+          const py = -tt * peakLen;
+          ctx.beginPath();
+          ctx.arc(px, py, 1.1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      // Mound at the base where the tentacles emerge
+      ctx.fillStyle = '#3a0a18';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 22, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Single glowing eye at the base
+      if (reach > 0.3) {
+        ctx.shadowBlur = 6; ctx.shadowColor = '#ffd060';
+        ctx.fillStyle = 'rgba(255, 224, 96, 0.95)';
+        ctx.beginPath();
+        ctx.arc(0, -3, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#1a0604';
+        ctx.beginPath();
+        ctx.arc(0, -3, 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+      ctx.restore();
+    }
   }
 
   // Anti-magnet drones — small industrial hover-drones that lock onto
@@ -13793,7 +14627,11 @@ const DLX_BUILD = 'v154';
       drawGround();
     }
     if (isDaily) {
+      drawDailyLandmarks();
       drawDailyHazards();
+      drawDailyGroundOps();
+      drawDailySandPatches();
+      drawDailyTentacles();
       drawDailyThieves();
       drawDailyDrones();
       drawCargoBond();
@@ -14223,6 +15061,13 @@ const DLX_BUILD = 'v154';
     dailyNextDroneAt = frame + 1800;     // first drone enters during stage 2
     dailyCurrentStage = 0;
     cargoZapFrames = 0;
+    dailyGroundOps = [];
+    dailyNextGroundOpAt = frame + 3000;  // first ground rig appears in stage 3
+    dailySandPatches = [];
+    dailyNextSandAt = 0;
+    dailyTentacles = [];
+    dailyNextTentacleAt = frame + 5000;  // tentacles erupt during stage 4
+    dailyDeliveredAtFinish = false;
     state = STATE_PLAY;
     bird.x = Math.round(W * BIRD_X_FRAC);
     bird.vy = FLAP;
@@ -14394,6 +15239,32 @@ const DLX_BUILD = 'v154';
   let dailyNextDroneAt = 0;        // frame index when next drone enters
   let dailyCurrentStage = 0;       // 0..3, advances on score thresholds (DAILY_STAGES)
   let cargoZapFrames = 0;          // counts down while the magnet bond is suppressed by a drone zap
+  // Landmarks placed at fixed worldX positions — From Burger sphinx,
+  // McDonald's-style arches, drive-in theater, etc. Drawn between the
+  // dune scenery and hazards so they sit on the ground line.
+  // World-X positions span the run; DELIVERY_TARGET (400 score) * 24 px
+  // per score = 9600 px total, so the truck stop sits at ~9400 to act
+  // as a visible finish line.
+  const DAILY_LANDMARKS = [
+    { kind: 'origin',          worldX: 60   },
+    { kind: 'fromBurger',      worldX: 1500 },
+    { kind: 'arches',          worldX: 3300 },
+    { kind: 'driveIn',         worldX: 5400 },
+    { kind: 'sphinx',          worldX: 6900 },
+    { kind: 'collapsedOffice', worldX: 8200 },
+    { kind: 'truckStop',       worldX: 9400 },
+  ];
+  // Ground-level rival haulers chasing on the dunes (Phase A4)
+  let dailyGroundOps = [];         // [{ x, y, vx, state, stateFrames, hookY }]
+  let dailyNextGroundOpAt = 0;
+  // Moving sand patches that carry fallen cargo to a waiting opponent
+  let dailySandPatches = [];       // [{ worldX, w, opp }]
+  let dailyNextSandAt = 0;
+  // Tentacle monster encounters (Phase A5)
+  let dailyTentacles = [];         // [{ worldX, y, phase, height, captured, capFrames }]
+  let dailyNextTentacleAt = 0;
+  // Origin / destination markers
+  let dailyDeliveredAtFinish = false;
   // Score the daily run needs to reach to count as "delivery made". Below
   // this and a crash counts as a failed delivery; at or above it the run
   // ends in DELIVERY MADE victory state. The course is broken into 4 stages
