@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v144';
+const DLX_BUILD = 'v145';
 
 (function() {
   // ---------- Device detection ----------
@@ -6368,19 +6368,23 @@ const DLX_BUILD = 'v144';
           dailyDistanceForScore += 24;
         }
         // Flying cargo thieves — fly in from the FRONT (right side), hover
-        // high, lower a magnetic claw on a cable to grab the cargo, then
-        // retract and fly off. Player can dodge by NOT being directly under
-        // the thief when its claw extends.
+        // at varying altitudes, lower a magnetic claw on a cable to grab the
+        // cargo, then retract and fly off. Player dodges by NOT being
+        // directly under the thief when its claw extends.
         if (frame >= dailyNextThiefAt && !dailyDelivered) {
+          // Random spawn altitude across the upper 60% of the playfield —
+          // sometimes a thief comes in close (just above cargo level),
+          // sometimes it stays high and drops the full cable.
+          const spawnY = 40 + Math.random() * (PLAY_H * 0.55);
           dailyThieves.push({
             x: W + 50,
-            y: 36 + Math.random() * 30,       // hovers high in the sky
-            vx: -1.7 - Math.random() * 0.5,   // cruises left slowly
-            cableLen: 0,                      // claw retracted
-            state: 'cruise',                  // cruise → lower → retract → retreat
+            y: spawnY,
+            vx: -1.7 - Math.random() * 0.5,
+            cableLen: 0,
+            state: 'cruise',
             stateFrames: 0,
           });
-          dailyNextThiefAt = frame + 420 + Math.floor(Math.random() * 240);  // 7-11s
+          dailyNextThiefAt = frame + 420 + Math.floor(Math.random() * 240);
           setLevelBanner('⚠ THIEF INBOUND');
         }
         for (let i = dailyThieves.length - 1; i >= 0; i--) {
@@ -8520,6 +8524,48 @@ const DLX_BUILD = 'v144';
   }
 
   // ---------- Daily delivery course renderers ----------
+  // Distant sharp mountain silhouettes behind the rolling foreground terrain.
+  // Two parallax layers: a far-back range (slow scroll) and a mid-back range
+  // (faster scroll) so the road-trip horizon reads with depth.
+  function drawDailyHorizon() {
+    if (!isDaily) return;
+    ctx.save();
+    // Far range — slowest parallax (10% of world scroll), sits highest
+    const farY = PLAY_H * 0.62;
+    const farScroll = dailyScrollX * 0.10;
+    ctx.fillStyle = 'rgba(40, 18, 8, 0.85)';
+    ctx.beginPath();
+    ctx.moveTo(-4, farY);
+    for (let sx = -4; sx <= W + 4; sx += 6) {
+      const wx = sx + farScroll;
+      // Three octaves of sin → spiky range
+      const h = 22
+              + Math.abs(Math.sin(wx * 0.0090)) * 32
+              + Math.abs(Math.sin(wx * 0.0220 + 1.2)) * 14;
+      ctx.lineTo(sx, farY - h);
+    }
+    ctx.lineTo(W + 4, farY);
+    ctx.closePath();
+    ctx.fill();
+    // Mid range — slightly faster (25%), bigger peaks, darker silhouette
+    const midY = PLAY_H * 0.74;
+    const midScroll = dailyScrollX * 0.25;
+    ctx.fillStyle = 'rgba(20, 8, 4, 0.95)';
+    ctx.beginPath();
+    ctx.moveTo(-4, midY);
+    for (let sx = -4; sx <= W + 4; sx += 6) {
+      const wx = sx + midScroll;
+      const h = 30
+              + Math.abs(Math.sin(wx * 0.0070 + 0.5)) * 44
+              + Math.abs(Math.sin(wx * 0.0190 + 2.4)) * 18;
+      ctx.lineTo(sx, midY - h);
+    }
+    ctx.lineTo(W + 4, midY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   function drawDailyTerrain() {
     if (!isDaily) return;
     ctx.save();
@@ -12834,8 +12880,12 @@ const DLX_BUILD = 'v144';
       drawPipes();
     }
     drawBossTentacles();     // draw BEFORE ground so tentacle bases tuck under the moss
-    if (isDaily) drawDailyTerrain();
-    else drawGround();
+    if (isDaily) {
+      drawDailyHorizon();
+      drawDailyTerrain();
+    } else {
+      drawGround();
+    }
     if (isDaily) {
       drawDailyHazards();
       drawDailyThieves();
@@ -13241,12 +13291,11 @@ const DLX_BUILD = 'v144';
     isDaily = true;
     dailyWasNewBest = false;
     dailyDelivered = false;
-    // Phase A delivery course: the daily run is a single procedural haul
-    // through ONE zone (rotates daily by date seed) instead of the 8-level
-    // campaign. Theme rotates so Monday looks different from Tuesday.
-    const themeIdx = seed % LEVEL_ORDER.length;
-    selectedTheme = LEVEL_ORDER[themeIdx];
-    levelIndex = themeIdx;
+    // Daily delivery course is always the wasteland highway — sunset palette
+    // regardless of which day of the week it is, so the backdrop matches
+    // the GDD road-trip fiction (DLX Dist. Center → Good Buddy Truck Stop).
+    selectedTheme = 'sunset';
+    levelIndex = 0;
     levelScoreStart = 0;
     buildBgCache();
     reset();
