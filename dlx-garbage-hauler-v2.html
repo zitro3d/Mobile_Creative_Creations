@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v151';
+const DLX_BUILD = 'v152';
 
 (function() {
   // ---------- Device detection ----------
@@ -8598,7 +8598,10 @@ const DLX_BUILD = 'v151';
 
     // ---- Citadel silhouette layer (deepest, slowest parallax) ----
     // Repeating chunks of tall sandstone industrial blocks across the
-    // horizon, with smoke columns and oxidized-copper roof bands.
+    // horizon, with smoke columns and oxidized-copper roof bands. Most
+    // clusters are small/medium ruins; rare massive citadels punch up
+    // through the haze every few hundred world-units so the skyline has
+    // a clear focal point instead of a uniform wall.
     const citY = PLAY_H * 0.62;
     const citScroll = dailyScrollX * 0.06;
     const citPattern = 220;       // world-units per repeating citadel block
@@ -8609,11 +8612,50 @@ const DLX_BUILD = 'v151';
       const groupX = b * citPattern - citScroll;
       // Skip occasional gaps so the skyline isn't a continuous wall
       if (srand(baseSeed) < 0.20) continue;
-      drawCitadelGroup(groupX, citY, baseSeed);
+      // ~15% chance: this slot becomes a MASSIVE central citadel
+      const isHero = srand(baseSeed + 0.91) < 0.15;
+      drawCitadelGroup(groupX, citY, baseSeed, isHero);
     }
+
+    // ---- Flying specks (vultures / debris) circling the smoke columns ----
+    // Scroll at the citadel's parallax speed so they look attached to
+    // that depth plane.
+    ctx.fillStyle = 'rgba(40, 18, 8, 0.7)';
+    for (let i = 0; i < 14; i++) {
+      const baseX = (i * 91 + 31) - citScroll;
+      const sx = ((baseX % (W + 80)) + (W + 80)) % (W + 80) - 40;
+      const sy = PLAY_H * (0.18 + (i % 5) * 0.06)
+              + Math.sin((dailyScrollX * 0.02 + i * 0.7)) * 4;
+      // Tiny V-shaped wing silhouette
+      ctx.beginPath();
+      ctx.moveTo(sx - 2, sy);
+      ctx.lineTo(sx,     sy - 1);
+      ctx.lineTo(sx + 2, sy);
+      ctx.lineTo(sx,     sy + 0.4);
+      ctx.closePath();
+      ctx.fill();
+    }
+
     // Warm haze veil over the citadel layer to push it back in depth
     ctx.fillStyle = 'rgba(248, 200, 144, 0.28)';
     ctx.fillRect(0, 0, W, citY + 4);
+
+    // ---- Closer outpost layer — small ruins between citadel and dunes ----
+    // Faster parallax (12%), smaller buildings + the occasional lone
+    // watchtower (matches the small settlement in the foreground of
+    // the reference image).
+    const outY = PLAY_H * 0.70;
+    const outScroll = dailyScrollX * 0.12;
+    const outPattern = 160;
+    const startO = Math.floor((outScroll - 40) / outPattern) - 1;
+    const endO   = Math.floor((outScroll + W + 40) / outPattern) + 1;
+    for (let o = startO; o <= endO; o++) {
+      const oseed = o * 0.4173 + 7.91;
+      // Only ~30% of slots have an outpost; rest is empty desert
+      if (srand(oseed) < 0.70) continue;
+      const ox = o * outPattern - outScroll + Math.floor(srand(oseed + 0.3) * 30);
+      drawDailyOutpost(ox, outY, oseed);
+    }
 
     // ---- Far dunes — pale warm-tan, soft low-frequency curves ----
     const farY = PLAY_H * 0.74;
@@ -8664,15 +8706,28 @@ const DLX_BUILD = 'v151';
     ctx.restore();
   }
 
-  // Cluster of 3-5 industrial citadel blocks with smoke columns. Drawn at
+  // Cluster of industrial citadel blocks with smoke columns. Drawn at
   // (gx, baseY) representing the bottom edge; blocks rise up from there.
-  function drawCitadelGroup(gx, baseY, seed) {
-    const blockCount = 3 + Math.floor(srand(seed + 0.11) * 3);   // 3-5
+  // When isHero is true, draws a massive dominant citadel (one tall central
+  // tower flanked by smaller blocks) — should be rare so it reads as a
+  // landmark, not the pattern.
+  function drawCitadelGroup(gx, baseY, seed, isHero) {
+    const blockCount = isHero
+      ? 5 + Math.floor(srand(seed + 0.11) * 3)        // 5-7 (sprawl)
+      : 3 + Math.floor(srand(seed + 0.11) * 3);       // 3-5
     let cursor = gx + Math.floor(srand(seed + 0.22) * 14);
     const blocks = [];
     for (let i = 0; i < blockCount; i++) {
-      const w = 22 + Math.floor(srand(seed + i * 0.13 + 1.7) * 30);
-      const h = 28 + Math.floor(srand(seed + i * 0.17 + 2.3) * 50);
+      const w = isHero
+        ? 26 + Math.floor(srand(seed + i * 0.13 + 1.7) * 38)
+        : 22 + Math.floor(srand(seed + i * 0.13 + 1.7) * 30);
+      // Hero: middle blocks tower way up; flanks step down
+      const heroBoost = isHero
+        ? Math.max(0, 60 - Math.abs(i - blockCount / 2) * 22)
+        : 0;
+      const h = (isHero ? 38 : 28)
+              + Math.floor(srand(seed + i * 0.17 + 2.3) * 50)
+              + heroBoost;
       blocks.push({ x: cursor, w: w, h: h });
       cursor += w + 3 + Math.floor(srand(seed + i * 0.19 + 3.7) * 6);
     }
@@ -8684,10 +8739,15 @@ const DLX_BUILD = 'v151';
       // Vertical lit edge (sun-facing right side)
       ctx.fillStyle = '#b86a3a';
       ctx.fillRect(b.x + b.w - 2, baseY - b.h, 2, b.h);
+      // Soft shadow stripe down the left side
+      ctx.fillStyle = 'rgba(60, 24, 12, 0.45)';
+      ctx.fillRect(b.x, baseY - b.h, 2, b.h);
       // Oxidized green-copper roof cap on the tallest blocks
       if (b.h > 50) {
         ctx.fillStyle = '#6e8a4a';
         ctx.fillRect(b.x, baseY - b.h, b.w, 3);
+        ctx.fillStyle = '#5a7038';
+        ctx.fillRect(b.x, baseY - b.h + 3, b.w, 1);
       }
       // Window slits — small dark squares scattered up the face
       ctx.fillStyle = 'rgba(40, 18, 10, 0.7)';
@@ -8708,13 +8768,64 @@ const DLX_BUILD = 'v151';
       const sx = b.x + b.w * 0.35;
       const top = baseY - b.h;
       ctx.fillStyle = 'rgba(80, 50, 30, 0.55)';
-      for (let p = 0; p < 5; p++) {
+      const puffs = isHero ? 8 : 5;
+      for (let p = 0; p < puffs; p++) {
         const py = top - p * 6 - 2;
-        const pw = 5 + p * 1.2;
+        const pw = (isHero ? 7 : 5) + p * 1.2;
         ctx.beginPath();
         ctx.ellipse(sx + Math.sin(p * 1.3) * 2, py, pw, 3, 0, 0, Math.PI * 2);
         ctx.fill();
       }
+      // Hero gets a base fire glow (small orange flicker at the smokestack)
+      if (isHero && srand((b.x | 0) * 0.13 + 1.7) > 0.5) {
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#ff8a30';
+        ctx.fillStyle = 'rgba(255, 138, 58, 0.85)';
+        ctx.beginPath();
+        ctx.arc(sx, top + 4, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+  }
+
+  // Closer ruins outpost — a single watchtower with low concrete-block
+  // outbuildings around it, matching the smaller settlement in the
+  // foreground of the reference image.
+  function drawDailyOutpost(gx, baseY, seed) {
+    if (gx + 60 < -8 || gx > W + 8) return;
+    // Tower in the middle
+    const twW = 8 + Math.floor(srand(seed + 1.1) * 4);
+    const twH = 24 + Math.floor(srand(seed + 1.3) * 14);
+    const twX = gx + 18;
+    ctx.fillStyle = '#a86040';
+    ctx.fillRect(twX, baseY - twH, twW, twH);
+    ctx.fillStyle = '#c87852';
+    ctx.fillRect(twX + twW - 1.4, baseY - twH, 1.4, twH);
+    ctx.fillStyle = 'rgba(60, 24, 12, 0.5)';
+    ctx.fillRect(twX, baseY - twH, 1.2, twH);
+    // Slot windows on the tower
+    ctx.fillStyle = 'rgba(30, 12, 6, 0.85)';
+    ctx.fillRect(twX + twW * 0.3, baseY - twH + 4, 1.2, 3);
+    ctx.fillRect(twX + twW * 0.3, baseY - twH + 12, 1.2, 3);
+    // Crenellated cap
+    ctx.fillStyle = '#8a4828';
+    ctx.fillRect(twX - 1, baseY - twH - 2, twW + 2, 2);
+    // Low blocky outbuildings flanking the tower
+    const blocks = [
+      { x: gx,      w: 12, h: 6 + Math.floor(srand(seed + 2.1) * 5) },
+      { x: gx + 8,  w: 9,  h: 5 + Math.floor(srand(seed + 2.3) * 4) },
+      { x: gx + 28, w: 14, h: 7 + Math.floor(srand(seed + 2.5) * 5) },
+      { x: gx + 40, w: 10, h: 5 + Math.floor(srand(seed + 2.7) * 4) },
+      { x: gx + 50, w: 8,  h: 4 + Math.floor(srand(seed + 2.9) * 4) },
+    ];
+    for (const b of blocks) {
+      ctx.fillStyle = '#bc7050';
+      ctx.fillRect(b.x, baseY - b.h, b.w, b.h);
+      ctx.fillStyle = '#d8896a';
+      ctx.fillRect(b.x + b.w - 1, baseY - b.h, 1, b.h);
+      ctx.fillStyle = 'rgba(60, 24, 12, 0.4)';
+      ctx.fillRect(b.x, baseY - b.h, 1, b.h);
     }
   }
 
@@ -8755,7 +8866,101 @@ const DLX_BUILD = 'v151';
       const dy = terrainHeightAt(dx + dailyScrollX) + 6 + (i % 3) * 4;
       ctx.fillRect(dx, dy, 1.4, 1.4);
     }
+
+    // Sand striations + erosion crack lines snaking across the dunes —
+    // adds the windswept ridged texture from the reference photo.
+    ctx.strokeStyle = 'rgba(80, 36, 18, 0.45)';
+    ctx.lineWidth = 0.8;
+    for (let i = 0; i < 5; i++) {
+      const phase = i * 1.7;
+      const yOffset = 14 + i * 6;
+      ctx.beginPath();
+      for (let sx = 0; sx <= W; sx += 12) {
+        const wx = sx + dailyScrollX * 0.85;
+        const ty = terrainHeightAt(wx) + yOffset
+                + Math.sin(wx * 0.018 + phase) * 1.6;
+        if (sx === 0) ctx.moveTo(sx, ty);
+        else ctx.lineTo(sx, ty);
+      }
+      ctx.stroke();
+    }
+    // Bright cream wind-streaks at the very top of the dune slope
+    ctx.strokeStyle = 'rgba(252, 224, 168, 0.30)';
+    ctx.lineWidth = 0.6;
+    for (let i = 0; i < 3; i++) {
+      const phase = i * 2.3;
+      ctx.beginPath();
+      for (let sx = 0; sx <= W; sx += 14) {
+        const wx = sx + dailyScrollX * 0.85;
+        const ty = terrainHeightAt(wx) + 4 + i * 3
+                + Math.sin(wx * 0.022 + phase) * 1.2;
+        if (sx === 0) ctx.moveTo(sx, ty);
+        else ctx.lineTo(sx, ty);
+      }
+      ctx.stroke();
+    }
     ctx.restore();
+
+    // Larger butte / mesa outcrops scattered through the foreground —
+    // these are background scenery (no collision) and read like the
+    // darker red rock formations from the reference image. Drawn AFTER
+    // the dune fill so they sit on top of the sand.
+    drawDailyButtes();
+  }
+
+  // Procedurally-placed butte outcrops along the dunes — bigger than
+  // the small rocks in drawDailyScenery, deterministic per world-slot.
+  function drawDailyButtes() {
+    const slot = 180;
+    const startX = Math.floor(dailyScrollX / slot) - 1;
+    const endX   = Math.floor((dailyScrollX + W) / slot) + 1;
+    for (let i = startX; i <= endX; i++) {
+      const seed = i * 0.2917 + 4.13;
+      if (srand(seed) < 0.55) continue;     // 45% of slots have a butte
+      const wx = i * slot + Math.floor(srand(seed + 0.4) * 100);
+      const sx = wx - dailyScrollX;
+      if (sx < -40 || sx > W + 40) continue;
+      const gy = terrainHeightAt(wx);
+      const w = 24 + Math.floor(srand(seed + 0.7) * 30);
+      const h = 12 + Math.floor(srand(seed + 0.9) * 14);
+      ctx.save();
+      ctx.translate(sx, gy);
+      // Mesa silhouette — flat-topped jagged base, warm dark red
+      ctx.fillStyle = '#7a3018';
+      ctx.beginPath();
+      ctx.moveTo(-w / 2,         0);
+      ctx.lineTo(-w / 2 + 4,    -h * 0.6);
+      ctx.lineTo(-w / 2 + 8,    -h);
+      ctx.lineTo( w / 2 - 8,    -h);
+      ctx.lineTo( w / 2 - 4,    -h * 0.6);
+      ctx.lineTo( w / 2,         0);
+      ctx.closePath();
+      ctx.fill();
+      // Sun-lit right face
+      ctx.fillStyle = 'rgba(216, 120, 72, 0.55)';
+      ctx.beginPath();
+      ctx.moveTo( w / 2 - 8,    -h);
+      ctx.lineTo( w / 2 - 4,    -h * 0.6);
+      ctx.lineTo( w / 2,         0);
+      ctx.lineTo( w / 2 - 6,     0);
+      ctx.closePath();
+      ctx.fill();
+      // Top cap line — slightly lighter
+      ctx.fillStyle = '#a85030';
+      ctx.fillRect(-w / 2 + 8, -h - 1, w - 16, 1.4);
+      // Hairline outline
+      ctx.strokeStyle = 'rgba(30, 10, 4, 0.7)';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(-w / 2,         0);
+      ctx.lineTo(-w / 2 + 4,    -h * 0.6);
+      ctx.lineTo(-w / 2 + 8,    -h);
+      ctx.lineTo( w / 2 - 8,    -h);
+      ctx.lineTo( w / 2 - 4,    -h * 0.6);
+      ctx.lineTo( w / 2,         0);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   function drawDailyHazards() {
