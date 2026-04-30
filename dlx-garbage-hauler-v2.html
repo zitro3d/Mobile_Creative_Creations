@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v150';
+const DLX_BUILD = 'v151';
 
 (function() {
   // ---------- Device detection ----------
@@ -8536,82 +8536,186 @@ const DLX_BUILD = 'v150';
   function drawDailySky() {
     if (!isDaily) return;
     if (!bgCache.dailySkyGrad) {
+      // Warm hazy desert sky — pale cream up top fading down through
+      // peach and dusty rose to a terracotta horizon.
       const g = ctx.createLinearGradient(0, 0, 0, PLAY_H);
-      g.addColorStop(0,    '#2a2e36');
-      g.addColorStop(0.40, '#4a4e56');
-      g.addColorStop(0.75, '#7a7468');
-      g.addColorStop(1,    '#5a554c');
+      g.addColorStop(0,    '#f6e0b4');
+      g.addColorStop(0.35, '#f4c890');
+      g.addColorStop(0.65, '#e8a868');
+      g.addColorStop(1,    '#c87040');
       bgCache.dailySkyGrad = g;
     }
-    // Sky gradient covers the playfield
     ctx.fillStyle = bgCache.dailySkyGrad;
     ctx.fillRect(0, 0, W, PLAY_H);
-    // Fill the GROUND_H strip below PLAY_H with the dark dune base so we
-    // don't leave stale pixels there from previous frames (which produced
-    // the "white strip with purple ghost trails" artifact below the
-    // playfield on the game-over and home screens).
-    ctx.fillStyle = '#2a2824';
+    // Continue the warm tone into the GROUND_H strip so we don't get a
+    // dark band below the playfield on game-over and home overlays.
+    ctx.fillStyle = '#5a2e18';
     ctx.fillRect(0, PLAY_H, W, H - PLAY_H);
-    // Drifting dust haze stripes for atmosphere
-    ctx.fillStyle = 'rgba(200, 184, 160, 0.10)';
+
+    // ---- Twin pale moons in the upper sky ----
+    // Big crescent moon, top-left
+    ctx.save();
+    ctx.shadowBlur = 14; ctx.shadowColor = 'rgba(255, 240, 220, 0.35)';
+    ctx.fillStyle = 'rgba(248, 232, 210, 0.85)';
+    ctx.beginPath();
+    ctx.arc(W * 0.18, PLAY_H * 0.18, 18, 0, Math.PI * 2);
+    ctx.fill();
+    // Bite the right side out for the crescent
+    ctx.shadowBlur = 0;
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.arc(W * 0.18 + 7, PLAY_H * 0.18 - 2, 17, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // Smaller full moon, top-right
+    ctx.save();
+    ctx.shadowBlur = 10; ctx.shadowColor = 'rgba(255, 240, 220, 0.30)';
+    ctx.fillStyle = 'rgba(244, 220, 196, 0.55)';
+    ctx.beginPath();
+    ctx.arc(W * 0.82, PLAY_H * 0.10, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // ---- Drifting dust-haze stripes for atmosphere ----
+    ctx.fillStyle = 'rgba(255, 220, 180, 0.10)';
     for (let i = 0; i < 5; i++) {
       const y = PLAY_H * (0.50 + i * 0.05);
       ctx.fillRect(0, y, W, 1);
     }
+    // Floating dust motes scattered in the haze (deterministic per-frame)
+    ctx.fillStyle = 'rgba(120, 80, 50, 0.35)';
+    for (let i = 0; i < 16; i++) {
+      const dx = ((i * 73 + dailyScrollX * 0.4) % W + W) % W;
+      const dy = PLAY_H * (0.30 + (i % 5) * 0.07);
+      ctx.fillRect(dx, dy, 1.4, 1.4);
+    }
   }
-  // Soft rolling dune silhouettes behind the rolling foreground terrain.
-  // Two parallax layers — gray-tan tones, smooth low-frequency curves
-  // (NOT sharp mountain peaks) so the horizon reads as desert dunes.
+  // Three-layer parallax horizon: industrial citadel on the deep horizon,
+  // then two soft dune ridges. All warm desert tones.
   function drawDailyHorizon() {
     if (!isDaily) return;
     ctx.save();
-    // Far dunes — slowest parallax (10% of world scroll), softest curves
-    const farY = PLAY_H * 0.66;
-    const farScroll = dailyScrollX * 0.10;
-    ctx.fillStyle = 'rgba(80, 78, 76, 0.92)';
+
+    // ---- Citadel silhouette layer (deepest, slowest parallax) ----
+    // Repeating chunks of tall sandstone industrial blocks across the
+    // horizon, with smoke columns and oxidized-copper roof bands.
+    const citY = PLAY_H * 0.62;
+    const citScroll = dailyScrollX * 0.06;
+    const citPattern = 220;       // world-units per repeating citadel block
+    const startB = Math.floor((citScroll - 60) / citPattern) - 1;
+    const endB   = Math.floor((citScroll + W + 60) / citPattern) + 1;
+    for (let b = startB; b <= endB; b++) {
+      const baseSeed = b * 0.5739 + 3.11;
+      const groupX = b * citPattern - citScroll;
+      // Skip occasional gaps so the skyline isn't a continuous wall
+      if (srand(baseSeed) < 0.20) continue;
+      drawCitadelGroup(groupX, citY, baseSeed);
+    }
+    // Warm haze veil over the citadel layer to push it back in depth
+    ctx.fillStyle = 'rgba(248, 200, 144, 0.28)';
+    ctx.fillRect(0, 0, W, citY + 4);
+
+    // ---- Far dunes — pale warm-tan, soft low-frequency curves ----
+    const farY = PLAY_H * 0.74;
+    const farScroll = dailyScrollX * 0.14;
+    ctx.fillStyle = 'rgba(196, 130, 80, 0.85)';
     ctx.beginPath();
     ctx.moveTo(-4, farY);
     for (let sx = -4; sx <= W + 4; sx += 8) {
       const wx = sx + farScroll;
-      const h = 16
-              + Math.sin(wx * 0.0028) * 12
-              + Math.sin(wx * 0.0085 + 1.3) * 5;
+      const h = 14
+              + Math.sin(wx * 0.0030) * 10
+              + Math.sin(wx * 0.0090 + 1.3) * 5;
       ctx.lineTo(sx, farY - h);
     }
     ctx.lineTo(W + 4, farY);
     ctx.closePath();
     ctx.fill();
-    // Mid dunes — slightly faster (25%), bigger smooth curves, darker
-    const midY = PLAY_H * 0.78;
-    const midScroll = dailyScrollX * 0.25;
-    ctx.fillStyle = 'rgba(56, 54, 52, 0.96)';
+
+    // ---- Mid dunes — warm rust-tan, bigger curves ----
+    const midY = PLAY_H * 0.84;
+    const midScroll = dailyScrollX * 0.28;
+    ctx.fillStyle = 'rgba(150, 80, 40, 0.96)';
     ctx.beginPath();
     ctx.moveTo(-4, midY);
     for (let sx = -4; sx <= W + 4; sx += 8) {
       const wx = sx + midScroll;
-      const h = 26
-              + Math.sin(wx * 0.0024) * 20
-              + Math.sin(wx * 0.0070 + 0.7) * 8;
+      const h = 24
+              + Math.sin(wx * 0.0024) * 18
+              + Math.sin(wx * 0.0072 + 0.7) * 8;
       ctx.lineTo(sx, midY - h);
     }
     ctx.lineTo(W + 4, midY);
     ctx.closePath();
     ctx.fill();
-    // Subtle warm-tan highlight along the mid-dune crests so they catch
-    // a hint of the upper-sky light
-    ctx.strokeStyle = 'rgba(160, 144, 118, 0.32)';
+    // Soft cream highlight along the mid-dune crests catching the sky light
+    ctx.strokeStyle = 'rgba(252, 224, 168, 0.45)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let sx = -4; sx <= W + 4; sx += 8) {
       const wx = sx + midScroll;
-      const h = 26
-              + Math.sin(wx * 0.0024) * 20
-              + Math.sin(wx * 0.0070 + 0.7) * 8;
+      const h = 24
+              + Math.sin(wx * 0.0024) * 18
+              + Math.sin(wx * 0.0072 + 0.7) * 8;
       if (sx === -4) ctx.moveTo(sx, midY - h);
       else ctx.lineTo(sx, midY - h);
     }
     ctx.stroke();
     ctx.restore();
+  }
+
+  // Cluster of 3-5 industrial citadel blocks with smoke columns. Drawn at
+  // (gx, baseY) representing the bottom edge; blocks rise up from there.
+  function drawCitadelGroup(gx, baseY, seed) {
+    const blockCount = 3 + Math.floor(srand(seed + 0.11) * 3);   // 3-5
+    let cursor = gx + Math.floor(srand(seed + 0.22) * 14);
+    const blocks = [];
+    for (let i = 0; i < blockCount; i++) {
+      const w = 22 + Math.floor(srand(seed + i * 0.13 + 1.7) * 30);
+      const h = 28 + Math.floor(srand(seed + i * 0.17 + 2.3) * 50);
+      blocks.push({ x: cursor, w: w, h: h });
+      cursor += w + 3 + Math.floor(srand(seed + i * 0.19 + 3.7) * 6);
+    }
+    // Body fill — warm sandstone block silhouette
+    for (const b of blocks) {
+      if (b.x + b.w < -8 || b.x > W + 8) continue;
+      ctx.fillStyle = '#9a5630';
+      ctx.fillRect(b.x, baseY - b.h, b.w, b.h);
+      // Vertical lit edge (sun-facing right side)
+      ctx.fillStyle = '#b86a3a';
+      ctx.fillRect(b.x + b.w - 2, baseY - b.h, 2, b.h);
+      // Oxidized green-copper roof cap on the tallest blocks
+      if (b.h > 50) {
+        ctx.fillStyle = '#6e8a4a';
+        ctx.fillRect(b.x, baseY - b.h, b.w, 3);
+      }
+      // Window slits — small dark squares scattered up the face
+      ctx.fillStyle = 'rgba(40, 18, 10, 0.7)';
+      const winRows = Math.max(2, Math.floor(b.h / 14));
+      const winCols = Math.max(2, Math.floor(b.w / 8));
+      for (let r = 0; r < winRows; r++) {
+        for (let c = 0; c < winCols; c++) {
+          if (((r * 7 + c * 3 + Math.floor(b.x)) % 5) === 0) {
+            ctx.fillRect(b.x + 2 + c * 7, baseY - b.h + 4 + r * 11, 1.4, 2);
+          }
+        }
+      }
+    }
+    // Smoke columns rising from the tallest 1-2 blocks
+    for (const b of blocks) {
+      if (b.h < 50) continue;
+      if (b.x + b.w < -8 || b.x > W + 8) continue;
+      const sx = b.x + b.w * 0.35;
+      const top = baseY - b.h;
+      ctx.fillStyle = 'rgba(80, 50, 30, 0.55)';
+      for (let p = 0; p < 5; p++) {
+        const py = top - p * 6 - 2;
+        const pw = 5 + p * 1.2;
+        ctx.beginPath();
+        ctx.ellipse(sx + Math.sin(p * 1.3) * 2, py, pw, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
 
   function drawDailyTerrain() {
@@ -8623,11 +8727,11 @@ const DLX_BUILD = 'v150';
     for (let sx = -step; sx <= W + step; sx += step) {
       samples.push({ sx: sx, y: terrainHeightAt(sx + dailyScrollX) });
     }
-    // Filled body — wasteland dune sand: warm tan top fading into cool gray base
+    // Filled body — warm orange-tan dune sand fading to deep rust at depth
     const grad = ctx.createLinearGradient(0, PLAY_H - 80, 0, PLAY_H);
-    grad.addColorStop(0,   '#8a8278');
-    grad.addColorStop(0.5, '#5a544c');
-    grad.addColorStop(1,   '#2a2824');
+    grad.addColorStop(0,   '#e8a868');
+    grad.addColorStop(0.5, '#b86838');
+    grad.addColorStop(1,   '#5a2818');
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.moveTo(samples[0].sx, PLAY_H + 4);
@@ -8635,17 +8739,17 @@ const DLX_BUILD = 'v150';
     ctx.lineTo(samples[samples.length - 1].sx, PLAY_H + 4);
     ctx.closePath();
     ctx.fill();
-    // Highlight ridge along the top of the terrain — pale dune crest
-    ctx.strokeStyle = '#c8b89a';
-    ctx.lineWidth = 1.4;
+    // Pale cream highlight along the dune crest catching the sky light
+    ctx.strokeStyle = '#fce0a8';
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
     for (let i = 0; i < samples.length; i++) {
       if (i === 0) ctx.moveTo(samples[i].sx, samples[i].y);
       else ctx.lineTo(samples[i].sx, samples[i].y);
     }
     ctx.stroke();
-    // Texture dots (terrain detail) — darker grit specks
-    ctx.fillStyle = 'rgba(30, 28, 24, 0.55)';
+    // Sand texture specks — darker rust grit
+    ctx.fillStyle = 'rgba(70, 28, 14, 0.55)';
     for (let i = 0; i < 24; i++) {
       const dx = ((i * 53 + dailyScrollX) % W + W) % W;
       const dy = terrainHeightAt(dx + dailyScrollX) + 6 + (i % 3) * 4;
@@ -8701,8 +8805,8 @@ const DLX_BUILD = 'v150';
   function drawDailyRock(x, y) {
     ctx.save();
     ctx.translate(x, y);
-    // Cool slate-gray rock body
-    ctx.fillStyle = '#4a4a52';
+    // Warm rust-red rock body
+    ctx.fillStyle = '#7a3818';
     ctx.beginPath();
     ctx.moveTo(-9, 0);
     ctx.lineTo(-5, -7);
@@ -8711,14 +8815,14 @@ const DLX_BUILD = 'v150';
     ctx.lineTo( 9, 0);
     ctx.closePath();
     ctx.fill();
-    // Pale highlight on the lit face
-    ctx.fillStyle = 'rgba(178, 178, 188, 0.55)';
+    // Warm sand-lit highlight on the lit face
+    ctx.fillStyle = 'rgba(216, 132, 80, 0.7)';
     ctx.beginPath();
     ctx.moveTo(-3, -7); ctx.lineTo( 1, -9); ctx.lineTo( 0, -5);
     ctx.closePath();
     ctx.fill();
     // Hairline outline
-    ctx.strokeStyle = '#1a1a1f';
+    ctx.strokeStyle = '#2a0a04';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(-9, 0);
