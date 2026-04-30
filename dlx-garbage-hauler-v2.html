@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v141';
+const DLX_BUILD = 'v142';
 
 (function() {
   // ---------- Device detection ----------
@@ -6373,7 +6373,7 @@ const DLX_BUILD = 'v141';
             // Anti-grav magnetic tether — cargo trails BEHIND the rig.
             // Slight upward offset and a soft bob so it reads like it's
             // floating on the field, not sitting on the chassis.
-            const tx = bird.x - 26;
+            const tx = bird.x - 32;
             const ty = bird.y - 4 + Math.sin(frame * 0.18) * 1.2;
             cargo.x += (tx - cargo.x) * 0.20;
             cargo.y += (ty - cargo.y) * 0.20;
@@ -8563,42 +8563,45 @@ const DLX_BUILD = 'v141';
     ctx.restore();
   }
 
-  // Glowing electromagnetic-bead chain from the rig's tail to the cargo —
-  // matches the GDD "rear-towing electromagnetically-linked beads" spec.
+  // Smooth electromagnetic tow link — soft cyan glow line from the rig's
+  // tail back to the cargo crate, with a single bright energy pulse
+  // traveling along it in the haul direction (rig → cargo).
   function drawCargoBond() {
     if (!isDaily || !cargo || !cargo.attached || cargo.lost) return;
     const x1 = bird.x - 14, y1 = bird.y + 2;       // tail of the rig
-    const x2 = cargo.x + 8, y2 = cargo.y;          // front of the crate
-    const dx = x2 - x1, dy = y2 - y1;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const beads = Math.max(3, Math.round(dist / 6));
+    const x2 = cargo.x + 11, y2 = cargo.y;         // front of the crate
     ctx.save();
-    // Outer glow line
-    ctx.shadowBlur = 6;
+    // Outer wide soft glow
+    ctx.shadowBlur = 12;
     ctx.shadowColor = '#60d0ff';
-    ctx.strokeStyle = 'rgba(140, 220, 255, 0.55)';
-    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = 'rgba(120, 200, 245, 0.4)';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
     ctx.stroke();
-    ctx.shadowBlur = 0;
-    // Beads
-    for (let i = 1; i < beads; i++) {
-      const t = i / beads;
-      const bx = x1 + dx * t;
-      const by = y1 + dy * t + Math.sin(frame * 0.3 + i * 0.8) * 0.6;
-      ctx.shadowBlur = 4;
-      ctx.shadowColor = '#60d0ff';
-      ctx.fillStyle = '#a0f0ff';
-      ctx.beginPath();
-      ctx.arc(bx, by, 1.6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(bx - 0.4, by - 0.4, 0.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    // Mid glow
+    ctx.strokeStyle = 'rgba(170, 230, 255, 0.7)';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    ctx.stroke();
+    // Bright core line
+    ctx.shadowBlur = 4;
+    ctx.strokeStyle = 'rgba(230, 248, 255, 0.95)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    ctx.stroke();
+    // Energy pulse traveling rig → cargo (loops every ~25 frames)
+    const t = (frame % 25) / 25;
+    const px = x1 + (x2 - x1) * t;
+    const py = y1 + (y2 - y1) * t;
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(px, py, 2.6, 0, Math.PI * 2);
+    ctx.fill();
     ctx.shadowBlur = 0;
     ctx.restore();
   }
@@ -8610,30 +8613,75 @@ const DLX_BUILD = 'v141';
     // Slight tilt that follows the cargo's relative-to-rig vertical lag
     const tilt = cargo.attached ? Math.max(-0.18, Math.min(0.18, (bird.y - cargo.y) * -0.02)) : 0;
     ctx.rotate(tilt);
-    // Crate body — DLX orange-red
-    const w = 14, h = 14;
-    ctx.fillStyle = '#d8421a';
+    // Steel cargo crate — bigger + industrial, brushed-metal gradient with
+    // riveted corner reinforcement plates and a yellow caution stripe band.
+    const w = 22, h = 18;
+    const grad = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+    grad.addColorStop(0, '#8a9098');
+    grad.addColorStop(0.5, '#5a6068');
+    grad.addColorStop(1, '#3a3e44');
+    ctx.fillStyle = grad;
     ctx.fillRect(-w / 2, -h / 2, w, h);
-    ctx.strokeStyle = '#1a0a06';
-    ctx.lineWidth = 1.2;
+    // Hairline edge highlight at the top
+    ctx.fillStyle = 'rgba(220, 232, 244, 0.45)';
+    ctx.fillRect(-w / 2 + 1, -h / 2 + 1, w - 2, 1);
+    // Heavy outline
+    ctx.strokeStyle = '#1a1c20';
+    ctx.lineWidth = 1.4;
     ctx.strokeRect(-w / 2, -h / 2, w, h);
-    // Inner accent ring
-    ctx.strokeStyle = 'rgba(255, 184, 77, 0.55)';
+    // Vertical seam down the middle
+    ctx.strokeStyle = '#2a2e34';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(0, -h / 2 + 1); ctx.lineTo(0, h / 2 - 1);
+    ctx.stroke();
+    // Corner reinforcement plates — slightly darker, with rivets
+    ctx.fillStyle = '#3a3e44';
+    const cp = 4;
+    ctx.fillRect(-w / 2,     -h / 2,     cp, cp);
+    ctx.fillRect( w / 2 - cp, -h / 2,     cp, cp);
+    ctx.fillRect(-w / 2,      h / 2 - cp, cp, cp);
+    ctx.fillRect( w / 2 - cp, h / 2 - cp, cp, cp);
+    ctx.strokeStyle = '#1a1c20';
     ctx.lineWidth = 0.6;
-    ctx.strokeRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4);
-    // DLX label
+    ctx.strokeRect(-w / 2,      -h / 2,      cp, cp);
+    ctx.strokeRect( w / 2 - cp, -h / 2,      cp, cp);
+    ctx.strokeRect(-w / 2,      h / 2 - cp,  cp, cp);
+    ctx.strokeRect( w / 2 - cp, h / 2 - cp,  cp, cp);
+    // Rivets in each corner plate
+    ctx.fillStyle = '#0a0c10';
+    for (const [rx, ry] of [
+      [-w / 2 + 2, -h / 2 + 2], [ w / 2 - 2, -h / 2 + 2],
+      [-w / 2 + 2,  h / 2 - 2], [ w / 2 - 2,  h / 2 - 2]
+    ]) {
+      ctx.beginPath();
+      ctx.arc(rx, ry, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Yellow caution stripe band across the middle with hazard slashes
     ctx.fillStyle = '#ffd83d';
-    ctx.font = 'bold 6px Impact, "Arial Black", sans-serif';
+    ctx.fillRect(-w / 2 + cp + 1, -2, w - cp * 2 - 2, 4);
+    ctx.fillStyle = '#1a0a06';
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(-w / 2 + cp + 2 + i * 3.6, -2, 1.2, 4);
+    }
+    // Faded DLX stencil along the bottom
+    ctx.fillStyle = 'rgba(220, 230, 240, 0.7)';
+    ctx.font = 'bold 5px Impact, "Arial Black", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('DLX', 0, 0.5);
-    // Magnetic-receiver bead on the front of the crate
+    ctx.fillText('DLX', 0, h / 2 - 4.5);
+    // Magnetic-receiver bead on the front of the crate (rig-facing side)
     if (cargo.attached) {
-      ctx.shadowBlur = 4;
+      ctx.shadowBlur = 6;
       ctx.shadowColor = '#60d0ff';
       ctx.fillStyle = '#a0f0ff';
       ctx.beginPath();
-      ctx.arc(w / 2 - 1, 0, 1.6, 0, Math.PI * 2);
+      ctx.arc(w / 2 + 1, 0, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(w / 2 + 0.6, -0.4, 0.7, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
     }
