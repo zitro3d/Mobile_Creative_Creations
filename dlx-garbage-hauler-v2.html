@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v153';
+const DLX_BUILD = 'v154';
 
 (function() {
   // ---------- Device detection ----------
@@ -6367,6 +6367,87 @@ const DLX_BUILD = 'v153';
           grantScore(1);
           dailyDistanceForScore += 24;
         }
+        // ---- Stage progression banners ----
+        // Walk through DAILY_STAGES once per crossing so we always show
+        // the next stage banner exactly when its score threshold is hit.
+        const stageScore = score - levelScoreStart;
+        while (
+          dailyCurrentStage < DAILY_STAGES.length - 1 &&
+          stageScore >= DAILY_STAGES[dailyCurrentStage + 1].threshold
+        ) {
+          dailyCurrentStage++;
+          setLevelBanner(DAILY_STAGES[dailyCurrentStage].label);
+        }
+        // Cargo zap timer (briefly suppresses the magnet bond after a
+        // drone strike — cargo falls free and must be re-magnetized)
+        if (cargoZapFrames > 0) cargoZapFrames--;
+        // ---- Anti-magnet drones — enter from stage 2 onward ----
+        // Industrial drone hovers above the player and fires a vertical
+        // red lightning beam straight down. If the beam crosses the
+        // cargo while it's tethered, the bond breaks (cargo.attached =
+        // false). Player dodges by NOT being directly under the drone.
+        if (dailyCurrentStage >= 1 && frame >= dailyNextDroneAt && !dailyDelivered) {
+          const spawnY = 60 + Math.random() * (PLAY_H * 0.30);
+          dailyDrones.push({
+            x: W + 40,
+            y: spawnY,
+            vx: -1.3 - Math.random() * 0.4,
+            state: 'cruise',
+            stateFrames: 0,
+            beamLen: 0,
+          });
+          // Drones come more frequently in later stages
+          const interval = dailyCurrentStage >= 3 ? 360 : 540;
+          dailyNextDroneAt = frame + interval + Math.floor(Math.random() * 240);
+          setLevelBanner('⚠ ANTI-MAGNET DRONE');
+        }
+        for (let i = dailyDrones.length - 1; i >= 0; i--) {
+          const dr = dailyDrones[i];
+          dr.stateFrames++;
+          if (dr.state === 'cruise') {
+            dr.x += dr.vx;
+            // Lock on when the drone passes over the rig (player target)
+            if (Math.abs(dr.x - bird.x) < 16) {
+              dr.state = 'lock';
+              dr.stateFrames = 0;
+            }
+            if (dr.x < -50) dailyDrones.splice(i, 1);
+          } else if (dr.state === 'lock') {
+            // Hover stationary for a beat — telegraph window for player
+            if (dr.stateFrames >= 18) {
+              dr.state = 'fire';
+              dr.stateFrames = 0;
+              dr.beamLen = 0;
+              playSound('boom');
+            }
+          } else if (dr.state === 'fire') {
+            // Beam extends downward to terrain
+            dr.beamLen = Math.min(dr.beamLen + 24, PLAY_H);
+            // Cargo zap check — beam at dr.x extends from dr.y down by beamLen
+            if (cargo && cargo.attached && !cargo.lost) {
+              const beamHits =
+                Math.abs(dr.x - cargo.x) < 10 &&
+                cargo.y >= dr.y &&
+                cargo.y <= dr.y + dr.beamLen;
+              if (beamHits) {
+                cargo.attached = false;
+                cargo.vy = -1.5;
+                cargoZapFrames = 60;
+                emitPickupSparks(cargo.x, cargo.y, '#ff4030', 8);
+                playSound('boom');
+              }
+            }
+            if (dr.stateFrames >= 30) {
+              dr.state = 'retreat';
+              dr.stateFrames = 0;
+              dr.beamLen = 0;
+            }
+          } else {
+            // retreat — slowly drift left and away
+            dr.x += dr.vx * 1.4;
+            if (dr.x < -50) dailyDrones.splice(i, 1);
+          }
+        }
         // Flying cargo thieves — fly in from the FRONT (right side), hover
         // at varying altitudes, lower a magnetic claw on a cable to grab the
         // cargo, then retract and fly off. Player dodges by NOT being
@@ -6466,7 +6547,9 @@ const DLX_BUILD = 'v153';
             }
             const dx = bird.x - cargo.x;
             const dy = bird.y - cargo.y;
-            if (dx * dx + dy * dy < 30 * 30) {
+            // Re-magnetize when the rig comes close — but NOT while a
+            // drone zap is suppressing the bond (anti-magnet effect).
+            if (cargoZapFrames === 0 && dx * dx + dy * dy < 30 * 30) {
               cargo.attached = true;
               cargo.vy = 0;
             }
@@ -9316,6 +9399,126 @@ const DLX_BUILD = 'v153';
     ctx.fill();
     ctx.shadowBlur = 0;
     ctx.restore();
+  }
+
+  // Anti-magnet drones — small industrial hover-drones that lock onto
+  // the rig and fire a vertical red lightning beam straight down. The
+  // beam disables the magnet bond on contact, dropping the cargo.
+  function drawDailyDrones() {
+    if (!isDaily || !dailyDrones.length) return;
+    for (const dr of dailyDrones) {
+      ctx.save();
+      ctx.translate(dr.x, dr.y);
+      // ---- Hover platform body (dark industrial drone) ----
+      ctx.fillStyle = '#3a3e44';
+      ctx.fillRect(-12, -4, 24, 8);
+      ctx.fillStyle = '#5a5e68';
+      ctx.fillRect(-12, -4, 24, 1.6);
+      // Yellow caution stripe along the bottom
+      ctx.fillStyle = '#ffd83d';
+      ctx.fillRect(-10, 2.4, 20, 1.4);
+      ctx.fillStyle = '#1a0408';
+      for (let s = 0; s < 5; s++) ctx.fillRect(-9 + s * 4, 2.4, 1.4, 1.4);
+      ctx.strokeStyle = '#0a0204';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(-12, -4, 24, 8);
+      // ---- Twin rotor housings on top ----
+      ctx.fillStyle = '#2a2e34';
+      ctx.fillRect(-10, -7, 5, 3);
+      ctx.fillRect(  5, -7, 5, 3);
+      // Rotor blur (spinning)
+      ctx.strokeStyle = 'rgba(220, 220, 230, 0.45)';
+      ctx.lineWidth = 0.8;
+      const rotPhase = (frame * 0.6) % (Math.PI * 2);
+      for (let k = 0; k < 4; k++) {
+        const ang = rotPhase + k * (Math.PI / 2);
+        ctx.beginPath();
+        ctx.moveTo(-7.5, -8);
+        ctx.lineTo(-7.5 + Math.cos(ang) * 4, -8 + Math.sin(ang) * 1);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo( 7.5, -8);
+        ctx.lineTo( 7.5 + Math.cos(ang) * 4, -8 + Math.sin(ang) * 1);
+        ctx.stroke();
+      }
+      // ---- Bottom emitter pod (where the zap fires from) ----
+      ctx.fillStyle = '#1a1c20';
+      ctx.fillRect(-3, 4, 6, 4);
+      ctx.strokeStyle = '#0a0204';
+      ctx.lineWidth = 0.9;
+      ctx.strokeRect(-3, 4, 6, 4);
+      // Red lens — pulses brighter when locking / firing
+      const lensGlow = dr.state === 'fire' ? 1
+                     : dr.state === 'lock' ? Math.min(1, dr.stateFrames / 18)
+                     : 0.4;
+      ctx.shadowBlur = 10 * lensGlow;
+      ctx.shadowColor = '#ff2818';
+      ctx.fillStyle = 'rgba(255, 60, 40, ' + (0.5 + lensGlow * 0.5) + ')';
+      ctx.beginPath();
+      ctx.arc(0, 7, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // ---- Lock-on telegraph: thin red dashed line during 'lock' state ----
+      if (dr.state === 'lock') {
+        ctx.save();
+        const pulse = 0.5 + 0.5 * Math.sin(dr.stateFrames * 0.5);
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = '#ff2818';
+        ctx.strokeStyle = 'rgba(255, 60, 40, ' + (0.5 + pulse * 0.4) + ')';
+        ctx.lineWidth = 1.3;
+        ctx.setLineDash([3, 3]);
+        ctx.lineDashOffset = -dr.stateFrames * 1.2;
+        ctx.beginPath();
+        ctx.moveTo(0, 8);
+        ctx.lineTo(0, PLAY_H - 30 - dr.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+      // ---- Active zap beam: lightning-style red beam during 'fire' ----
+      if (dr.state === 'fire' && dr.beamLen > 0) {
+        ctx.save();
+        ctx.shadowBlur = 14;
+        ctx.shadowColor = '#ff2818';
+        // Outer glow band
+        ctx.strokeStyle = 'rgba(255, 80, 60, 0.75)';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, 8);
+        ctx.lineTo(0, 8 + dr.beamLen);
+        ctx.stroke();
+        // Mid beam
+        ctx.strokeStyle = 'rgba(255, 140, 110, 0.9)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, 8);
+        ctx.lineTo(0, 8 + dr.beamLen);
+        ctx.stroke();
+        // Bright white core
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#ffffff';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, 8);
+        ctx.lineTo(0, 8 + dr.beamLen);
+        ctx.stroke();
+        // Jagged lightning kinks down the beam
+        ctx.strokeStyle = 'rgba(255, 200, 180, 0.85)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(0, 8);
+        for (let zy = 12; zy < 8 + dr.beamLen; zy += 8) {
+          const jx = (Math.random() - 0.5) * 4;
+          ctx.lineTo(jx, zy);
+        }
+        ctx.lineTo(0, 8 + dr.beamLen);
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.restore();
+    }
   }
 
   // Flying rival rig — flies in from the front, hovers over cargo, drops a
@@ -13592,6 +13795,7 @@ const DLX_BUILD = 'v153';
     if (isDaily) {
       drawDailyHazards();
       drawDailyThieves();
+      drawDailyDrones();
       drawCargoBond();
       drawDailyCargo();
     }
@@ -14015,6 +14219,10 @@ const DLX_BUILD = 'v153';
     cargo = { x: 0, y: 0, vy: 0, attached: true, lost: false };
     dailyThieves = [];
     dailyNextThiefAt = frame + 600;      // first thief swoops in ~10s after launch
+    dailyDrones = [];
+    dailyNextDroneAt = frame + 1800;     // first drone enters during stage 2
+    dailyCurrentStage = 0;
+    cargoZapFrames = 0;
     state = STATE_PLAY;
     bird.x = Math.round(W * BIRD_X_FRAC);
     bird.vy = FLAP;
@@ -14182,10 +14390,21 @@ const DLX_BUILD = 'v153';
   let cargo = null;                // { x, y, vy, attached, lost } — magnetically tethered crate
   let dailyThieves = [];           // [{ x, y, vx, vy, state, stateFrames }] — flying cargo thieves
   let dailyNextThiefAt = 0;        // frame index when next flying thief enters
+  let dailyDrones = [];            // [{ x, y, vx, state, stateFrames, beam }] — anti-magnet drones (Phase A3)
+  let dailyNextDroneAt = 0;        // frame index when next drone enters
+  let dailyCurrentStage = 0;       // 0..3, advances on score thresholds (DAILY_STAGES)
+  let cargoZapFrames = 0;          // counts down while the magnet bond is suppressed by a drone zap
   // Score the daily run needs to reach to count as "delivery made". Below
   // this and a crash counts as a failed delivery; at or above it the run
-  // ends in DELIVERY MADE victory state.
-  const DELIVERY_TARGET = 120;
+  // ends in DELIVERY MADE victory state. The course is broken into 4 stages
+  // each ~25% of the target — see DAILY_STAGES below.
+  const DELIVERY_TARGET = 400;
+  const DAILY_STAGES = [
+    { threshold: 0,    label: 'STAGE 1 — OPEN DUNES'           },
+    { threshold: 100,  label: 'STAGE 2 — DRONE ZONE'           },
+    { threshold: 200,  label: 'STAGE 3 — SCRAP FIELDS'         },
+    { threshold: 300,  label: 'STAGE 4 — FINAL APPROACH'       },
+  ];
   // Procedural ground height for the delivery course. Multi-octave sine so
   // it rolls believably without a heightmap allocation.
   function terrainHeightAt(worldX) {
