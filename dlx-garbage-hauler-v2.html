@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v164';
+const DLX_BUILD = 'v165';
 
 (function() {
   // ---------- Device detection ----------
@@ -6229,6 +6229,17 @@ const DLX_BUILD = 'v164';
       state = STATE_PLAY;
       bird.x = Math.round(W * BIRD_X_FRAC);
     }
+    // Daily run launch — first tap while parked in the hangar fires
+    // the runway takeoff animation. Eat this tap (no flap impulse) so
+    // the launch reads as the rig spinning up its engines.
+    if (state === STATE_PLAY && isDaily && dailyAwaitingLaunch) {
+      dailyAwaitingLaunch = false;
+      dailyIntroFrames = 75;
+      bird.vy = FLAP * 0.4;
+      thrusterFrames = 30;
+      playSound('powerup');
+      return;
+    }
     if (state === STATE_PLAY) {
       // Chrome Hot Rod perk: a second flap within ~0.35s of the
       // previous one kicks a little extra lift. Tied to the unlocked
@@ -6345,18 +6356,27 @@ const DLX_BUILD = 'v164';
       bird.rot = Math.max(-0.5, Math.min(1.2, bird.vy * 0.09));
 
       const speed = currentPipeSpeed() * (slowFrames > 0 ? 0.5 : 1);
-      if (isDaily && dailyIntroFrames > 0) {
-        // ---- Launch intro — rig auto-slides out of the warehouse bay ----
+      if (isDaily && dailyAwaitingLaunch) {
+        // ---- Parked in the hangar — waiting for the tap to launch ----
+        // Suppress gravity so the rig sits on the runway. World is
+        // frozen (no scroll, no spawns).
+        bird.vy = 0;
+        bird.y = dailyIntroStartY;
+        bird.x = dailyIntroStartX;
+      } else if (isDaily && dailyIntroFrames > 0) {
+        // ---- Launch animation — rig accelerates off the runway ----
         dailyIntroFrames--;
-        // Ease-out slide from the bay opening to the gameplay position
-        const t = 1 - (dailyIntroFrames / 90);
+        const t = 1 - (dailyIntroFrames / 75);
         const ease = 1 - Math.pow(1 - t, 3);
         bird.x = dailyIntroStartX + (dailyIntroTargetX - dailyIntroStartX) * ease;
-        // Tiny climb assist so the rig leaves the bay floor and reaches
-        // mid-air by intro end (player can still flap to override)
-        if (bird.vy > 1) bird.vy *= 0.94;
-        // World stays still until the rig is fully out of the bay —
-        // skip the rest of the daily update this frame.
+        bird.y = dailyIntroStartY + (dailyIntroTargetY - dailyIntroStartY) * ease;
+        // Ramp the world scroll up over the intro so the hangar slides
+        // left past the rig — sells the takeoff momentum
+        dailyScrollX += speed * ease;
+        // Damp gravity so the launch arc reads cleanly
+        if (bird.vy > 1) bird.vy *= 0.85;
+        // Continuous engine flare during the intro
+        if (dailyIntroFrames % 3 === 0) thrusterFrames = 4;
       } else if (isDaily) {
         // ---- Daily delivery course — terrain + ground hazards + cargo ----
         dailyScrollX += speed;
@@ -9887,105 +9907,172 @@ const DLX_BUILD = 'v164';
     ctx.restore();
   }
 
-  // DLX Distribution Center — multi-tier industrial warehouse complex
-  // with terracotta roof eaves, glowing pink DLX neon signs, an open
-  // garage door bay where the rig launches from, graffiti'd concrete
-  // foundation wall, and yellow window slits inside the bay.
+  // DLX Distribution Center — open side-profile hangar with the right
+  // wall removed so you see straight inside. The rig parks on a yellow
+  // caution-striped runway that extends out the open right side.
+  // Hangar floor + interior align with where the rig sits at start.
   function drawLandmarkOrigin(x, y) {
     ctx.save();
-    // ---- Foundation / retaining wall (graffiti band) ----
-    const baseW = 220;
-    const wallH = 44;
-    ctx.fillStyle = '#7a6a5a';
-    ctx.fillRect(x - baseW / 2, y - wallH, baseW, wallH);
-    ctx.fillStyle = '#5a4a3a';
-    ctx.fillRect(x - baseW / 2, y - wallH, baseW, 3);
-    // Wall panel seams
-    ctx.fillStyle = 'rgba(40, 30, 20, 0.6)';
-    for (let i = 0; i < 4; i++) {
-      ctx.fillRect(x - baseW / 2 + i * (baseW / 4), y - wallH, 1, wallH);
-    }
-    // Graffiti tags (cyan + magenta scribbles)
-    ctx.fillStyle = '#3ad0ff';
-    ctx.font = 'bold 8px Impact, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('THUNDR', x - 90, y - 22);
-    ctx.fillStyle = '#ff60a0';
-    ctx.fillText('DUMP', x - 30, y - 12);
-    ctx.fillStyle = '#ffd060';
-    ctx.fillText('LRD', x + 30, y - 26);
-    // Random scribble lines
-    ctx.strokeStyle = 'rgba(20, 10, 6, 0.5)';
-    ctx.lineWidth = 0.7;
-    for (let i = 0; i < 6; i++) {
-      ctx.beginPath();
-      ctx.moveTo(x - 80 + i * 30, y - 8 + (i % 2) * 4);
-      ctx.lineTo(x - 60 + i * 30, y - 10 + (i % 2) * 4);
-      ctx.stroke();
-    }
+    // Hangar interior floor matches the rig's parking altitude. Floor
+    // edge sits ~22px below mid-screen so the rig sits ON it cleanly.
+    const floorY    = PLAY_H / 2 + 28;
+    const ceilingY  = PLAY_H / 2 - 70;
+    const backWallX = x - 110;        // left wall (back of the hangar)
+    const dockEdge  = x + 105;        // where the floor / runway ends to the right
+    const hangarW   = dockEdge - backWallX;
 
-    // ---- Building blocks (multi-tier sandstone with terracotta eaves) ----
-    // Right tall tower (with DLX sign)
-    drawWarehouseBlock(x + 70, y - wallH, 60, 85, true);
-    // Lower mid block (garage bay) — contains the open door
-    drawWarehouseBlock(x - 12, y - wallH, 100, 60, false);
-    // Left small block
-    drawWarehouseBlock(x - 84, y - wallH, 38, 50, true);
+    // ---- Far back interior darkness (so the open hangar reads as a
+    // hollow box you can see straight into) ----
+    ctx.fillStyle = '#1a0a08';
+    ctx.fillRect(backWallX, ceilingY + 4, hangarW, floorY - ceilingY - 4);
 
-    // ---- Garage door bay opening (dark interior with yellow lights) ----
-    const bayX = x - 32;
-    const bayW = 48;
-    const bayH = 38;
-    const bayY = y - wallH - bayH;
-    // Interior darkness
-    ctx.fillStyle = '#0a0604';
-    ctx.fillRect(bayX, bayY, bayW, bayH);
-    // Floor edge highlight
-    ctx.fillStyle = '#3a1a08';
-    ctx.fillRect(bayX, y - wallH - 2, bayW, 2);
-    // Yellow ceiling fluorescent strips
-    ctx.shadowBlur = 6; ctx.shadowColor = '#ffd060';
-    ctx.fillStyle = '#ffd060';
-    ctx.fillRect(bayX + 3,  bayY + 4, 6, 1.4);
-    ctx.fillRect(bayX + 12, bayY + 4, 6, 1.4);
-    ctx.fillRect(bayX + 21, bayY + 4, 6, 1.4);
-    ctx.fillRect(bayX + 30, bayY + 4, 6, 1.4);
-    ctx.fillRect(bayX + 39, bayY + 4, 6, 1.4);
-    ctx.shadowBlur = 0;
-    // Door frame (terracotta)
-    ctx.fillStyle = '#d8421a';
-    ctx.fillRect(bayX - 2, bayY - 3, bayW + 4, 4);
-    ctx.fillStyle = '#a82812';
-    ctx.fillRect(bayX - 2, bayY + 1, bayW + 4, 1.4);
-    // Side door pillars
+    // ---- Back wall (depth-shaded sandstone with shelves of crates) ----
     ctx.fillStyle = '#5a3018';
-    ctx.fillRect(bayX - 2, bayY, 2, bayH);
-    ctx.fillRect(bayX + bayW, bayY, 2, bayH);
-
-    // ---- Caution-stripe loading dock lip in front of the bay ----
-    ctx.fillStyle = '#ffd83d';
-    ctx.fillRect(bayX, y - wallH, bayW, 2);
-    ctx.fillStyle = '#1a0408';
-    for (let s = 0; s < 8; s++) ctx.fillRect(bayX + 1 + s * 6, y - wallH, 2, 2);
-
-    // ---- DLX neon sign on top of the right tower ----
-    drawDLXNeonSign(x + 70, y - wallH - 85 - 4);
-    // Smaller DLX sign on the left small block
-    drawDLXNeonSign(x - 84, y - wallH - 50 - 4);
-
-    // ---- Roof access railing on the mid block ----
-    ctx.strokeStyle = '#3a2418';
-    ctx.lineWidth = 1.2;
-    for (let r = 0; r < 5; r++) {
-      ctx.beginPath();
-      ctx.moveTo(x - 50 + r * 18, y - wallH - 60 - 6);
-      ctx.lineTo(x - 50 + r * 18, y - wallH - 60);
-      ctx.stroke();
+    ctx.fillRect(backWallX, ceilingY + 4, 18, floorY - ceilingY - 4);
+    ctx.fillStyle = '#3a1a08';
+    ctx.fillRect(backWallX, ceilingY + 4, 4, floorY - ceilingY - 4);
+    // Stack of crates on the back wall (hangar storage)
+    ctx.fillStyle = '#7a3018';
+    for (let cr = 0; cr < 3; cr++) {
+      const cx = backWallX + 24 + cr * 22;
+      const cw = 18, ch = 14;
+      ctx.fillRect(cx, floorY - ch, cw, ch);
+      ctx.fillStyle = '#a85838';
+      ctx.fillRect(cx, floorY - ch, cw, 2);
+      ctx.fillStyle = '#1a0604';
+      ctx.fillRect(cx + cw / 2 - 0.5, floorY - ch + 2, 1, ch - 2);
+      ctx.strokeStyle = '#1a0604';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(cx, floorY - ch, cw, ch);
+      ctx.fillStyle = '#7a3018';
     }
+    // Yellow caution X painted on the back wall
+    ctx.strokeStyle = 'rgba(255, 216, 61, 0.55)';
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.moveTo(x - 50, y - wallH - 60 - 6);
-    ctx.lineTo(x + 38, y - wallH - 60 - 6);
+    ctx.moveTo(backWallX + 90, ceilingY + 12); ctx.lineTo(backWallX + 110, ceilingY + 32);
+    ctx.moveTo(backWallX + 110, ceilingY + 12); ctx.lineTo(backWallX + 90, ceilingY + 32);
     ctx.stroke();
+
+    // ---- Hangar floor — yellow runway stripes leading toward the open side ----
+    ctx.fillStyle = '#3a2418';
+    ctx.fillRect(backWallX + 18, floorY, hangarW - 18, 6);
+    // Runway centerline dashes
+    ctx.fillStyle = '#ffd83d';
+    for (let s = 0; s < 12; s++) {
+      ctx.fillRect(backWallX + 26 + s * 18, floorY + 1.4, 10, 1.4);
+    }
+    // Runway edge caution stripe
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(backWallX + 18, floorY + 4, hangarW - 18, 2);
+    ctx.fillStyle = '#1a0408';
+    for (let s = 0; s < 30; s++) ctx.fillRect(backWallX + 20 + s * 7, floorY + 4, 2.4, 2);
+
+    // ---- Ceiling (terracotta beam spanning the open hangar) ----
+    ctx.fillStyle = '#d8421a';
+    ctx.fillRect(backWallX, ceilingY, hangarW + 4, 8);
+    ctx.fillStyle = '#a82812';
+    ctx.fillRect(backWallX, ceilingY + 8, hangarW + 4, 2);
+    ctx.fillStyle = '#5a1a08';
+    ctx.fillRect(backWallX, ceilingY + 10, hangarW + 4, 1);
+
+    // Roof support beams (vertical I-beams across the open ceiling)
+    ctx.fillStyle = '#3a2418';
+    for (let b = 0; b < 4; b++) {
+      const bx = backWallX + 50 + b * 50;
+      ctx.fillRect(bx, ceilingY + 10, 3, 6);
+      // Triangular gusset
+      ctx.beginPath();
+      ctx.moveTo(bx - 4, ceilingY + 12);
+      ctx.lineTo(bx + 7, ceilingY + 12);
+      ctx.lineTo(bx + 1.5, ceilingY + 18);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // ---- Yellow fluorescent ceiling lights (across the full ceiling) ----
+    ctx.shadowBlur = 8; ctx.shadowColor = '#ffd060';
+    ctx.fillStyle = '#ffd060';
+    for (let f = 0; f < 7; f++) {
+      ctx.fillRect(backWallX + 22 + f * 26, ceilingY + 14, 18, 2);
+    }
+    ctx.shadowBlur = 0;
+    // Soft warm light spill across the floor
+    const floorGlow = ctx.createLinearGradient(backWallX, ceilingY + 18, backWallX, floorY);
+    floorGlow.addColorStop(0, 'rgba(255, 200, 96, 0.18)');
+    floorGlow.addColorStop(1, 'rgba(255, 200, 96, 0)');
+    ctx.fillStyle = floorGlow;
+    ctx.fillRect(backWallX + 18, ceilingY + 18, hangarW - 18, floorY - ceilingY - 18);
+
+    // ---- Foundation wall under the hangar (graffiti band) ----
+    const wallH = y - floorY;
+    if (wallH > 0) {
+      ctx.fillStyle = '#7a6a5a';
+      ctx.fillRect(backWallX - 8, floorY + 6, hangarW + 16, wallH - 6);
+      ctx.fillStyle = '#5a4a3a';
+      ctx.fillRect(backWallX - 8, floorY + 6, hangarW + 16, 2);
+      ctx.fillStyle = 'rgba(40, 30, 20, 0.5)';
+      for (let i = 0; i < 6; i++) {
+        ctx.fillRect(backWallX - 8 + i * (hangarW / 5), floorY + 6, 1, wallH - 6);
+      }
+      // Graffiti
+      ctx.fillStyle = '#3ad0ff';
+      ctx.font = 'bold 8px Impact, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('THUNDR', backWallX + 4, floorY + 22);
+      ctx.fillStyle = '#ff60a0';
+      ctx.fillText('DUMP', backWallX + 80, floorY + 30);
+      ctx.fillStyle = '#ffd060';
+      ctx.fillText('LRD', backWallX + 150, floorY + 18);
+    }
+
+    // ---- DLX neon sign on the roof above the hangar ----
+    drawDLXNeonSign(x - 30, ceilingY - 4);
+    drawDLXNeonSign(dockEdge - 18, ceilingY - 4);
+
+    // ---- Outer left exterior wall (silhouette behind the back wall) ----
+    ctx.fillStyle = '#7a4828';
+    ctx.fillRect(backWallX - 18, ceilingY + 4, 18, floorY - ceilingY - 4);
+    ctx.fillStyle = '#a85838';
+    ctx.fillRect(backWallX - 18, ceilingY + 4, 18, 4);
+    ctx.fillStyle = '#3a1a08';
+    ctx.fillRect(backWallX - 18, floorY - 4, 18, 4);
+    // Small window on the outer wall
+    ctx.fillStyle = '#ffd060';
+    ctx.shadowBlur = 4; ctx.shadowColor = '#ffd060';
+    ctx.fillRect(backWallX - 14, ceilingY + 18, 6, 8);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#1a0604';
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(backWallX - 14, ceilingY + 18, 6, 8);
+
+    // ---- Runway extends out from the dock edge (caution-striped) ----
+    ctx.fillStyle = '#3a2418';
+    ctx.fillRect(dockEdge, floorY, 28, 6);
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(dockEdge, floorY + 4, 28, 2);
+    ctx.fillStyle = '#1a0408';
+    for (let s = 0; s < 5; s++) ctx.fillRect(dockEdge + 2 + s * 6, floorY + 4, 2.4, 2);
+
+    // ---- "TAP TO LAUNCH" prompt — pulses while the rig is parked ----
+    if (dailyAwaitingLaunch) {
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.12);
+      ctx.save();
+      ctx.shadowBlur = 8 + pulse * 6;
+      ctx.shadowColor = '#ffd060';
+      ctx.fillStyle = 'rgba(255, 224, 96, ' + (0.7 + pulse * 0.3) + ')';
+      ctx.font = 'bold 13px Impact, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('TAP TO LAUNCH', x + 30, ceilingY - 26);
+      // Down-arrow under the text pointing at the rig
+      ctx.beginPath();
+      ctx.moveTo(x + 30 - 6, ceilingY - 14);
+      ctx.lineTo(x + 30 + 6, ceilingY - 14);
+      ctx.lineTo(x + 30,     ceilingY - 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
     ctx.restore();
   }
 
@@ -15927,7 +16014,16 @@ const DLX_BUILD = 'v164';
     dailyHazards = [];
     dailyNextHazardX = 220;              // first hazard about a screen away
     dailyDistanceForScore = 0;
-    cargo = { x: 0, y: 0, vy: 0, attached: true, lost: false };
+    // Start the cargo trailing the rig so the bond renders cleanly
+    // while the rig sits parked in the hangar (overwrites the
+    // off-screen 0,0 placeholder used elsewhere).
+    cargo = {
+      x: 63,                          // dailyIntroStartX - 32
+      y: PLAY_H / 2 + 14,             // dailyIntroStartY (matches rig)
+      vy: 0,
+      attached: true,
+      lost: false,
+    };
     dailyThieves = [];
     dailyNextThiefAt = frame + 600;      // first thief swoops in ~10s after launch
     dailyDrones = [];
@@ -15946,19 +16042,27 @@ const DLX_BUILD = 'v164';
     dailyPickups = [];
     dailyNextPickupX = 280;               // first scrap cog pickup right out of the gate
     dailyNextMagnetX = 1200;              // first magnet recall box ~1200px in
-    // Launch intro — rig starts inside the warehouse bay (off-screen
-    // left) and auto-slides out to the player position over 90 frames
-    // (~1.5s) while the world scroll is paused.
-    dailyIntroFrames = 90;
+    // Hangar launch — the rig starts parked on the runway inside the
+    // open DLX hangar. World stays still; first tap fires the launch
+    // animation that takes the rig from the runway to the gameplay
+    // position. The hangar landmark sits at worldX 110, with its open
+    // side facing right; runway floor is at PLAY_H/2 + 28.
+    dailyAwaitingLaunch = true;
+    dailyIntroFrames = 0;
+    dailyIntroStartX = 95;                   // parked inside the hangar, on the runway
+    dailyIntroStartY = PLAY_H / 2 + 14;      // sits on the runway floor (bottom = +28)
     dailyIntroTargetX = Math.round(W * BIRD_X_FRAC);
-    dailyIntroStartX = -28;
+    dailyIntroTargetY = PLAY_H / 2 - 30;     // climbs into the air on launch
     bird.x = dailyIntroStartX;
+    bird.y = dailyIntroStartY;
+    bird.vy = 0;
     state = STATE_PLAY;
     bird.x = Math.round(W * BIRD_X_FRAC);
     bird.vy = FLAP;
     thrusterFrames = 5;
     markRunStart();
-    setLevelBanner('DLX DIST. CENTER → GOOD BUDDY · ' + formatDailyDate(today));
+    // (Route banner removed — players see the warehouse fly-out + truck
+    //  stop arrival as the visible bookends of the run.)
     // (Dispatcher daily-boot greeting + Today's Haul will play as VO
     //  when audio clips ship. Today's Haul still shown on the
     //  game-over daily chip where the player has time to read it.)
@@ -16157,11 +16261,15 @@ const DLX_BUILD = 'v164';
   let dailyPickups = [];           // [{ worldX, y, kind, alive, bobPhase }]
   let dailyNextPickupX = 0;
   let dailyNextMagnetX = 0;
-  // Intro launch — frames during which the rig auto-slides out of the
-  // DLX warehouse garage bay before normal flappy-bird control resumes.
-  let dailyIntroFrames = 0;
-  let dailyIntroStartX = 0;        // bird.x at intro start (off-screen left, inside the bay)
-  let dailyIntroTargetX = 0;       // bird.x to settle at when intro completes
+  // Intro launch — rig sits parked in the hangar at the start of a
+  // daily run; first tap fires the launch animation and the world
+  // begins to scroll.
+  let dailyAwaitingLaunch = false; // true = parked, waiting for tap
+  let dailyIntroFrames = 0;        // counts down during the launch animation
+  let dailyIntroStartX = 0;
+  let dailyIntroTargetX = 0;
+  let dailyIntroStartY = 0;        // runway altitude (where the rig starts)
+  let dailyIntroTargetY = 0;
   // Score the daily run needs to reach to count as "delivery made". Below
   // this and a crash counts as a failed delivery; at or above it the run
   // ends in DELIVERY MADE victory state. The course is broken into 4 stages
