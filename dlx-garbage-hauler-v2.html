@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v145';
+const DLX_BUILD = 'v146';
 
 (function() {
   // ---------- Device detection ----------
@@ -6399,9 +6399,15 @@ const DLX_BUILD = 'v145';
             }
             if (tf.x < -60) dailyThieves.splice(i, 1);
           } else if (tf.state === 'lower') {
-            // Slow forward drift while the claw extends downward
-            tf.x += tf.vx * 0.35;
-            tf.cableLen = Math.min(tf.cableLen + 3.5, 220);
+            // First 12 frames are a "lock-on" pause: thief hovers stationary
+            // and a yellow telegraph line shows the strike trajectory so the
+            // player has a beat to dodge before the claw drops.
+            if (tf.stateFrames < 12) {
+              // Hover in place — no forward drift, no cable extension yet
+            } else {
+              tf.x += tf.vx * 0.35;
+              tf.cableLen = Math.min(tf.cableLen + 3.5, 220);
+            }
             // Strike: when the claw reaches cargo level, snap the bond
             const magnetX = tf.x;
             const magnetY = tf.y + 12 + tf.cableLen;
@@ -8524,45 +8530,80 @@ const DLX_BUILD = 'v145';
   }
 
   // ---------- Daily delivery course renderers ----------
-  // Distant sharp mountain silhouettes behind the rolling foreground terrain.
-  // Two parallax layers: a far-back range (slow scroll) and a mid-back range
-  // (faster scroll) so the road-trip horizon reads with depth.
+  // Hazy gray dust-storm sky for the wasteland delivery course. Repaints
+  // over the campaign theme's sky so the daily looks distinctly post-haze
+  // grayish, not sunset.
+  function drawDailySky() {
+    if (!isDaily) return;
+    if (!bgCache.dailySkyGrad) {
+      const g = ctx.createLinearGradient(0, 0, 0, PLAY_H);
+      g.addColorStop(0,    '#2a2e36');
+      g.addColorStop(0.40, '#4a4e56');
+      g.addColorStop(0.75, '#7a7468');
+      g.addColorStop(1,    '#5a554c');
+      bgCache.dailySkyGrad = g;
+    }
+    ctx.fillStyle = bgCache.dailySkyGrad;
+    ctx.fillRect(0, 0, W, PLAY_H);
+    // Drifting dust haze stripes for atmosphere
+    ctx.fillStyle = 'rgba(200, 184, 160, 0.10)';
+    for (let i = 0; i < 5; i++) {
+      const y = PLAY_H * (0.50 + i * 0.05);
+      ctx.fillRect(0, y, W, 1);
+    }
+  }
+  // Soft rolling dune silhouettes behind the rolling foreground terrain.
+  // Two parallax layers — gray-tan tones, smooth low-frequency curves
+  // (NOT sharp mountain peaks) so the horizon reads as desert dunes.
   function drawDailyHorizon() {
     if (!isDaily) return;
     ctx.save();
-    // Far range — slowest parallax (10% of world scroll), sits highest
-    const farY = PLAY_H * 0.62;
+    // Far dunes — slowest parallax (10% of world scroll), softest curves
+    const farY = PLAY_H * 0.66;
     const farScroll = dailyScrollX * 0.10;
-    ctx.fillStyle = 'rgba(40, 18, 8, 0.85)';
+    ctx.fillStyle = 'rgba(80, 78, 76, 0.92)';
     ctx.beginPath();
     ctx.moveTo(-4, farY);
-    for (let sx = -4; sx <= W + 4; sx += 6) {
+    for (let sx = -4; sx <= W + 4; sx += 8) {
       const wx = sx + farScroll;
-      // Three octaves of sin → spiky range
-      const h = 22
-              + Math.abs(Math.sin(wx * 0.0090)) * 32
-              + Math.abs(Math.sin(wx * 0.0220 + 1.2)) * 14;
+      const h = 16
+              + Math.sin(wx * 0.0028) * 12
+              + Math.sin(wx * 0.0085 + 1.3) * 5;
       ctx.lineTo(sx, farY - h);
     }
     ctx.lineTo(W + 4, farY);
     ctx.closePath();
     ctx.fill();
-    // Mid range — slightly faster (25%), bigger peaks, darker silhouette
-    const midY = PLAY_H * 0.74;
+    // Mid dunes — slightly faster (25%), bigger smooth curves, darker
+    const midY = PLAY_H * 0.78;
     const midScroll = dailyScrollX * 0.25;
-    ctx.fillStyle = 'rgba(20, 8, 4, 0.95)';
+    ctx.fillStyle = 'rgba(56, 54, 52, 0.96)';
     ctx.beginPath();
     ctx.moveTo(-4, midY);
-    for (let sx = -4; sx <= W + 4; sx += 6) {
+    for (let sx = -4; sx <= W + 4; sx += 8) {
       const wx = sx + midScroll;
-      const h = 30
-              + Math.abs(Math.sin(wx * 0.0070 + 0.5)) * 44
-              + Math.abs(Math.sin(wx * 0.0190 + 2.4)) * 18;
+      const h = 26
+              + Math.sin(wx * 0.0024) * 20
+              + Math.sin(wx * 0.0070 + 0.7) * 8;
       ctx.lineTo(sx, midY - h);
     }
     ctx.lineTo(W + 4, midY);
     ctx.closePath();
     ctx.fill();
+    // Subtle warm-tan highlight along the mid-dune crests so they catch
+    // a hint of the upper-sky light
+    ctx.strokeStyle = 'rgba(160, 144, 118, 0.32)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let sx = -4; sx <= W + 4; sx += 8) {
+      const wx = sx + midScroll;
+      const h = 26
+              + Math.sin(wx * 0.0024) * 20
+              + Math.sin(wx * 0.0070 + 0.7) * 8;
+      if (sx === -4) ctx.moveTo(sx, midY - h);
+      else ctx.lineTo(sx, midY - h);
+    }
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -8575,10 +8616,11 @@ const DLX_BUILD = 'v145';
     for (let sx = -step; sx <= W + step; sx += step) {
       samples.push({ sx: sx, y: terrainHeightAt(sx + dailyScrollX) });
     }
-    // Filled body — DLX rust-brown earth with a darker base
+    // Filled body — wasteland dune sand: warm tan top fading into cool gray base
     const grad = ctx.createLinearGradient(0, PLAY_H - 80, 0, PLAY_H);
-    grad.addColorStop(0, '#5a3618');
-    grad.addColorStop(1, '#1a0a06');
+    grad.addColorStop(0,   '#8a8278');
+    grad.addColorStop(0.5, '#5a544c');
+    grad.addColorStop(1,   '#2a2824');
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.moveTo(samples[0].sx, PLAY_H + 4);
@@ -8586,8 +8628,8 @@ const DLX_BUILD = 'v145';
     ctx.lineTo(samples[samples.length - 1].sx, PLAY_H + 4);
     ctx.closePath();
     ctx.fill();
-    // Highlight ridge along the top of the terrain
-    ctx.strokeStyle = '#d8a060';
+    // Highlight ridge along the top of the terrain — pale dune crest
+    ctx.strokeStyle = '#c8b89a';
     ctx.lineWidth = 1.4;
     ctx.beginPath();
     for (let i = 0; i < samples.length; i++) {
@@ -8595,8 +8637,8 @@ const DLX_BUILD = 'v145';
       else ctx.lineTo(samples[i].sx, samples[i].y);
     }
     ctx.stroke();
-    // Texture dots (terrain detail)
-    ctx.fillStyle = 'rgba(60, 30, 14, 0.6)';
+    // Texture dots (terrain detail) — darker grit specks
+    ctx.fillStyle = 'rgba(30, 28, 24, 0.55)';
     for (let i = 0; i < 24; i++) {
       const dx = ((i * 53 + dailyScrollX) % W + W) % W;
       const dy = terrainHeightAt(dx + dailyScrollX) + 6 + (i % 3) * 4;
@@ -8652,7 +8694,8 @@ const DLX_BUILD = 'v145';
   function drawDailyRock(x, y) {
     ctx.save();
     ctx.translate(x, y);
-    ctx.fillStyle = '#5a3818';
+    // Cool slate-gray rock body
+    ctx.fillStyle = '#4a4a52';
     ctx.beginPath();
     ctx.moveTo(-9, 0);
     ctx.lineTo(-5, -7);
@@ -8661,12 +8704,14 @@ const DLX_BUILD = 'v145';
     ctx.lineTo( 9, 0);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = 'rgba(120, 60, 20, 0.55)';
+    // Pale highlight on the lit face
+    ctx.fillStyle = 'rgba(178, 178, 188, 0.55)';
     ctx.beginPath();
     ctx.moveTo(-3, -7); ctx.lineTo( 1, -9); ctx.lineTo( 0, -5);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = '#1a0a06';
+    // Hairline outline
+    ctx.strokeStyle = '#1a1a1f';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(-9, 0);
@@ -8845,6 +8890,35 @@ const DLX_BUILD = 'v145';
       ctx.strokeStyle = '#0a0204';
       ctx.lineWidth = 0.8;
       ctx.strokeRect(-3, hh, 6, 4);
+      // Lock-on telegraph — a yellow dashed line down to ground level pulses
+      // for the first 12 frames of the 'lower' state so the player can dodge
+      // before the claw drops.
+      if (tf.state === 'lower' && tf.stateFrames < 12) {
+        const lockPulse = 0.5 + 0.5 * Math.sin(tf.stateFrames * 0.6);
+        ctx.save();
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#ffd83d';
+        ctx.strokeStyle = 'rgba(255, 216, 61, ' + (0.55 + lockPulse * 0.35) + ')';
+        ctx.lineWidth = 1.4;
+        ctx.setLineDash([4, 3]);
+        ctx.lineDashOffset = -tf.stateFrames * 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, hh + 4);
+        ctx.lineTo(0, PLAY_H - 30);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Crosshair at the strike point (cargo level)
+        ctx.strokeStyle = 'rgba(255, 216, 61, ' + (0.65 + lockPulse * 0.3) + ')';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(0, PLAY_H - 60, 5 + lockPulse * 2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-7, PLAY_H - 60); ctx.lineTo(7, PLAY_H - 60);
+        ctx.moveTo(0, PLAY_H - 67); ctx.lineTo(0, PLAY_H - 53);
+        ctx.stroke();
+        ctx.restore();
+      }
       // Cable extends down by tf.cableLen (0 when retracted)
       const cableLen = tf.cableLen || 0;
       if (cableLen > 0) {
@@ -12873,7 +12947,8 @@ const DLX_BUILD = 'v145';
       ctx.translate(ox, oy);
       shakeFrames--;
     }
-    drawBackground();
+    if (isDaily) drawDailySky();
+    else drawBackground();
     drawBoss();              // body is below PLAY_H now — the ground covers it
     if (!isDaily) {
       drawAllDebris();
