@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v175-preview';
+const DLX_BUILD = 'v176-preview';
 
 (function() {
   // ---------- Device detection ----------
@@ -6427,6 +6427,33 @@ const DLX_BUILD = 'v175-preview';
         dailyScrollX += speed * slideEase;
         // Continuous engine flare during the intro
         if (dailyIntroFrames % 3 === 0) thrusterFrames = 4;
+      } else if (isDaily && dailyDockingFrames > 0) {
+        // ---- Landing animation — rig glides onto the truck stop dock ----
+        // Mirror of the warehouse launch: world scroll halts and the rig
+        // slides forward + settles onto the floating platform's pad.
+        dailyDockingFrames--;
+        const t = 1 - (dailyDockingFrames / 90);
+        // Ease-out so the rig decelerates as it lands
+        const ease = 1 - Math.pow(1 - t, 3);
+        bird.x = dailyDockingStartX + (dailyDockingTargetX - dailyDockingStartX) * ease;
+        bird.y = dailyDockingStartY + (dailyDockingTargetY - dailyDockingStartY) * ease;
+        bird.vy = 0;
+        // Cargo spring-trails the rig onto the dock
+        if (cargo && cargo.attached && !cargo.lost) {
+          const tx = bird.x - 32;
+          const ty = bird.y - 4 + Math.sin(frame * 0.18) * 1.2;
+          cargo.x += (tx - cargo.x) * 0.30;
+          cargo.y += (ty - cargo.y) * 0.30;
+          cargo.vy = 0;
+        }
+        // Engine flares cutting back during deceleration
+        if (dailyDockingFrames % 5 === 0) thrusterFrames = 3;
+        // World scroll FROZEN at lock value
+        // When animation completes, fire victory
+        if (dailyDockingFrames === 0 && !dailyDelivered) {
+          dailyDelivered = true;
+          triggerDeliverySuccess();
+        }
       } else if (isDaily) {
         // ---- Daily delivery course — terrain + ground hazards + cargo ----
         dailyScrollX += speed;
@@ -6835,14 +6862,22 @@ const DLX_BUILD = 'v175-preview';
 
         // Truck stop finish — once the rig passes the truck stop landmark,
         // count the delivery as made (overrides score-based delivery).
-        if (!dailyDeliveredAtFinish && dailyScrollX >= 620) {       // PREVIEW: was 9300
+        // Trigger the LANDING ANIMATION when the rig is close enough
+        // for the truck stop dock to be visible on screen. World scroll
+        // halts and the rig glides into the pad — actual delivery
+        // success fires when the docking animation completes.
+        if (!dailyDeliveredAtFinish && dailyScrollX >= 510) {       // PREVIEW: production trigger ~9170
           dailyDeliveredAtFinish = true;
-          if (!dailyDelivered) {
-            // Mark as delivered and trigger the victory path (handled by
-            // existing delivery-target check in maybeAdvanceLevel)
-            dailyDelivered = true;
-            triggerDeliverySuccess();
-          }
+          // Truck stop landmark world-X (currently in PREVIEW position)
+          const truckStopWX = 700;
+          // Lock scroll where it is — dock is now in view
+          // Compute dock landing target on the platform's left half
+          const dockScreenX = truckStopWX - dailyScrollX;
+          dailyDockingFrames = 90;
+          dailyDockingStartX = bird.x;
+          dailyDockingStartY = bird.y;
+          dailyDockingTargetX = dockScreenX - 70;     // left side of pad
+          dailyDockingTargetY = PLAY_H / 2 + 14;      // dock pad altitude
         }
         // Flying cargo thieves — fly in from the FRONT (right side), hover
         // at varying altitudes, lower a magnetic claw on a cable to grab the
@@ -9963,127 +9998,199 @@ const DLX_BUILD = 'v175-preview';
 
   // Good Buddy Truck Stop — orange + purple striped finish marker
   // with a neon "GOOD BUDDY" sign on a tall pole.
-  // Good Buddy Truck Stop — FLOATING SKY DINER + docking pad mirroring
-  // the warehouse hangar at the start. Sits at the rig's flight altitude
-  // so it ends the run as a clean landing instead of a fly-over.
-  // Landed cargo crates are stacked on the pad to signal "delivery zone".
+  // Good Buddy Truck Stop — FLOATING SKY DINER + GAS STATION on a big
+  // docking pad. Classic 1950s American truck-stop aesthetic: chrome
+  // streamlined diner, fuel pumps with hose + price display, neon sign,
+  // landed cargo crates showing "delivery zone". Mirrors the warehouse
+  // hangar at the start of the run for a clean visual bookend.
   function drawLandmarkTruckStop(x, y) {
     ctx.save();
     // Match the warehouse runway altitude so the rig docks at the same
-    // height it launched from — clean visual bookend for the run.
+    // height it launched from
     const padY    = PLAY_H / 2 + 28;
     const padTopY = padY - 6;
-    const ceilingY = PLAY_H / 2 - 70;
-    const padLeft  = x - 110;
-    const padRight = x + 110;
+    // GRAND-ending pad — 480 wide so the finish feels like a proper
+    // destination: cargo pile on the left, generous landing zone, gas
+    // pumps + chrome hot rod parked at the island, full diner on the
+    // right with the big neon sign towering above.
+    const padLeft  = x - 240;
+    const padRight = x + 240;
     const padW = padRight - padLeft;
 
     // ---- Anti-grav support haze under the platform (sells "floating") ----
-    ctx.fillStyle = 'rgba(80, 200, 255, 0.18)';
+    ctx.fillStyle = 'rgba(80, 200, 255, 0.20)';
     ctx.beginPath();
-    ctx.ellipse(x, padY + 22, 110, 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, padY + 24, 230, 10, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = 'rgba(80, 200, 255, 0.10)';
+    ctx.fillStyle = 'rgba(80, 200, 255, 0.12)';
     ctx.beginPath();
-    ctx.ellipse(x, padY + 36, 130, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, padY + 42, 270, 8, 0, 0, Math.PI * 2);
     ctx.fill();
-    // Two anti-grav thruster nodes hanging under the platform
-    for (const tx of [x - 60, x + 60]) {
+    // Four anti-grav thruster nodes hanging under the platform
+    for (const tx of [x - 160, x - 60, x + 60, x + 160]) {
       ctx.fillStyle = '#3a2418';
-      ctx.fillRect(tx - 4, padY + 4, 8, 6);
-      ctx.shadowBlur = 8; ctx.shadowColor = '#60d0ff';
+      ctx.fillRect(tx - 4, padY + 4, 8, 7);
+      ctx.shadowBlur = 9; ctx.shadowColor = '#60d0ff';
       ctx.fillStyle = 'rgba(120, 220, 255, 0.85)';
       ctx.beginPath();
-      ctx.arc(tx, padY + 14, 3, 0, Math.PI * 2);
+      ctx.arc(tx, padY + 15, 3.4, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
     }
 
     // ---- Platform / dock pad ----
     ctx.fillStyle = '#7a6a5a';                        // concrete underside
-    ctx.fillRect(padLeft, padY, padW, 8);
+    ctx.fillRect(padLeft, padY, padW, 9);
     ctx.fillStyle = '#5a4a3a';
-    ctx.fillRect(padLeft, padY + 6, padW, 2);
+    ctx.fillRect(padLeft, padY + 7, padW, 2);
     // Pad top surface
     ctx.fillStyle = '#3a2418';
     ctx.fillRect(padLeft, padTopY, padW, 6);
     // Yellow runway centerline dashes (LEFT half — the approach path)
     ctx.fillStyle = '#ffd83d';
-    for (let s = 0; s < 8; s++) {
+    for (let s = 0; s < 16; s++) {
       ctx.fillRect(padLeft + 6 + s * 14, padTopY + 2, 9, 1.4);
     }
     // Caution-stripe edge along the front of the pad
     ctx.fillStyle = '#ffd83d';
     ctx.fillRect(padLeft, padY + 4, padW, 2);
     ctx.fillStyle = '#1a0408';
-    for (let s = 0; s < 24; s++) ctx.fillRect(padLeft + 2 + s * 9, padY + 4, 2.6, 2);
+    for (let s = 0; s < 48; s++) ctx.fillRect(padLeft + 2 + s * 10, padY + 4, 2.8, 2);
 
-    // ---- Diner building on the right side of the platform ----
-    const dnX = x + 24, dnY = padTopY;
-    const dnW = 78, dnH = 56;
-    // Body — sandstone with terracotta roof
-    ctx.fillStyle = '#a06038';
+    // ============================================================
+    // CLASSIC 1950s STREAMLINED DINER on the right of the platform
+    // ============================================================
+    const dnX = x + 36, dnY = padTopY;
+    const dnW = 130, dnH = 64;
+    // Diner body — long horizontal cream-white streamlined facade
+    ctx.fillStyle = '#e8d8a8';                        // cream stucco
     ctx.fillRect(dnX, dnY - dnH, dnW, dnH);
-    ctx.fillStyle = '#c87c4a';
-    ctx.fillRect(dnX + dnW - 4, dnY - dnH, 4, dnH);   // sun-lit right edge
-    ctx.fillStyle = 'rgba(50, 22, 10, 0.45)';
-    ctx.fillRect(dnX, dnY - dnH, 3, dnH);             // shadow left edge
-    // Curved retro-50s roof eave (terracotta)
+    // Sun-lit right edge
+    ctx.fillStyle = '#fce4b8';
+    ctx.fillRect(dnX + dnW - 4, dnY - dnH, 4, dnH);
+    // Shadow left edge
+    ctx.fillStyle = 'rgba(80, 60, 30, 0.40)';
+    ctx.fillRect(dnX, dnY - dnH, 3, dnH);
+    // CHROME streamlined band — horizontal silver Art Deco line
+    ctx.fillStyle = '#c8d0d8';
+    ctx.fillRect(dnX, dnY - dnH * 0.62, dnW, 5);
+    ctx.fillStyle = '#a0a8b0';
+    ctx.fillRect(dnX, dnY - dnH * 0.62 + 5, dnW, 1.4);
+    // Red enamel accent stripe under the chrome band
     ctx.fillStyle = '#d8421a';
-    ctx.fillRect(dnX - 5, dnY - dnH - 6, dnW + 10, 7);
-    ctx.fillStyle = '#a82812';
-    ctx.fillRect(dnX - 5, dnY - dnH + 1, dnW + 10, 2);
-    // Diner stripe (yellow + red) along the body
-    ctx.fillStyle = '#ffd060';
-    ctx.fillRect(dnX, dnY - dnH * 0.5, dnW, 4);
-    ctx.fillStyle = '#d8421a';
-    ctx.fillRect(dnX, dnY - dnH * 0.5 + 4, dnW, 2);
-    // Big front window with warm interior glow
-    ctx.fillStyle = '#1a0604';
-    ctx.fillRect(dnX + 6, dnY - dnH + 8, dnW - 36, dnH * 0.4);
-    ctx.shadowBlur = 5; ctx.shadowColor = '#ffd060';
-    ctx.fillStyle = 'rgba(255, 200, 100, 0.55)';
-    ctx.fillRect(dnX + 7, dnY - dnH + 9, dnW - 38, dnH * 0.4 - 2);
+    ctx.fillRect(dnX, dnY - dnH * 0.62 + 7, dnW, 3);
+    // Curved chrome roof eave at the top — silver overhang
+    ctx.fillStyle = '#d8dde4';
+    ctx.fillRect(dnX - 6, dnY - dnH - 5, dnW + 12, 6);
+    ctx.fillStyle = '#7a8088';
+    ctx.fillRect(dnX - 6, dnY - dnH + 1, dnW + 12, 2);
+    // Vertical chrome corner posts (Art Deco)
+    ctx.fillStyle = '#c8d0d8';
+    ctx.fillRect(dnX,           dnY - dnH, 4, dnH);
+    ctx.fillRect(dnX + dnW - 4, dnY - dnH, 4, dnH);
+    // Big horizontal counter window with row of stools visible inside
+    const winX = dnX + 8, winY = dnY - dnH + 7, winW = dnW - 50, winH = 18;
+    ctx.fillStyle = '#1a0604';                        // window frame dark
+    ctx.fillRect(winX, winY, winW, winH);
+    // Warm interior glow (cream lighting)
+    ctx.shadowBlur = 6; ctx.shadowColor = '#ffd060';
+    ctx.fillStyle = 'rgba(255, 220, 140, 0.65)';
+    ctx.fillRect(winX + 1, winY + 1, winW - 2, winH - 2);
     ctx.shadowBlur = 0;
-    // Tiny silhouette of a customer at the counter inside
+    // Counter line inside (silhouette of the bar top)
+    ctx.fillStyle = 'rgba(80, 40, 20, 0.55)';
+    ctx.fillRect(winX + 2, winY + winH - 5, winW - 4, 1.4);
+    // Row of bar-stool customer silhouettes at the counter
     ctx.fillStyle = '#1a0604';
-    ctx.fillRect(dnX + 16, dnY - dnH + 14, 2, 6);
-    ctx.fillRect(dnX + 24, dnY - dnH + 14, 2, 6);
-    // Door
+    for (let s = 0; s < 4; s++) {
+      const sx = winX + 8 + s * 15;
+      // Body
+      ctx.fillRect(sx, winY + 5, 3, 8);
+      // Head
+      ctx.beginPath(); ctx.arc(sx + 1.5, winY + 4, 1.6, 0, Math.PI * 2); ctx.fill();
+    }
+    // Window mullion crossbars (chrome frame)
+    ctx.fillStyle = '#a0a8b0';
+    ctx.fillRect(winX + winW * 0.33, winY, 1.2, winH);
+    ctx.fillRect(winX + winW * 0.66, winY, 1.2, winH);
+    // RED + WHITE awning above the window (classic diner stripe)
+    ctx.fillStyle = '#d8421a';
+    ctx.fillRect(winX - 2, winY - 5, winW + 4, 4);
+    ctx.fillStyle = '#fce8d4';
+    for (let st = 0; st < 8; st++) {
+      ctx.fillRect(winX - 2 + st * (winW + 4) / 8, winY - 5, (winW + 4) / 16, 4);
+    }
+    // Door (right side of diner)
+    const doorX = dnX + dnW - 26;
+    ctx.fillStyle = '#3a2418';
+    ctx.fillRect(doorX, dnY - 22, 10, 22);
     ctx.fillStyle = '#1a0604';
-    ctx.fillRect(dnX + dnW - 22, dnY - 18, 8, 18);
-    ctx.fillStyle = '#ffd060';
-    ctx.fillRect(dnX + dnW - 16, dnY - 10, 1, 2);    // door handle dot
-    // Smaller side window
-    ctx.fillStyle = '#1a0604';
-    ctx.fillRect(dnX + dnW - 12, dnY - dnH + 10, 8, 8);
-    ctx.fillStyle = '#ffd060';
-    ctx.fillRect(dnX + dnW - 11, dnY - dnH + 11, 6, 6);
-    // Outline
+    ctx.fillRect(doorX + 1, dnY - 21, 8, 14);         // door window
+    ctx.fillStyle = 'rgba(255, 220, 140, 0.6)';
+    ctx.fillRect(doorX + 2, dnY - 20, 6, 12);
+    // Door handle
+    ctx.fillStyle = '#c8d0d8';
+    ctx.beginPath(); ctx.arc(doorX + 2, dnY - 6, 0.7, 0, Math.PI * 2); ctx.fill();
+    // Small "EATS" neon sign on the diner facade above the door
+    const eatsX = doorX + 5, eatsY = dnY - dnH + 28;
+    ctx.shadowBlur = 6; ctx.shadowColor = '#ff60a0';
+    ctx.fillStyle = '#1a0408';
+    ctx.fillRect(eatsX - 8, eatsY, 16, 7);
+    ctx.fillStyle = '#ff60a0';
+    ctx.font = 'bold 6px Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('EATS', eatsX, eatsY + 3.5);
+    ctx.shadowBlur = 0;
+    ctx.textBaseline = 'alphabetic';
+    // Diner outline
     ctx.strokeStyle = '#1a0604';
     ctx.lineWidth = 1.2;
     ctx.strokeRect(dnX, dnY - dnH, dnW, dnH);
 
-    // ---- Pile of already-delivered cargo crates on the LEFT of the pad ----
-    // Stacked DLX-style crates so the player reads "this is the drop zone"
+    // ============================================================
+    // GAS STATION pump island in the middle of the dock
+    // ============================================================
+    const pumpX = x - 30;
+    drawGasPump(pumpX, padTopY);
+    drawGasPump(pumpX + 30, padTopY);
+    // Small price sign between the pumps
+    ctx.fillStyle = '#1a0408';
+    ctx.fillRect(pumpX + 6, padTopY - 36, 18, 22);
+    ctx.strokeStyle = '#ffd060';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(pumpX + 6, padTopY - 36, 18, 22);
+    ctx.fillStyle = '#ffd060';
+    ctx.font = 'bold 4.5px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('FUEL', pumpX + 15, padTopY - 30);
+    ctx.font = 'bold 7px "Courier New", monospace';
+    ctx.fillText('4.20', pumpX + 15, padTopY - 22);
+    ctx.font = 'bold 4px "Courier New", monospace';
+    ctx.fillText('per gal', pumpX + 15, padTopY - 16);
+
+    // ============================================================
+    // CHROME HOT ROD parked between the gas pumps and the diner
+    // ============================================================
+    drawChromeHotRod(x + 5, padTopY);
+
+    // ============================================================
+    // PILE OF DELIVERED CARGO CRATES on the LEFT of the pad
+    // ============================================================
     const cpX = padLeft + 18;
     const drawDeliveredCrate = (cx, cy, w, h) => {
-      // Steel crate with brushed gradient (matches drawDailyCargo)
       const grad = ctx.createLinearGradient(0, cy - h, 0, cy);
       grad.addColorStop(0,    '#8a9098');
       grad.addColorStop(0.5,  '#5a6068');
       grad.addColorStop(1,    '#3a3e44');
       ctx.fillStyle = grad;
       ctx.fillRect(cx, cy - h, w, h);
-      // Hairline highlight
       ctx.fillStyle = 'rgba(220, 232, 244, 0.45)';
       ctx.fillRect(cx + 1, cy - h + 1, w - 2, 1);
-      // Yellow caution stripe band
       ctx.fillStyle = '#ffd060';
       ctx.fillRect(cx + 1, cy - h * 0.6, w - 2, h * 0.18);
       ctx.fillStyle = '#1a0408';
       for (let i = 0; i < 4; i++) ctx.fillRect(cx + 2 + i * (w / 4), cy - h * 0.6, 1.2, h * 0.18);
-      // Outline + corner rivets
       ctx.strokeStyle = '#1a1c20';
       ctx.lineWidth = 1.1;
       ctx.strokeRect(cx, cy - h, w, h);
@@ -10093,12 +10200,11 @@ const DLX_BUILD = 'v175-preview';
       ctx.beginPath(); ctx.arc(cx + 2,     cy - 2,     0.7, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(cx + w - 2, cy - 2,     0.7, 0, Math.PI * 2); ctx.fill();
     };
-    // Stack — wider crate at base, two smaller stacked, plus one beside
     drawDeliveredCrate(cpX,      padTopY,         24, 18);
     drawDeliveredCrate(cpX + 4,  padTopY - 18,    20, 16);
     drawDeliveredCrate(cpX + 26, padTopY,         16, 14);
     drawDeliveredCrate(cpX - 1,  padTopY - 34,    16, 12);
-    // Tiny green CHECKMARK stamp on the top crate showing "delivered"
+    // Green CHECKMARK stamp on the top crate showing "delivered"
     ctx.shadowBlur = 4; ctx.shadowColor = '#3afc70';
     ctx.strokeStyle = '#3afc70';
     ctx.lineWidth = 1.6;
@@ -10109,55 +10215,221 @@ const DLX_BUILD = 'v175-preview';
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // ---- Tall neon "GOOD BUDDY" sign on top of the diner ----
-    const signY = dnY - dnH - 10;
+    // ============================================================
+    // BIG NEON "GOOD BUDDY" SIGN above the diner
+    // ============================================================
+    const signY = dnY - dnH - 14;
     // Sign post on the diner roof
     ctx.fillStyle = '#3a2418';
-    ctx.fillRect(dnX + dnW * 0.35, signY, 3, 18);
+    ctx.fillRect(dnX + dnW * 0.5 - 1.5, signY, 3, 18);
     // Sign body — black plate with yellow glow border
     ctx.fillStyle = '#1a0408';
-    ctx.fillRect(dnX - 8, signY - 30, dnW + 16, 32);
-    ctx.shadowBlur = 12; ctx.shadowColor = '#ffd060';
+    ctx.fillRect(dnX - 14, signY - 36, dnW + 28, 38);
+    ctx.shadowBlur = 14; ctx.shadowColor = '#ffd060';
     ctx.strokeStyle = '#ffd060';
     ctx.lineWidth = 2;
-    ctx.strokeRect(dnX - 8, signY - 30, dnW + 16, 32);
-    // Neon "GOOD BUDDY" text
+    ctx.strokeRect(dnX - 14, signY - 36, dnW + 28, 38);
+    // Neon "GOOD BUDDY"
     ctx.fillStyle = '#ffd060';
-    ctx.font = 'bold 13px Impact, sans-serif';
+    ctx.font = 'bold 17px Impact, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('GOOD BUDDY', dnX + dnW / 2, signY - 18);
-    ctx.font = 'bold 7px Impact, sans-serif';
+    ctx.fillText('GOOD BUDDY', dnX + dnW / 2, signY - 22);
+    ctx.font = 'bold 8px Impact, sans-serif';
     ctx.fillStyle = '#fce0a8';
-    ctx.fillText('TRUCK STOP', dnX + dnW / 2, signY - 7);
+    ctx.fillText('TRUCK STOP · GAS · FOOD', dnX + dnW / 2, signY - 9);
     ctx.shadowBlur = 0;
     ctx.textBaseline = 'alphabetic';
-    // Small star decorations beside the sign
+    // Star decorations along the top of the sign
     ctx.fillStyle = '#fce0a8';
-    for (let i = 0; i < 3; i++) {
-      const sx = dnX - 5 + i * 4;
+    for (let i = 0; i < 5; i++) {
       ctx.beginPath();
-      ctx.arc(sx, signY - 33, 0.9, 0, Math.PI * 2);
+      ctx.arc(dnX - 8 + i * (dnW + 16) / 4, signY - 39, 1, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // ---- Small "DELIVERY ZONE" arrow on the LEFT edge of the pad ----
-    // Pulsing yellow arrow pointing at the pad so the player reads
-    // "land here" as they approach
+    // ============================================================
+    // PULSING LANDING ARROW on the left edge of the pad
+    // ============================================================
     const arrowPulse = 0.5 + 0.5 * Math.sin(frame * 0.12);
     ctx.save();
     ctx.shadowBlur = 6 + arrowPulse * 4;
     ctx.shadowColor = '#ffd060';
     ctx.fillStyle = 'rgba(255, 224, 96, ' + (0.7 + arrowPulse * 0.3) + ')';
     ctx.beginPath();
-    ctx.moveTo(padLeft - 14, padTopY - 10);
-    ctx.lineTo(padLeft -  2, padTopY - 4);
-    ctx.lineTo(padLeft - 14, padTopY + 2);
-    ctx.lineTo(padLeft - 10, padTopY - 4);
+    ctx.moveTo(padLeft - 16, padTopY - 12);
+    ctx.lineTo(padLeft -  2, padTopY - 5);
+    ctx.lineTo(padLeft - 16, padTopY + 2);
+    ctx.lineTo(padLeft - 11, padTopY - 5);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
 
+    ctx.restore();
+  }
+
+  // Chrome hot rod parked at the truck stop — vintage 1950s lowrider
+  // hauler in cherry red + chrome with white-wall tires, finned tail,
+  // wraparound windshield. Same vibe as the campaign hot-rod skin.
+  function drawChromeHotRod(cx, baseY) {
+    ctx.save();
+    // Ground shadow under the car
+    ctx.fillStyle = 'rgba(20, 10, 6, 0.45)';
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY + 2, 28, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // ---- White-wall tires ----
+    ctx.fillStyle = '#1a0604';
+    ctx.beginPath(); ctx.arc(cx - 16, baseY - 2, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 16, baseY - 2, 4, 0, Math.PI * 2); ctx.fill();
+    // White-wall ring
+    ctx.fillStyle = '#fce8d4';
+    ctx.beginPath(); ctx.arc(cx - 16, baseY - 2, 2.6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 16, baseY - 2, 2.6, 0, Math.PI * 2); ctx.fill();
+    // Chrome hubcap center
+    ctx.fillStyle = '#d8dde4';
+    ctx.beginPath(); ctx.arc(cx - 16, baseY - 2, 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 16, baseY - 2, 1.2, 0, Math.PI * 2); ctx.fill();
+
+    // ---- Lower body — long sleek cherry-red ----
+    ctx.fillStyle = '#c01818';
+    ctx.beginPath();
+    ctx.moveTo(cx - 22, baseY - 3);
+    ctx.lineTo(cx - 18, baseY - 9);
+    ctx.lineTo(cx -  4, baseY - 11);
+    ctx.lineTo(cx + 16, baseY - 11);
+    ctx.lineTo(cx + 22, baseY -  9);
+    ctx.lineTo(cx + 24, baseY -  6);    // tail fin
+    ctx.lineTo(cx + 22, baseY -  3);
+    ctx.closePath();
+    ctx.fill();
+
+    // ---- Roof / cabin — slightly darker red ----
+    ctx.fillStyle = '#8a1010';
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, baseY - 11);
+    ctx.lineTo(cx -  6, baseY - 17);
+    ctx.lineTo(cx + 10, baseY - 17);
+    ctx.lineTo(cx + 14, baseY - 11);
+    ctx.closePath();
+    ctx.fill();
+
+    // ---- Wraparound windshield + side window (chrome-framed glass) ----
+    ctx.fillStyle = 'rgba(160, 200, 220, 0.65)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 11, baseY - 11);
+    ctx.lineTo(cx -  6, baseY - 16);
+    ctx.lineTo(cx +  9, baseY - 16);
+    ctx.lineTo(cx + 13, baseY - 11);
+    ctx.closePath();
+    ctx.fill();
+    // Window divider (chrome bar between front + rear glass)
+    ctx.fillStyle = '#d8dde4';
+    ctx.fillRect(cx + 1, baseY - 16, 0.8, 5);
+
+    // ---- Chrome accent strip along the side ----
+    ctx.fillStyle = '#d8dde4';
+    ctx.fillRect(cx - 20, baseY - 6, 42, 0.9);
+    ctx.fillStyle = '#7a8088';
+    ctx.fillRect(cx - 20, baseY - 5.1, 42, 0.5);
+
+    // ---- Big chrome bumper on the FRONT (left) ----
+    ctx.fillStyle = '#e8eef4';
+    ctx.fillRect(cx - 24, baseY - 5, 4, 3);
+    ctx.fillStyle = '#a0a8b0';
+    ctx.fillRect(cx - 24, baseY - 3, 4, 1);
+
+    // ---- Round headlight ----
+    ctx.shadowBlur = 5; ctx.shadowColor = '#ffe070';
+    ctx.fillStyle = '#fce8a8';
+    ctx.beginPath(); ctx.arc(cx - 21, baseY - 8, 1.6, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // ---- Rear chrome bumper + tail fin tip ----
+    ctx.fillStyle = '#e8eef4';
+    ctx.fillRect(cx + 22, baseY - 5, 3, 3);
+    // Tail fin point detail
+    ctx.fillStyle = '#1a0408';
+    ctx.beginPath();
+    ctx.moveTo(cx + 22, baseY - 11);
+    ctx.lineTo(cx + 25, baseY -  9);
+    ctx.lineTo(cx + 22, baseY -  9);
+    ctx.closePath();
+    ctx.fill();
+
+    // ---- Tail light (red) ----
+    ctx.shadowBlur = 4; ctx.shadowColor = '#ff4030';
+    ctx.fillStyle = '#ff4030';
+    ctx.beginPath(); ctx.arc(cx + 22, baseY - 8, 0.9, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // ---- Body outline ----
+    ctx.strokeStyle = '#1a0604';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(cx - 22, baseY - 3);
+    ctx.lineTo(cx - 18, baseY - 9);
+    ctx.lineTo(cx -  4, baseY - 11);
+    ctx.lineTo(cx + 16, baseY - 11);
+    ctx.lineTo(cx + 22, baseY -  9);
+    ctx.lineTo(cx + 24, baseY -  6);
+    ctx.lineTo(cx + 22, baseY -  3);
+    ctx.closePath();
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // Single retro 1950s gas pump — cream + red enamel body, chrome trim,
+  // round price-display window at the top, hose + nozzle on the side.
+  function drawGasPump(px, baseY) {
+    ctx.save();
+    const pw = 14, ph = 28;
+    // Pump body
+    ctx.fillStyle = '#e8d8a8';
+    ctx.fillRect(px - pw / 2, baseY - ph, pw, ph);
+    // Red enamel center band
+    ctx.fillStyle = '#d8421a';
+    ctx.fillRect(px - pw / 2, baseY - ph * 0.55, pw, ph * 0.22);
+    // Chrome top cap
+    ctx.fillStyle = '#c8d0d8';
+    ctx.fillRect(px - pw / 2 - 1, baseY - ph - 2, pw + 2, 3);
+    // Round price-display window
+    ctx.fillStyle = '#1a0408';
+    ctx.beginPath();
+    ctx.arc(px, baseY - ph + 5, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 4; ctx.shadowColor = '#ffd060';
+    ctx.fillStyle = '#ffd060';
+    ctx.font = 'bold 4px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('420', px, baseY - ph + 5);
+    ctx.shadowBlur = 0;
+    ctx.textBaseline = 'alphabetic';
+    // Hose hanging on the right side
+    ctx.strokeStyle = '#1a1612';
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(px + pw / 2, baseY - ph * 0.40);
+    ctx.bezierCurveTo(px + pw / 2 + 4, baseY - ph * 0.20,
+                      px + pw / 2 + 6, baseY - ph * 0.10,
+                      px + pw / 2 + 5, baseY - 4);
+    ctx.stroke();
+    // Nozzle at the end of the hose
+    ctx.fillStyle = '#5a5e68';
+    ctx.fillRect(px + pw / 2 + 3, baseY - 6, 4, 4);
+    ctx.fillStyle = '#3a3e44';
+    ctx.fillRect(px + pw / 2 + 7, baseY - 5, 1.4, 2);
+    // Body outline
+    ctx.strokeStyle = '#1a0604';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px - pw / 2, baseY - ph, pw, ph);
+    // Tiny brand label on the front (1950s-style)
+    ctx.fillStyle = '#1a0408';
+    ctx.font = 'bold 3.5px Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('DLX', px, baseY - ph * 0.35);
     ctx.restore();
   }
 
@@ -16524,6 +16796,7 @@ const DLX_BUILD = 'v175-preview';
     dailyTentacles = [];
     dailyNextTentacleAt = frame + 5000;  // tentacles erupt during stage 4
     dailyDeliveredAtFinish = false;
+    dailyDockingFrames = 0;
     dailyAirObstacles = [];
     dailyNextAirObstacleX = 600;         // first air obstacle ~600px in
     dailyPickups = [];
@@ -16758,6 +17031,14 @@ const DLX_BUILD = 'v175-preview';
   let dailyIntroTargetX = 0;
   let dailyIntroStartY = 0;        // runway altitude (where the rig starts)
   let dailyIntroTargetY = 0;
+  // Landing — mirror of the launch intro that plays when the rig
+  // reaches the Good Buddy truck stop. World scroll halts and the rig
+  // glides onto the dock, then victory fires.
+  let dailyDockingFrames = 0;
+  let dailyDockingStartX = 0;
+  let dailyDockingStartY = 0;
+  let dailyDockingTargetX = 0;
+  let dailyDockingTargetY = 0;
   // After picking up a magnet recall box, the rig gets a temporary
   // magnet field that auto-pulls nearby cogs for ~4 seconds. Counts
   // down each frame.
