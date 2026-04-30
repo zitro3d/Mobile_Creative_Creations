@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v160';
+const DLX_BUILD = 'v161';
 
 (function() {
   // ---------- Device detection ----------
@@ -6419,8 +6419,11 @@ const DLX_BUILD = 'v160';
           dr.stateFrames++;
           if (dr.state === 'cruise') {
             dr.x += dr.vx;
-            // Lock on when the drone passes over the rig (player target)
-            if (Math.abs(dr.x - bird.x) < 16) {
+            // Lock on when the drone passes over the CARGO (the whole
+            // point of an anti-magnet drone — disable the cargo's tether).
+            // Player evades by swinging the cargo out via sharp climbs/dives.
+            const targetX = (cargo && cargo.attached) ? cargo.x : bird.x;
+            if (Math.abs(dr.x - targetX) < 16) {
               dr.state = 'lock';
               dr.stateFrames = 0;
             }
@@ -6436,17 +6439,21 @@ const DLX_BUILD = 'v160';
           } else if (dr.state === 'fire') {
             // Beam extends downward to terrain
             dr.beamLen = Math.min(dr.beamLen + 24, PLAY_H);
-            // Cargo zap check — beam at dr.x extends from dr.y down by beamLen
+            // Cargo zap check — wider horizontal radius (16) so the
+            // beam reads as a credible threat zone, not a pixel-perfect
+            // hitscan. Cargo must be vertically inside the beam length.
             if (cargo && cargo.attached && !cargo.lost) {
               const beamHits =
-                Math.abs(dr.x - cargo.x) < 10 &&
+                Math.abs(dr.x - cargo.x) < 16 &&
                 cargo.y >= dr.y &&
                 cargo.y <= dr.y + dr.beamLen;
               if (beamHits) {
                 cargo.attached = false;
                 cargo.vy = -1.5;
                 cargoZapFrames = 60;
-                emitPickupSparks(cargo.x, cargo.y, '#ff4030', 8);
+                emitPickupSparks(cargo.x, cargo.y, '#ff4030', 12);
+                setLevelBanner('⚠ MAGNET DISABLED');
+                shakeFrames = 10;
                 playSound('boom');
               }
             }
@@ -6597,6 +6604,102 @@ const DLX_BUILD = 'v160';
             flashAlpha = 0.6;
           }
           if (t.life >= t.maxLife) dailyTentacles.splice(i, 1);
+        }
+
+        // ---- Air obstacles — floating wreckage + scrap towers ----
+        // Stage 1+ introduces single floating wrecks; stage 2+ adds full
+        // scrap towers (flappy-bird-style pillars with a gap to fly through).
+        while (dailyNextAirObstacleX < dailyScrollX + W + 200) {
+          const r = Math.random();
+          let kind;
+          if (dailyCurrentStage >= 1 && r < 0.45) kind = 'scrapTower';
+          else                                      kind = 'airWreck';
+          const o = {
+            worldX: dailyNextAirObstacleX,
+            kind: kind,
+            seed: Math.floor(Math.random() * 9999),
+          };
+          if (kind === 'scrapTower') {
+            // Tighter gaps in later stages
+            const gap = dailyCurrentStage >= 2 ? 120 + Math.random() * 30
+                                                : 150 + Math.random() * 30;
+            const top = 60 + Math.random() * (PLAY_H - 140 - gap);
+            o.top = top;
+            o.gap = gap;
+          } else {
+            // Floating wreck altitude — anywhere mid-air
+            o.alt = 80 + Math.random() * (PLAY_H * 0.55);
+          }
+          dailyAirObstacles.push(o);
+          // Spacing — wider early, tighter in later stages
+          const baseGap = dailyCurrentStage >= 3 ? 240
+                        : dailyCurrentStage >= 2 ? 300
+                        : dailyCurrentStage >= 1 ? 360
+                        : 480;
+          dailyNextAirObstacleX += baseGap + Math.floor(Math.random() * 200);
+        }
+        while (dailyAirObstacles.length && dailyAirObstacles[0].worldX - dailyScrollX < -120) {
+          dailyAirObstacles.shift();
+        }
+
+        // ---- Scrap cog pickups (points) ----
+        while (dailyNextPickupX < dailyScrollX + W + 200) {
+          dailyPickups.push({
+            worldX: dailyNextPickupX,
+            y: 100 + Math.random() * (PLAY_H * 0.55),
+            kind: 'scrapCog',
+            alive: true,
+            bobPhase: Math.random() * Math.PI * 2,
+          });
+          // Spacing 200-360 px so there's always something to fly toward
+          dailyNextPickupX += 200 + Math.floor(Math.random() * 160);
+        }
+        // ---- Magnet recall boxes (cargo recovery) ----
+        while (dailyNextMagnetX < dailyScrollX + W + 200) {
+          dailyPickups.push({
+            worldX: dailyNextMagnetX,
+            y: 120 + Math.random() * (PLAY_H * 0.45),
+            kind: 'magnetBox',
+            alive: true,
+            bobPhase: Math.random() * Math.PI * 2,
+          });
+          // Sparse — every 800-1400 worldX
+          dailyNextMagnetX += 800 + Math.floor(Math.random() * 600);
+        }
+        // Cleanup off-screen pickups
+        while (dailyPickups.length && dailyPickups[0].worldX - dailyScrollX < -60) {
+          dailyPickups.shift();
+        }
+        // Pickup collection — rig collides with cog or magnet box
+        for (const p of dailyPickups) {
+          if (!p.alive) continue;
+          const sx = p.worldX - dailyScrollX;
+          const dx = bird.x - sx;
+          const dy = bird.y - p.y;
+          if (dx * dx + dy * dy < 22 * 22) {
+            p.alive = false;
+            if (p.kind === 'scrapCog') {
+              grantScore(5);
+              emitPickupSparks(sx, p.y, '#ffd060', 8);
+              playSound('pickup');
+            } else if (p.kind === 'magnetBox') {
+              // Instant magnet recall — re-attach detached cargo regardless
+              // of distance, lift the zap suppression timer
+              cargoZapFrames = 0;
+              if (cargo && !cargo.lost && !cargo.attached) {
+                cargo.attached = true;
+                cargo.vy = 0;
+                emitPickupSparks(cargo.x, cargo.y, '#ff60a0', 12);
+                setLevelBanner('★ MAGNET RECALL!');
+              } else {
+                // Cargo already attached — convert to a score bonus
+                grantScore(20);
+                setLevelBanner('+20 MAGNET BONUS');
+              }
+              emitPickupSparks(sx, p.y, '#ff60a0', 10);
+              playSound('powerup');
+            }
+          }
         }
 
         // Truck stop finish — once the rig passes the truck stop landmark,
@@ -6887,6 +6990,23 @@ const DLX_BUILD = 'v160';
                    : h.kind === 'cactusBig' ? gh - 22
                    :                          gh - 14;
         if (bird.y + r > topY) return true;       // clipped a hazard
+      }
+      // Air obstacles — scrap towers (gap between top + bottom stack) and
+      // single floating wreckage chunks
+      for (const o of dailyAirObstacles) {
+        const sx = o.worldX - dailyScrollX;
+        if (o.kind === 'scrapTower') {
+          const tw = 36;
+          if (bird.x + r > sx && bird.x - r < sx + tw) {
+            if (bird.y - r < o.top || bird.y + r > o.top + o.gap) return true;
+          }
+        } else if (o.kind === 'airWreck') {
+          // Roughly 32x18 floating wreckage
+          const ww = 16, wh = 9;
+          if (Math.abs(bird.x - sx) < r + ww && Math.abs(bird.y - o.alt) < r + wh) {
+            return true;
+          }
+        }
       }
       // Flying cargo thieves are aerial cargo predators — they hover high
       // above the rig and only threaten the cargo via their dropped claw.
@@ -10233,6 +10353,281 @@ const DLX_BUILD = 'v160';
       }
       ctx.restore();
     }
+  }
+
+  // Air obstacles — flappy-bird-style verticals to weave through.
+  // 'scrapTower' is a full-height pillar of stacked junk with a gap;
+  // 'airWreck' is a single floating wreckage chunk at a random altitude.
+  function drawDailyAirObstacles() {
+    if (!isDaily || !dailyAirObstacles.length) return;
+    for (const o of dailyAirObstacles) {
+      const sx = o.worldX - dailyScrollX;
+      if (sx < -120 || sx > W + 60) continue;
+      if (o.kind === 'scrapTower') drawScrapTower(sx, o.top, o.gap, o.seed);
+      else if (o.kind === 'airWreck') drawAirWreck(sx, o.alt, o.seed);
+    }
+  }
+
+  // Scrap junk tower — top + bottom rusted machinery stacks with a gap.
+  // Built from layered rectangles so each tower reads as different junk.
+  function drawScrapTower(sx, top, gap, seed) {
+    const tw = 36;
+    const cx = sx + tw / 2;
+    ctx.save();
+    // Top stack — fills 0..top
+    drawScrapStack(cx, 0, top, seed, true);
+    // Bottom stack — fills (top + gap)..PLAY_H
+    drawScrapStack(cx, top + gap, PLAY_H - (top + gap), seed + 1.3, false);
+    // Warning hazard tape band on each gap edge
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(sx - 2, top - 2, tw + 4, 3);
+    ctx.fillRect(sx - 2, top + gap - 1, tw + 4, 3);
+    ctx.fillStyle = '#1a0408';
+    for (let s = 0; s < 6; s++) {
+      ctx.fillRect(sx + 2 + s * 6, top - 2, 2, 3);
+      ctx.fillRect(sx + 2 + s * 6, top + gap - 1, 2, 3);
+    }
+    ctx.restore();
+  }
+
+  // One half of a scrap tower — a stacked vertical column of rusted
+  // junk shapes (boxes, drums, pipes). Drawn growing toward the gap.
+  function drawScrapStack(cx, startY, length, seed, isTopStack) {
+    const tw = 36;
+    let cursor = startY;
+    let i = 0;
+    while (cursor < startY + length) {
+      const segH = 16 + Math.floor(srand(seed + i * 0.31) * 14);
+      const variant = Math.floor(srand(seed + i * 0.17 + 0.4) * 4);
+      // Draw the segment
+      ctx.fillStyle = '#7a3a1c';
+      ctx.fillRect(cx - tw / 2, cursor, tw, segH);
+      // Sun-lit right edge
+      ctx.fillStyle = '#a85428';
+      ctx.fillRect(cx + tw / 2 - 3, cursor, 3, segH);
+      // Shadow left edge
+      ctx.fillStyle = 'rgba(40, 14, 6, 0.5)';
+      ctx.fillRect(cx - tw / 2, cursor, 3, segH);
+      // Variant detail
+      if (variant === 0) {
+        // Crushed car body — windows
+        ctx.fillStyle = 'rgba(160, 200, 220, 0.45)';
+        ctx.fillRect(cx - tw / 2 + 6,  cursor + 4, 8, segH - 10);
+        ctx.fillRect(cx - tw / 2 + 18, cursor + 4, 8, segH - 10);
+        ctx.fillStyle = '#1a0604';
+        ctx.fillRect(cx - 1, cursor + 4, 2, segH - 8);
+      } else if (variant === 1) {
+        // Drum stack — horizontal banding
+        ctx.fillStyle = 'rgba(40, 14, 6, 0.7)';
+        ctx.fillRect(cx - tw / 2 + 1, cursor + segH * 0.4, tw - 2, 1);
+        ctx.fillRect(cx - tw / 2 + 1, cursor + segH * 0.7, tw - 2, 1);
+        // Rust streaks
+        ctx.fillStyle = 'rgba(216, 120, 60, 0.55)';
+        ctx.fillRect(cx - 8, cursor + 4, 1.4, segH - 8);
+        ctx.fillRect(cx + 6, cursor + 4, 1.4, segH - 8);
+      } else if (variant === 2) {
+        // Pipes / vents — vertical cylinders
+        ctx.fillStyle = '#3a2418';
+        ctx.fillRect(cx - 12, cursor + 2, 4, segH - 4);
+        ctx.fillRect(cx -  2, cursor + 2, 4, segH - 4);
+        ctx.fillRect(cx +  8, cursor + 2, 4, segH - 4);
+        ctx.fillStyle = '#6a4030';
+        ctx.fillRect(cx - 11, cursor + 3, 1, segH - 6);
+        ctx.fillRect(cx -  1, cursor + 3, 1, segH - 6);
+        ctx.fillRect(cx +  9, cursor + 3, 1, segH - 6);
+      } else {
+        // Generic crate block with rivets
+        ctx.strokeStyle = 'rgba(40, 14, 6, 0.7)';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(cx - tw / 2 + 4, cursor + 3, tw - 8, segH - 6);
+        ctx.fillStyle = '#1a0604';
+        ctx.beginPath(); ctx.arc(cx - tw / 2 + 6, cursor + 5, 0.8, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx + tw / 2 - 6, cursor + 5, 0.8, 0, Math.PI * 2); ctx.fill();
+      }
+      // Outline
+      ctx.strokeStyle = '#1a0604';
+      ctx.lineWidth = 1.1;
+      ctx.strokeRect(cx - tw / 2, cursor, tw, segH);
+      cursor += segH;
+      i++;
+    }
+  }
+
+  // Floating wreckage chunk — broken old-ship hull silhouette with
+  // smoke trail. Per-chunk variation seeded by .seed.
+  function drawAirWreck(sx, alt, seed) {
+    ctx.save();
+    ctx.translate(sx, alt);
+    // Hull body — listing hulk leaning slightly nose-up
+    const tilt = (srand(seed * 0.013 + 1.1) - 0.5) * 0.4;
+    ctx.rotate(tilt);
+    // Soft drift smoke trail behind the wreck
+    ctx.fillStyle = 'rgba(60, 30, 18, 0.35)';
+    for (let p = 0; p < 5; p++) {
+      ctx.beginPath();
+      ctx.arc(14 + p * 5, -2 + Math.sin(p * 0.9) * 2, 3 + p * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Hull main shape — broken ship silhouette
+    ctx.fillStyle = '#5a3018';
+    ctx.beginPath();
+    ctx.moveTo(-16, -8);
+    ctx.lineTo(  6, -10);
+    ctx.lineTo( 14, -7);
+    ctx.lineTo( 16,  4);
+    ctx.lineTo( -2,  9);
+    ctx.lineTo(-14,  6);
+    ctx.closePath();
+    ctx.fill();
+    // Sun-lit upper edge
+    ctx.fillStyle = '#a86038';
+    ctx.beginPath();
+    ctx.moveTo(-16, -8);
+    ctx.lineTo(  6, -10);
+    ctx.lineTo( 14, -7);
+    ctx.lineTo( 12, -5);
+    ctx.lineTo(  6, -7);
+    ctx.lineTo(-15, -5);
+    ctx.closePath();
+    ctx.fill();
+    // Cockpit window glint
+    ctx.fillStyle = 'rgba(160, 200, 220, 0.55)';
+    ctx.fillRect(-8, -6, 6, 3);
+    // Engine pod on tail (left)
+    ctx.fillStyle = '#3a1a0c';
+    ctx.fillRect(-18, -3, 4, 5);
+    // Broken edge — jagged tear on the right end
+    ctx.fillStyle = '#1a0604';
+    ctx.beginPath();
+    ctx.moveTo(14, -7);
+    ctx.lineTo(11, -3);
+    ctx.lineTo(15,  0);
+    ctx.lineTo(12,  4);
+    ctx.lineTo(16,  4);
+    ctx.closePath();
+    ctx.fill();
+    // Hairline outline + rivets
+    ctx.strokeStyle = '#1a0604';
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(-16, -8);
+    ctx.lineTo(  6, -10);
+    ctx.lineTo( 14, -7);
+    ctx.lineTo( 16,  4);
+    ctx.lineTo( -2,  9);
+    ctx.lineTo(-14,  6);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fillStyle = '#1a0604';
+    for (let r = 0; r < 4; r++) {
+      ctx.beginPath();
+      ctx.arc(-12 + r * 6, -3, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Daily pickups — scrap cogs (golden gear, +5 score) and magnet
+  // recall boxes (glowing pink, instantly re-tethers dropped cargo).
+  function drawDailyPickups() {
+    if (!isDaily || !dailyPickups.length) return;
+    for (const p of dailyPickups) {
+      if (!p.alive) continue;
+      const sx = p.worldX - dailyScrollX;
+      if (sx < -30 || sx > W + 30) continue;
+      const bobY = Math.sin(frame * 0.08 + p.bobPhase) * 2;
+      ctx.save();
+      ctx.translate(sx, p.y + bobY);
+      if (p.kind === 'scrapCog') drawScrapCog();
+      else if (p.kind === 'magnetBox') drawMagnetBox();
+      ctx.restore();
+    }
+  }
+
+  // Golden cog/gear collectible — slowly rotating
+  function drawScrapCog() {
+    const rot = frame * 0.04;
+    ctx.rotate(rot);
+    // Outer halo
+    ctx.shadowBlur = 8; ctx.shadowColor = '#ffd060';
+    // Gear teeth
+    ctx.fillStyle = '#ffd060';
+    const r1 = 7, r2 = 10;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a1 = (i / 8) * Math.PI * 2;
+      const a2 = ((i + 0.4) / 8) * Math.PI * 2;
+      const a3 = ((i + 0.6) / 8) * Math.PI * 2;
+      const a4 = ((i + 1) / 8) * Math.PI * 2;
+      if (i === 0) ctx.moveTo(Math.cos(a1) * r1, Math.sin(a1) * r1);
+      ctx.lineTo(Math.cos(a1) * r1, Math.sin(a1) * r1);
+      ctx.lineTo(Math.cos(a2) * r2, Math.sin(a2) * r2);
+      ctx.lineTo(Math.cos(a3) * r2, Math.sin(a3) * r2);
+      ctx.lineTo(Math.cos(a4) * r1, Math.sin(a4) * r1);
+    }
+    ctx.closePath();
+    ctx.fill();
+    // Inner body
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#f0a830';
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+    // Center hole
+    ctx.fillStyle = '#3a2410';
+    ctx.beginPath();
+    ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    // Hairline outline
+    ctx.strokeStyle = '#3a2410';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Glowing pink magnet recall box — pulsing halo with horseshoe magnet
+  function drawMagnetBox() {
+    const pulse = 0.5 + 0.5 * Math.sin(frame * 0.18);
+    // Outer pink halo
+    ctx.shadowBlur = 14 + pulse * 8;
+    ctx.shadowColor = '#ff60a0';
+    ctx.fillStyle = 'rgba(255, 96, 160, ' + (0.4 + pulse * 0.4) + ')';
+    ctx.beginPath();
+    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Box body
+    ctx.fillStyle = '#1a0a14';
+    ctx.fillRect(-9, -9, 18, 18);
+    ctx.fillStyle = '#3a1830';
+    ctx.fillRect(-9, -9, 18, 4);
+    ctx.strokeStyle = '#ff60a0';
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(-9, -9, 18, 18);
+    // Horseshoe magnet icon — red top, white tips
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = '#ff60a0';
+    ctx.strokeStyle = '#ff60a0';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 4.5, Math.PI, 0);
+    ctx.stroke();
+    // Magnet legs
+    ctx.beginPath();
+    ctx.moveTo(-4.5, 0); ctx.lineTo(-4.5, 5);
+    ctx.moveTo( 4.5, 0); ctx.lineTo( 4.5, 5);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Pole tips (cream)
+    ctx.fillStyle = '#fce0c8';
+    ctx.fillRect(-5.6, 4, 2.2, 2);
+    ctx.fillRect( 3.4, 4, 2.2, 2);
+    // Pulsing center dot
+    ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.6 + pulse * 0.4) + ')';
+    ctx.beginPath();
+    ctx.arc(0, 0, 0.9, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   // Anti-magnet drones — small industrial hover-drones that lock onto
@@ -14631,6 +15026,8 @@ const DLX_BUILD = 'v160';
       drawDailyHazards();
       drawDailyGroundOps();
       drawDailySandPatches();
+      drawDailyAirObstacles();
+      drawDailyPickups();
       drawDailyTentacles();
       drawDailyThieves();
       drawDailyDrones();
@@ -15068,6 +15465,11 @@ const DLX_BUILD = 'v160';
     dailyTentacles = [];
     dailyNextTentacleAt = frame + 5000;  // tentacles erupt during stage 4
     dailyDeliveredAtFinish = false;
+    dailyAirObstacles = [];
+    dailyNextAirObstacleX = 600;         // first air obstacle ~600px in
+    dailyPickups = [];
+    dailyNextPickupX = 280;               // first scrap cog pickup right out of the gate
+    dailyNextMagnetX = 1200;              // first magnet recall box ~1200px in
     state = STATE_PLAY;
     bird.x = Math.round(W * BIRD_X_FRAC);
     bird.vy = FLAP;
@@ -15265,6 +15667,13 @@ const DLX_BUILD = 'v160';
   let dailyNextTentacleAt = 0;
   // Origin / destination markers
   let dailyDeliveredAtFinish = false;
+  // Air obstacles — floating wreckage and scrap towers to weave through
+  let dailyAirObstacles = [];      // [{ worldX, kind, top, gap, alt, seed }]
+  let dailyNextAirObstacleX = 0;
+  // Pickups — flyable scrap cogs (points) and magnet boxes (cargo recall)
+  let dailyPickups = [];           // [{ worldX, y, kind, alive, bobPhase }]
+  let dailyNextPickupX = 0;
+  let dailyNextMagnetX = 0;
   // Score the daily run needs to reach to count as "delivery made". Below
   // this and a crash counts as a failed delivery; at or above it the run
   // ends in DELIVERY MADE victory state. The course is broken into 4 stages
