@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v168';
+const DLX_BUILD = 'v169';
 
 (function() {
   // ---------- Device detection ----------
@@ -6471,7 +6471,6 @@ const DLX_BUILD = 'v168';
           // Drones come more frequently in later stages
           const interval = dailyCurrentStage >= 3 ? 360 : 540;
           dailyNextDroneAt = frame + interval + Math.floor(Math.random() * 240);
-          setLevelBanner('⚠ ANTI-MAGNET DRONE');
         }
         for (let i = dailyDrones.length - 1; i >= 0; i--) {
           const dr = dailyDrones[i];
@@ -6511,7 +6510,6 @@ const DLX_BUILD = 'v168';
                 cargo.vy = -1.5;
                 cargoZapFrames = 60;
                 emitPickupSparks(cargo.x, cargo.y, '#ff4030', 12);
-                setLevelBanner('⚠ MAGNET DISABLED');
                 shakeFrames = 10;
                 playSound('boom');
               }
@@ -6543,7 +6541,6 @@ const DLX_BUILD = 'v168';
             hookMaxY: 0,
           });
           dailyNextGroundOpAt = frame + 540 + Math.floor(Math.random() * 360);
-          setLevelBanner('⚠ GROUND HAULER');
         }
         for (let i = dailyGroundOps.length - 1; i >= 0; i--) {
           const op = dailyGroundOps[i];
@@ -6634,7 +6631,6 @@ const DLX_BUILD = 'v168';
             capFrames: 0,
           });
           dailyNextTentacleAt = frame + 720 + Math.floor(Math.random() * 480);
-          setLevelBanner('⚠ TENTACLE!');
         }
         for (let i = dailyTentacles.length - 1; i >= 0; i--) {
           const t = dailyTentacles[i];
@@ -6657,7 +6653,6 @@ const DLX_BUILD = 'v168';
             t.captured = true;
             t.capFrames = 30;
             dailyScrollX = Math.max(0, dailyScrollX - 600);
-            setLevelBanner('★ THROWN BACK!');
             playSound('boom');
             shakeFrames = 24;
             flashAlpha = 0.6;
@@ -6716,17 +6711,20 @@ const DLX_BUILD = 'v168';
           dailyNextPickupX += 200 + Math.floor(Math.random() * 160);
         }
         // ---- Magnet recall boxes (cargo recovery + scrap magnet field) ----
+        // Always spawn LOW to the ground so the player has to dive down
+        // to grab them (and they read as a hovering ground beacon).
         while (dailyNextMagnetX < dailyScrollX + W + 200) {
+          const groundY = terrainHeightAt(dailyNextMagnetX);
           dailyPickups.push({
             worldX: dailyNextMagnetX,
-            y: 120 + Math.random() * (PLAY_H * 0.45),
+            y: groundY - 24 - Math.random() * 12,   // hovering 24-36px above terrain
             kind: 'magnetBox',
             alive: true,
             bobPhase: Math.random() * Math.PI * 2,
           });
           // Frequent enough to actually show up early in a run —
           // every 500-900 worldX (~3-6 sec at cruise speed)
-          dailyNextMagnetX += 500 + Math.floor(Math.random() * 400);
+          dailyNextMagnetX += 1200 + Math.floor(Math.random() * 700);
         }
         // Magnet field timer (set when a magnet box is picked up)
         if (dailyMagnetFieldFrames > 0) dailyMagnetFieldFrames--;
@@ -6793,9 +6791,6 @@ const DLX_BUILD = 'v168';
               // Flash a pink recall beam from the pickup point to the
               // cargo so the player can see the recall fire
               shakeFrames = Math.max(shakeFrames, 6);
-              if (wasLost)          setLevelBanner('★ CARGO RECOVERED!');
-              else if (wasDetached) setLevelBanner('★ CARGO RECALLED!');
-              else                  setLevelBanner('★ MAGNET FIELD ON!');
               // Score bonus only fires when cargo was already safely attached
               if (!wasLost && !wasDetached) grantScore(20);
               // 4-second scrap magnet field that auto-pulls nearby cogs
@@ -6835,7 +6830,6 @@ const DLX_BUILD = 'v168';
             stateFrames: 0,
           });
           dailyNextThiefAt = frame + 420 + Math.floor(Math.random() * 240);
-          setLevelBanner('⚠ THIEF INBOUND');
         }
         for (let i = dailyThieves.length - 1; i >= 0; i--) {
           const tf = dailyThieves[i];
@@ -7105,10 +7099,10 @@ const DLX_BUILD = 'v168';
             if (bird.y - r < o.top || bird.y + r > o.top + o.gap) return true;
           }
         } else if (o.kind === 'airWreck') {
-          // Mangled wreck hull is ~56x36 — slightly conservative bbox
-          // so the protruding scrap (antenna/door/bumper) gives a bit
-          // of visual margin without being a hit
-          const ww = 24, wh = 14;
+          // Rival hauler hulk is ~70x40 — collision bbox covers the
+          // main body without including the trailing magnet cable or
+          // surrounding orbital debris fragments
+          const ww = 30, wh = 16;
           if (Math.abs(bird.x - sx) < r + ww && Math.abs(bird.y - o.alt) < r + wh) {
             return true;
           }
@@ -10794,122 +10788,188 @@ const DLX_BUILD = 'v168';
   // (bent exhaust pipe always; one of car door / chrome bumper /
   // twisted antenna / exposed engine block per seed). Reads as a real
   // crashed vehicle hulk, not a generic brown blob.
-  // Small piece of broken-vehicle debris orbiting around an airWreck.
-  // Picks a shape per seed: wheel, panel, fender, or twisted chunk.
+  // Small chunk of rival-hauler debris orbiting around the main wreck.
+  // 4 variants matching the rival predator gunship: spike ram cluster,
+  // broken cockpit canopy, skull decal panel, snapped magnet plate.
   function drawWreckFragment(seed) {
     const variant = Math.floor(srand(seed * 0.31 + 0.4) * 4);
     if (variant === 0) {
-      // Tire / wheel
-      ctx.fillStyle = '#1a0604';
-      ctx.beginPath();
-      ctx.arc(0, 0, 8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#5a5e68';
-      ctx.beginPath();
-      ctx.arc(0, 0, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#3a3a44';
-      // Spokes
-      for (let s = 0; s < 4; s++) {
-        const a = (s / 4) * Math.PI * 2;
-        ctx.fillRect(
-          Math.cos(a) * 1.4 - 0.5,
-          Math.sin(a) * 1.4 - 0.5,
-          Math.cos(a) * 5,
-          Math.sin(a) * 5
-        );
-      }
-      // Tread marks
-      ctx.strokeStyle = '#3a3a44';
-      ctx.lineWidth = 0.7;
-      for (let t = 0; t < 8; t++) {
-        const a = (t / 8) * Math.PI * 2;
+      // ---- Detached spike ram cluster (chunk of armor plating + 3 spikes) ----
+      // Armor plate base
+      ctx.fillStyle = '#3a0a08';
+      ctx.fillRect(-9, -1, 18, 5);
+      ctx.fillStyle = '#6a0a12';
+      ctx.fillRect(-9, -1, 18, 1.4);
+      ctx.strokeStyle = '#0a0204';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-9, -1, 18, 5);
+      // Spike rams (some intact, some bent)
+      ctx.fillStyle = '#1a0a06';
+      for (let s = 0; s < 3; s++) {
+        const sx = -6 + s * 6;
+        const tipBend = (s === 1) ? 1.8 : 0;
         ctx.beginPath();
-        ctx.moveTo(Math.cos(a) * 6,   Math.sin(a) * 6);
-        ctx.lineTo(Math.cos(a) * 8.5, Math.sin(a) * 8.5);
-        ctx.stroke();
+        ctx.moveTo(sx - 1.8, -1);
+        ctx.lineTo(sx + tipBend, -8);
+        ctx.lineTo(sx + 1.8, -1);
+        ctx.closePath();
+        ctx.fill();
       }
+      // Chrome highlights on the spike tips
+      ctx.fillStyle = '#e8eef8';
+      for (let s = 0; s < 3; s++) {
+        const sx = -6 + s * 6;
+        const tipBend = (s === 1) ? 1.8 : 0;
+        ctx.beginPath();
+        ctx.moveTo(sx + tipBend,    -8);
+        ctx.lineTo(sx + tipBend - 0.5, -5);
+        ctx.lineTo(sx + tipBend + 0.5, -5);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Battle-damage rivets
+      ctx.fillStyle = '#0a0204';
+      ctx.beginPath(); ctx.arc(-7, 2, 0.6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 7, 2, 0.6, 0, Math.PI * 2); ctx.fill();
     } else if (variant === 1) {
-      // Bent body panel — rectangular sheet metal with rust
-      ctx.fillStyle = '#7a3018';
-      ctx.fillRect(-9, -5, 18, 10);
-      ctx.fillStyle = '#a85838';
-      ctx.fillRect(-9, -5, 18, 2);
-      ctx.fillStyle = 'rgba(216, 120, 60, 0.55)';
-      ctx.fillRect(-3, -3, 1.4, 8);
-      ctx.fillStyle = '#1a0604';
-      // Bent corner — chunk torn off
+      // ---- Broken cockpit canopy with dead red eye-slit ----
+      // Outer canopy frame (dark crimson)
+      ctx.fillStyle = '#0a0204';
       ctx.beginPath();
-      ctx.moveTo(9, -5); ctx.lineTo(11, -3); ctx.lineTo(7, -3);
+      ctx.moveTo(-10, -4);
+      ctx.lineTo( 10, -5);
+      ctx.lineTo(  8,  4);
+      ctx.lineTo( -8,  4);
       ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = '#1a0604';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(-9, -5, 18, 10);
-    } else if (variant === 2) {
-      // Crumpled fender — curved with a rust streak
-      ctx.fillStyle = '#5a3018';
+      // Inner crimson trim
+      ctx.fillStyle = '#a01828';
       ctx.beginPath();
-      ctx.moveTo(-10, 4);
-      ctx.quadraticCurveTo(0, -8, 10, 4);
-      ctx.lineTo(8, 6);
-      ctx.quadraticCurveTo(0, -4, -8, 6);
+      ctx.moveTo(-9, -3);
+      ctx.lineTo( 9, -4);
+      ctx.lineTo( 7,  3);
+      ctx.lineTo(-7,  3);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = '#a85838';
+      // Inner dark visor band
+      ctx.fillStyle = '#1a0408';
+      ctx.fillRect(-8, -2, 16, 3);
+      // DEAD red eye-slit (dimmer, no glow)
+      ctx.fillStyle = '#5a0808';
+      ctx.fillRect(-7, -1.6, 14, 1);
+      // Cracked-glass break line through the canopy
+      ctx.strokeStyle = 'rgba(255, 220, 220, 0.5)';
+      ctx.lineWidth = 0.6;
       ctx.beginPath();
-      ctx.moveTo(-10, 4);
-      ctx.quadraticCurveTo(0, -8, 10, 4);
+      ctx.moveTo(-8, 1); ctx.lineTo(2, -2); ctx.lineTo(8, 2);
       ctx.stroke();
-      ctx.strokeStyle = '#1a0604';
+      // Spark fleck near the crack
+      ctx.shadowBlur = 3; ctx.shadowColor = '#ffd060';
+      ctx.fillStyle = '#fff8c0';
+      ctx.beginPath();
+      ctx.arc(2, -2, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    } else if (variant === 2) {
+      // ---- Skull decal armor panel (torn rectangular sheet) ----
+      // Crimson plate with torn edges
+      ctx.fillStyle = '#6a0a12';
+      ctx.beginPath();
+      ctx.moveTo(-10, -7);
+      ctx.lineTo(  9, -8);
+      ctx.lineTo( 10, -3);
+      ctx.lineTo(  8,  6);
+      ctx.lineTo( -7,  7);
+      ctx.lineTo( -9,  3);
+      ctx.lineTo(-11, -2);
+      ctx.closePath();
+      ctx.fill();
+      // Top highlight
+      ctx.fillStyle = '#982612';
+      ctx.fillRect(-10, -7, 19, 1.4);
+      // Skull decal centered on the panel
+      ctx.fillStyle = '#f4e6c0';
+      ctx.beginPath();
+      ctx.arc(-1, -1, 4, 0, Math.PI * 2);
+      ctx.fill();
+      // Eye sockets + red pupils
+      ctx.fillStyle = '#0a0204';
+      ctx.beginPath(); ctx.arc(-2.6, -1.4, 1.1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 0.6, -1.4, 1.1, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 3; ctx.shadowColor = '#ff4020';
+      ctx.fillStyle = '#ff5040';
+      ctx.beginPath(); ctx.arc(-2.6, -1.4, 0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 0.6, -1.4, 0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      // Jaw / teeth
+      ctx.fillStyle = '#0a0204';
+      ctx.fillRect(-3, 1.4, 4.4, 1.4);
+      ctx.fillStyle = '#f4e6c0';
+      ctx.fillRect(-2.6, 1.6, 0.5, 1);
+      ctx.fillRect(-1.4, 1.6, 0.5, 1);
+      ctx.fillRect(-0.2, 1.6, 0.5, 1);
+      ctx.fillRect( 1.0, 1.6, 0.5, 1);
+      // Torn outline
+      ctx.strokeStyle = '#0a0204';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(-10, 4);
-      ctx.quadraticCurveTo(0, -8, 10, 4);
-      ctx.lineTo(8, 6);
-      ctx.quadraticCurveTo(0, -4, -8, 6);
+      ctx.moveTo(-10, -7);
+      ctx.lineTo(  9, -8);
+      ctx.lineTo( 10, -3);
+      ctx.lineTo(  8,  6);
+      ctx.lineTo( -7,  7);
+      ctx.lineTo( -9,  3);
+      ctx.lineTo(-11, -2);
       ctx.closePath();
       ctx.stroke();
     } else {
-      // Twisted scrap chunk — irregular polygon with bolts
-      ctx.fillStyle = '#3a2418';
+      // ---- Snapped magnet plate dangling on a frayed cable ----
+      // Frayed cable (curls upward/away)
+      ctx.strokeStyle = '#1a1c20';
+      ctx.lineWidth = 1.4;
       ctx.beginPath();
-      ctx.moveTo(-7, -4);
-      ctx.lineTo( 4, -7);
-      ctx.lineTo( 8, -1);
-      ctx.lineTo( 6,  5);
-      ctx.lineTo(-3,  6);
-      ctx.lineTo(-8,  1);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#5a3018';
-      ctx.fillRect(-2, -2, 4, 4);
-      ctx.fillStyle = '#1a0604';
-      ctx.beginPath(); ctx.arc(-4, 0, 0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( 4, 2, 0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#1a0604';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(-7, -4);
-      ctx.lineTo( 4, -7);
-      ctx.lineTo( 8, -1);
-      ctx.lineTo( 6,  5);
-      ctx.lineTo(-3,  6);
-      ctx.lineTo(-8,  1);
-      ctx.closePath();
+      ctx.moveTo(0, -10);
+      ctx.bezierCurveTo(2, -7, -1, -4, 0, -1);
       ctx.stroke();
+      // Frayed cable tip — split into 3 strands
+      ctx.strokeStyle = '#3a3e44';
+      ctx.lineWidth = 0.7;
+      ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(-1.4, -12); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo( 0.4, -12); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo( 1.6, -12); ctx.stroke();
+      // Magnet plate
+      ctx.fillStyle = '#3a3a44';
+      ctx.fillRect(-7, -1, 14, 7);
+      ctx.fillStyle = '#5a5e68';
+      ctx.fillRect(-7, -1, 14, 1.6);
+      ctx.strokeStyle = '#0a0204';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-7, -1, 14, 7);
+      // Bolted corners
+      ctx.fillStyle = '#0a0204';
+      ctx.beginPath(); ctx.arc(-5, 1, 0.7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 5, 1, 0.7, 0, Math.PI * 2); ctx.fill();
+      // Faded pink magnet glow underneath (the magnet is dying)
+      ctx.shadowBlur = 4; ctx.shadowColor = '#ff60a0';
+      ctx.fillStyle = 'rgba(255, 128, 200, 0.45)';
+      ctx.beginPath();
+      ctx.arc(0, 9, 3.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
     }
   }
 
+  // Crashed RIVAL HAULER debris — broken-up predator gunship from a
+  // competing delivery service. Same crimson + skull aesthetic as the
+  // flying-thief gunship, but cracked in half, charred, and tumbling
+  // mid-air. 3 smaller debris pieces orbit the main hulk so the cluster
+  // reads as "this used to be a whole rival rig".
   function drawAirWreck(sx, alt, seed) {
-    // Draw 3 small debris fragments AROUND the main hull first (so they
-    // sit behind it). Positions seeded deterministically so the same
-    // wreck always has the same debris pattern. Spin slowly + bob with
-    // a per-fragment phase so the cluster feels like asteroid debris.
+    // Draw 3 debris fragments AROUND the main hull first (behind it)
     const fragOffsets = [
-      { dx: -36, dy: -18, scale: 0.55, spin: 0.020 },
-      { dx:  34, dy: -22, scale: 0.45, spin: -0.027 },
-      { dx:  28, dy:  18, scale: 0.50, spin: 0.018 },
+      { dx: -42, dy: -22, scale: 0.55, spin: 0.020 },
+      { dx:  40, dy: -26, scale: 0.45, spin: -0.027 },
+      { dx:  34, dy:  22, scale: 0.50, spin: 0.018 },
     ];
     for (let f = 0; f < fragOffsets.length; f++) {
       const fo = fragOffsets[f];
@@ -10928,208 +10988,222 @@ const DLX_BUILD = 'v168';
 
     ctx.save();
     ctx.translate(sx, alt);
-    // Hull tilt — listing nose-up or nose-down
-    const tilt = (srand(seed * 0.013 + 1.1) - 0.5) * 0.5;
+    // Hull tilt — listing nose-up/down + slow drift rotation
+    const tilt = (srand(seed * 0.013 + 1.1) - 0.5) * 0.5
+               + Math.sin(frame * 0.012 + seed) * 0.04;
     ctx.rotate(tilt);
 
-    // Soft drift smoke trail behind the wreck (right side)
-    ctx.fillStyle = 'rgba(60, 30, 18, 0.40)';
-    for (let p = 0; p < 6; p++) {
+    // Smoke + flame belching out the broken rear (right side)
+    ctx.fillStyle = 'rgba(40, 18, 10, 0.55)';
+    for (let p = 0; p < 7; p++) {
       ctx.beginPath();
-      ctx.arc(24 + p * 6, -3 + Math.sin(p * 0.9) * 3, 4 + p * 0.9, 0, Math.PI * 2);
+      ctx.arc(28 + p * 6, -2 + Math.sin(p * 0.9) * 3, 4 + p * 1.0, 0, Math.PI * 2);
       ctx.fill();
     }
+    // Orange flame flickers near the engine
+    ctx.shadowBlur = 6; ctx.shadowColor = '#ff8a30';
+    ctx.fillStyle = 'rgba(255, 138, 58, 0.85)';
+    for (let f2 = 0; f2 < 3; f2++) {
+      const fx = 28 + f2 * 4 + Math.random() * 2;
+      const fy = -2 + Math.sin(f2 * 1.4) * 2;
+      ctx.beginPath();
+      ctx.arc(fx, fy, 2.2 - f2 * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
 
-    // Mangled main hull — bigger irregular crushed polygon (~56x36)
-    ctx.fillStyle = '#5a3018';
+    // ---- Main rival hull — crimson predator gunship, cracked open ----
+    // Bigger silhouette (~70x40) with a jagged tear on the right where
+    // the rear was blown off.
+    ctx.fillStyle = '#3a0a08';                       // belly
     ctx.beginPath();
-    ctx.moveTo(-26, -12);
-    ctx.lineTo(-22, -16);
-    ctx.lineTo(-10, -18);
-    ctx.lineTo(  8, -16);
-    ctx.lineTo( 20, -12);
-    ctx.lineTo( 24,  -4);
-    ctx.lineTo( 22,   8);
-    ctx.lineTo( 10,  14);
-    ctx.lineTo( -8,  12);
-    ctx.lineTo(-22,   8);
-    ctx.lineTo(-28,   0);
+    ctx.moveTo(-32,   2);
+    ctx.lineTo(-34,  -4);
+    ctx.lineTo(-30, -14);
+    ctx.lineTo(-12, -18);
+    ctx.lineTo( 10, -16);
+    ctx.lineTo( 22, -12);
+    ctx.lineTo( 26,  -2);
+    ctx.lineTo( 18,   3);
+    ctx.lineTo( 24,  10);                            // jagged tear
+    ctx.lineTo( 14,   8);
+    ctx.lineTo( 18,  16);
+    ctx.lineTo(  6,  14);
+    ctx.lineTo( -8,  18);
+    ctx.lineTo(-26,  14);
+    ctx.lineTo(-34,   6);
     ctx.closePath();
     ctx.fill();
-
-    // Sun-lit upper edge
-    ctx.fillStyle = '#a85838';
+    // Mid-crimson upper body
+    ctx.fillStyle = '#6a0a12';
     ctx.beginPath();
-    ctx.moveTo(-26, -12);
-    ctx.lineTo(-22, -16);
-    ctx.lineTo(-10, -18);
-    ctx.lineTo(  8, -16);
-    ctx.lineTo( 20, -12);
-    ctx.lineTo( 18, -10);
-    ctx.lineTo(  8, -13);
-    ctx.lineTo(-10, -15);
-    ctx.lineTo(-22, -13);
+    ctx.moveTo(-32,   2);
+    ctx.lineTo(-34,  -4);
+    ctx.lineTo(-30, -14);
+    ctx.lineTo(-12, -18);
+    ctx.lineTo( 10, -16);
+    ctx.lineTo( 22, -12);
+    ctx.lineTo( 26,  -2);
+    ctx.lineTo(-32,   2);
     ctx.closePath();
     ctx.fill();
+    // Top highlight band
+    ctx.fillStyle = '#982612';
+    ctx.fillRect(-28, -16, 50, 3);
 
-    // Crushed cockpit window — cracked
-    ctx.fillStyle = 'rgba(160, 200, 220, 0.4)';
-    ctx.fillRect(-14, -11, 14, 6);
-    ctx.fillStyle = '#1a0604';
-    ctx.fillRect(-8, -11, 1.4, 6);
+    // ---- Cracked cockpit visor on the LEFT (front of the rig) ----
+    ctx.fillStyle = '#0a0204';                       // outer dark frame
+    ctx.fillRect(-29, -13, 16, 9);
+    ctx.fillStyle = '#a01828';                       // inner crimson trim
+    ctx.fillRect(-28, -12, 14, 7);
+    ctx.fillStyle = '#1a0408';                       // visor band
+    ctx.fillRect(-27, -11, 12, 3);
+    // DEAD red eye-slit (no glow — the rig is dead)
+    ctx.fillStyle = '#5a0808';
+    ctx.fillRect(-26, -10.4, 10, 1.2);
+    // Cracked-glass break line through the canopy
+    ctx.strokeStyle = 'rgba(255, 220, 220, 0.55)';
+    ctx.lineWidth = 0.7;
     ctx.beginPath();
-    ctx.moveTo(-12, -8); ctx.lineTo(-4, -10);
-    ctx.strokeStyle = '#1a0604';
-    ctx.lineWidth = 0.6;
+    ctx.moveTo(-26, -7); ctx.lineTo(-18, -12); ctx.lineTo(-15, -5);
     ctx.stroke();
 
-    // Faded yellow hazard stripe along the side, half worn off
+    // Yellow caution stripe along the bottom — half scorched
     ctx.fillStyle = '#ffd83d';
-    ctx.fillRect(-18, 3, 22, 3);
+    ctx.fillRect(-26, 11, 28, 3);
     ctx.fillStyle = '#1a0408';
-    for (let s = 0; s < 5; s++) ctx.fillRect(-16 + s * 5, 3, 1.6, 3);
+    for (let s = 0; s < 8; s++) ctx.fillRect(-24 + s * 4, 11, 1.6, 3);
+    ctx.fillStyle = 'rgba(20, 10, 6, 0.7)';
+    ctx.fillRect(-2, 11, 14, 3);                     // scorch mark
 
-    // ---- ALWAYS: bent exhaust pipe sticking out the back-left ----
-    ctx.fillStyle = '#3a3a44';
-    ctx.fillRect(-30, -3, 5, 3);
-    ctx.fillStyle = '#1a1c20';
-    ctx.fillRect(-33, -4, 3, 5);
-    ctx.strokeStyle = '#0a0204';
-    ctx.lineWidth = 0.8;
-    ctx.strokeRect(-33, -4, 3, 5);
-    // Pipe rim highlight
-    ctx.fillStyle = '#5a5e68';
-    ctx.fillRect(-32, -3, 1, 1);
-
-    // ---- VARIANT-specific protruding scrap (per-wreck via seed) ----
-    const variant = Math.floor(srand(seed * 0.029 + 0.7) * 4);
-
-    if (variant === 0) {
-      // Hanging car door dangling on a busted hinge
-      ctx.save();
-      ctx.translate(-14, 12);
-      ctx.rotate(0.7);
-      ctx.fillStyle = '#7a3018';
-      ctx.fillRect(-2, 0, 13, 17);
-      // Window
-      ctx.fillStyle = 'rgba(160, 200, 220, 0.5)';
-      ctx.fillRect(0, 2, 9, 5);
-      // Door handle
-      ctx.fillStyle = '#1a0604';
-      ctx.fillRect(6, 10, 3, 1);
-      ctx.strokeStyle = '#1a0604';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(-2, 0, 13, 17);
-      // Hinge bolt
-      ctx.fillStyle = '#3a3a44';
-      ctx.fillRect(-3, -1, 2.4, 3);
-      ctx.restore();
-    } else if (variant === 1) {
-      // Big chrome bumper hanging off the front
-      ctx.fillStyle = '#d8dce4';
-      ctx.fillRect(20, -2, 12, 5);
-      ctx.fillStyle = '#7a8088';
-      ctx.fillRect(20, 1, 12, 2);
-      ctx.strokeStyle = '#1a0604';
-      ctx.lineWidth = 0.8;
-      ctx.strokeRect(20, -2, 12, 5);
-      // Mounting bolts on the bumper
-      ctx.fillStyle = '#1a0604';
-      ctx.beginPath(); ctx.arc(22, 0,  0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(28, 0,  0.7, 0, Math.PI * 2); ctx.fill();
-      // Cracked corner — chunk missing
-      ctx.fillStyle = '#5a3018';
+    // ---- Spike rams along the top — some bent, one snapped off ----
+    ctx.fillStyle = '#1a0a06';
+    const spikeStates = [1, 1, 0, 1, 1];
+    for (let s = 0; s < 5; s++) {
+      const sx2 = -20 + s * 9;
+      const intact = spikeStates[s];
+      if (intact) {
+        const tipBend = (s === 1) ? 1.5 : (s === 4) ? -1.2 : 0;
+        ctx.beginPath();
+        ctx.moveTo(sx2 - 2,        -16);
+        ctx.lineTo(sx2 + tipBend,  -25);
+        ctx.lineTo(sx2 + 2,        -16);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        // Snapped — jagged stub
+        ctx.beginPath();
+        ctx.moveTo(sx2 - 2, -16);
+        ctx.lineTo(sx2,     -19);
+        ctx.lineTo(sx2 + 2, -16);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    // Chrome highlights on the intact spike tips
+    ctx.fillStyle = '#e8eef8';
+    for (let s = 0; s < 5; s++) {
+      if (!spikeStates[s]) continue;
+      const sx2 = -20 + s * 9;
+      const tipBend = (s === 1) ? 1.5 : (s === 4) ? -1.2 : 0;
       ctx.beginPath();
-      ctx.moveTo(28, 3); ctx.lineTo(32, 3); ctx.lineTo(30, 1);
+      ctx.moveTo(sx2 + tipBend,        -25);
+      ctx.lineTo(sx2 + tipBend - 0.7,  -22);
+      ctx.lineTo(sx2 + tipBend + 0.7,  -22);
       ctx.closePath();
       ctx.fill();
-    } else if (variant === 2) {
-      // Twisted rebar / antenna sticking up out of the roof
-      ctx.strokeStyle = '#3a3a44';
-      ctx.lineWidth = 1.6;
-      ctx.lineCap = 'round';
+    }
+
+    // ---- Skull-and-crossbones decal on the side (smudged + scorched) ----
+    ctx.strokeStyle = '#f4e6c0';
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-2, -7); ctx.lineTo(12,  4);
+    ctx.moveTo(-2,  4); ctx.lineTo(12, -7);
+    ctx.stroke();
+    ctx.fillStyle = '#f4e6c0';
+    ctx.beginPath();
+    ctx.arc(5, -1.5, 4, 0, Math.PI * 2);
+    ctx.fill();
+    // Eye sockets
+    ctx.fillStyle = '#0a0204';
+    ctx.beginPath(); ctx.arc(3.4, -2, 1.1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(6.6, -2, 1.1, 0, Math.PI * 2); ctx.fill();
+    // Dead pupils (no glow — rig is dead)
+    ctx.fillStyle = '#3a0a08';
+    ctx.beginPath(); ctx.arc(3.4, -2, 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(6.6, -2, 0.4, 0, Math.PI * 2); ctx.fill();
+    // Jaw + teeth
+    ctx.fillStyle = '#0a0204';
+    ctx.fillRect(2.6, 1, 4.4, 1.6);
+    ctx.fillStyle = '#f4e6c0';
+    for (let t = 0; t < 4; t++) ctx.fillRect(3.0 + t * 1.1, 1.2, 0.6, 1.2);
+    // Scorch mark across the skull
+    ctx.fillStyle = 'rgba(20, 10, 6, 0.45)';
+    ctx.fillRect(2, -3, 6, 1);
+
+    // ---- Snapped magnet cable + plate dangling from the belly ----
+    ctx.fillStyle = '#1a1c20';
+    ctx.fillRect(-6, 17, 6, 4);
+    ctx.strokeStyle = '#1a1c20';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-3, 21);
+    ctx.bezierCurveTo(-5, 24, -1, 26, -2, 30);
+    ctx.stroke();
+    // Frayed cable tip
+    ctx.strokeStyle = '#3a3e44';
+    ctx.lineWidth = 0.7;
+    for (let f3 = 0; f3 < 3; f3++) {
       ctx.beginPath();
-      ctx.moveTo( 0, -16);
-      ctx.lineTo( 2, -22);
-      ctx.lineTo(-1, -28);
-      ctx.lineTo( 3, -34);
+      ctx.moveTo(-2, 30);
+      ctx.lineTo(-2.6 + f3 * 0.6, 32);
       ctx.stroke();
-      // Antenna ball — bright red so it pops
-      ctx.shadowBlur = 4; ctx.shadowColor = '#ff4030';
-      ctx.fillStyle = '#ff5040';
+    }
+
+    // Battle damage rivets
+    ctx.fillStyle = '#0a0204';
+    for (let r2 = 0; r2 < 7; r2++) {
       ctx.beginPath();
-      ctx.arc(3, -34, 1.6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      // Smaller bent secondary rebar
-      ctx.strokeStyle = '#3a3a44';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(-6, -16);
-      ctx.lineTo(-9, -20);
-      ctx.lineTo(-7, -24);
-      ctx.stroke();
-    } else {
-      // Exposed engine block hanging out the bottom + sparking wires
-      ctx.fillStyle = '#3a2418';
-      ctx.fillRect(-4, 13, 14, 7);
-      // Engine banding
-      ctx.fillStyle = '#1a0604';
-      ctx.fillRect(-3, 14, 12, 1);
-      ctx.fillRect(-3, 17, 12, 1);
-      // Spark plugs
-      ctx.fillStyle = '#5a5e68';
-      ctx.fillRect(-2, 12, 1.4, 2);
-      ctx.fillRect( 1, 12, 1.4, 2);
-      ctx.fillRect( 4, 12, 1.4, 2);
-      ctx.strokeStyle = '#1a0604';
-      ctx.lineWidth = 0.8;
-      ctx.strokeRect(-4, 13, 14, 7);
-      // Loose yellow + red wires hanging down
-      ctx.strokeStyle = '#ffd060';
-      ctx.lineWidth = 0.8;
-      ctx.beginPath();
-      ctx.moveTo( 2, 20); ctx.lineTo(0, 24); ctx.lineTo(3, 28);
-      ctx.stroke();
-      ctx.strokeStyle = '#ff4030';
-      ctx.beginPath();
-      ctx.moveTo( 6, 20); ctx.lineTo(8, 25); ctx.lineTo(5, 29);
-      ctx.stroke();
-      // Spark fleck at the wire tip
-      ctx.fillStyle = '#fff8c0';
-      ctx.beginPath();
-      ctx.arc(3, 28, 0.9, 0, Math.PI * 2);
+      ctx.arc(-26 + r2 * 8, -10, 0.7, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Heavy hairline outline + rust streaks + rivets
-    ctx.strokeStyle = '#1a0604';
-    ctx.lineWidth = 1.3;
+    // Heavy hairline outline along the silhouette
+    ctx.strokeStyle = '#0a0204';
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.moveTo(-26, -12);
-    ctx.lineTo(-22, -16);
-    ctx.lineTo(-10, -18);
-    ctx.lineTo(  8, -16);
-    ctx.lineTo( 20, -12);
-    ctx.lineTo( 24,  -4);
-    ctx.lineTo( 22,   8);
-    ctx.lineTo( 10,  14);
-    ctx.lineTo( -8,  12);
-    ctx.lineTo(-22,   8);
-    ctx.lineTo(-28,   0);
+    ctx.moveTo(-32,   2);
+    ctx.lineTo(-34,  -4);
+    ctx.lineTo(-30, -14);
+    ctx.lineTo(-12, -18);
+    ctx.lineTo( 10, -16);
+    ctx.lineTo( 22, -12);
+    ctx.lineTo( 26,  -2);
+    ctx.lineTo( 18,   3);
+    ctx.lineTo( 24,  10);
+    ctx.lineTo( 14,   8);
+    ctx.lineTo( 18,  16);
+    ctx.lineTo(  6,  14);
+    ctx.lineTo( -8,  18);
+    ctx.lineTo(-26,  14);
+    ctx.lineTo(-34,   6);
     ctx.closePath();
     ctx.stroke();
-    // Rust streaks bleeding down
-    ctx.fillStyle = 'rgba(216, 120, 60, 0.55)';
-    ctx.fillRect(-16, -8, 1.4, 14);
-    ctx.fillRect(  4, -10, 1.4, 18);
-    // Rivets across the hull
-    ctx.fillStyle = '#1a0604';
-    for (let r = 0; r < 7; r++) {
-      ctx.beginPath();
-      ctx.arc(-20 + r * 6, -10, 0.8, 0, Math.PI * 2);
-      ctx.fill();
-    }
+
+    // Sparking exposed wires at the torn rear edge
+    ctx.strokeStyle = '#ffd060';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(20, 6); ctx.lineTo(24, 9); ctx.lineTo(22, 12);
+    ctx.stroke();
+    ctx.shadowBlur = 4; ctx.shadowColor = '#ffd060';
+    ctx.fillStyle = '#fff8c0';
+    ctx.beginPath();
+    ctx.arc(22, 12, 0.9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
@@ -11297,14 +11371,6 @@ const DLX_BUILD = 'v168';
     ctx.beginPath(); ctx.arc( boxW / 2 - 2.4, -boxH / 2 + 2.4, 1, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(-boxW / 2 + 2.4,  boxH / 2 - 2.4, 1, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc( boxW / 2 - 2.4,  boxH / 2 - 2.4, 1, 0, Math.PI * 2); ctx.fill();
-    // "RECALL" label below the box
-    ctx.shadowBlur = 5;
-    ctx.shadowColor = '#ff60a0';
-    ctx.fillStyle = 'rgba(255, 200, 220, ' + (0.9 + pulse * 0.1) + ')';
-    ctx.font = 'bold 7px Impact, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('RECALL', 0, 23);
-    ctx.shadowBlur = 0;
   }
 
   // Anti-magnet drones — small industrial hover-drones that lock onto
@@ -16139,7 +16205,7 @@ const DLX_BUILD = 'v168';
       lost: false,
     };
     dailyThieves = [];
-    dailyNextThiefAt = frame + 600;      // first thief swoops in ~10s after launch
+    dailyNextThiefAt = frame + 300;      // first thief swoops in ~5s after launch
     dailyDrones = [];
     dailyNextDroneAt = frame + 1800;     // first drone enters during stage 2
     dailyCurrentStage = 0;
