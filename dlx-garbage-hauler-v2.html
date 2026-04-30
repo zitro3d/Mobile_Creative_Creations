@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v166';
+const DLX_BUILD = 'v167';
 
 (function() {
   // ---------- Device detection ----------
@@ -6764,7 +6764,10 @@ const DLX_BUILD = 'v166';
           }
           const dx = bird.x - pickupX;
           const dy = bird.y - pickupY;
-          if (dx * dx + dy * dy < 22 * 22) {
+          // Magnet recall box has a bigger hit radius since it's a larger,
+          // more important pickup the player should never bounce off.
+          const hitR = (p.kind === 'magnetBox') ? 28 : 22;
+          if (dx * dx + dy * dy < hitR * hitR) {
             p.alive = false;
             if (p.kind === 'scrapCog') {
               grantScore(5);
@@ -11199,56 +11202,100 @@ const DLX_BUILD = 'v166';
     ctx.stroke();
   }
 
-  // Glowing pink magnet recall box — bigger, pulsing, with a "MAGNET"
-  // label so the player clearly reads what it is.
+  // Glowing pink RIG-RECALL box — pink + light-pink diagonal hazard
+  // stripes, pulsing pink halo, and a DLX rig silhouette + small cargo
+  // trailer on the face so it reads as "this brings your rig back".
+  // Sized at LEAST as big as the cargo crate (32x26 vs cargo 22x18) so
+  // it's impossible to miss against the desert sky.
   function drawMagnetBox() {
     const pulse = 0.5 + 0.5 * Math.sin(frame * 0.18);
-    // Outer pink halo (wider)
-    ctx.shadowBlur = 18 + pulse * 10;
+    // Outer wide pink halo
+    ctx.shadowBlur = 22 + pulse * 14;
     ctx.shadowColor = '#ff60a0';
-    ctx.fillStyle = 'rgba(255, 96, 160, ' + (0.45 + pulse * 0.4) + ')';
+    ctx.fillStyle = 'rgba(255, 96, 160, ' + (0.55 + pulse * 0.4) + ')';
+    ctx.beginPath();
+    ctx.arc(0, 0, 24, 0, Math.PI * 2);
+    ctx.fill();
+    // Inner brighter halo
+    ctx.fillStyle = 'rgba(255, 184, 220, ' + (0.4 + pulse * 0.3) + ')';
     ctx.beginPath();
     ctx.arc(0, 0, 16, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
-    // Box body — bigger
-    ctx.fillStyle = '#1a0a14';
-    ctx.fillRect(-12, -12, 24, 24);
-    ctx.fillStyle = '#3a1830';
-    ctx.fillRect(-12, -12, 24, 5);
-    ctx.strokeStyle = '#ff60a0';
-    ctx.lineWidth = 1.8;
-    ctx.strokeRect(-12, -12, 24, 24);
-    // Horseshoe magnet icon — pink with cream pole tips
-    ctx.shadowBlur = 6;
-    ctx.shadowColor = '#ff60a0';
-    ctx.strokeStyle = '#ff60a0';
-    ctx.lineWidth = 2.6;
-    ctx.beginPath();
-    ctx.arc(0, -1, 5.5, Math.PI, 0);
-    ctx.stroke();
-    // Magnet legs
-    ctx.beginPath();
-    ctx.moveTo(-5.5, -1); ctx.lineTo(-5.5, 5);
-    ctx.moveTo( 5.5, -1); ctx.lineTo( 5.5, 5);
-    ctx.stroke();
+    // ---- Box body (hot-pink base) — 32x26, bigger than the cargo ----
+    const boxW = 32, boxH = 26;
+    ctx.fillStyle = '#ff4090';
+    ctx.fillRect(-boxW / 2, -boxH / 2, boxW, boxH);
+    // Diagonal LIGHT-PINK hazard stripes overlay
+    ctx.fillStyle = '#ffb0d8';
+    for (let i = -boxH; i < boxW + boxH; i += 8) {
+      ctx.beginPath();
+      ctx.moveTo(-boxW / 2 + i,            -boxH / 2);
+      ctx.lineTo(-boxW / 2 + i + 4,        -boxH / 2);
+      ctx.lineTo(-boxW / 2 + i + 4 + boxH, boxH / 2);
+      ctx.lineTo(-boxW / 2 + i + boxH,     boxH / 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Center face plate (dark backdrop for the rig silhouette)
+    const faceW = 22, faceH = 16;
+    ctx.fillStyle = '#3a0830';
+    ctx.fillRect(-faceW / 2, -faceH / 2, faceW, faceH);
+    ctx.shadowBlur = 6; ctx.shadowColor = '#ff60a0';
+    ctx.strokeStyle = '#ffb0d8';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(-faceW / 2, -faceH / 2, faceW, faceH);
     ctx.shadowBlur = 0;
-    // Pole tips (cream)
+    // ---- DLX rig silhouette on the face (cream-colored) ----
     ctx.fillStyle = '#fce0c8';
-    ctx.fillRect(-6.8, 4, 2.6, 2.4);
-    ctx.fillRect( 4.2, 4, 2.6, 2.4);
-    // Pulsing center dot
-    ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.6 + pulse * 0.4) + ')';
+    // Hull body
+    ctx.fillRect(-7, -2, 13, 6);
+    // Cab on the left (front of the rig)
     ctx.beginPath();
-    ctx.arc(0, 1, 1.1, 0, Math.PI * 2);
+    ctx.moveTo(-7, -2);
+    ctx.lineTo(-7, -6);
+    ctx.lineTo(-1, -6);
+    ctx.lineTo( 0, -2);
+    ctx.closePath();
     ctx.fill();
-    // "MAGNET" label below the box (pulses with the box)
-    ctx.shadowBlur = 4;
+    // Antenna
+    ctx.fillRect(-2, -8, 0.7, 2);
+    // Yellow caution stripe across the bed
+    ctx.fillStyle = '#ffd060';
+    ctx.fillRect(0, -1, 5, 1.4);
+    // Wheels
+    ctx.fillStyle = '#1a0408';
+    ctx.beginPath(); ctx.arc(-5, 5, 1.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( 4, 5, 1.4, 0, Math.PI * 2); ctx.fill();
+    // Tiny cargo crate trailing behind (right)
+    ctx.fillStyle = '#fce0c8';
+    ctx.fillRect(7, -1, 3.5, 4);
+    ctx.strokeStyle = '#1a0408';
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(7, -1, 3.5, 4);
+    // Pink tether between the rig and trailing crate
+    ctx.strokeStyle = 'rgba(255, 144, 200, ' + (0.75 + pulse * 0.25) + ')';
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(7, 1);
+    ctx.stroke();
+    // ---- Outer box outline ----
+    ctx.strokeStyle = '#1a0408';
+    ctx.lineWidth = 1.8;
+    ctx.strokeRect(-boxW / 2, -boxH / 2, boxW, boxH);
+    // Corner rivets
+    ctx.fillStyle = '#1a0408';
+    ctx.beginPath(); ctx.arc(-boxW / 2 + 2.4, -boxH / 2 + 2.4, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( boxW / 2 - 2.4, -boxH / 2 + 2.4, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-boxW / 2 + 2.4,  boxH / 2 - 2.4, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( boxW / 2 - 2.4,  boxH / 2 - 2.4, 1, 0, Math.PI * 2); ctx.fill();
+    // "RECALL" label below the box
+    ctx.shadowBlur = 5;
     ctx.shadowColor = '#ff60a0';
-    ctx.fillStyle = 'rgba(255, 200, 220, ' + (0.85 + pulse * 0.15) + ')';
-    ctx.font = 'bold 6px Impact, sans-serif';
+    ctx.fillStyle = 'rgba(255, 200, 220, ' + (0.9 + pulse * 0.1) + ')';
+    ctx.font = 'bold 7px Impact, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('MAGNET', 0, 19);
+    ctx.fillText('RECALL', 0, 23);
     ctx.shadowBlur = 0;
   }
 
