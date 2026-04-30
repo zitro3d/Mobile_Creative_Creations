@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v167';
+const DLX_BUILD = 'v168';
 
 (function() {
   // ---------- Device detection ----------
@@ -6774,22 +6774,31 @@ const DLX_BUILD = 'v167';
               emitPickupSparks(pickupX, pickupY, '#3ad0ff', 8);
               playSound('pickup');
             } else if (p.kind === 'magnetBox') {
-              // Instant magnet recall — re-attach detached cargo regardless
-              // of distance, lift the zap suppression timer
+              // RECALL — every box ALWAYS yanks the cargo back to the
+              // rig regardless of state (detached, lost off-screen, or
+              // even already attached) so the player always feels the
+              // mechanic fire visibly.
               cargoZapFrames = 0;
-              if (cargo && !cargo.lost && !cargo.attached) {
+              const wasLost = cargo && cargo.lost;
+              const wasDetached = cargo && !cargo.attached;
+              if (cargo) {
+                cargo.lost = false;
                 cargo.attached = true;
+                // Snap to standard tether position behind the rig
+                cargo.x = bird.x - 32;
+                cargo.y = bird.y;
                 cargo.vy = 0;
-                emitPickupSparks(cargo.x, cargo.y, '#ff60a0', 12);
-                setLevelBanner('★ CARGO RECALLED!');
-              } else {
-                // Cargo already attached — convert to a score bonus
-                grantScore(20);
-                setLevelBanner('★ +20 + MAGNET FIELD!');
+                emitPickupSparks(cargo.x, cargo.y, '#ff60a0', 18);
               }
-              // ALSO grant a 4-second scrap magnet field that auto-pulls
-              // nearby cogs to the rig so every pickup is meaningful even
-              // when cargo is already attached.
+              // Flash a pink recall beam from the pickup point to the
+              // cargo so the player can see the recall fire
+              shakeFrames = Math.max(shakeFrames, 6);
+              if (wasLost)          setLevelBanner('★ CARGO RECOVERED!');
+              else if (wasDetached) setLevelBanner('★ CARGO RECALLED!');
+              else                  setLevelBanner('★ MAGNET FIELD ON!');
+              // Score bonus only fires when cargo was already safely attached
+              if (!wasLost && !wasDetached) grantScore(20);
+              // 4-second scrap magnet field that auto-pulls nearby cogs
               dailyMagnetFieldFrames = 240;
               emitPickupSparks(pickupX, pickupY, '#ff60a0', 14);
               playSound('powerup');
@@ -11226,7 +11235,8 @@ const DLX_BUILD = 'v167';
     const boxW = 32, boxH = 26;
     ctx.fillStyle = '#ff4090';
     ctx.fillRect(-boxW / 2, -boxH / 2, boxW, boxH);
-    // Diagonal LIGHT-PINK hazard stripes overlay
+    // Diagonal LIGHT-PINK hazard stripes covering the ENTIRE box (no
+    // dark face plate — stripes show under the rig silhouette too).
     ctx.fillStyle = '#ffb0d8';
     for (let i = -boxH; i < boxW + boxH; i += 8) {
       ctx.beginPath();
@@ -11237,16 +11247,14 @@ const DLX_BUILD = 'v167';
       ctx.closePath();
       ctx.fill();
     }
-    // Center face plate (dark backdrop for the rig silhouette)
-    const faceW = 22, faceH = 16;
-    ctx.fillStyle = '#3a0830';
-    ctx.fillRect(-faceW / 2, -faceH / 2, faceW, faceH);
-    ctx.shadowBlur = 6; ctx.shadowColor = '#ff60a0';
-    ctx.strokeStyle = '#ffb0d8';
-    ctx.lineWidth = 1.2;
-    ctx.strokeRect(-faceW / 2, -faceH / 2, faceW, faceH);
-    ctx.shadowBlur = 0;
-    // ---- DLX rig silhouette on the face (cream-colored) ----
+    // ---- DLX rig silhouette directly on the striped face ----
+    // Dark hairline outline behind the silhouette for legibility on
+    // the busy striped background
+    ctx.strokeStyle = 'rgba(20, 4, 16, 0.55)';
+    ctx.lineWidth = 2.6;
+    ctx.lineJoin = 'round';
+    // Hull body outline pass first
+    ctx.strokeRect(-7.5, -2.5, 14, 7);
     ctx.fillStyle = '#fce0c8';
     // Hull body
     ctx.fillRect(-7, -2, 13, 6);
