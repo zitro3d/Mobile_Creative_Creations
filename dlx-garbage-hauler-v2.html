@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v165';
+const DLX_BUILD = 'v166';
 
 (function() {
   // ---------- Device detection ----------
@@ -6363,18 +6363,44 @@ const DLX_BUILD = 'v165';
         bird.vy = 0;
         bird.y = dailyIntroStartY;
         bird.x = dailyIntroStartX;
+        // Glue the cargo to the rig so the bond stays taut while parked
+        if (cargo && cargo.attached && !cargo.lost) {
+          cargo.x = bird.x - 32;
+          cargo.y = bird.y;
+          cargo.vy = 0;
+        }
       } else if (isDaily && dailyIntroFrames > 0) {
-        // ---- Launch animation — rig accelerates off the runway ----
+        // ---- Launch animation — taxi forward on the runway, then lift off ----
         dailyIntroFrames--;
         const t = 1 - (dailyIntroFrames / 75);
-        const ease = 1 - Math.pow(1 - t, 3);
-        bird.x = dailyIntroStartX + (dailyIntroTargetX - dailyIntroStartX) * ease;
-        bird.y = dailyIntroStartY + (dailyIntroTargetY - dailyIntroStartY) * ease;
+        const slideEase = 1 - Math.pow(1 - t, 3);
+        // X always slides forward smoothly across the whole intro
+        bird.x = dailyIntroStartX + (dailyIntroTargetX - dailyIntroStartX) * slideEase;
+        // Y holds at runway altitude for the TAXI portion (first 60%)
+        // then climbs to flight altitude in the LIFTOFF portion. So
+        // the rig + cargo roll along the floor until they clear the
+        // hangar, then both lift off as a pair.
+        const taxiPortion = 0.60;
+        if (t < taxiPortion) {
+          bird.y = dailyIntroStartY;
+          bird.vy = 0;
+        } else {
+          const liftT = (t - taxiPortion) / (1 - taxiPortion);
+          const liftEase = 1 - Math.pow(1 - liftT, 2);
+          bird.y = dailyIntroStartY + (dailyIntroTargetY - dailyIntroStartY) * liftEase;
+        }
+        // Run cargo spring physics so the cargo trails the rig the
+        // whole time — taxi AND liftoff
+        if (cargo && cargo.attached && !cargo.lost) {
+          const tx = bird.x - 32;
+          const ty = bird.y - 4 + Math.sin(frame * 0.18) * 1.2;
+          cargo.x += (tx - cargo.x) * 0.30;
+          cargo.y += (ty - cargo.y) * 0.30;
+          cargo.vy = 0;
+        }
         // Ramp the world scroll up over the intro so the hangar slides
         // left past the rig — sells the takeoff momentum
-        dailyScrollX += speed * ease;
-        // Damp gravity so the launch arc reads cleanly
-        if (bird.vy > 1) bird.vy *= 0.85;
+        dailyScrollX += speed * slideEase;
         // Continuous engine flare during the intro
         if (dailyIntroFrames % 3 === 0) thrusterFrames = 4;
       } else if (isDaily) {
@@ -6689,7 +6715,7 @@ const DLX_BUILD = 'v165';
           // Spacing 200-360 px so there's always something to fly toward
           dailyNextPickupX += 200 + Math.floor(Math.random() * 160);
         }
-        // ---- Magnet recall boxes (cargo recovery) ----
+        // ---- Magnet recall boxes (cargo recovery + scrap magnet field) ----
         while (dailyNextMagnetX < dailyScrollX + W + 200) {
           dailyPickups.push({
             worldX: dailyNextMagnetX,
@@ -6698,8 +6724,28 @@ const DLX_BUILD = 'v165';
             alive: true,
             bobPhase: Math.random() * Math.PI * 2,
           });
-          // Sparse — every 800-1400 worldX
-          dailyNextMagnetX += 800 + Math.floor(Math.random() * 600);
+          // Frequent enough to actually show up early in a run —
+          // every 500-900 worldX (~3-6 sec at cruise speed)
+          dailyNextMagnetX += 500 + Math.floor(Math.random() * 400);
+        }
+        // Magnet field timer (set when a magnet box is picked up)
+        if (dailyMagnetFieldFrames > 0) dailyMagnetFieldFrames--;
+        // While the field is active, pull nearby scrap cogs toward the
+        // rig so the player feels the box doing something useful even
+        // when their cargo is already attached.
+        if (dailyMagnetFieldFrames > 0) {
+          for (const p of dailyPickups) {
+            if (!p.alive || p.kind !== 'scrapCog') continue;
+            const psx = p.worldX - dailyScrollX;
+            const dx = bird.x - psx;
+            const dy = bird.y - p.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < 160 * 160 && d2 > 4) {
+              const d = Math.sqrt(d2);
+              p.worldX += (dx / d) * 4.5;
+              p.y      += (dy / d) * 4.5;
+            }
+          }
         }
         // Cleanup off-screen pickups
         while (dailyPickups.length && dailyPickups[0].worldX - dailyScrollX < -60) {
@@ -6732,13 +6778,17 @@ const DLX_BUILD = 'v165';
                 cargo.attached = true;
                 cargo.vy = 0;
                 emitPickupSparks(cargo.x, cargo.y, '#ff60a0', 12);
-                setLevelBanner('★ MAGNET RECALL!');
+                setLevelBanner('★ CARGO RECALLED!');
               } else {
                 // Cargo already attached — convert to a score bonus
                 grantScore(20);
-                setLevelBanner('+20 MAGNET BONUS');
+                setLevelBanner('★ +20 + MAGNET FIELD!');
               }
-              emitPickupSparks(pickupX, pickupY, '#ff60a0', 10);
+              // ALSO grant a 4-second scrap magnet field that auto-pulls
+              // nearby cogs to the rig so every pickup is meaningful even
+              // when cargo is already attached.
+              dailyMagnetFieldFrames = 240;
+              emitPickupSparks(pickupX, pickupY, '#ff60a0', 14);
               playSound('powerup');
             }
           }
@@ -11149,48 +11199,57 @@ const DLX_BUILD = 'v165';
     ctx.stroke();
   }
 
-  // Glowing pink magnet recall box — pulsing halo with horseshoe magnet
+  // Glowing pink magnet recall box — bigger, pulsing, with a "MAGNET"
+  // label so the player clearly reads what it is.
   function drawMagnetBox() {
     const pulse = 0.5 + 0.5 * Math.sin(frame * 0.18);
-    // Outer pink halo
-    ctx.shadowBlur = 14 + pulse * 8;
+    // Outer pink halo (wider)
+    ctx.shadowBlur = 18 + pulse * 10;
     ctx.shadowColor = '#ff60a0';
-    ctx.fillStyle = 'rgba(255, 96, 160, ' + (0.4 + pulse * 0.4) + ')';
+    ctx.fillStyle = 'rgba(255, 96, 160, ' + (0.45 + pulse * 0.4) + ')';
     ctx.beginPath();
-    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+    ctx.arc(0, 0, 16, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
-    // Box body
+    // Box body — bigger
     ctx.fillStyle = '#1a0a14';
-    ctx.fillRect(-9, -9, 18, 18);
+    ctx.fillRect(-12, -12, 24, 24);
     ctx.fillStyle = '#3a1830';
-    ctx.fillRect(-9, -9, 18, 4);
+    ctx.fillRect(-12, -12, 24, 5);
     ctx.strokeStyle = '#ff60a0';
-    ctx.lineWidth = 1.6;
-    ctx.strokeRect(-9, -9, 18, 18);
-    // Horseshoe magnet icon — red top, white tips
+    ctx.lineWidth = 1.8;
+    ctx.strokeRect(-12, -12, 24, 24);
+    // Horseshoe magnet icon — pink with cream pole tips
     ctx.shadowBlur = 6;
     ctx.shadowColor = '#ff60a0';
     ctx.strokeStyle = '#ff60a0';
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = 2.6;
     ctx.beginPath();
-    ctx.arc(0, 0, 4.5, Math.PI, 0);
+    ctx.arc(0, -1, 5.5, Math.PI, 0);
     ctx.stroke();
     // Magnet legs
     ctx.beginPath();
-    ctx.moveTo(-4.5, 0); ctx.lineTo(-4.5, 5);
-    ctx.moveTo( 4.5, 0); ctx.lineTo( 4.5, 5);
+    ctx.moveTo(-5.5, -1); ctx.lineTo(-5.5, 5);
+    ctx.moveTo( 5.5, -1); ctx.lineTo( 5.5, 5);
     ctx.stroke();
     ctx.shadowBlur = 0;
     // Pole tips (cream)
     ctx.fillStyle = '#fce0c8';
-    ctx.fillRect(-5.6, 4, 2.2, 2);
-    ctx.fillRect( 3.4, 4, 2.2, 2);
+    ctx.fillRect(-6.8, 4, 2.6, 2.4);
+    ctx.fillRect( 4.2, 4, 2.6, 2.4);
     // Pulsing center dot
     ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.6 + pulse * 0.4) + ')';
     ctx.beginPath();
-    ctx.arc(0, 0, 0.9, 0, Math.PI * 2);
+    ctx.arc(0, 1, 1.1, 0, Math.PI * 2);
     ctx.fill();
+    // "MAGNET" label below the box (pulses with the box)
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = '#ff60a0';
+    ctx.fillStyle = 'rgba(255, 200, 220, ' + (0.85 + pulse * 0.15) + ')';
+    ctx.font = 'bold 6px Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('MAGNET', 0, 19);
+    ctx.shadowBlur = 0;
   }
 
   // Anti-magnet drones — small industrial hover-drones that lock onto
@@ -16041,7 +16100,8 @@ const DLX_BUILD = 'v165';
     dailyNextAirObstacleX = 600;         // first air obstacle ~600px in
     dailyPickups = [];
     dailyNextPickupX = 280;               // first scrap cog pickup right out of the gate
-    dailyNextMagnetX = 1200;              // first magnet recall box ~1200px in
+    dailyNextMagnetX = 700;               // first magnet recall box ~700px in (sooner so you see one early)
+    dailyMagnetFieldFrames = 0;
     // Hangar launch — the rig starts parked on the runway inside the
     // open DLX hangar. World stays still; first tap fires the launch
     // animation that takes the rig from the runway to the gameplay
@@ -16270,6 +16330,10 @@ const DLX_BUILD = 'v165';
   let dailyIntroTargetX = 0;
   let dailyIntroStartY = 0;        // runway altitude (where the rig starts)
   let dailyIntroTargetY = 0;
+  // After picking up a magnet recall box, the rig gets a temporary
+  // magnet field that auto-pulls nearby cogs for ~4 seconds. Counts
+  // down each frame.
+  let dailyMagnetFieldFrames = 0;
   // Score the daily run needs to reach to count as "delivery made". Below
   // this and a crash counts as a failed delivery; at or above it the run
   // ends in DELIVERY MADE victory state. The course is broken into 4 stages
