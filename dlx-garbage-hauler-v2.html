@@ -91,6 +91,9 @@
   }
   #overlay * { pointer-events: none; }
   #overlay .panel, #overlay #restartBtn,
+  #overlay #gameOverScreen, #overlay #gameOverScreen *,
+  #overlay #pauseScreen,    #overlay #pauseScreen *,
+  #overlay #victoryScreen,  #overlay #victoryScreen *,
   #overlay #shipPicker, #overlay .shipBtn, #overlay .shipBtn *,
   #overlay #themePicker, #overlay .themeBtn,
   #overlay #playBtnLg, #overlay #helpBtn, #overlay #settingsBtn,
@@ -1951,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v181-preview';
+const DLX_BUILD = 'v182-preview';
 
 (function() {
   // ---------- Device detection ----------
@@ -10326,160 +10329,191 @@ const DLX_BUILD = 'v181-preview';
     ctx.restore();
   }
 
-  // DLX ground crew waver — ALIEN dock crew member with 4 arms, each
-  // holding a glowing cyan light wand. Arms wave in alternating pairs
-  // (upper-left + lower-right swing UP while upper-right + lower-left
-  // swing DOWN, then swap) so the wave pattern reads from a distance.
+  // DLX ground crew waver — JABBA-STYLE blob alien with 4 squiggling
+  // tentacle arms of different lengths. Saturated green skin. Each
+  // tentacle ends in a glowing cyan suction-cup tip waving the rig in.
   function drawDLXWaver(cx, baseY) {
     ctx.save();
-    const wave  = Math.sin(frame * 0.14);
-    const waveB = Math.cos(frame * 0.14);
+    const wave  = Math.sin(frame * 0.10);
+    const waveB = Math.cos(frame * 0.12);
+    const waveC = Math.sin(frame * 0.16 + 1.2);
+    const waveD = Math.cos(frame * 0.13 + 0.7);
 
     // ---- Ground shadow ----
     ctx.fillStyle = 'rgba(20, 10, 6, 0.45)';
     ctx.beginPath();
-    ctx.ellipse(cx, baseY + 1, 11, 2.6, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, baseY + 1, 14, 3, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // ---- Boots (dark) ----
-    ctx.fillStyle = '#1a0604';
-    ctx.fillRect(cx - 5, baseY - 4, 4, 4);
-    ctx.fillRect(cx + 1, baseY - 4, 4, 4);
+    // ---- 4 TENTACLE ARMS — drawn FIRST so they sit behind the body ----
+    // Each tentacle has its own length, base width, taper, and wave
+    // phase so the whole thing reads as a chaotic squid-wave.
+    drawTentacleArm(cx - 8, baseY - 18, -0.7 - wave  * 0.5, 22, 2.8, wave);   // longest, upper-left
+    drawTentacleArm(cx + 8, baseY - 16, -2.4 + waveB * 0.5, 16, 2.4, waveB); // medium, upper-right
+    drawTentacleArm(cx - 9, baseY - 10, -0.3 - waveC * 0.4, 12, 2.0, waveC); // short, lower-left
+    drawTentacleArm(cx + 9, baseY -  8, -2.8 + waveD * 0.4, 18, 2.6, waveD); // medium-long, lower-right
 
-    // ---- Pants (dark navy work uniform) ----
-    ctx.fillStyle = '#1a2840';
-    ctx.fillRect(cx - 5, baseY - 14, 4, 10);
-    ctx.fillRect(cx + 1, baseY - 14, 4, 10);
-    // Belt
-    ctx.fillStyle = '#3a2418';
-    ctx.fillRect(cx - 5, baseY - 14, 10, 1.6);
-
-    // ---- High-vis ORANGE vest — TALLER to fit the second pair of arms ----
-    ctx.fillStyle = '#f06030';
-    ctx.fillRect(cx - 7, baseY - 25, 14, 11);
-    // Yellow reflective stripes
-    ctx.fillStyle = '#ffd83d';
-    ctx.fillRect(cx - 7, baseY - 22, 14, 1);
-    ctx.fillRect(cx - 7, baseY - 18, 14, 1);
-    // Vest opening (V down the front)
-    ctx.fillStyle = '#1a2840';
+    // ---- BLOB BODY — fat oval like a sea slug, saturated alien green ----
+    // Big rounded base that sits on the ground
+    ctx.fillStyle = '#5a9028';                       // saturated alien green
     ctx.beginPath();
-    ctx.moveTo(cx,       baseY - 25);
-    ctx.lineTo(cx - 1.5, baseY - 16);
-    ctx.lineTo(cx + 1.5, baseY - 16);
-    ctx.closePath();
+    ctx.ellipse(cx, baseY - 9, 13, 12, 0, 0, Math.PI * 2);
     ctx.fill();
+    // Belly highlight (lighter green-yellow on top half)
+    ctx.fillStyle = '#88b840';
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY - 12, 11, 8, 0, Math.PI, 0);
+    ctx.fill();
+    // Underside shadow
+    ctx.fillStyle = 'rgba(20, 40, 10, 0.45)';
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY - 4, 12, 4, 0, 0, Math.PI);
+    ctx.fill();
+    // Outline
+    ctx.strokeStyle = '#243818';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY - 9, 13, 12, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // High-vis ORANGE vest wrapping the body (DLX uniform)
+    ctx.fillStyle = '#f06030';
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY - 8, 12, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Yellow reflective stripes on the vest
+    ctx.fillStyle = '#ffd83d';
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY - 9.5, 11, 0.7, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY - 7,   11, 0.7, 0, 0, Math.PI * 2); ctx.fill();
+    // Vest outline
     ctx.strokeStyle = '#1a0604';
     ctx.lineWidth = 0.8;
-    ctx.strokeRect(cx - 7, baseY - 25, 14, 11);
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY - 8, 12, 5, 0, 0, Math.PI * 2); ctx.stroke();
+    // Belly slime spots (texture)
+    ctx.fillStyle = 'rgba(100, 140, 50, 0.5)';
+    ctx.beginPath(); ctx.arc(cx - 4, baseY - 13, 1.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 5, baseY - 14, 1.0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 1, baseY - 16, 0.8, 0, Math.PI * 2); ctx.fill();
 
-    // ---- Alien HEAD — bigger oval, pale lavender-green skin ----
-    ctx.fillStyle = '#a8c898';                  // pale alien green
+    // ---- Smaller HEAD bump on top of the blob body ----
+    ctx.fillStyle = '#5a9028';
     ctx.beginPath();
-    ctx.ellipse(cx, baseY - 30, 4.6, 5.2, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, baseY - 22, 6, 5, 0, 0, Math.PI * 2);
     ctx.fill();
-    // Skin shadow on the underside
-    ctx.fillStyle = 'rgba(60, 80, 50, 0.35)';
+    ctx.fillStyle = '#88b840';
     ctx.beginPath();
-    ctx.ellipse(cx, baseY - 28, 4.6, 2.4, 0, 0, Math.PI);
+    ctx.ellipse(cx - 0.5, baseY - 24, 4.6, 2.4, 0, Math.PI, 0);
     ctx.fill();
-    // Two antennae sticking up out of the head (under the hat)
-    ctx.strokeStyle = '#5a7848';
-    ctx.lineWidth = 0.9;
+    ctx.strokeStyle = '#243818';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(cx - 2.2, baseY - 33); ctx.lineTo(cx - 2.8, baseY - 38);
-    ctx.moveTo(cx + 2.2, baseY - 33); ctx.lineTo(cx + 2.8, baseY - 38);
+    ctx.ellipse(cx, baseY - 22, 6, 5, 0, 0, Math.PI * 2);
     ctx.stroke();
-    // Glowing tips on the antennae
-    ctx.shadowBlur = 4; ctx.shadowColor = '#3ad8ff';
-    ctx.fillStyle = '#3ad8ff';
-    ctx.beginPath(); ctx.arc(cx - 2.8, baseY - 38, 0.9, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + 2.8, baseY - 38, 0.9, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
-    // Big black almond ALIEN EYES
+
+    // Big black almond ALIEN EYES on the head bump
     ctx.fillStyle = '#0a0a14';
     ctx.beginPath();
-    ctx.ellipse(cx - 1.8, baseY - 30, 1.4, 2.0, -0.25, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.ellipse(cx - 2.2, baseY - 22, 1.6, 2.2, -0.25, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath();
-    ctx.ellipse(cx + 1.8, baseY - 30, 1.4, 2.0,  0.25, 0, Math.PI * 2);
-    ctx.fill();
-    // Eye highlight (catchlight)
+    ctx.ellipse(cx + 2.2, baseY - 22, 1.6, 2.2,  0.25, 0, Math.PI * 2); ctx.fill();
+    // Eye catchlights
     ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.arc(cx - 2.0, baseY - 30.6, 0.4, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + 1.6, baseY - 30.6, 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx - 2.4, baseY - 22.6, 0.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 2.0, baseY - 22.6, 0.5, 0, Math.PI * 2); ctx.fill();
     // Tiny mouth slit
-    ctx.fillStyle = '#3a4830';
-    ctx.fillRect(cx - 1, baseY - 26, 2, 0.6);
+    ctx.fillStyle = '#243818';
+    ctx.fillRect(cx - 1.4, baseY - 18.5, 2.8, 0.8);
 
-    // ---- Yellow hard hat with DLX stencil ----
+    // ---- Yellow DLX hard hat sitting on top of the head ----
     ctx.fillStyle = '#ffd060';
     ctx.beginPath();
-    ctx.arc(cx, baseY - 33, 4.4, Math.PI, 0);
-    ctx.lineTo(cx + 4.4, baseY - 31);
-    ctx.lineTo(cx - 4.4, baseY - 31);
+    ctx.arc(cx, baseY - 26, 5, Math.PI, 0);
+    ctx.lineTo(cx + 5, baseY - 24);
+    ctx.lineTo(cx - 5, baseY - 24);
     ctx.closePath();
     ctx.fill();
-    // Hard hat brim
+    // Brim
     ctx.fillStyle = '#1a1208';
-    ctx.fillRect(cx - 5.5, baseY - 31, 11, 1);
+    ctx.fillRect(cx - 6, baseY - 24, 12, 1);
+    // DLX stencil
     ctx.fillStyle = '#1a0408';
-    ctx.font = 'bold 3px Impact, sans-serif';
+    ctx.font = 'bold 3.2px Impact, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('DLX', cx, baseY - 33);
-
-    // ---- 4 ARMS — alien skin, each holding a cyan light wand ----
-    const armLen = 9, wandLen = 8;
-    const armColor = '#a8c898';        // alien skin (matches head)
-
-    // UPPER LEFT arm — rises when wave is positive
-    drawWaverArm(cx - 6, baseY - 23, -0.5 - wave * 0.7,
-                 armLen, wandLen, armColor);
-    // UPPER RIGHT arm — rises when waveB is positive (offset half-cycle)
-    drawWaverArm(cx + 6, baseY - 23, Math.PI + 0.5 - waveB * 0.7,
-                 armLen, wandLen, armColor);
-    // LOWER LEFT arm — rises when waveB is positive (paired with upper-right)
-    drawWaverArm(cx - 6, baseY - 18, -0.3 - waveB * 0.6,
-                 armLen, wandLen, armColor);
-    // LOWER RIGHT arm — rises when wave is positive (paired with upper-left)
-    drawWaverArm(cx + 6, baseY - 18, Math.PI + 0.3 - wave * 0.6,
-                 armLen, wandLen, armColor);
+    ctx.fillText('DLX', cx, baseY - 26);
 
     ctx.restore();
   }
 
-  // Single arm + glowing wand for the alien waver. Reusable so we
-  // can stamp 4 of them in different positions and phases.
-  function drawWaverArm(shoulderX, shoulderY, angle, armLen, wandLen, skinColor) {
-    const handX = shoulderX + Math.cos(angle) * armLen;
-    const handY = shoulderY + Math.sin(angle) * armLen;
-    // Arm — alien skin color
-    ctx.strokeStyle = skinColor;
-    ctx.lineWidth = 2.4;
+  // Single squiggling tentacle arm with a glowing cyan suction-cup tip.
+  // Drawn as a tapered bezier curve that wobbles based on the wave
+  // phase, ending in a bright cyan glow ball.
+  function drawTentacleArm(baseX, baseY, baseAngle, length, baseWidth, wavePhase) {
+    // Build the tentacle as a series of segments forming a curve.
+    // Each segment shifts the angle slightly so the whole shape
+    // squiggles instead of going in a straight line.
+    const segments = 8;
+    const segLen = length / segments;
+    const points = [{ x: baseX, y: baseY }];
+    let ang = baseAngle;
+    for (let i = 1; i <= segments; i++) {
+      // Curve angle adjusts each segment with a sine wobble
+      const t = i / segments;
+      ang += Math.sin(wavePhase * 1.2 + t * 3.0) * 0.18;
+      const px = points[i - 1].x + Math.cos(ang) * segLen;
+      const py = points[i - 1].y + Math.sin(ang) * segLen;
+      points.push({ x: px, y: py });
+    }
+    // Outline pass — slightly wider, dark green
+    ctx.strokeStyle = '#243818';
     ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(shoulderX, shoulderY);
-    ctx.lineTo(handX, handY);
-    ctx.stroke();
-    // Hand (small alien paw)
-    ctx.fillStyle = skinColor;
-    ctx.beginPath();
-    ctx.arc(handX, handY, 1.2, 0, Math.PI * 2);
-    ctx.fill();
-    // Wand — cyan glow stick
-    const wandTipX = handX + Math.cos(angle) * wandLen;
-    const wandTipY = handY + Math.sin(angle) * wandLen;
+    ctx.lineJoin = 'round';
+    for (let i = 1; i < points.length; i++) {
+      const t = 1 - (i / points.length);
+      ctx.lineWidth = baseWidth * t + 1.4;
+      ctx.beginPath();
+      ctx.moveTo(points[i - 1].x, points[i - 1].y);
+      ctx.lineTo(points[i].x,     points[i].y);
+      ctx.stroke();
+    }
+    // Tentacle body — green tapering toward the tip
+    ctx.strokeStyle = '#5a9028';
+    for (let i = 1; i < points.length; i++) {
+      const t = 1 - (i / points.length);
+      ctx.lineWidth = baseWidth * t;
+      ctx.beginPath();
+      ctx.moveTo(points[i - 1].x, points[i - 1].y);
+      ctx.lineTo(points[i].x,     points[i].y);
+      ctx.stroke();
+    }
+    // Light highlight stripe on the upper edge
+    ctx.strokeStyle = '#88b840';
+    for (let i = 1; i < points.length; i++) {
+      const t = 1 - (i / points.length);
+      ctx.lineWidth = baseWidth * t * 0.45;
+      ctx.beginPath();
+      ctx.moveTo(points[i - 1].x, points[i - 1].y - 0.5);
+      ctx.lineTo(points[i].x,     points[i].y - 0.5);
+      ctx.stroke();
+    }
+    // Suction-cup spots along the inside of the tentacle
+    ctx.fillStyle = '#243818';
+    for (let i = 1; i < points.length; i += 2) {
+      ctx.beginPath();
+      ctx.arc(points[i].x, points[i].y + 0.4, 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Glowing cyan suction-cup TIP at the end of the tentacle
+    const tip = points[points.length - 1];
     ctx.shadowBlur = 8; ctx.shadowColor = '#3ad8ff';
-    ctx.strokeStyle = '#3ad8ff';
-    ctx.lineWidth = 2.2;
+    ctx.fillStyle = '#3ad8ff';
     ctx.beginPath();
-    ctx.moveTo(handX, handY);
-    ctx.lineTo(wandTipX, wandTipY);
-    ctx.stroke();
-    // Bright tip
+    ctx.arc(tip.x, tip.y, 1.8, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(wandTipX, wandTipY, 1.4, 0, Math.PI * 2);
+    ctx.arc(tip.x, tip.y, 0.7, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
   }
@@ -18854,8 +18888,10 @@ const DLX_BUILD = 'v181-preview';
   }
 
   function handleTouchStart(e) {
-    // Let ship buttons handle themselves (they stopPropagation on touchstart,
-    // but check target defensively so the click fallback works too)
+    // Let UI buttons handle themselves — bypass the global preventDefault
+    // for any tap that lands on a button or panel inside an overlay
+    // screen so iPad touches don't get swallowed before the button's
+    // own listener fires.
     if (e && e.target && e.target.closest &&
         (e.target.closest('.shipBtn') ||
          e.target.closest('.themeBtn') ||
@@ -18866,12 +18902,16 @@ const DLX_BUILD = 'v181-preview';
          e.target.closest('#settingsScreen') ||
          e.target.closest('#helpScreen') ||
          e.target.closest('#playBtns') ||
+         e.target.closest('#gameOverScreen') ||
          e.target.closest('#pauseScreen') ||
          e.target.closest('#victoryScreen') ||
          e.target.closest('#resumeResetBtn') ||
          e.target.closest('#garageScreen') ||
          e.target.closest('#trophyScreen'))) return;
-    if (state === STATE_PAUSED || state === STATE_VICTORY) return;
+    // While any end-of-run / paused menu is up, taps in the canvas
+    // area are no-ops — don't preventDefault since the user might be
+    // trying to scroll or tap a button just outside our hit zones.
+    if (state === STATE_PAUSED || state === STATE_VICTORY || state === STATE_OVER) return;
     if (e && e.cancelable) e.preventDefault();
     audio(); // unlock WebAudio on the first user gesture (iOS requirement)
     if (state === STATE_OVER) return;
