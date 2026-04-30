@@ -1907,7 +1907,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v172';
+const DLX_BUILD = 'v173';
 
 (function() {
   // ---------- Device detection ----------
@@ -4011,14 +4011,35 @@ const DLX_BUILD = 'v172';
         // Single sharp impulse — pushes bird up or down depending on direction
         bird.vy += hazard.direction * 7;
       } else if (hazard.type === 'debris_storm') {
-        // Spawn a volley of tumbling junk pieces flying right→left
-        for (let i = 0; i < 14; i++) {
+        // Pick a SAFE LANE Y — generous clear corridor so the storm
+        // reads as a puzzle with an obvious entrance and exit. Should
+        // feel unexpected but NOT punishing — the player should always
+        // be able to find a way through.
+        hazard.safeY = PLAY_H * (0.25 + Math.random() * 0.5);
+        hazard.safeHalf = 56;            // 112-px-tall clear lane (generous)
+        // Lower density (12 pieces) with broad size variation. Every
+        // piece avoids the safe lane.
+        const pieces = 12;
+        for (let i = 0; i < pieces; i++) {
+          let py;
+          let attempts = 0;
+          do {
+            py = 30 + Math.random() * (PLAY_H - 60);
+            attempts++;
+          } while (Math.abs(py - hazard.safeY) < hazard.safeHalf && attempts < 12);
+          // Size mix: small / medium / occasional big slab
+          let r;
+          const sz = Math.random();
+          if      (sz < 0.55) r = 3 + Math.random() * 4;     // 3..7  (small)
+          else if (sz < 0.88) r = 7 + Math.random() * 4;     // 7..11 (medium)
+          else                r = 11 + Math.random() * 4;    // 11..15 (big slab)
           hazard.debris.push({
-            x: W + 20 + Math.random() * 240,
-            y: 30 + Math.random() * (PLAY_H - 60),
+            x: W + 20 + Math.random() * 320,
+            y: py,
             vx: -3.6 - Math.random() * 2.4,
-            vy: (Math.random() - 0.5) * 1.2,
-            r:  4 + Math.random() * 4,
+            // Small vertical drift so the lane stays clear throughout
+            vy: (Math.random() - 0.5) * 0.3,
+            r:  r,
             rot: Math.random() * Math.PI * 2,
             vr:  (Math.random() - 0.5) * 0.22,
           });
