@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v189';
+const DLX_BUILD = 'v190';
 
 (function() {
   // ---------- Device detection ----------
@@ -6496,8 +6496,29 @@ const DLX_BUILD = 'v189';
         // Engine flares cutting back during deceleration
         if (dailyDockingFrames % 5 === 0) thrusterFrames = 3;
         // World scroll FROZEN at lock value
-        // When animation completes, fire victory
-        if (dailyDockingFrames === 0 && !dailyDelivered) {
+        // When the landing animation completes, hold for ~4 seconds so
+        // the player can SEE the rig settled on the dock before the
+        // victory menu pops. Show the "★ DELIVERY MADE!" banner now
+        // for immediate feedback.
+        if (dailyDockingFrames === 0 && dailyPostDockFrames === 0 && !dailyDelivered) {
+          dailyPostDockFrames = 240;     // 4 seconds at 60fps
+          setLevelBanner('★ DELIVERY MADE!');
+          playSound('levelup');
+        }
+      } else if (isDaily && dailyPostDockFrames > 0) {
+        // ---- Post-landing dwell — rig parked, world frozen, player
+        // gets a clean view of the truck stop scene before victory
+        dailyPostDockFrames--;
+        bird.vy = 0;
+        bird.x = dailyDockingTargetX;
+        bird.y = dailyDockingTargetY;
+        // Cargo glued to the rig position so the bond stays taut
+        if (cargo && cargo.attached && !cargo.lost) {
+          cargo.x = bird.x - 32;
+          cargo.y = bird.y;
+          cargo.vy = 0;
+        }
+        if (dailyPostDockFrames === 0 && !dailyDelivered) {
           dailyDelivered = true;
           triggerDeliverySuccess();
         }
@@ -17191,6 +17212,7 @@ const DLX_BUILD = 'v189';
     dailyNextTentacleAt = frame + 5000;  // tentacles erupt during stage 4
     dailyDeliveredAtFinish = false;
     dailyDockingFrames = 0;
+    dailyPostDockFrames = 0;
     dailyAirObstacles = [];
     dailyNextAirObstacleX = 600;         // first air obstacle ~600px in
     dailyPickups = [];
@@ -17433,6 +17455,9 @@ const DLX_BUILD = 'v189';
   let dailyDockingStartY = 0;
   let dailyDockingTargetX = 0;
   let dailyDockingTargetY = 0;
+  // After the rig settles onto the dock, hold for ~4 seconds before the
+  // victory menu pops so the player gets to see they actually landed.
+  let dailyPostDockFrames = 0;
   // After picking up a magnet recall box, the rig gets a temporary
   // magnet field that auto-pulls nearby cogs for ~4 seconds. Counts
   // down each frame.
