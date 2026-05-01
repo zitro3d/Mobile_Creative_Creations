@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v218';
+const DLX_BUILD = 'v219';
 
 (function() {
   // ---------- Device detection ----------
@@ -6426,33 +6426,8 @@ const DLX_BUILD = 'v218';
 
       bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
 
-      // ---- TUNNEL AUTO-STABILIZE ----
-      // Engages only in the deep horizontal cavern body — NOT in the
-      // bend regions where the channel curves up to the surface. In
-      // the bends the rig is in free flight (gravity pulls it in to
-      // enter, the player flaps to climb out and exit).
-      if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
-        for (const o of dailyAirObstacles) {
-          if (o.kind !== 'tunnel') continue;
-          const sx = o.worldX - dailyScrollX;
-          if (bird.x < sx - 4 || bird.x > sx + o.length + 4) continue;
-          const localX = Math.max(0, Math.min(o.length, bird.x - sx));
-          // Skip stabilize in the entry / exit bend windows
-          const SHAFT_BUFFER = 32;     // shaft half-width + small settle buffer
-          if (localX < SHAFT_BUFFER || localX > o.length - SHAFT_BUFFER) break;
-          const ch = tunnelChannelAt(o, localX);
-          const surfaceY = terrainHeightAt(o.worldX + localX);
-          // Only stabilize if rig is below the surface — committed
-          if (bird.y < surfaceY) break;
-          // Cancel most of the gravity that just got applied
-          bird.vy -= GRAVITY * 0.75;
-          // Spring toward channel center + heavy damping
-          const dy = ch.center - bird.y;
-          bird.vy += dy * 0.06;
-          bird.vy *= 0.88;
-          break;
-        }
-      }
+      // (Tunnel auto-stabilize removed — the dual-layer corridor is
+      // tall enough for normal tap-flight, no spring damping needed.)
 
       bird.y += bird.vy;
       bird.rot = Math.max(-0.5, Math.min(1.2, bird.vy * 0.09));
@@ -6845,32 +6820,22 @@ const DLX_BUILD = 'v218';
             o.top = top;
             o.gap = gap;
           } else if (kind === 'tunnel') {
-            // ---- UNDERGROUND TUNNEL SECTION ----
-            // World now has a permanent horizon at PLAY_H - 132 (sky
-            // gameplay above, dirt mass below). The tunnel is carved
-            // INTO that dirt mass. Player dives DOWN through the
-            // surface to enter, threads the cavern, exits back up.
-            o.length    = 240 + Math.floor(Math.random() * 80);   // 240-320 px
-            o.gap       = 104 + Math.floor(Math.random() * 18);   // 104-122 px channel
-            // Channel center deep in the underground dirt block.
-            // Dirt cap above (~30px from horizon to cavern ceiling)
-            // and the cavern floor lands a few px above PLAY_H so the
-            // stone-block masonry strip stays on-screen.
-            o.centerY   = PLAY_H - 60 + Math.floor(Math.random() * 16) - 8;
-            // Pick a shape variant — straight is the most common
-            const shapes = ['straight','straight','slope','zigzag','pinch','scurve'];
-            o.shape = shapes[Math.floor(Math.random() * shapes.length)];
-            // Slope direction (if shape === 'slope'): -1 dive, +1 climb
-            o.shapeParam = (Math.random() < 0.5 ? -1 : 1);
-            // Spawn GOLD cogs along the centerline as the reward for
-            // committing to the tunnel — pushed into dailyPickups so
-            // they share the existing pickup pipeline.
-            const cogStep = 36;
-            for (let cx = 30; cx < o.length - 20; cx += cogStep) {
-              const ch = tunnelChannelAt(o, cx);
+            // ---- DUAL-LAYER TUNNEL ----
+            // Length needs to fit entrance gap (4 tiles) + body +
+            // exit ramp (5 tiles) plus some breathing room.
+            o.length = 320 + Math.floor(Math.random() * 80);   // 320-400 px
+            o.floorY = PLAY_H - 8;                             // tunnel floor near bottom
+            // Spawn GOLD cogs in the BODY corridor (mid-tunnel
+            // space) — between the entrance gap and the exit ramp.
+            const bodyStart = TUNNEL_ENTRANCE_GAP + 8;
+            const bodyEnd   = o.length - TUNNEL_EXIT_RAMP - 8;
+            const cogStep   = 36;
+            for (let cx = bodyStart; cx < bodyEnd; cx += cogStep) {
+              const wx = dailyNextAirObstacleX + cx;
+              const cy = (terrainHeightAt(wx) + TUNNEL_CEILING_OFFSET + o.floorY) / 2;
               dailyPickups.push({
-                worldX: dailyNextAirObstacleX + cx,
-                y: ch.center,
+                worldX: wx,
+                y: cy,
                 kind: 'scrapCog',
                 gold: true,                              // gold variant
                 alive: true,
@@ -7322,32 +7287,23 @@ const DLX_BUILD = 'v218';
     if (invulnFrames > 0) return false;
     const r = BIRD_R - 3;
 
-    // Daily delivery course has its own collision model — variable ground +
-    // ground hazards instead of pipes / bosses.
+    // Daily delivery course has its own collision model — driven
+    // by tunnelLayoutAt so the ground silhouette is a single
+    // continuous chain (dune surface, vertical entrance gap,
+    // ceiling-floor corridor, and exit ramp).
     if (isDaily) {
       if (bird.y - r <= 0) { bird.y = r; bird.vy = 0; }
-      // Use surfaceAt so collision matches the visible dune (which
-      // bumps up around tunnel openings). Outside tunnels this is
-      // identical to terrainHeightAt.
-      const gy = surfaceAt(bird.x + dailyScrollX);
-      // The ground colliders have a GAP at each tunnel's vertical
-      // shaft (entry + exit). Outside the shaft windows the surface
-      // is solid earth and the rig dies if it hits it; inside a
-      // shaft window the rig falls THROUGH the floor into the
-      // cavern below.
       const wxRig = bird.x + dailyScrollX;
-      const TUNNEL_SHAFT_HALF_W = 26;
-      let inShaftX = false;
-      for (let i = 0; i < dailyAirObstacles.length; i++) {
-        const o = dailyAirObstacles[i];
-        if (o.kind !== 'tunnel') continue;
-        if (Math.abs(wxRig - o.worldX) < TUNNEL_SHAFT_HALF_W ||
-            Math.abs(wxRig - (o.worldX + o.length)) < TUNNEL_SHAFT_HALF_W) {
-          inShaftX = true;
-          break;
-        }
+      const L = tunnelLayoutAt(wxRig);
+      // FLOOR — every state has one. Rig dies hitting it.
+      if (bird.y + r >= L.floor) return true;
+      // BODY — also has a 3-tile dirt cap above the corridor. The
+      // rig dies if its body sits inside that cap (between MainGround
+      // and Ceiling). Sky above MainGround is open; corridor below
+      // Ceiling is open.
+      if (L.state === 'body') {
+        if (bird.y - r > L.mainGround && bird.y - r < L.ceiling) return true;
       }
-      if (!inShaftX && bird.y + r >= gy) return true;          // crashed into the ground
       if (ghostFrames > 0) return false;
       for (const h of dailyHazards) {
         const sx = h.worldX - dailyScrollX;
@@ -7378,35 +7334,9 @@ const DLX_BUILD = 'v218';
           if (Math.abs(bird.x - sx) < r + ww && Math.abs(bird.y - o.alt) < r + wh) {
             return true;
           }
-        } else if (o.kind === 'tunnel') {
-          // Tunnel section — horizontal cavern with VERTICAL SHAFTS
-          // at the entry + exit. Inside a shaft window above the
-          // cavern = falling through the shaft (free pass). Inside
-          // the cavern body = must stay in the channel. Outside the
-          // shaft window above the cavern = solid dirt = collide.
-          if (bird.x + r > sx && bird.x - r < sx + o.length) {
-            const localX = Math.max(0, Math.min(o.length, bird.x - sx));
-            const ch = tunnelChannelAt(o, localX);
-            const SHAFT_HALF_W = 26;
-            const inShaft = (localX < SHAFT_HALF_W) ||
-                            (localX > o.length - SHAFT_HALF_W);
-            const surfaceY = terrainHeightAt(o.worldX + localX);
-            // Above the surface = sky route, free flight
-            if (bird.y + r < surfaceY) continue;
-            // Above the cavern channel top
-            if (bird.y + r < ch.center - ch.halfH) {
-              // In the shaft window? Free pass (falling down into cavern)
-              if (inShaft) continue;
-              // Otherwise it's solid dirt above the cavern — die
-              return true;
-            }
-            // In the cavern channel = OK; outside = die
-            if (bird.y - r < ch.center - ch.halfH ||
-                bird.y + r > ch.center + ch.halfH) {
-              return true;
-            }
-          }
         }
+        // 'tunnel' obstacles are handled by tunnelLayoutAt's floor +
+        // ceiling check above — no per-channel cavern collision here.
       }
       // Rival nemesis rigs — touching a thief's hull crashes the rig.
       // The hull is 60x32; using a slightly conservative bbox so the
@@ -9668,44 +9598,56 @@ const DLX_BUILD = 'v218';
   function drawDailyTerrain() {
     if (!isDaily) return;
     ctx.save();
-    // Sample the surface using surfaceAt so the dune line itself
-    // bumps UP smoothly around each tunnel entry / exit. The tunnel
-    // opening then reads as part of the dune (a hole in a natural
-    // bump), not a separate sprite stamped on top.
-    const samples = [];
-    const step = 4;            // finer step so the bump curve stays smooth
-    for (let sx = -step; sx <= W + step; sx += step) {
-      samples.push({ sx: sx, y: surfaceAt(sx + dailyScrollX) });
-    }
-    // Filled body — warm orange-tan dune surface fading smoothly to
-    // deep brown at depth. A continuous gradient with no hard color
-    // stops, so the dirt mass reads as one earth wall (no banding,
-    // no horizontal stratum lines breaking up the area).
-    const grad = ctx.createLinearGradient(0, PLAY_H - 160, 0, PLAY_H + 8);
-    grad.addColorStop(0,    '#e8a868');
-    grad.addColorStop(0.35, '#a85838');
-    grad.addColorStop(0.75, '#5a2818');
-    grad.addColorStop(1,    '#3a1808');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.moveTo(samples[0].sx, PLAY_H + 4);
-    for (const s of samples) ctx.lineTo(s.sx, s.y);
-    ctx.lineTo(samples[samples.length - 1].sx, PLAY_H + 4);
-    ctx.closePath();
-    ctx.fill();
-    // (Pale cream crest highlight stroke removed per user — it read
-    // as a thin line / seam across the ground. Dune now relies on
-    // the gradient + butte scenery for shape, no edge-line stroke.)
-    // (Sand grit specks along the crest removed earlier.)
+    // Per-x earth + cavern fill driven by tunnelLayoutAt. Each slice
+    // returns one of four states (outside / entrance / body / exit)
+    // describing what bands of earth + cavern interior should paint
+    // at that X. Result is a single continuous silhouette — dune
+    // surface, vertical entrance gap, ceiling-floor corridor, and
+    // exit ramp — all painted in one pass.
+    const earthGrad = ctx.createLinearGradient(0, PLAY_H - 160, 0, PLAY_H + 8);
+    earthGrad.addColorStop(0,    '#e8a868');
+    earthGrad.addColorStop(0.35, '#a85838');
+    earthGrad.addColorStop(0.75, '#5a2818');
+    earthGrad.addColorStop(1,    '#3a1808');
+    const cavGrad = ctx.createLinearGradient(0, PLAY_H - 100, 0, PLAY_H);
+    cavGrad.addColorStop(0,    '#7a3818');
+    cavGrad.addColorStop(0.5,  '#5a2810');
+    cavGrad.addColorStop(1,    '#3a1c08');
 
-    // (Sand striation lines removed per playtest feedback — they were
-    // distracting wavy lines across the dunes.)
+    const step = 3;
+    for (let sx = -step; sx <= W + step; sx += step) {
+      const wx = sx + dailyScrollX;
+      const L = tunnelLayoutAt(wx);
+      if (L.state === 'outside') {
+        // Single earth column from the dune line to PLAY_H
+        ctx.fillStyle = earthGrad;
+        ctx.fillRect(sx, L.mainGround, step + 0.5, PLAY_H + 4 - L.mainGround);
+      } else if (L.state === 'entrance') {
+        // Open vertical shaft — paint cavern fill from MainGround
+        // down to the TunnelFloor (shaft interior), then earth
+        // below the floor. The shaft has NO MainGround surface
+        // (the 4-tile gap), so the shaft fill starts at MainGround.
+        ctx.fillStyle = cavGrad;
+        ctx.fillRect(sx, L.mainGround, step + 0.5, L.floor - L.mainGround);
+        ctx.fillStyle = earthGrad;
+        ctx.fillRect(sx, L.floor, step + 0.5, PLAY_H + 4 - L.floor);
+      } else if (L.state === 'body') {
+        // Dirt cap (3 tiles) + cavern interior + earth below floor
+        ctx.fillStyle = earthGrad;
+        ctx.fillRect(sx, L.mainGround, step + 0.5, L.ceiling - L.mainGround);
+        ctx.fillStyle = cavGrad;
+        ctx.fillRect(sx, L.ceiling, step + 0.5, L.floor - L.ceiling);
+        ctx.fillStyle = earthGrad;
+        ctx.fillRect(sx, L.floor, step + 0.5, PLAY_H + 4 - L.floor);
+      } else { // exit
+        // Floor ramps up; earth from ramp_floor down. No ceiling.
+        ctx.fillStyle = earthGrad;
+        ctx.fillRect(sx, L.floor, step + 0.5, PLAY_H + 4 - L.floor);
+      }
+    }
     ctx.restore();
 
-    // Larger butte / mesa outcrops scattered through the foreground —
-    // these are background scenery (no collision) and read like the
-    // darker red rock formations from the reference image. Drawn AFTER
-    // the dune fill so they sit on top of the sand.
+    // Buttes / mesa outcrops on top of the dunes (decorative).
     drawDailyButtes();
   }
 
@@ -11874,31 +11816,9 @@ const DLX_BUILD = 'v218';
     }
   }
 
-  // Compute the tunnel channel center + half-height at a given local
-  // X (0..tunnel.length). The shape variants give each tunnel a
-  // distinctive gameplay feel: straight is a pure altitude-hold,
-  // slope is a gradual climb/dive, zigzag is rapid altitude changes,
-  // pinch narrows in the middle, scurve is a smooth serpentine.
-  function tunnelChannelAt(tunnel, localX) {
-    const t = Math.max(0, Math.min(1, localX / tunnel.length));
-    let center = tunnel.centerY;
-    let halfH  = tunnel.gap / 2;
-    if (tunnel.shape === 'slope') {
-      // Gentle climb / dive — ±18px total drift across the length
-      center += tunnel.shapeParam * (t - 0.5) * 36;
-    } else if (tunnel.shape === 'zigzag') {
-      center += Math.sin(t * Math.PI * 2.5) * 22;
-    } else if (tunnel.shape === 'pinch') {
-      // Wider at the ends, narrowest in the middle (down to 65%)
-      halfH *= (1 - Math.sin(t * Math.PI) * 0.35);
-    } else if (tunnel.shape === 'scurve') {
-      center += Math.sin(t * Math.PI * 2) * 28;
-    }
-    // Channel is HORIZONTAL — no bend. Vertical shafts at the entry +
-    // exit are drawn separately in drawTunnel and the collision logic
-    // grants a free pass when the rig is inside a shaft window.
-    return { center: center, halfH: halfH };
-  }
+  // (tunnelChannelAt removed — replaced by tunnelLayoutAt above the
+  // collision system. The dual-layer tunnel uses MainGround/Ceiling/
+  // TunnelFloor instead of a center-line channel.)
 
   // Air obstacles — flappy-bird-style verticals to weave through.
   // 'scrapTower' is a full-height pillar of stacked junk with a gap;
@@ -11925,274 +11845,102 @@ const DLX_BUILD = 'v218';
   // stripes on the inner edges and cyan running lights along the
   // channel centerline so the entry / exit telegraph cleanly.
   function drawTunnel(t, sx) {
+    // The dual-layer tunnel silhouette (entrance gap, ceiling-floor
+    // body, exit ramp) is already painted by drawDailyTerrain via
+    // tunnelLayoutAt. Here we only add interior DECORATIONS inside
+    // the BODY corridor: bones hanging from the ceiling, rocks on
+    // the floor, and a pulsing entry arrow above each opening.
     const len = t.length;
-    const step = 8;
-    const samples = [];
-    for (let lx = 0; lx <= len; lx += step) {
-      const ch = tunnelChannelAt(t, lx);
-      samples.push({ x: sx + lx, top: ch.center - ch.halfH, bot: ch.center + ch.halfH });
-    }
-    const last = tunnelChannelAt(t, len);
-    samples.push({ x: sx + len, top: last.center - last.halfH, bot: last.center + last.halfH });
+    const wxStart = t.worldX;
+    const wxEnd   = t.worldX + len;
+    const bodyStart = wxStart + TUNNEL_ENTRANCE_GAP;
+    const bodyEnd   = wxEnd   - TUNNEL_EXIT_RAMP;
+    const fY = t.floorY != null ? t.floorY : (PLAY_H - 8);
 
-    // Cavern is carved INTO the daily dirt mass that drawDailyTerrain
-    // has already painted (the world has a permanent horizon now). We
-    // paint the cave interior on top of that dirt — two layers for
-    // depth, foreground stalactites + stalagmites, and a stone-block
-    // masonry strip along the cavern floor.
-
-    // The cavern channel itself now CURVES UP to meet the surface at
-    // each end (see tunnelChannelAt). drawDailyTerrain has already
-    // painted the dunes; the cave fill below carves into the dirt
-    // following the curved samples, so the cavern emerges from the
-    // ground naturally — no separate vertical shaft needed.
-    // Use the BUMPED surface (surfaceAt) so the shaft rises out of
-    // the dune's natural bump, not the un-bumped baseline.
-    const entrySurfaceY = surfaceAt(sx + dailyScrollX);
-    const exitSurfaceY  = surfaceAt(sx + len + dailyScrollX);
-
-    // ---- BACKGROUND cave fill — warm tan-brown that matches the
-    // dirt palette so the cavern reads as earthy + lit, not a black
-    // void. Stays well above the near-black tones from before.
-    const bgGrad = ctx.createLinearGradient(0, samples[0].top, 0, samples[0].bot);
-    bgGrad.addColorStop(0,    '#a85838');
-    bgGrad.addColorStop(0.45, '#7a3818');
-    bgGrad.addColorStop(0.75, '#5a2810');
-    bgGrad.addColorStop(1,    '#7a3818');
-    ctx.fillStyle = bgGrad;
-    ctx.beginPath();
-    ctx.moveTo(samples[0].x, samples[0].top);
-    for (let i = 1; i < samples.length; i++) ctx.lineTo(samples[i].x, samples[i].top);
-    for (let i = samples.length - 1; i >= 0; i--) ctx.lineTo(samples[i].x, samples[i].bot);
-    ctx.closePath();
-    ctx.fill();
-
-    // ---- BACKGROUND wavy silhouette layer — subtle darker pocket
-    // at top+bot of the cavern for depth, but soft so the cavern
-    // stays well-lit overall.
-    ctx.fillStyle = 'rgba(40, 20, 10, 0.35)';
-    ctx.beginPath();
-    ctx.moveTo(samples[0].x, samples[0].top);
-    for (let i = 0; i < samples.length; i++) {
-      const wave = Math.sin((samples[i].x + (typeof dailyScrollX !== 'undefined' ? dailyScrollX : 0)) * 0.055 + t.seed) * 5;
-      ctx.lineTo(samples[i].x, samples[i].top + 7 + wave);
+    // ---- Floor RIBBON — masonry strip just above the floor in the
+    // body corridor for that ancient-tunnel feel.
+    ctx.fillStyle = '#7a4e28';
+    ctx.fillRect(bodyStart - dailyScrollX, fY - 4,
+                 (bodyEnd - bodyStart), 4);
+    ctx.fillStyle = 'rgba(20, 10, 4, 0.85)';
+    for (let bx = bodyStart; bx < bodyEnd; bx += 12) {
+      const x = bx - dailyScrollX;
+      ctx.fillRect(x, fY - 4, 0.8, 4);
     }
-    for (let i = samples.length - 1; i >= 0; i--) {
-      ctx.lineTo(samples[i].x, samples[i].top);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(samples[0].x, samples[0].bot);
-    for (let i = 0; i < samples.length; i++) {
-      const wave = Math.sin((samples[i].x + (typeof dailyScrollX !== 'undefined' ? dailyScrollX : 0)) * 0.047 + t.seed + 1.7) * 4;
-      ctx.lineTo(samples[i].x, samples[i].bot - 7 + wave);
-    }
-    for (let i = samples.length - 1; i >= 0; i--) {
-      ctx.lineTo(samples[i].x, samples[i].bot);
-    }
-    ctx.closePath();
-    ctx.fill();
+    ctx.fillStyle = '#d88848';
+    ctx.fillRect(bodyStart - dailyScrollX, fY - 5,
+                 (bodyEnd - bodyStart), 1);
 
-    // ---- FOREGROUND CEILING — hanging BONES (not spikes)
-    // Long thin pale shafts with rounded knobs at the ends, dangling
-    // from the cavern ceiling. Spaced apart with deterministic per-
-    // tunnel variation so each cavern feels different.
-    const spaceX = 30;
-    for (let lx = 14; lx < len - 4; lx += spaceX) {
-      const ch = tunnelChannelAt(t, lx);
-      const px = sx + lx;
-      const baseY = ch.center - ch.halfH;
-      const phase = (Math.floor(lx / spaceX) + Math.floor(t.seed)) % 5;
-      const boneH = 11 + phase * 2;
-      // Shadow — dark sliver behind the bone for depth
+    // ---- Hanging BONES from the ceiling
+    const seedI = Math.floor(t.seed || 0);
+    for (let bx = bodyStart + 14; bx < bodyEnd - 10; bx += 30) {
+      const screenX = bx - dailyScrollX;
+      if (screenX < -10 || screenX > W + 10) continue;
+      const ceilingY = terrainHeightAt(bx) + TUNNEL_CEILING_OFFSET;
+      const phase = (Math.floor((bx - bodyStart) / 30) + seedI) % 5;
+      const bH = 11 + phase * 2;
+      // Shadow + shaft
       ctx.fillStyle = 'rgba(20, 10, 4, 0.7)';
-      ctx.fillRect(px - 0.6, baseY,        2.4, boneH);
-      // Bone shaft — pale tan/cream
+      ctx.fillRect(screenX - 0.6, ceilingY, 2.4, bH);
       ctx.fillStyle = '#d8c898';
-      ctx.fillRect(px - 1, baseY,        2, boneH);
-      // Knob at top (attached to ceiling)
+      ctx.fillRect(screenX - 1, ceilingY, 2, bH);
+      // End knobs
       ctx.beginPath();
-      ctx.arc(px - 1.4, baseY + 0.6, 1.6, 0, Math.PI * 2);
-      ctx.arc(px + 1.4, baseY + 0.6, 1.6, 0, Math.PI * 2);
+      ctx.arc(screenX - 1.4, ceilingY + 0.6, 1.6, 0, Math.PI * 2);
+      ctx.arc(screenX + 1.4, ceilingY + 0.6, 1.6, 0, Math.PI * 2);
+      ctx.arc(screenX - 1.4, ceilingY + bH,  1.6, 0, Math.PI * 2);
+      ctx.arc(screenX + 1.4, ceilingY + bH,  1.6, 0, Math.PI * 2);
       ctx.fill();
-      // Knob at bottom (free end)
-      ctx.beginPath();
-      ctx.arc(px - 1.4, baseY + boneH, 1.6, 0, Math.PI * 2);
-      ctx.arc(px + 1.4, baseY + boneH, 1.6, 0, Math.PI * 2);
-      ctx.fill();
-      // Tiny bright highlight on the shaft
+      // Bright stripe
       ctx.fillStyle = '#fce8b8';
-      ctx.fillRect(px - 1, baseY + 1, 0.6, boneH - 2);
+      ctx.fillRect(screenX - 1, ceilingY + 1, 0.6, bH - 2);
     }
 
-    // ---- FOREGROUND FLOOR — rounded ROCKS (not spike stalagmites)
-    // Brown rounded chunks sitting on the cavern floor, with a
-    // shadow side and a sun-lit highlight for 3D pop.
-    for (let lx = 20; lx < len - 4; lx += spaceX) {
-      const ch = tunnelChannelAt(t, lx);
-      const px = sx + lx;
-      const baseY = ch.center + ch.halfH;
-      const phase = (Math.floor(lx / spaceX) + Math.floor(t.seed) + 2) % 4;
+    // ---- ROCKS on the floor
+    for (let rx = bodyStart + 22; rx < bodyEnd - 6; rx += 30) {
+      const screenX = rx - dailyScrollX;
+      if (screenX < -10 || screenX > W + 10) continue;
+      const phase = (Math.floor((rx - bodyStart) / 30) + seedI + 2) % 4;
       const rW = 7 + phase;
       const rH = 4 + (phase % 3);
-      // Drop shadow ellipse
       ctx.fillStyle = 'rgba(20, 10, 4, 0.55)';
       ctx.beginPath();
-      ctx.ellipse(px + 1, baseY - 1, rW + 0.6, rH + 0.6, 0, 0, Math.PI * 2);
+      ctx.ellipse(screenX + 1, fY - 5, rW + 0.6, rH + 0.6, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Rock body — rounded brown
       ctx.fillStyle = '#7a3818';
       ctx.beginPath();
-      ctx.ellipse(px, baseY - rH * 0.6, rW, rH, 0, 0, Math.PI * 2);
+      ctx.ellipse(screenX, fY - 5 - rH * 0.6, rW, rH, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Sun-lit highlight on the upper-left
       ctx.fillStyle = '#a85838';
       ctx.beginPath();
-      ctx.ellipse(px - rW * 0.35, baseY - rH * 0.85, rW * 0.5, rH * 0.45, 0, 0, Math.PI * 2);
+      ctx.ellipse(screenX - rW * 0.35, fY - 5 - rH * 0.85,
+                  rW * 0.5, rH * 0.45, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Bright top dot
       ctx.fillStyle = '#d88848';
-      ctx.fillRect(px - rW * 0.4, baseY - rH * 1.05, 1.4, 1.2);
+      ctx.fillRect(screenX - rW * 0.4, fY - 5 - rH * 1.05, 1.4, 1.2);
     }
 
-    // ---- Scattered SMALL BONES + RIBS on the cavern floor — extra
-    // texture between the rocks. Deterministic per-slot so they
-    // don't shimmer.
-    ctx.fillStyle = 'rgba(216, 200, 152, 0.85)';
-    for (let lx = 8; lx < len - 4; lx += 18) {
-      const slot = Math.floor((lx + Math.floor(t.seed)) / 4) % 7;
-      if (slot > 2) continue;
-      const ch = tunnelChannelAt(t, lx);
-      const px = sx + lx;
-      const baseY = ch.center + ch.halfH - 1.4;
-      // Tiny rib — short curve of 3 segments
-      ctx.fillRect(px,     baseY,     3, 0.8);
-      ctx.fillRect(px - 1, baseY - 1, 1, 1.2);
-      ctx.fillRect(px + 3, baseY - 1, 1, 1.2);
-    }
-
-    // ---- STONE-BLOCK MASONRY FLOOR — brick strip just below the
-    // cavern channel, hugging the bottom contour of the tunnel.
-    ctx.fillStyle = '#7a4e28';
-    ctx.beginPath();
-    ctx.moveTo(samples[0].x, samples[0].bot);
-    for (let i = 1; i < samples.length; i++) ctx.lineTo(samples[i].x, samples[i].bot);
-    for (let i = samples.length - 1; i >= 0; i--) ctx.lineTo(samples[i].x, samples[i].bot + 6);
-    ctx.closePath();
-    ctx.fill();
-    // Brick joints
-    ctx.strokeStyle = 'rgba(20, 10, 4, 0.85)';
-    ctx.lineWidth = 0.8;
-    const brickW = 12;
-    for (let i = 0; i < samples.length - 1; i++) {
-      const left = samples[i];
-      const right = samples[i + 1];
-      // Vertical seams every brickW within this segment
-      for (let bx = left.x; bx < right.x; bx += brickW) {
-        const t01 = (bx - left.x) / Math.max(1, right.x - left.x);
-        const yTop = left.bot + (right.bot - left.bot) * t01;
-        ctx.beginPath();
-        ctx.moveTo(bx, yTop);
-        ctx.lineTo(bx, yTop + 6);
-        ctx.stroke();
-      }
-    }
-    // Bright top edge of the masonry — like the photo's highlight
-    ctx.strokeStyle = '#d89060';
-    ctx.lineWidth = 1.0;
-    ctx.beginPath();
-    for (let i = 0; i < samples.length; i++) {
-      if (i === 0) ctx.moveTo(samples[i].x, samples[i].bot);
-      else ctx.lineTo(samples[i].x, samples[i].bot);
-    }
-    ctx.stroke();
-
-    // ---- BONES embedded in the dirt walls
-    ctx.fillStyle = 'rgba(232, 220, 192, 0.65)';
-    const boneSpots = [
-      { lx: 0.22, side: 'top' },
-      { lx: 0.58, side: 'bot' },
-      { lx: 0.80, side: 'top' },
-    ];
-    for (let bi = 0; bi < boneSpots.length; bi++) {
-      const b = boneSpots[bi];
-      const lx = b.lx * len;
-      const ch = tunnelChannelAt(t, lx);
-      const bx = sx + lx;
-      const by = b.side === 'top'
-        ? ch.center - ch.halfH - 4 - ((Math.floor(t.seed) + bi) % 3) * 2
-        : ch.center + ch.halfH + 9 + ((Math.floor(t.seed) + bi) % 3) * 2;
-      ctx.fillRect(bx - 2.4, by, 4.8, 0.9);
-      ctx.beginPath();
-      ctx.arc(bx - 2.4, by + 0.4, 0.9, 0, Math.PI * 2);
-      ctx.arc(bx + 2.4, by + 0.4, 0.9, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // ---- VERTICAL SHAFTS — dark dirt-mass holes connecting the
-    // surface mounds to the cavern top. These are the "physics gap"
-    // in the floor: the rig falls through these to enter the cavern
-    // and climbs through them to exit. Drawn BEFORE the mound so the
-    // mound's hole gradient sits on top of the shaft.
-    const SHAFT_HALF_W = 26;
-    const drawShaft = function(shaftX, surfaceY, cavernTopY) {
-      if (cavernTopY <= surfaceY + 2) return;          // nothing to draw
-      const sg = ctx.createLinearGradient(0, surfaceY, 0, cavernTopY);
-      sg.addColorStop(0,   '#3a1c08');
-      sg.addColorStop(0.5, '#1a0c04');
-      sg.addColorStop(1,   '#5a2810');                  // matches cavern bg
-      ctx.fillStyle = sg;
-      ctx.fillRect(shaftX - SHAFT_HALF_W, surfaceY,
-                   SHAFT_HALF_W * 2, cavernTopY - surfaceY);
-      // Inner left + right wall edges (slightly darker stripes)
-      ctx.fillStyle = '#1a0c04';
-      ctx.fillRect(shaftX - SHAFT_HALF_W,     surfaceY, 1.6, cavernTopY - surfaceY);
-      ctx.fillRect(shaftX + SHAFT_HALF_W - 1.6, surfaceY, 1.6, cavernTopY - surfaceY);
-    };
-    const entryCavernTop = samples[0].top;
-    const exitCavernTop  = samples[samples.length - 1].top;
-    drawShaft(sx,        entrySurfaceY, entryCavernTop);
-    drawShaft(sx + len,  exitSurfaceY,  exitCavernTop);
-
-    // The standalone mound has been removed — the dune itself bumps
-    // up around the tunnel via surfaceAt(), and the SHAFT above
-    // already paints the dark opening at the top of that bump. The
-    // result is one continuous earth surface with a rectangular cut,
-    // not a sprite glued on top.
-    //
-    // We only add a soft shadow under the lip and a faint highlight
-    // on the bump's crest to sell the curvature of the dune.
-    const drawOpeningLip = function(mx, surfaceY) {
-      // Top-edge inner shadow — the lip casts a shadow into the hole
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-      ctx.fillRect(mx - SHAFT_HALF_W + 2, surfaceY, (SHAFT_HALF_W - 2) * 2, 2.4);
-      // Faint pale crest highlight just OUTSIDE the opening, on the
-      // dune's bump shoulders — sells the dune curvature around the
-      // hole without stamping a separate object.
-      ctx.fillStyle = 'rgba(252, 224, 168, 0.8)';
-      ctx.fillRect(mx - SHAFT_HALF_W - 8, surfaceY - 1, 7, 1.2);
-      ctx.fillRect(mx + SHAFT_HALF_W + 1, surfaceY - 1, 7, 1.2);
-    };
-    drawOpeningLip(sx,        entrySurfaceY);
-    drawOpeningLip(sx + len,  exitSurfaceY);
-
-    // ---- SURFACE ARROWS — pulsing gold cues above each rim
-    const arrowPulse = 0.55 + 0.45 * Math.sin(frame * 0.16);
+    // ---- ENTRY ARROW above the entrance gap (down) and EXIT ARROW
+    // above the exit ramp (up).
+    const pulse = 0.55 + 0.45 * Math.sin(frame * 0.16);
     ctx.shadowBlur = 6; ctx.shadowColor = '#ffd060';
-    ctx.fillStyle = 'rgba(255, 224, 96, ' + arrowPulse + ')';
-    // Down-arrow above entry rim
+    ctx.fillStyle = 'rgba(255, 224, 96, ' + pulse + ')';
+    // Down arrow at center of entrance gap
+    const entryCx = sx + TUNNEL_ENTRANCE_GAP * 0.5;
+    const entrySy = terrainHeightAt(wxStart + TUNNEL_ENTRANCE_GAP * 0.5);
     ctx.beginPath();
-    ctx.moveTo(sx - 8, entrySurfaceY - 26);
-    ctx.lineTo(sx + 8, entrySurfaceY - 26);
-    ctx.lineTo(sx,     entrySurfaceY - 14);
+    ctx.moveTo(entryCx - 8, entrySy - 22);
+    ctx.lineTo(entryCx + 8, entrySy - 22);
+    ctx.lineTo(entryCx,     entrySy - 10);
     ctx.closePath();
     ctx.fill();
-    // Up-arrow above exit rim
+    // Up arrow at start of exit ramp
+    const exitCx = sx + len - TUNNEL_EXIT_RAMP * 0.5;
+    const exitSy = terrainHeightAt(wxStart + len - TUNNEL_EXIT_RAMP * 0.5);
     ctx.beginPath();
-    ctx.moveTo(sx + len - 8, exitSurfaceY - 14);
-    ctx.lineTo(sx + len + 8, exitSurfaceY - 14);
-    ctx.lineTo(sx + len,     exitSurfaceY - 26);
+    ctx.moveTo(exitCx - 8, exitSy - 10);
+    ctx.lineTo(exitCx + 8, exitSy - 10);
+    ctx.lineTo(exitCx,     exitSy - 22);
     ctx.closePath();
     ctx.fill();
     ctx.shadowBlur = 0;
@@ -17992,31 +17740,63 @@ const DLX_BUILD = 'v218';
     const c = Math.sin(worldX * 0.0270 + 0.3) * 6;
     return base + a + b + c;
   }
-  // Surface Y INCLUDING the dune bumps that rise smoothly around each
-  // tunnel entry / exit. Used both by the renderer (so the dune line
-  // visibly bumps up around the opening) and by ground collision (so
-  // the rig must clear the bump or drop into the shaft window). The
-  // bump is a half-cosine taper — perfectly continuous with the
-  // surrounding dune, so the opening reads as part of the terrain
-  // rather than a patch dropped on top.
-  function surfaceAt(worldX) {
-    let y = terrainHeightAt(worldX);
-    if (!isDaily || !dailyAirObstacles || !dailyAirObstacles.length) return y;
-    const BUMP_R = 56;
-    const BUMP_H = 22;
+  // Dual-layer tunnel level-generation logic. Each tunnel obstacle
+  // defines a level "subsection" with a MainGround line (the dune
+  // surface) and a TunnelFloor line (the deeper cavern floor).
+  // Three sub-states:
+  //   * ENTRANCE — first 4 tiles: MainGround has a vertical 4-tile
+  //     gap. The rig drops THROUGH the surface into the tunnel.
+  //   * BODY — middle: a solid Ceiling block sits 3 tiles below
+  //     MainGround. The rig flies in the corridor between the
+  //     Ceiling and the TunnelFloor.
+  //   * EXIT — last 5 tiles: TunnelFloor ramps linearly up to
+  //     MainGround. The Ceiling ends; the rig flies up the ramp
+  //     out to the surface.
+  // Renderer + collision both read from tunnelLayoutAt(worldX) so
+  // the silhouette is one continuous chain — no patches.
+  const TUNNEL_TILE          = 16;
+  const TUNNEL_ENTRANCE_GAP  = 4 * TUNNEL_TILE;     // 64 px hole in MainGround
+  const TUNNEL_CEILING_OFFSET = 3 * TUNNEL_TILE;     // 48 px cap thickness
+  const TUNNEL_EXIT_RAMP     = 5 * TUNNEL_TILE;     // 80 px floor ramp
+  function tunnelFloorY(o) {
+    return o.floorY != null ? o.floorY : (PLAY_H - 8);
+  }
+  function tunnelLayoutAt(worldX) {
+    const mainGround = terrainHeightAt(worldX);
+    if (!isDaily || !dailyAirObstacles || !dailyAirObstacles.length) {
+      return { state: 'outside', mainGround: mainGround,
+               ceiling: 0, floor: mainGround };
+    }
     for (let i = 0; i < dailyAirObstacles.length; i++) {
       const o = dailyAirObstacles[i];
       if (o.kind !== 'tunnel') continue;
-      const dEntry = Math.abs(worldX - o.worldX);
-      const dExit  = Math.abs(worldX - (o.worldX + o.length));
-      const d = Math.min(dEntry, dExit);
-      if (d < BUMP_R) {
-        const t01 = d / BUMP_R;
-        // Half-cosine: 1 at center, 0 at edge — silky-smooth taper
-        y -= BUMP_H * 0.5 * (1 + Math.cos(t01 * Math.PI));
+      const localX = worldX - o.worldX;
+      if (localX < 0 || localX > o.length) continue;
+      const fY = tunnelFloorY(o);
+      const ceiling = mainGround + TUNNEL_CEILING_OFFSET;
+      if (localX < TUNNEL_ENTRANCE_GAP) {
+        return { state: 'entrance', mainGround: mainGround,
+                 ceiling: 0, floor: fY };
       }
+      if (localX > o.length - TUNNEL_EXIT_RAMP) {
+        const t01 = (localX - (o.length - TUNNEL_EXIT_RAMP)) / TUNNEL_EXIT_RAMP;
+        const rampFloor = fY + (mainGround - fY) * t01;
+        return { state: 'exit', mainGround: mainGround,
+                 ceiling: 0, floor: rampFloor };
+      }
+      return { state: 'body', mainGround: mainGround,
+               ceiling: ceiling, floor: fY };
     }
-    return y;
+    return { state: 'outside', mainGround: mainGround,
+             ceiling: 0, floor: mainGround };
+  }
+  // Back-compat shim: surfaceAt now resolves to the layout floor at
+  // that X (so callers get the surface the rig stands on, including
+  // entrance gap / exit ramp). Inside the body it still returns
+  // MainGround — the body's ceiling is enforced separately.
+  function surfaceAt(worldX) {
+    const L = tunnelLayoutAt(worldX);
+    return L.state === 'body' ? L.mainGround : L.floor;
   }
   const _origRandom = Math.random;
   function todayStr() {
