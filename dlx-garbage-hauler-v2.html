@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v193';
+const DLX_BUILD = 'v194';
 
 (function() {
   // ---------- Device detection ----------
@@ -6780,23 +6780,20 @@ const DLX_BUILD = 'v193';
         }
 
         // ---- Air obstacles — floating wreckage + scrap towers ----
-        // Stage 1+ introduces single floating wrecks + tunnel sections;
-        // stage 2+ adds full scrap towers (flappy-bird-style pillars).
-        // Tunnels are the BOTTOM-LANE precision beat — fly through a
-        // narrow channel with gold-cog rewards inside, OR skip and
-        // fight the open-air alternatives.
+        // Tunnels available from the start — they're a lane choice,
+        // not a difficulty ramp. Scrap towers gate behind stage 1+
+        // since they're tight flappy-bird gaps.
         while (dailyNextAirObstacleX < dailyScrollX + W + 200) {
           const r = Math.random();
           let kind;
-          // Don't spawn two tunnels back-to-back — read the previous
-          // entry and bias away from another tunnel if it was one.
+          // Don't spawn two tunnels back-to-back
           const lastWasTunnel = dailyAirObstacles.length > 0 &&
             dailyAirObstacles[dailyAirObstacles.length - 1].kind === 'tunnel';
-          if (dailyCurrentStage >= 1 && !lastWasTunnel && r < 0.30) {
+          if (!lastWasTunnel && r < 0.40) {
             kind = 'tunnel';
-          } else if (dailyCurrentStage >= 2 && r < 0.60) {
+          } else if (dailyCurrentStage >= 2 && r < 0.70) {
             kind = 'scrapTower';
-          } else if (dailyCurrentStage >= 1 && r < 0.55) {
+          } else if (dailyCurrentStage >= 1 && r < 0.65) {
             kind = 'scrapTower';
           } else {
             kind = 'airWreck';
@@ -11793,6 +11790,17 @@ const DLX_BUILD = 'v193';
       halfH *= (1 - Math.sin(t * Math.PI) * 0.40);
     } else if (tunnel.shape === 'scurve') {
       center += Math.sin(t * Math.PI * 2) * 50;
+    }
+    // ENTRY + EXIT flare — channel opens up ~60% wider at the very
+    // beginning and end of the tunnel so the entrance is forgiving
+    // and players don't punch the wall trying to thread the start
+    const flareLen = 40;
+    if (localX < flareLen) {
+      const ft = localX / flareLen;       // 0 at edge → 1 at flareLen
+      halfH *= 1.6 - 0.6 * ft;             // 1.6× at entry, 1.0× past it
+    } else if (localX > tunnel.length - flareLen) {
+      const ft = (tunnel.length - localX) / flareLen;
+      halfH *= 1.6 - 0.6 * ft;
     }
     return { center: center, halfH: halfH };
   }
@@ -17517,7 +17525,7 @@ const DLX_BUILD = 'v193';
     dailyDockingFrames = 0;
     dailyPostDockFrames = 0;
     dailyAirObstacles = [];
-    dailyNextAirObstacleX = 600;         // first air obstacle ~600px in
+    dailyNextAirObstacleX = 300;         // first air obstacle ~300px in (tunnels can show up early)
     dailyPickups = [];
     dailyNextPickupX = 280;               // first scrap cog pickup right out of the gate
     dailyNextMagnetX = 700;               // first magnet recall box ~700px in (sooner so you see one early)
