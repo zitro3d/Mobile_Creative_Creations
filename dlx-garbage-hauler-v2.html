@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v209';
+const DLX_BUILD = 'v210';
 
 (function() {
   // ---------- Device detection ----------
@@ -6427,24 +6427,23 @@ const DLX_BUILD = 'v209';
       bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
 
       // ---- TUNNEL AUTO-STABILIZE ----
-      // Engages ONLY when the rig is in the cavern body (between the
-      // entry + exit shafts). In the shafts themselves the rig is in
-      // free flight — gravity pulls it down to dive in, and the
-      // player flaps to climb up and exit. This makes diving + exiting
-      // feel natural while the cavern body still feels controlled.
+      // Engages only in the deep horizontal cavern body — NOT in the
+      // bend regions where the channel curves up to the surface. In
+      // the bends the rig is in free flight (gravity pulls it in to
+      // enter, the player flaps to climb out and exit).
       if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
         for (const o of dailyAirObstacles) {
           if (o.kind !== 'tunnel') continue;
           const sx = o.worldX - dailyScrollX;
           if (bird.x < sx - 4 || bird.x > sx + o.length + 4) continue;
           const localX = Math.max(0, Math.min(o.length, bird.x - sx));
-          // Skip stabilize in the entry / exit shaft windows
-          const SHAFT_HALF_W = 18;
-          if (localX < SHAFT_HALF_W || localX > o.length - SHAFT_HALF_W) break;
+          // Skip stabilize in the entry / exit bend windows
+          const BEND_LEN = 40;
+          if (localX < BEND_LEN || localX > o.length - BEND_LEN) break;
           const ch = tunnelChannelAt(o, localX);
-          const skyTop = ch.center - ch.halfH - 36;
-          // Only stabilize if rig is BELOW the dirt cap — committed
-          if (bird.y < skyTop) break;
+          const surfaceY = terrainHeightAt(o.worldX + localX);
+          // Only stabilize if rig is below the surface — committed
+          if (bird.y < surfaceY) break;
           // Cancel most of the gravity that just got applied
           bird.vy -= GRAVITY * 0.75;
           // Spring toward channel center + heavy damping
@@ -7328,23 +7327,22 @@ const DLX_BUILD = 'v209';
     if (isDaily) {
       if (bird.y - r <= 0) { bird.y = r; bird.vy = 0; }
       const gy = terrainHeightAt(bird.x + dailyScrollX);
-      // If the rig is over a tunnel ENTRY or EXIT shaft, the dirt is
-      // carved through — skip ground collision so the rig can dive
-      // DOWN to enter (or climb up to exit). Outside the shafts the
-      // surface is solid earth and ground collision still kills.
+      // The tunnel cavern emerges from the dirt with a curved bend at
+      // each end that reaches the surface. Skip ground collision over
+      // the entire tunnel X-range so the rig can dive down into the
+      // bend — the tunnel-channel collision below enforces "stay in
+      // the cavern" once the rig has crossed the surface line.
       const wxRig = bird.x + dailyScrollX;
-      const SHAFT_HALF_W = 18;
-      let inShaftX = false;
+      let overTunnel = false;
       for (let i = 0; i < dailyAirObstacles.length; i++) {
         const o = dailyAirObstacles[i];
         if (o.kind !== 'tunnel') continue;
-        if (Math.abs(wxRig - o.worldX) < SHAFT_HALF_W ||
-            Math.abs(wxRig - (o.worldX + o.length)) < SHAFT_HALF_W) {
-          inShaftX = true;
+        if (wxRig >= o.worldX && wxRig <= o.worldX + o.length) {
+          overTunnel = true;
           break;
         }
       }
-      if (!inShaftX && bird.y + r >= gy) return true;          // crashed into the ground
+      if (!overTunnel && bird.y + r >= gy) return true;          // crashed into the ground
       if (ghostFrames > 0) return false;
       for (const h of dailyHazards) {
         const sx = h.worldX - dailyScrollX;
@@ -7376,24 +7374,17 @@ const DLX_BUILD = 'v209';
             return true;
           }
         } else if (o.kind === 'tunnel') {
-          // Tunnel section — the cavern is buried below the world's
-          // permanent horizon. Sky above = free flight. To enter the
-          // cavern the rig dives DOWN through a vertical entry shaft
-          // at the LEFT edge; it climbs back UP through an exit shaft
-          // at the RIGHT edge. Inside the cavern body the rig must
-          // stay between channel top + bottom or it crashes.
+          // Tunnel section — the cavern is a curved pipe that emerges
+          // from the ground at each end. Above the surface = sky route
+          // (free flight). Below the surface = must be inside the
+          // channel (curved at the bends, horizontal in the middle).
           if (bird.x + r > sx && bird.x - r < sx + o.length) {
             const localX = Math.max(0, Math.min(o.length, bird.x - sx));
             const ch = tunnelChannelAt(o, localX);
-            const skyTop = ch.center - ch.halfH - 40;
-            // Above the dirt cap = sky route (free)
-            if (bird.y + r < skyTop) continue;
-            // In an entry/exit shaft AND above the cavern channel = free pass
-            const SHAFT_HALF_W = 18;
-            const inShaft = (localX < SHAFT_HALF_W) ||
-                            (localX > o.length - SHAFT_HALF_W);
-            if (inShaft && bird.y + r < ch.center - ch.halfH) continue;
-            // Otherwise must be inside the cavern channel
+            const surfaceY = terrainHeightAt(o.worldX + localX);
+            // Above the surface = sky route, no collision
+            if (bird.y + r < surfaceY) continue;
+            // Below surface = must be in the cavern channel
             if (bird.y - r < ch.center - ch.halfH ||
                 bird.y + r > ch.center + ch.halfH) {
               return true;
@@ -11109,52 +11100,69 @@ const DLX_BUILD = 'v209';
     ctx.fillStyle = floorGlow;
     ctx.fillRect(backWallX + 18, ceilingY + 18, hangarW - 18, floorY - ceilingY - 18);
 
-    // ---- Foundation under the hangar — packed-earth platform that
-    // blends INTO the surrounding dirt mass instead of a clean
-    // concrete slab. Uses the same dune palette as drawDailyTerrain
-    // so the building reads as planted on a butte of the same earth.
+    // ---- Foundation wall under the hangar (clean concrete) ----
     const wallH = y - floorY;
     if (wallH > 0) {
       const fx = backWallX - 8;
       const fw = hangarW + 16;
       const ftop = floorY + 6;
-      // Earth gradient — matches drawDailyTerrain's dirt strata
-      const fg = ctx.createLinearGradient(0, ftop, 0, ftop + wallH);
-      fg.addColorStop(0,    '#c87848');
-      fg.addColorStop(0.45, '#7a3818');
-      fg.addColorStop(1,    '#3a1a08');
-      ctx.fillStyle = fg;
+      // Concrete fill (original gray palette restored)
+      ctx.fillStyle = '#7a6a5a';
       ctx.fillRect(fx, ftop, fw, wallH - 6);
-      // Top-edge highlight (a thin bright sand line where the floor
-      // meets the dirt platform — matches the dune-crest highlight)
-      ctx.fillStyle = '#fce0a8';
-      ctx.fillRect(fx, ftop, fw, 1.4);
-      // Soft sand-grit texture peppered down the platform face
-      ctx.fillStyle = 'rgba(60, 24, 10, 0.55)';
-      for (let g = 0; g < 22; g++) {
-        const gx = fx + ((g * 17) % fw);
-        const gy = ftop + 6 + ((g * 11) % Math.max(1, wallH - 12));
+      ctx.fillStyle = '#5a4a3a';
+      ctx.fillRect(fx, ftop, fw, 2);
+      // Vertical concrete-panel seams
+      ctx.fillStyle = 'rgba(40, 30, 20, 0.5)';
+      for (let i = 0; i < 6; i++) {
+        ctx.fillRect(fx + i * (hangarW / 5), ftop, 1, wallH - 6);
+      }
+      // ---- GROUND INTEGRATION ----
+      // Pile sand + small rocks against the lower ~14px of the
+      // foundation so the wall doesn't read as a clean slab planted
+      // in the dunes. Dirt accumulates at the corners and tapers
+      // outward, blending the building into the dune line.
+      const skirtTop = ftop + wallH - 14;
+      // Sand drift along the full base — tapered ramp
+      ctx.fillStyle = '#b86838';
+      ctx.beginPath();
+      ctx.moveTo(fx - 20, ftop + wallH);
+      ctx.lineTo(fx - 14, skirtTop + 8);
+      ctx.lineTo(fx + 12, skirtTop + 2);
+      ctx.lineTo(fx + fw - 12, skirtTop + 2);
+      ctx.lineTo(fx + fw + 14, skirtTop + 8);
+      ctx.lineTo(fx + fw + 20, ftop + wallH);
+      ctx.closePath();
+      ctx.fill();
+      // Darker shadow along the wall-sand contact line
+      ctx.fillStyle = 'rgba(40, 18, 8, 0.55)';
+      ctx.fillRect(fx, skirtTop + 2, fw, 1.2);
+      // Lighter sand crest highlight along the drift's top contour
+      ctx.strokeStyle = '#fce0a8';
+      ctx.lineWidth = 1.0;
+      ctx.beginPath();
+      ctx.moveTo(fx - 20, ftop + wallH);
+      ctx.lineTo(fx - 14, skirtTop + 8);
+      ctx.lineTo(fx + 12, skirtTop + 2);
+      ctx.lineTo(fx + fw - 12, skirtTop + 2);
+      ctx.lineTo(fx + fw + 14, skirtTop + 8);
+      ctx.lineTo(fx + fw + 20, ftop + wallH);
+      ctx.stroke();
+      // Sand grit specks scattered across the drift
+      ctx.fillStyle = 'rgba(70, 28, 14, 0.7)';
+      for (let g = 0; g < 14; g++) {
+        const gx = fx - 16 + ((g * 19) % (fw + 32));
+        const gy = skirtTop + 4 + (g % 4) * 2;
         ctx.fillRect(gx, gy, 1.4, 1.4);
       }
-      // Faint horizontal stratum line ~mid-platform (echoes the
-      // dirt-mass stratum in drawDailyTerrain)
-      ctx.strokeStyle = 'rgba(40, 18, 8, 0.4)';
-      ctx.lineWidth = 0.9;
-      ctx.beginPath();
-      ctx.moveTo(fx, ftop + wallH * 0.45);
-      ctx.lineTo(fx + fw, ftop + wallH * 0.45);
-      ctx.stroke();
-      // Loose rock chunks at the BASE where the platform meets the
-      // ground line — softens the hard rectangle into the dunes.
+      // Loose rocks tucked at the wall-sand corners
       ctx.fillStyle = '#5a2810';
-      const rockBase = ftop + wallH - 4;
-      ctx.fillRect(fx - 4,         rockBase,     6, 4);
-      ctx.fillRect(fx + 12,        rockBase + 1, 4, 3);
-      ctx.fillRect(fx + fw - 16,   rockBase,     5, 4);
-      ctx.fillRect(fx + fw + 1,    rockBase + 1, 5, 3);
+      ctx.fillRect(fx + 2,         skirtTop + 4, 5, 3);
+      ctx.fillRect(fx + fw - 7,    skirtTop + 4, 5, 3);
+      ctx.fillRect(fx - 6,         skirtTop + 8, 4, 3);
+      ctx.fillRect(fx + fw + 2,    skirtTop + 8, 4, 3);
       ctx.fillStyle = '#7a3818';
-      ctx.fillRect(fx - 3,         rockBase,     2, 1);
-      ctx.fillRect(fx + fw - 15,   rockBase,     2, 1);
+      ctx.fillRect(fx + 3,         skirtTop + 4, 2, 1);
+      ctx.fillRect(fx + fw - 6,    skirtTop + 4, 2, 1);
     }
 
     // ---- DLX neon sign on the roof above the hangar ----
@@ -11911,18 +11919,27 @@ const DLX_BUILD = 'v209';
     } else if (tunnel.shape === 'scurve') {
       center += Math.sin(t * Math.PI * 2) * 28;
     }
-    // ENTRY + EXIT flare — channel opens slightly wider at the edges
-    // so the entrance forgives near-misses, but not so wide that the
-    // tunnel reads as a giant funnel
-    const flareLen = 32;
-    if (localX < flareLen) {
-      const ft = localX / flareLen;       // 0 at edge → 1 at flareLen
-      halfH *= 1.30 - 0.30 * ft;           // 1.30× at entry, 1.0× past it
-    } else if (localX > tunnel.length - flareLen) {
-      const ft = (tunnel.length - localX) / flareLen;
-      halfH *= 1.30 - 0.30 * ft;
+    let top = center - halfH;
+    let bot = center + halfH;
+    // ENTRY + EXIT BENDS — the channel TOP curves UP to the ground
+    // surface at each end, so the cavern visibly emerges from the
+    // ground (no separate vertical shaft). Bot is anchored deep so
+    // the bend looks like a pipe coming up out of the dirt.
+    const bendLen = 40;
+    if (localX < bendLen) {
+      const t01 = localX / bendLen;
+      const ease = t01 * t01;                 // accelerating descent
+      const surfaceY = terrainHeightAt(tunnel.worldX + localX);
+      top = surfaceY * (1 - ease) + (center - halfH) * ease;
+    } else if (localX > tunnel.length - bendLen) {
+      const t01 = (tunnel.length - localX) / bendLen;
+      const ease = t01 * t01;
+      const surfaceY = terrainHeightAt(tunnel.worldX + localX);
+      top = surfaceY * (1 - ease) + (center - halfH) * ease;
     }
-    return { center: center, halfH: halfH };
+    const cy = (top + bot) / 2;
+    const hh = (bot - top) / 2;
+    return { center: cy, halfH: hh };
   }
 
   // Air obstacles — flappy-bird-style verticals to weave through.
@@ -11966,98 +11983,13 @@ const DLX_BUILD = 'v209';
     // depth, foreground stalactites + stalagmites, and a stone-block
     // masonry strip along the cavern floor.
 
-    // ---- ENTRY + EXIT SHAFTS + CAVE MOUTHS ----
-    // Carve vertical holes through the dirt cap so the rig can dive
-    // DOWN to enter (left edge) or climb UP to exit (right edge).
-    // Each shaft is framed by a rocky cave-mouth archway at the
-    // surface — boulder rim, two hanging stalactite fangs at the top
-    // of the opening, and a deep dark interior.
-    const SHAFT_HALF_W = 18;
+    // The cavern channel itself now CURVES UP to meet the surface at
+    // each end (see tunnelChannelAt). drawDailyTerrain has already
+    // painted the dunes; the cave fill below carves into the dirt
+    // following the curved samples, so the cavern emerges from the
+    // ground naturally — no separate vertical shaft needed.
     const entrySurfaceY = terrainHeightAt(sx + dailyScrollX);
     const exitSurfaceY  = terrainHeightAt(sx + len + dailyScrollX);
-    const entryTopChY   = samples[0].top;
-    const exitTopChY    = samples[samples.length - 1].top;
-
-    // Helper: render a cave-mouth + shaft at (cx, surfaceY) reaching
-    // down to topChY. The mouth is a clean HOLE in the dirt — no
-    // above-ground boulders, no architecture poking up. Just a dark
-    // pit with jagged inner-rim rocks like a sinkhole going down.
-    const drawCaveMouth = function(cx, surfaceY, topChY) {
-      // Dark shaft fill — deepens fast for that "going far down" feel
-      const sg = ctx.createLinearGradient(0, surfaceY - 1, 0, topChY + 4);
-      sg.addColorStop(0,   '#1a0c04');
-      sg.addColorStop(0.4, '#080402');
-      sg.addColorStop(1,   '#020100');
-      ctx.fillStyle = sg;
-      ctx.fillRect(cx - SHAFT_HALF_W, surfaceY, SHAFT_HALF_W * 2, topChY - surfaceY + 6);
-      // Hard top-edge shadow — the rim casts a shadow into the hole,
-      // sells the recessed depth.
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(cx - SHAFT_HALF_W, surfaceY, SHAFT_HALF_W * 2, 3);
-      // Jagged INNER rim — rocky chunks bitten out of the dirt at
-      // the surface. Drawn at + just below surface line, never above.
-      ctx.fillStyle = '#3a1c08';
-      // Left side notches
-      ctx.beginPath();
-      ctx.moveTo(cx - SHAFT_HALF_W,     surfaceY);
-      ctx.lineTo(cx - SHAFT_HALF_W + 4, surfaceY + 5);
-      ctx.lineTo(cx - SHAFT_HALF_W + 7, surfaceY + 1);
-      ctx.lineTo(cx - SHAFT_HALF_W + 9, surfaceY + 4);
-      ctx.lineTo(cx - SHAFT_HALF_W,     surfaceY + 4);
-      ctx.closePath();
-      ctx.fill();
-      // Right side notches
-      ctx.beginPath();
-      ctx.moveTo(cx + SHAFT_HALF_W,     surfaceY);
-      ctx.lineTo(cx + SHAFT_HALF_W - 4, surfaceY + 5);
-      ctx.lineTo(cx + SHAFT_HALF_W - 7, surfaceY + 1);
-      ctx.lineTo(cx + SHAFT_HALF_W - 9, surfaceY + 4);
-      ctx.lineTo(cx + SHAFT_HALF_W,     surfaceY + 4);
-      ctx.closePath();
-      ctx.fill();
-      // Lighter inner-rim highlight (catches dim light from above)
-      ctx.fillStyle = '#7a4828';
-      ctx.fillRect(cx - SHAFT_HALF_W + 1, surfaceY + 1, 2, 1);
-      ctx.fillRect(cx + SHAFT_HALF_W - 3, surfaceY + 1, 2, 1);
-      // Inner shaft wall texture — 3-tone vertical streaks like
-      // damp dirt walls. Stays INSIDE the shaft, no flare-out.
-      ctx.fillStyle = '#3a1c08';
-      ctx.fillRect(cx - SHAFT_HALF_W + 1,    surfaceY + 4,  1.4, 14);
-      ctx.fillRect(cx + SHAFT_HALF_W - 2.4,  surfaceY + 6,  1.4, 12);
-      ctx.fillStyle = 'rgba(120, 70, 32, 0.45)';
-      ctx.fillRect(cx - SHAFT_HALF_W + 3,    surfaceY + 8,  1, 8);
-      ctx.fillRect(cx + SHAFT_HALF_W - 4,    surfaceY + 10, 1, 6);
-      // A few tiny dirt-clod specks fallen INTO the shaft — sells
-      // the natural sinkhole look.
-      ctx.fillStyle = 'rgba(60, 30, 12, 0.85)';
-      ctx.fillRect(cx - 6, surfaceY + 12, 1.4, 1.4);
-      ctx.fillRect(cx + 4, surfaceY + 18, 1.4, 1.4);
-    };
-
-    drawCaveMouth(sx,         entrySurfaceY, entryTopChY);
-    drawCaveMouth(sx + len,   exitSurfaceY,  exitTopChY);
-
-    // ---- SURFACE MARKERS — pulsing arrows above each cave mouth so
-    // the player knows where to dive (entry) and where they'll
-    // emerge (exit). Drawn at the surface line, above the rocks.
-    const arrowPulse = 0.55 + 0.45 * Math.sin(frame * 0.16);
-    ctx.shadowBlur = 6; ctx.shadowColor = '#ffd060';
-    ctx.fillStyle = 'rgba(255, 224, 96, ' + arrowPulse + ')';
-    // Down-arrow above entry mouth
-    ctx.beginPath();
-    ctx.moveTo(sx - 8, entrySurfaceY - 26);
-    ctx.lineTo(sx + 8, entrySurfaceY - 26);
-    ctx.lineTo(sx,     entrySurfaceY - 14);
-    ctx.closePath();
-    ctx.fill();
-    // Up-arrow above exit mouth
-    ctx.beginPath();
-    ctx.moveTo(sx + len - 8, exitSurfaceY - 14);
-    ctx.lineTo(sx + len + 8, exitSurfaceY - 14);
-    ctx.lineTo(sx + len,     exitSurfaceY - 26);
-    ctx.closePath();
-    ctx.fill();
-    ctx.shadowBlur = 0;
 
     // ---- BACKGROUND (deepest) cave fill — almost black, carved out
     const bgGrad = ctx.createLinearGradient(0, samples[0].top, 0, samples[0].bot);
@@ -12226,28 +12158,68 @@ const DLX_BUILD = 'v209';
       ctx.fill();
     }
 
-    // ---- ENTRANCE chevron telegraph
-    if (sx > -40 && sx < W) {
-      const entryCh = tunnelChannelAt(t, 0);
-      const pulse = 0.6 + 0.4 * Math.sin(frame * 0.18);
-      ctx.shadowBlur = 4; ctx.shadowColor = '#ffd060';
-      ctx.fillStyle = 'rgba(255, 224, 96, ' + pulse + ')';
+    // ---- SURFACE RIM at each opening — small dirt-and-rock collar
+    // sitting on the surface around the mouth of the cavern, like a
+    // manhole rim. The cavern already reaches the surface (channel
+    // top curves up at the bend); the rim is just a visual cue
+    // sticking up out of the dirt to read as "tunnel emerges here."
+    const drawRim = function(rimX, surfaceY) {
+      const RIM_W = 22;
+      const RIM_H = 6;
+      // Left lip — dirt mound rising from the surface to the rim crest
+      ctx.fillStyle = '#7a3818';
       ctx.beginPath();
-      ctx.moveTo(sx - 6, entryCh.center - entryCh.halfH - 14);
-      ctx.lineTo(sx + 4, entryCh.center - entryCh.halfH - 6);
-      ctx.lineTo(sx - 6, entryCh.center - entryCh.halfH - 1);
-      ctx.lineTo(sx - 2, entryCh.center - entryCh.halfH - 6);
+      ctx.moveTo(rimX - RIM_W,      surfaceY + 2);
+      ctx.lineTo(rimX - RIM_W + 4,  surfaceY - RIM_H + 2);
+      ctx.lineTo(rimX - 8,          surfaceY - RIM_H);
+      ctx.lineTo(rimX - 4,          surfaceY - 1);
+      ctx.lineTo(rimX - 4,          surfaceY + 2);
       ctx.closePath();
       ctx.fill();
+      // Right lip
       ctx.beginPath();
-      ctx.moveTo(sx - 6, entryCh.center + entryCh.halfH + 14);
-      ctx.lineTo(sx + 4, entryCh.center + entryCh.halfH + 6);
-      ctx.lineTo(sx - 6, entryCh.center + entryCh.halfH + 1);
-      ctx.lineTo(sx - 2, entryCh.center + entryCh.halfH + 6);
+      ctx.moveTo(rimX + 4,          surfaceY + 2);
+      ctx.lineTo(rimX + 4,          surfaceY - 1);
+      ctx.lineTo(rimX + 8,          surfaceY - RIM_H);
+      ctx.lineTo(rimX + RIM_W - 4,  surfaceY - RIM_H + 2);
+      ctx.lineTo(rimX + RIM_W,      surfaceY + 2);
       ctx.closePath();
       ctx.fill();
-      ctx.shadowBlur = 0;
-    }
+      // Bright sand-crest highlight on the rim peak
+      ctx.fillStyle = '#fce0a8';
+      ctx.fillRect(rimX - RIM_W + 4, surfaceY - RIM_H + 2, 6, 1);
+      ctx.fillRect(rimX + RIM_W - 10, surfaceY - RIM_H + 2, 6, 1);
+      // Dark rocky chunk at the very inner lip of each side
+      ctx.fillStyle = '#3a1a08';
+      ctx.fillRect(rimX - 6, surfaceY - 2, 2, 3);
+      ctx.fillRect(rimX + 4, surfaceY - 2, 2, 3);
+      // A few small rocks scattered along the rim crest
+      ctx.fillStyle = '#5a2810';
+      ctx.fillRect(rimX - RIM_W + 8,  surfaceY - RIM_H + 1, 2, 2);
+      ctx.fillRect(rimX + RIM_W - 10, surfaceY - RIM_H + 1, 2, 2);
+    };
+    drawRim(sx,        entrySurfaceY);
+    drawRim(sx + len,  exitSurfaceY);
+
+    // ---- SURFACE ARROWS — pulsing gold cues above each rim
+    const arrowPulse = 0.55 + 0.45 * Math.sin(frame * 0.16);
+    ctx.shadowBlur = 6; ctx.shadowColor = '#ffd060';
+    ctx.fillStyle = 'rgba(255, 224, 96, ' + arrowPulse + ')';
+    // Down-arrow above entry rim
+    ctx.beginPath();
+    ctx.moveTo(sx - 8, entrySurfaceY - 26);
+    ctx.lineTo(sx + 8, entrySurfaceY - 26);
+    ctx.lineTo(sx,     entrySurfaceY - 14);
+    ctx.closePath();
+    ctx.fill();
+    // Up-arrow above exit rim
+    ctx.beginPath();
+    ctx.moveTo(sx + len - 8, exitSurfaceY - 14);
+    ctx.lineTo(sx + len + 8, exitSurfaceY - 14);
+    ctx.lineTo(sx + len,     exitSurfaceY - 26);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
   }
 
 
