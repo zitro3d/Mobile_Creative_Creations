@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v211';
+const DLX_BUILD = 'v212';
 
 (function() {
   // ---------- Device detection ----------
@@ -9651,32 +9651,14 @@ const DLX_BUILD = 'v211';
   function drawDailyTerrain() {
     if (!isDaily) return;
     ctx.save();
-    // Sample terrain heights once and reuse for both fill + stroke.
-    // Near each tunnel entry / exit, the surface DIPS down to expose
-    // the cavern mouth — that's how the tunnel reads as emerging
-    // above ground (a visible pit in the dunes that the cavern flows
-    // out of).
+    // Sample terrain heights — no dip near tunnels. The tunnel's
+    // visible above-ground feature is the MOUND drawn in drawTunnel
+    // (rises out of the dunes with a dark hole) rather than a pit
+    // dipping into them.
     const samples = [];
     const step = 6;
-    const TUNNEL_DIP_DEPTH = 18;
-    const TUNNEL_DIP_RADIUS = 22;
     for (let sx = -step; sx <= W + step; sx += step) {
-      let y = terrainHeightAt(sx + dailyScrollX);
-      if (dailyAirObstacles && dailyAirObstacles.length) {
-        for (let i = 0; i < dailyAirObstacles.length; i++) {
-          const o = dailyAirObstacles[i];
-          if (o.kind !== 'tunnel') continue;
-          const wx = sx + dailyScrollX;
-          const dEntry = Math.abs(wx - o.worldX);
-          const dExit  = Math.abs(wx - (o.worldX + o.length));
-          const d = Math.min(dEntry, dExit);
-          if (d < TUNNEL_DIP_RADIUS) {
-            const t01 = d / TUNNEL_DIP_RADIUS;
-            y += TUNNEL_DIP_DEPTH * (1 - t01 * t01);
-          }
-        }
-      }
-      samples.push({ sx: sx, y: y });
+      samples.push({ sx: sx, y: terrainHeightAt(sx + dailyScrollX) });
     }
     // Filled body — warm orange-tan dune surface fading smoothly to
     // deep brown at depth. A continuous gradient with no hard color
@@ -11932,24 +11914,21 @@ const DLX_BUILD = 'v211';
     let top = center - halfH;
     let bot = center + halfH;
     // ENTRY + EXIT BENDS — the channel TOP curves UP to meet the
-    // dipped pit-bottom that drawDailyTerrain carves into the dunes
-    // (PIT_DEPTH below the original surface line). Bot stays anchored
-    // deep so the bend reads as a curved pipe rising out of the dirt
-    // and emerging into a visible pit at the surface.
+    // SURFACE line at each end. The visible above-ground feature is
+    // the dirt MOUND drawn in drawTunnel; the cavern's top reaches
+    // the surface so the cavern visibly connects to the mound's
+    // dark inner hole.
     const bendLen = 40;
-    const PIT_DEPTH = 18;          // matches TUNNEL_DIP_DEPTH in drawDailyTerrain
     if (localX < bendLen) {
       const t01 = localX / bendLen;
       const ease = t01 * t01;
       const surfaceY = terrainHeightAt(tunnel.worldX + localX);
-      const pitBottom = surfaceY + PIT_DEPTH;
-      top = pitBottom * (1 - ease) + (center - halfH) * ease;
+      top = surfaceY * (1 - ease) + (center - halfH) * ease;
     } else if (localX > tunnel.length - bendLen) {
       const t01 = (tunnel.length - localX) / bendLen;
       const ease = t01 * t01;
       const surfaceY = terrainHeightAt(tunnel.worldX + localX);
-      const pitBottom = surfaceY + PIT_DEPTH;
-      top = pitBottom * (1 - ease) + (center - halfH) * ease;
+      top = surfaceY * (1 - ease) + (center - halfH) * ease;
     }
     const cy = (top + bot) / 2;
     const hh = (bot - top) / 2;
@@ -12005,13 +11984,14 @@ const DLX_BUILD = 'v211';
     const entrySurfaceY = terrainHeightAt(sx + dailyScrollX);
     const exitSurfaceY  = terrainHeightAt(sx + len + dailyScrollX);
 
-    // ---- BACKGROUND cave fill — warm medium brown (NOT black) so
-    // the cavern reads as an earthy buried space, not a void.
+    // ---- BACKGROUND cave fill — warm tan-brown that matches the
+    // dirt palette so the cavern reads as earthy + lit, not a black
+    // void. Stays well above the near-black tones from before.
     const bgGrad = ctx.createLinearGradient(0, samples[0].top, 0, samples[0].bot);
-    bgGrad.addColorStop(0,    '#7a3818');
-    bgGrad.addColorStop(0.45, '#5a2810');
-    bgGrad.addColorStop(0.75, '#3a1c08');
-    bgGrad.addColorStop(1,    '#5a2810');
+    bgGrad.addColorStop(0,    '#a85838');
+    bgGrad.addColorStop(0.45, '#7a3818');
+    bgGrad.addColorStop(0.75, '#5a2810');
+    bgGrad.addColorStop(1,    '#7a3818');
     ctx.fillStyle = bgGrad;
     ctx.beginPath();
     ctx.moveTo(samples[0].x, samples[0].top);
@@ -12020,9 +12000,10 @@ const DLX_BUILD = 'v211';
     ctx.closePath();
     ctx.fill();
 
-    // ---- BACKGROUND wavy silhouette layer — reads as "more cave"
-    // behind the cave, gives the 3D layered feel from the reference.
-    ctx.fillStyle = 'rgba(40, 20, 10, 0.55)';
+    // ---- BACKGROUND wavy silhouette layer — subtle darker pocket
+    // at top+bot of the cavern for depth, but soft so the cavern
+    // stays well-lit overall.
+    ctx.fillStyle = 'rgba(40, 20, 10, 0.35)';
     ctx.beginPath();
     ctx.moveTo(samples[0].x, samples[0].top);
     for (let i = 0; i < samples.length; i++) {
@@ -12182,48 +12163,64 @@ const DLX_BUILD = 'v211';
       ctx.fill();
     }
 
-    // ---- SURFACE RIM at each opening — small dirt-and-rock collar
-    // sitting on the surface around the mouth of the cavern, like a
-    // manhole rim. The cavern already reaches the surface (channel
-    // top curves up at the bend); the rim is just a visual cue
-    // sticking up out of the dirt to read as "tunnel emerges here."
-    const drawRim = function(rimX, surfaceY) {
-      const RIM_W = 22;
-      const RIM_H = 6;
-      // Left lip — dirt mound rising from the surface to the rim crest
-      ctx.fillStyle = '#7a3818';
+    // ---- TUNNEL MOUND at each opening — earth dome rising up out
+    // of the dunes with a clear dark opening in its center. This is
+    // the "tunnel coming out above ground" visual the player needs
+    // to recognize from far away — much bigger than a manhole rim.
+    const drawMound = function(mx, surfaceY) {
+      const MOUND_W = 32;          // half-width
+      const MOUND_H = 18;          // peak height above the dune
+      const HOLE_W  = 14;          // half-width of the dark opening
+      const HOLE_H  = 12;          // half-height of the opening
+      // Mound body — earth gradient (matches dune palette)
+      const mg = ctx.createLinearGradient(0, surfaceY - MOUND_H, 0, surfaceY + 4);
+      mg.addColorStop(0,    '#e8a868');
+      mg.addColorStop(0.5,  '#b86838');
+      mg.addColorStop(1,    '#7a3818');
+      ctx.fillStyle = mg;
       ctx.beginPath();
-      ctx.moveTo(rimX - RIM_W,      surfaceY + 2);
-      ctx.lineTo(rimX - RIM_W + 4,  surfaceY - RIM_H + 2);
-      ctx.lineTo(rimX - 8,          surfaceY - RIM_H);
-      ctx.lineTo(rimX - 4,          surfaceY - 1);
-      ctx.lineTo(rimX - 4,          surfaceY + 2);
+      ctx.moveTo(mx - MOUND_W, surfaceY + 2);
+      ctx.bezierCurveTo(
+        mx - MOUND_W * 0.7, surfaceY - MOUND_H,
+        mx + MOUND_W * 0.7, surfaceY - MOUND_H,
+        mx + MOUND_W,       surfaceY + 2);
       ctx.closePath();
       ctx.fill();
-      // Right lip
+      // Bright dune-crest highlight along the mound's peak curve
+      ctx.strokeStyle = '#fce0a8';
+      ctx.lineWidth = 1.4;
       ctx.beginPath();
-      ctx.moveTo(rimX + 4,          surfaceY + 2);
-      ctx.lineTo(rimX + 4,          surfaceY - 1);
-      ctx.lineTo(rimX + 8,          surfaceY - RIM_H);
-      ctx.lineTo(rimX + RIM_W - 4,  surfaceY - RIM_H + 2);
-      ctx.lineTo(rimX + RIM_W,      surfaceY + 2);
-      ctx.closePath();
+      ctx.moveTo(mx - MOUND_W, surfaceY + 2);
+      ctx.bezierCurveTo(
+        mx - MOUND_W * 0.7, surfaceY - MOUND_H,
+        mx + MOUND_W * 0.7, surfaceY - MOUND_H,
+        mx + MOUND_W,       surfaceY + 2);
+      ctx.stroke();
+      // Dark inner OPENING — tunnel mouth hole in the mound
+      const og = ctx.createRadialGradient(mx, surfaceY - MOUND_H * 0.4, 2,
+                                            mx, surfaceY - MOUND_H * 0.4, HOLE_W);
+      og.addColorStop(0,   '#1a0c04');
+      og.addColorStop(0.6, '#3a1c08');
+      og.addColorStop(1,   '#5a2810');
+      ctx.fillStyle = og;
+      ctx.beginPath();
+      ctx.ellipse(mx, surfaceY - MOUND_H * 0.4, HOLE_W, HOLE_H, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Bright sand-crest highlight on the rim peak
-      ctx.fillStyle = '#fce0a8';
-      ctx.fillRect(rimX - RIM_W + 4, surfaceY - RIM_H + 2, 6, 1);
-      ctx.fillRect(rimX + RIM_W - 10, surfaceY - RIM_H + 2, 6, 1);
-      // Dark rocky chunk at the very inner lip of each side
-      ctx.fillStyle = '#3a1a08';
-      ctx.fillRect(rimX - 6, surfaceY - 2, 2, 3);
-      ctx.fillRect(rimX + 4, surfaceY - 2, 2, 3);
-      // A few small rocks scattered along the rim crest
+      // Inner-rim shadow on the upper half of the opening
+      ctx.strokeStyle = 'rgba(20, 10, 4, 0.85)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.ellipse(mx, surfaceY - MOUND_H * 0.4, HOLE_W, HOLE_H, 0, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.stroke();
+      // A couple of loose rocks at the base of the mound for texture
       ctx.fillStyle = '#5a2810';
-      ctx.fillRect(rimX - RIM_W + 8,  surfaceY - RIM_H + 1, 2, 2);
-      ctx.fillRect(rimX + RIM_W - 10, surfaceY - RIM_H + 1, 2, 2);
+      ctx.fillRect(mx - MOUND_W - 2, surfaceY,     4, 3);
+      ctx.fillRect(mx + MOUND_W - 2, surfaceY,     4, 3);
+      ctx.fillRect(mx - MOUND_W + 6, surfaceY + 1, 3, 2);
+      ctx.fillRect(mx + MOUND_W - 9, surfaceY + 1, 3, 2);
     };
-    drawRim(sx,        entrySurfaceY);
-    drawRim(sx + len,  exitSurfaceY);
+    drawMound(sx,        entrySurfaceY);
+    drawMound(sx + len,  exitSurfaceY);
 
     // ---- SURFACE ARROWS — pulsing gold cues above each rim
     const arrowPulse = 0.55 + 0.45 * Math.sin(frame * 0.16);
