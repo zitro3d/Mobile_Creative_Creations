@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v204';
+const DLX_BUILD = 'v205';
 
 (function() {
   // ---------- Device detection ----------
@@ -11882,23 +11882,19 @@ const DLX_BUILD = 'v204';
     const last = tunnelChannelAt(t, len);
     samples.push({ x: sx + len, top: last.center - last.halfH, bot: last.center + last.halfH });
     const baseGround = PLAY_H - 28;
-    const hillRise = 36;
-    // ---- DIRT layer above the tunnel (the hill) ----
-    // Color-matched to the dune terrain palette (drawDailyTerrain) so
-    // the tunnel hill blends seamlessly with the surrounding desert
-    // floor instead of looking like a separate prop.
+    // Subtle hill — barely a berm so the cavern reads as fully UNDERGROUND
+    // instead of inside a tall mound. The cavern is the focal point now.
+    const hillRise = 12;
+
+    // ---- DIRT layer above the tunnel (subtle berm) ----
     ctx.save();
-    // Vertical gradient: warm tan top → mid rust → deep rust base
     const hillTopY = samples[0].top - hillRise;
     const hillGrad = ctx.createLinearGradient(0, hillTopY, 0, baseGround);
-    hillGrad.addColorStop(0,   '#e8a868');   // warm tan (matches dune top)
-    hillGrad.addColorStop(0.5, '#b86838');   // mid rust (matches dune mid)
-    hillGrad.addColorStop(1,   '#7a3018');   // deep rust at base of hill
+    hillGrad.addColorStop(0,   '#e8a868');
+    hillGrad.addColorStop(0.5, '#b86838');
+    hillGrad.addColorStop(1,   '#7a3018');
     ctx.fillStyle = hillGrad;
     ctx.beginPath();
-    // Anchor entry + exit ramps to the actual dune surface at those
-    // worldX positions so the hill grows organically out of the dune
-    // line instead of sitting on a flat baseline.
     const leftEdgeWX  = (samples[0].x - 24) + dailyScrollX;
     const rightEdgeWX = (samples[samples.length - 1].x + 24) + dailyScrollX;
     const leftEdgeY  = terrainHeightAt(leftEdgeWX);
@@ -11908,7 +11904,6 @@ const DLX_BUILD = 'v204';
       const t01 = r / 6;
       const ease = 1 - Math.pow(1 - t01, 2);
       const rx = samples[0].x - 24 + r * 4;
-      // Lerp the ramp anchor from terrain surface up to the hill peak
       const rampBase = leftEdgeY + (baseGround - leftEdgeY) * t01;
       const ry = rampBase - ease * (rampBase - (samples[0].top - hillRise));
       ctx.lineTo(rx, ry);
@@ -11926,7 +11921,6 @@ const DLX_BUILD = 'v204';
     ctx.closePath();
     ctx.fill();
     // Pale cream crest highlight along the very top of the hill
-    // (matches the dune-crest highlight in drawDailyTerrain)
     ctx.strokeStyle = '#fce0a8';
     ctx.lineWidth = 1.4;
     ctx.beginPath();
@@ -11936,7 +11930,7 @@ const DLX_BUILD = 'v204';
       else ctx.lineTo(samples[i].x, py);
     }
     ctx.stroke();
-    // Sand grit specks across the hill surface (matches dune texture)
+    // Sand grit specks across the hill surface
     ctx.fillStyle = 'rgba(70, 28, 14, 0.55)';
     for (let i = 0; i < 14; i++) {
       const sLx = (i * 23) % len;
@@ -11945,87 +11939,44 @@ const DLX_BUILD = 'v204';
       ctx.fillRect(sxx, syy, 1.4, 1.4);
     }
     ctx.restore();
-    // ---- DIRT layer below the tunnel — gradient that matches the
-    // dune base color at the seam so the tunnel blends seamlessly
-    // into the regular ground line. (Underground extends BELOW the
-    // dune baseline; the dune fill above blends naturally at the
-    // entry/exit ramps where the hill descends back to baseGround.)
+
+    // ---- DIRT layer BELOW the tunnel — gradient blends with dune base ----
     const underGrad = ctx.createLinearGradient(0, baseGround - 4, 0, PLAY_H);
-    underGrad.addColorStop(0,   '#b86838');   // matches dune mid (seam at baseline)
-    underGrad.addColorStop(0.5, '#7a3018');   // deeper rust
-    underGrad.addColorStop(1,   '#3a1a08');   // dark earth at the very bottom
+    underGrad.addColorStop(0,   '#b86838');
+    underGrad.addColorStop(0.5, '#7a3018');
+    underGrad.addColorStop(1,   '#3a1a08');
     ctx.fillStyle = underGrad;
     ctx.beginPath();
     ctx.moveTo(samples[0].x - 24, baseGround);
-    for (const s of samples) ctx.lineTo(s.x, s.bot + 24);
+    for (const s of samples) ctx.lineTo(s.x, s.bot + 8);
     ctx.lineTo(samples[samples.length - 1].x + 24, baseGround);
     ctx.lineTo(samples[samples.length - 1].x + 24, PLAY_H);
     ctx.lineTo(samples[0].x - 24, PLAY_H);
     ctx.closePath();
     ctx.fill();
-    // ---- CONCRETE bunker shell — military-grey reinforcement ----
-    ctx.fillStyle = '#4a4238';
-    ctx.beginPath();
-    for (let i = 0; i < samples.length; i++) {
-      if (i === 0) ctx.moveTo(samples[i].x, samples[i].top - 12);
-      else ctx.lineTo(samples[i].x, samples[i].top - 12);
-    }
-    for (let i = samples.length - 1; i >= 0; i--) {
-      ctx.lineTo(samples[i].x, samples[i].top);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    for (let i = 0; i < samples.length; i++) {
-      if (i === 0) ctx.moveTo(samples[i].x, samples[i].bot);
-      else ctx.lineTo(samples[i].x, samples[i].bot);
-    }
-    for (let i = samples.length - 1; i >= 0; i--) {
-      ctx.lineTo(samples[i].x, samples[i].bot + 12);
-    }
-    ctx.closePath();
-    ctx.fill();
-    // Concrete vertical panel seams + rivets at corners
-    ctx.fillStyle = 'rgba(20, 16, 8, 0.55)';
-    for (let lx = 0; lx <= len; lx += 28) {
-      const ch = tunnelChannelAt(t, lx);
-      ctx.fillRect(sx + lx, ch.center - ch.halfH - 12, 1.2, 12);
-      ctx.fillRect(sx + lx, ch.center + ch.halfH,      1.2, 12);
-    }
-    ctx.fillStyle = '#1a1208';
-    for (let lx = 0; lx <= len; lx += 28) {
-      const ch = tunnelChannelAt(t, lx);
-      ctx.beginPath(); ctx.arc(sx + lx, ch.center - ch.halfH - 9,  0.9, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(sx + lx, ch.center - ch.halfH - 3,  0.9, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(sx + lx, ch.center + ch.halfH + 3,  0.9, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(sx + lx, ch.center + ch.halfH + 9,  0.9, 0, Math.PI * 2); ctx.fill();
-    }
-    // Rust streaks bleeding down the concrete
-    ctx.fillStyle = 'rgba(120, 60, 24, 0.55)';
-    for (let lx = 14; lx <= len - 14; lx += 42) {
-      const ch = tunnelChannelAt(t, lx);
-      ctx.fillRect(sx + lx, ch.center - ch.halfH - 11, 1, 11);
-      ctx.fillRect(sx + lx + 8, ch.center + ch.halfH + 1, 1, 10);
-    }
-    // ---- Caution-stripe band on inner edges ----
-    ctx.fillStyle = '#ffd83d';
+
+    // ---- CAVE WALL EDGES — darker dirt band along channel top + bottom ----
+    // No concrete bunker — just the natural earth tone going darker at
+    // the cavern walls (like the floor shadow in the reference image)
+    ctx.fillStyle = 'rgba(40, 18, 8, 0.55)';
     for (let i = 1; i < samples.length; i++) {
-      ctx.fillRect(samples[i - 1].x, samples[i - 1].top - 0.4, step + 0.5, 1.6);
+      ctx.fillRect(samples[i - 1].x, samples[i - 1].top - 0.8, step + 0.5, 2.2);
+      ctx.fillRect(samples[i - 1].x, samples[i - 1].bot - 1.4, step + 0.5, 2.2);
     }
-    ctx.fillStyle = '#1a0408';
-    for (let i = 1; i < samples.length; i += 2) {
-      ctx.fillRect(samples[i - 1].x + 1, samples[i - 1].top - 0.4, 3, 1.6);
+    // Faint earthy texture pebbles along the wall edges
+    ctx.fillStyle = 'rgba(20, 8, 4, 0.7)';
+    for (let lx = 14; lx <= len - 6; lx += 22) {
+      const ch = tunnelChannelAt(t, lx);
+      ctx.fillRect(sx + lx,     ch.center - ch.halfH - 3, 1.6, 1.6);
+      ctx.fillRect(sx + lx + 6, ch.center + ch.halfH + 1, 1.6, 1.6);
     }
-    ctx.fillStyle = '#ffd83d';
-    for (let i = 1; i < samples.length; i++) {
-      ctx.fillRect(samples[i - 1].x, samples[i - 1].bot - 1.2, step + 0.5, 1.6);
-    }
-    ctx.fillStyle = '#1a0408';
-    for (let i = 1; i < samples.length; i += 2) {
-      ctx.fillRect(samples[i - 1].x + 1, samples[i - 1].bot - 1.2, 3, 1.6);
-    }
-    // ---- Inside dim cave wash ----
-    ctx.fillStyle = 'rgba(10, 8, 4, 0.45)';
+
+    // ---- INTERIOR — dim cave wash with subtle vignette toward the bottom ----
+    const cavWash = ctx.createLinearGradient(0, samples[0].top, 0, samples[0].bot);
+    cavWash.addColorStop(0,   'rgba(20, 12, 6, 0.55)');
+    cavWash.addColorStop(0.5, 'rgba(10, 6, 4, 0.65)');
+    cavWash.addColorStop(1,   'rgba(20, 12, 6, 0.55)');
+    ctx.fillStyle = cavWash;
     ctx.beginPath();
     for (let i = 0; i < samples.length; i++) {
       if (i === 0) ctx.moveTo(samples[i].x, samples[i].top);
@@ -12036,30 +11987,49 @@ const DLX_BUILD = 'v204';
     }
     ctx.closePath();
     ctx.fill();
-    // ---- FLUORESCENT strip lights along ceiling ----
-    ctx.shadowBlur = 4; ctx.shadowColor = '#3ad8ff';
-    for (let lx = 8; lx < len - 4; lx += 22) {
+
+    // ---- BONES + SKULL DETAILS embedded in the dirt above + below ----
+    // Replaces the military stencils — bone fragments scattered in the
+    // earth around the cavern give the cave-mine vibe from the photo
+    ctx.fillStyle = 'rgba(232, 220, 192, 0.75)';
+    const boneSpots = [
+      { lx: 0.20, side: 'top' },
+      { lx: 0.55, side: 'bot' },
+      { lx: 0.78, side: 'top' },
+    ];
+    for (let bi = 0; bi < boneSpots.length; bi++) {
+      const b = boneSpots[bi];
+      const lx = b.lx * len;
       const ch = tunnelChannelAt(t, lx);
-      const flick = 0.5 + 0.5 * Math.sin(frame * 0.10 - lx * 0.05);
-      ctx.fillStyle = 'rgba(58, 216, 255, ' + (0.55 + flick * 0.4) + ')';
-      ctx.fillRect(sx + lx, ch.center - ch.halfH + 1.4, 10, 1.2);
-      ctx.fillStyle = 'rgba(220, 240, 255, ' + (0.4 + flick * 0.5) + ')';
-      ctx.fillRect(sx + lx + 2, ch.center - ch.halfH + 1.6, 6, 0.6);
+      const bx = sx + lx;
+      const by = b.side === 'top'
+        ? ch.center - ch.halfH - 6 - ((Math.floor(t.seed) + bi) % 3) * 3
+        : ch.center + ch.halfH + 6 + ((Math.floor(t.seed) + bi) % 3) * 3;
+      // Tiny bone with two end-knobs
+      ctx.fillRect(bx - 2.4, by, 4.8, 0.9);
+      ctx.beginPath();
+      ctx.arc(bx - 2.4, by + 0.4, 0.9, 0, Math.PI * 2);
+      ctx.arc(bx + 2.4, by + 0.4, 0.9, 0, Math.PI * 2);
+      ctx.fill();
     }
-    ctx.shadowBlur = 0;
-    // ---- Stencil markings (military sector codes) ----
-    ctx.fillStyle = 'rgba(255, 216, 96, 0.55)';
-    ctx.font = 'bold 6px "Courier New", monospace';
-    ctx.textAlign = 'left';
-    const stencils = ['SECTOR-7','DLX-04','HZRD','BNK-2','OUT'];
-    for (let s = 0; s < 3; s++) {
-      const stx = sx + 30 + s * 80;
-      if (stx > sx + len - 20) break;
-      const ch = tunnelChannelAt(t, stx - sx);
-      ctx.fillText(stencils[(Math.floor(t.seed) + s) % stencils.length],
-                   stx, ch.center + ch.halfH - 3);
+    // One tiny skull fragment for character
+    if (len > 200) {
+      const lx = len * 0.40;
+      const ch = tunnelChannelAt(t, lx);
+      const bx = sx + lx;
+      const by = ch.center - ch.halfH - 12;
+      ctx.fillStyle = 'rgba(232, 220, 192, 0.75)';
+      ctx.beginPath();
+      ctx.arc(bx, by, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(20, 10, 6, 0.85)';
+      ctx.beginPath();
+      ctx.arc(bx - 0.8, by - 0.4, 0.5, 0, Math.PI * 2);
+      ctx.arc(bx + 0.8, by - 0.4, 0.5, 0, Math.PI * 2);
+      ctx.fill();
     }
-    // ---- Entrance chevron telegraph ----
+
+    // ---- ENTRANCE chevron telegraph ----
     if (sx > -40 && sx < W) {
       const entryCh = tunnelChannelAt(t, 0);
       const pulse = 0.6 + 0.4 * Math.sin(frame * 0.18);
@@ -12082,6 +12052,7 @@ const DLX_BUILD = 'v204';
       ctx.shadowBlur = 0;
     }
   }
+
 
   // Scrap junk tower — top + bottom rusted machinery stacks with a gap.
   // Built from layered rectangles so each tower reads as different junk.
