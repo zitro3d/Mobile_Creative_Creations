@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v202';
+const DLX_BUILD = 'v203';
 
 (function() {
   // ---------- Device detection ----------
@@ -6846,7 +6846,7 @@ const DLX_BUILD = 'v202';
             // Player dives underground to enter, threads the channel,
             // exits the far side back into the sky.
             o.length    = 240 + Math.floor(Math.random() * 80);   // 240-320 px
-            o.gap       = 124 + Math.floor(Math.random() * 22);   // 124-146 px channel
+            o.gap       = 144 + Math.floor(Math.random() * 26);   // 144-170 px channel
             // Channel center sits well below the dune baseline so the
             // tunnel is visibly underground (PLAY_H - 110 ± 18)
             o.centerY   = PLAY_H - 110 + Math.floor(Math.random() * 36) - 18;
@@ -11898,12 +11898,21 @@ const DLX_BUILD = 'v202';
     hillGrad.addColorStop(1,   '#7a3018');   // deep rust at base of hill
     ctx.fillStyle = hillGrad;
     ctx.beginPath();
-    ctx.moveTo(samples[0].x - 24, baseGround);
+    // Anchor entry + exit ramps to the actual dune surface at those
+    // worldX positions so the hill grows organically out of the dune
+    // line instead of sitting on a flat baseline.
+    const leftEdgeWX  = (samples[0].x - 24) + dailyScrollX;
+    const rightEdgeWX = (samples[samples.length - 1].x + 24) + dailyScrollX;
+    const leftEdgeY  = terrainHeightAt(leftEdgeWX);
+    const rightEdgeY = terrainHeightAt(rightEdgeWX);
+    ctx.moveTo(samples[0].x - 24, leftEdgeY);
     for (let r = 0; r <= 6; r++) {
       const t01 = r / 6;
       const ease = 1 - Math.pow(1 - t01, 2);
       const rx = samples[0].x - 24 + r * 4;
-      const ry = baseGround - ease * (baseGround - (samples[0].top - hillRise));
+      // Lerp the ramp anchor from terrain surface up to the hill peak
+      const rampBase = leftEdgeY + (baseGround - leftEdgeY) * t01;
+      const ry = rampBase - ease * (rampBase - (samples[0].top - hillRise));
       ctx.lineTo(rx, ry);
     }
     for (const s of samples) ctx.lineTo(s.x, s.top - hillRise);
@@ -11911,10 +11920,11 @@ const DLX_BUILD = 'v202';
       const t01 = r / 6;
       const ease = 1 - Math.pow(t01, 2);
       const rx = samples[samples.length - 1].x + r * 4;
-      const ry = baseGround - ease * (baseGround - (samples[samples.length - 1].top - hillRise));
+      const rampBase = baseGround + (rightEdgeY - baseGround) * t01;
+      const ry = rampBase - ease * (rampBase - (samples[samples.length - 1].top - hillRise));
       ctx.lineTo(rx, ry);
     }
-    ctx.lineTo(samples[samples.length - 1].x + 24, baseGround);
+    ctx.lineTo(samples[samples.length - 1].x + 24, rightEdgeY);
     ctx.closePath();
     ctx.fill();
     // Pale cream crest highlight along the very top of the hill
@@ -11937,8 +11947,16 @@ const DLX_BUILD = 'v202';
       ctx.fillRect(sxx, syy, 1.4, 1.4);
     }
     ctx.restore();
-    // ---- DIRT layer below the tunnel — deep rust matching dune base ----
-    ctx.fillStyle = '#5a2818';
+    // ---- DIRT layer below the tunnel — gradient that matches the
+    // dune base color at the seam so the tunnel blends seamlessly
+    // into the regular ground line. (Underground extends BELOW the
+    // dune baseline; the dune fill above blends naturally at the
+    // entry/exit ramps where the hill descends back to baseGround.)
+    const underGrad = ctx.createLinearGradient(0, baseGround - 4, 0, PLAY_H);
+    underGrad.addColorStop(0,   '#b86838');   // matches dune mid (seam at baseline)
+    underGrad.addColorStop(0.5, '#7a3018');   // deeper rust
+    underGrad.addColorStop(1,   '#3a1a08');   // dark earth at the very bottom
+    ctx.fillStyle = underGrad;
     ctx.beginPath();
     ctx.moveTo(samples[0].x - 24, baseGround);
     for (const s of samples) ctx.lineTo(s.x, s.bot + 24);
