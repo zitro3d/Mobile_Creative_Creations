@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v227';
+const DLX_BUILD = 'v228';
 
 (function() {
   // ---------- Device detection ----------
@@ -6444,8 +6444,28 @@ const DLX_BUILD = 'v227';
 
       bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
 
-      // (Tunnel auto-stabilize removed — the dual-layer corridor is
-      // tall enough for normal tap-flight, no spring damping needed.)
+      // ---- DAILY TUNNEL AUTO-STABILIZE ----
+      // Gravity + flap dynamics make the corridor unflyable without
+      // damping. Whenever the rig is committed to a tunnel (below
+      // the snout exterior at its current X), cancel most of the
+      // gravity that just got applied and spring the rig toward the
+      // corridor midline. Outside any tunnel, in the sky above the
+      // snout, or before reaching one: full normal flight.
+      if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
+        for (const o of dailyAirObstacles) {
+          if (o.kind !== 'tunnel') continue;
+          const sx = o.worldX - dailyScrollX;
+          if (bird.x < sx - 4 || bird.x > sx + o.length + 4) continue;
+          const localX = Math.max(0, Math.min(o.length, bird.x - sx));
+          const L = tunnelLayoutAt(o.worldX + localX);
+          if (bird.y < L.snoutTop) break;            // still above the snout = sky route
+          const center = (L.ceiling + L.floor) / 2;
+          bird.vy -= GRAVITY * 0.75;                 // cancel most of gravity this frame
+          bird.vy += (center - bird.y) * 0.06;       // spring toward midline
+          bird.vy *= 0.88;                           // heavy damping
+          break;
+        }
+      }
 
       bird.y += bird.vy;
       bird.rot = Math.max(-0.5, Math.min(1.2, bird.vy * 0.09));
@@ -6841,7 +6861,7 @@ const DLX_BUILD = 'v227';
             // ---- DUAL-LAYER TUNNEL ----
             // Length needs to fit entrance gap (4 tiles) + body +
             // exit ramp (5 tiles) plus some breathing room.
-            o.length = 320 + Math.floor(Math.random() * 80);   // 320-400 px
+            o.length = 440 + Math.floor(Math.random() * 80);   // 440-520 px (longer body for comfortable flight)
             o.floorY = PLAY_H - 8;                             // tunnel floor near bottom
             // Spawn GOLD cogs in the BODY corridor (mid-tunnel
             // space) — between the entrance gap and the exit ramp.
@@ -17841,7 +17861,7 @@ const DLX_BUILD = 'v227';
   // floor, no diving into a hole. The CEILING is what rises above the
   // dune to create a clear doorway, with a thin dirt cap on top
   // forming the visible snout exterior.
-  const TUNNEL_MOUTH_CORRIDOR = 56;     // 56 px corridor height at the mouth (rig fits with buffer)
+  const TUNNEL_MOUTH_CORRIDOR = 80;     // 80 px corridor height at the mouth (rig fits with comfortable buffer)
   const TUNNEL_CAP_THICKNESS  = 14;     // dirt-roof thickness above the ceiling at mouth
   function tunnelFloorY(o) {
     return o.floorY != null ? o.floorY : (PLAY_H - 8);
