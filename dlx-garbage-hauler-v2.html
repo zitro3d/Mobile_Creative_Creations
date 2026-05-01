@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v206';
+const DLX_BUILD = 'v207';
 
 (function() {
   // ---------- Device detection ----------
@@ -6427,20 +6427,24 @@ const DLX_BUILD = 'v206';
       bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
 
       // ---- TUNNEL AUTO-STABILIZE ----
-      // Only kicks in when the rig is COMMITTED to a tunnel — i.e.,
-      // it has dived below the hill top into the channel. Above the
-      // hill, normal flight applies (the sky route).
+      // Engages ONLY when the rig is in the cavern body (between the
+      // entry + exit shafts). In the shafts themselves the rig is in
+      // free flight — gravity pulls it down to dive in, and the
+      // player flaps to climb up and exit. This makes diving + exiting
+      // feel natural while the cavern body still feels controlled.
       if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
         for (const o of dailyAirObstacles) {
           if (o.kind !== 'tunnel') continue;
           const sx = o.worldX - dailyScrollX;
           if (bird.x < sx - 4 || bird.x > sx + o.length + 4) continue;
           const localX = Math.max(0, Math.min(o.length, bird.x - sx));
+          // Skip stabilize in the entry / exit shaft windows
+          const SHAFT_HALF_W = 18;
+          if (localX < SHAFT_HALF_W || localX > o.length - SHAFT_HALF_W) break;
           const ch = tunnelChannelAt(o, localX);
-          const hillTop = ch.center - ch.halfH - 36;
-          // Only stabilize if rig is BELOW hill top — i.e., inside
-          // the hill / committed to threading the tunnel
-          if (bird.y < hillTop) break;
+          const skyTop = ch.center - ch.halfH - 36;
+          // Only stabilize if rig is BELOW the dirt cap — committed
+          if (bird.y < skyTop) break;
           // Cancel most of the gravity that just got applied
           bird.vy -= GRAVITY * 0.75;
           // Spring toward channel center + heavy damping
@@ -7324,7 +7328,23 @@ const DLX_BUILD = 'v206';
     if (isDaily) {
       if (bird.y - r <= 0) { bird.y = r; bird.vy = 0; }
       const gy = terrainHeightAt(bird.x + dailyScrollX);
-      if (bird.y + r >= gy) return true;          // crashed into the ground
+      // If the rig is over a tunnel ENTRY or EXIT shaft, the dirt is
+      // carved through — skip ground collision so the rig can dive
+      // DOWN to enter (or climb up to exit). Outside the shafts the
+      // surface is solid earth and ground collision still kills.
+      const wxRig = bird.x + dailyScrollX;
+      const SHAFT_HALF_W = 18;
+      let inShaftX = false;
+      for (let i = 0; i < dailyAirObstacles.length; i++) {
+        const o = dailyAirObstacles[i];
+        if (o.kind !== 'tunnel') continue;
+        if (Math.abs(wxRig - o.worldX) < SHAFT_HALF_W ||
+            Math.abs(wxRig - (o.worldX + o.length)) < SHAFT_HALF_W) {
+          inShaftX = true;
+          break;
+        }
+      }
+      if (!inShaftX && bird.y + r >= gy) return true;          // crashed into the ground
       if (ghostFrames > 0) return false;
       for (const h of dailyHazards) {
         const sx = h.worldX - dailyScrollX;
@@ -7356,19 +7376,24 @@ const DLX_BUILD = 'v206';
             return true;
           }
         } else if (o.kind === 'tunnel') {
-          // Tunnel section — the tunnel is carved through a HILL, so
-          // flying ABOVE the hill top is the sky route (free, no
-          // collision). Only when the rig dives below the hill top
-          // are they committed to the tunnel and must stay inside
-          // the channel. This is the lane choice the design hinges on.
+          // Tunnel section — the cavern is buried below the world's
+          // permanent horizon. Sky above = free flight. To enter the
+          // cavern the rig dives DOWN through a vertical entry shaft
+          // at the LEFT edge; it climbs back UP through an exit shaft
+          // at the RIGHT edge. Inside the cavern body the rig must
+          // stay between channel top + bottom or it crashes.
           if (bird.x + r > sx && bird.x - r < sx + o.length) {
             const localX = Math.max(0, Math.min(o.length, bird.x - sx));
             const ch = tunnelChannelAt(o, localX);
-            const hillRise = 36;            // matches drawTunnel
-            const hillTop = ch.center - ch.halfH - hillRise;
-            // Above the hill = sky route, no collision
-            if (bird.y + r < hillTop) continue;
-            // Below hill top = inside the hill mass — must be in channel
+            const skyTop = ch.center - ch.halfH - 40;
+            // Above the dirt cap = sky route (free)
+            if (bird.y + r < skyTop) continue;
+            // In an entry/exit shaft AND above the cavern channel = free pass
+            const SHAFT_HALF_W = 18;
+            const inShaft = (localX < SHAFT_HALF_W) ||
+                            (localX > o.length - SHAFT_HALF_W);
+            if (inShaft && bird.y + r < ch.center - ch.halfH) continue;
+            // Otherwise must be inside the cavern channel
             if (bird.y - r < ch.center - ch.halfH ||
                 bird.y + r > ch.center + ch.halfH) {
               return true;
@@ -11905,6 +11930,127 @@ const DLX_BUILD = 'v206';
     // paint the cave interior on top of that dirt — two layers for
     // depth, foreground stalactites + stalagmites, and a stone-block
     // masonry strip along the cavern floor.
+
+    // ---- ENTRY + EXIT SHAFTS + CAVE MOUTHS ----
+    // Carve vertical holes through the dirt cap so the rig can dive
+    // DOWN to enter (left edge) or climb UP to exit (right edge).
+    // Each shaft is framed by a rocky cave-mouth archway at the
+    // surface — boulder rim, two hanging stalactite fangs at the top
+    // of the opening, and a deep dark interior.
+    const SHAFT_HALF_W = 18;
+    const entrySurfaceY = terrainHeightAt(sx + dailyScrollX);
+    const exitSurfaceY  = terrainHeightAt(sx + len + dailyScrollX);
+    const entryTopChY   = samples[0].top;
+    const exitTopChY    = samples[samples.length - 1].top;
+
+    // Helper: render a cave-mouth + shaft at (cx, surfaceY) reaching
+    // down to topChY. Used for both entry + exit so they match.
+    const drawCaveMouth = function(cx, surfaceY, topChY) {
+      // Dark shaft fill (deep into the dirt)
+      const sg = ctx.createLinearGradient(0, surfaceY - 4, 0, topChY + 4);
+      sg.addColorStop(0,   '#2a1408');
+      sg.addColorStop(0.5, '#100804');
+      sg.addColorStop(1,   '#050201');
+      ctx.fillStyle = sg;
+      ctx.fillRect(cx - SHAFT_HALF_W, surfaceY - 2, SHAFT_HALF_W * 2, topChY - surfaceY + 6);
+      // Rocky LEFT rim — boulder rising above the surface
+      ctx.fillStyle = '#7a4828';
+      ctx.beginPath();
+      ctx.moveTo(cx - SHAFT_HALF_W - 11, surfaceY + 4);
+      ctx.lineTo(cx - SHAFT_HALF_W - 9,  surfaceY - 4);
+      ctx.lineTo(cx - SHAFT_HALF_W - 4,  surfaceY - 10);
+      ctx.lineTo(cx - SHAFT_HALF_W + 1,  surfaceY - 5);
+      ctx.lineTo(cx - SHAFT_HALF_W + 1,  surfaceY + 4);
+      ctx.closePath();
+      ctx.fill();
+      // Left rim sun-lit highlight
+      ctx.fillStyle = '#c08048';
+      ctx.beginPath();
+      ctx.moveTo(cx - SHAFT_HALF_W - 9,  surfaceY - 4);
+      ctx.lineTo(cx - SHAFT_HALF_W - 4,  surfaceY - 10);
+      ctx.lineTo(cx - SHAFT_HALF_W - 2,  surfaceY - 5);
+      ctx.closePath();
+      ctx.fill();
+      // Rocky RIGHT rim — boulder
+      ctx.fillStyle = '#7a4828';
+      ctx.beginPath();
+      ctx.moveTo(cx + SHAFT_HALF_W - 1,  surfaceY + 4);
+      ctx.lineTo(cx + SHAFT_HALF_W - 1,  surfaceY - 5);
+      ctx.lineTo(cx + SHAFT_HALF_W + 4,  surfaceY - 10);
+      ctx.lineTo(cx + SHAFT_HALF_W + 9,  surfaceY - 4);
+      ctx.lineTo(cx + SHAFT_HALF_W + 11, surfaceY + 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#c08048';
+      ctx.beginPath();
+      ctx.moveTo(cx + SHAFT_HALF_W + 4,  surfaceY - 10);
+      ctx.lineTo(cx + SHAFT_HALF_W + 9,  surfaceY - 4);
+      ctx.lineTo(cx + SHAFT_HALF_W + 2,  surfaceY - 5);
+      ctx.closePath();
+      ctx.fill();
+      // Stalactite fangs hanging from the rim into the shaft
+      ctx.fillStyle = '#5a3010';
+      ctx.beginPath();
+      ctx.moveTo(cx - SHAFT_HALF_W + 1,  surfaceY + 1);
+      ctx.lineTo(cx - SHAFT_HALF_W + 7,  surfaceY + 1);
+      ctx.lineTo(cx - SHAFT_HALF_W + 4,  surfaceY + 11);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cx + SHAFT_HALF_W - 7,  surfaceY + 1);
+      ctx.lineTo(cx + SHAFT_HALF_W - 1,  surfaceY + 1);
+      ctx.lineTo(cx + SHAFT_HALF_W - 4,  surfaceY + 11);
+      ctx.closePath();
+      ctx.fill();
+      // Lighter face on the fangs
+      ctx.fillStyle = '#a86838';
+      ctx.beginPath();
+      ctx.moveTo(cx - SHAFT_HALF_W + 1,  surfaceY + 1);
+      ctx.lineTo(cx - SHAFT_HALF_W + 4,  surfaceY + 1);
+      ctx.lineTo(cx - SHAFT_HALF_W + 4,  surfaceY + 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cx + SHAFT_HALF_W - 4,  surfaceY + 1);
+      ctx.lineTo(cx + SHAFT_HALF_W - 1,  surfaceY + 1);
+      ctx.lineTo(cx + SHAFT_HALF_W - 4,  surfaceY + 8);
+      ctx.closePath();
+      ctx.fill();
+      // Dark inner-rim shadow (top of the mouth)
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+      ctx.fillRect(cx - SHAFT_HALF_W + 1, surfaceY,     SHAFT_HALF_W * 2 - 2, 2);
+      // Small loose rocks scattered on the surface around the rim
+      ctx.fillStyle = '#5a3010';
+      ctx.fillRect(cx - SHAFT_HALF_W - 14, surfaceY,     2, 2);
+      ctx.fillRect(cx - SHAFT_HALF_W + 12, surfaceY,     2, 2);
+      ctx.fillRect(cx + SHAFT_HALF_W - 14, surfaceY,     2, 2);
+      ctx.fillRect(cx + SHAFT_HALF_W + 12, surfaceY,     2, 2);
+    };
+
+    drawCaveMouth(sx,         entrySurfaceY, entryTopChY);
+    drawCaveMouth(sx + len,   exitSurfaceY,  exitTopChY);
+
+    // ---- SURFACE MARKERS — pulsing arrows above each cave mouth so
+    // the player knows where to dive (entry) and where they'll
+    // emerge (exit). Drawn at the surface line, above the rocks.
+    const arrowPulse = 0.55 + 0.45 * Math.sin(frame * 0.16);
+    ctx.shadowBlur = 6; ctx.shadowColor = '#ffd060';
+    ctx.fillStyle = 'rgba(255, 224, 96, ' + arrowPulse + ')';
+    // Down-arrow above entry mouth
+    ctx.beginPath();
+    ctx.moveTo(sx - 8, entrySurfaceY - 26);
+    ctx.lineTo(sx + 8, entrySurfaceY - 26);
+    ctx.lineTo(sx,     entrySurfaceY - 14);
+    ctx.closePath();
+    ctx.fill();
+    // Up-arrow above exit mouth
+    ctx.beginPath();
+    ctx.moveTo(sx + len - 8, exitSurfaceY - 14);
+    ctx.lineTo(sx + len + 8, exitSurfaceY - 14);
+    ctx.lineTo(sx + len,     exitSurfaceY - 26);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
 
     // ---- BACKGROUND (deepest) cave fill — almost black, carved out
     const bgGrad = ctx.createLinearGradient(0, samples[0].top, 0, samples[0].bot);
