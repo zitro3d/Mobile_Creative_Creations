@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v215';
+const DLX_BUILD = 'v216';
 
 (function() {
   // ---------- Device detection ----------
@@ -6438,7 +6438,7 @@ const DLX_BUILD = 'v215';
           if (bird.x < sx - 4 || bird.x > sx + o.length + 4) continue;
           const localX = Math.max(0, Math.min(o.length, bird.x - sx));
           // Skip stabilize in the entry / exit bend windows
-          const SHAFT_BUFFER = 24;     // shaft width + small settle buffer
+          const SHAFT_BUFFER = 32;     // shaft half-width + small settle buffer
           if (localX < SHAFT_BUFFER || localX > o.length - SHAFT_BUFFER) break;
           const ch = tunnelChannelAt(o, localX);
           const surfaceY = terrainHeightAt(o.worldX + localX);
@@ -7333,7 +7333,7 @@ const DLX_BUILD = 'v215';
       // shaft window the rig falls THROUGH the floor into the
       // cavern below.
       const wxRig = bird.x + dailyScrollX;
-      const TUNNEL_SHAFT_HALF_W = 18;
+      const TUNNEL_SHAFT_HALF_W = 26;
       let inShaftX = false;
       for (let i = 0; i < dailyAirObstacles.length; i++) {
         const o = dailyAirObstacles[i];
@@ -7384,7 +7384,7 @@ const DLX_BUILD = 'v215';
           if (bird.x + r > sx && bird.x - r < sx + o.length) {
             const localX = Math.max(0, Math.min(o.length, bird.x - sx));
             const ch = tunnelChannelAt(o, localX);
-            const SHAFT_HALF_W = 18;
+            const SHAFT_HALF_W = 26;
             const inShaft = (localX < SHAFT_HALF_W) ||
                             (localX > o.length - SHAFT_HALF_W);
             const surfaceY = terrainHeightAt(o.worldX + localX);
@@ -12137,7 +12137,7 @@ const DLX_BUILD = 'v215';
     // in the floor: the rig falls through these to enter the cavern
     // and climbs through them to exit. Drawn BEFORE the mound so the
     // mound's hole gradient sits on top of the shaft.
-    const SHAFT_HALF_W = 18;
+    const SHAFT_HALF_W = 26;
     const drawShaft = function(shaftX, surfaceY, cavernTopY) {
       if (cavernTopY <= surfaceY + 2) return;          // nothing to draw
       const sg = ctx.createLinearGradient(0, surfaceY, 0, cavernTopY);
@@ -12162,56 +12162,69 @@ const DLX_BUILD = 'v215';
     // the "tunnel coming out above ground" visual the player needs
     // to recognize from far away — much bigger than a manhole rim.
     const drawMound = function(mx, surfaceY) {
-      const MOUND_W = 46;          // half-width — bigger so it reads from far
-      const MOUND_H = 26;          // peak height above the dune
-      const HOLE_W  = 20;          // half-width of the dark opening
-      const HOLE_H  = 16;          // half-height of the opening
-      // Mound body — earth gradient (matches dune palette)
+      const MOUND_W = 56;          // half-width — wider, flatter profile
+      const MOUND_H = 22;           // peak height above the dune
+      const HOLE_W  = 30;           // half-width of the rectangular opening
+      const HOLE_H  = 14;           // half-height of the opening
+      // Mound body — flat-topped trapezoid (rectangular feel) with
+      // softly rounded shoulders. Reads as a man-made tunnel berm
+      // rather than a dome.
       const mg = ctx.createLinearGradient(0, surfaceY - MOUND_H, 0, surfaceY + 4);
       mg.addColorStop(0,    '#e8a868');
       mg.addColorStop(0.5,  '#b86838');
       mg.addColorStop(1,    '#7a3818');
       ctx.fillStyle = mg;
       ctx.beginPath();
-      ctx.moveTo(mx - MOUND_W, surfaceY + 2);
-      ctx.bezierCurveTo(
-        mx - MOUND_W * 0.7, surfaceY - MOUND_H,
-        mx + MOUND_W * 0.7, surfaceY - MOUND_H,
-        mx + MOUND_W,       surfaceY + 2);
+      ctx.moveTo(mx - MOUND_W,      surfaceY + 2);
+      ctx.quadraticCurveTo(
+        mx - MOUND_W + 8, surfaceY - MOUND_H + 2,
+        mx - MOUND_W + 18, surfaceY - MOUND_H);
+      ctx.lineTo(mx + MOUND_W - 18, surfaceY - MOUND_H);
+      ctx.quadraticCurveTo(
+        mx + MOUND_W - 8, surfaceY - MOUND_H + 2,
+        mx + MOUND_W,     surfaceY + 2);
       ctx.closePath();
       ctx.fill();
-      // Bright dune-crest highlight along the mound's peak curve
+      // Pale flat-top crest highlight (only along the flat top, not
+      // continuing down the rounded shoulders, so we don't get any
+      // stroke-tail artifacts at the dune surface).
       ctx.strokeStyle = '#fce0a8';
       ctx.lineWidth = 1.4;
       ctx.beginPath();
-      ctx.moveTo(mx - MOUND_W, surfaceY + 2);
-      ctx.bezierCurveTo(
-        mx - MOUND_W * 0.7, surfaceY - MOUND_H,
-        mx + MOUND_W * 0.7, surfaceY - MOUND_H,
-        mx + MOUND_W,       surfaceY + 2);
+      ctx.moveTo(mx - MOUND_W + 18, surfaceY - MOUND_H);
+      ctx.lineTo(mx + MOUND_W - 18, surfaceY - MOUND_H);
       ctx.stroke();
-      // Dark inner OPENING — tunnel mouth hole in the mound
-      const og = ctx.createRadialGradient(mx, surfaceY - MOUND_H * 0.4, 2,
-                                            mx, surfaceY - MOUND_H * 0.4, HOLE_W);
-      og.addColorStop(0,   '#1a0c04');
-      og.addColorStop(0.6, '#3a1c08');
-      og.addColorStop(1,   '#5a2810');
-      ctx.fillStyle = og;
+      // Wide RECTANGULAR OPENING with rounded corners — matches the
+      // rectangle the user drew. Centered horizontally around mx,
+      // straddling the surface line so part of the opening is below
+      // ground (visually connecting to the shaft below).
+      const hcx = mx;
+      const hcy = surfaceY - MOUND_H * 0.25;
+      const r = 5;                          // corner radius
+      ctx.fillStyle = '#1a0c04';
       ctx.beginPath();
-      ctx.ellipse(mx, surfaceY - MOUND_H * 0.4, HOLE_W, HOLE_H, 0, 0, Math.PI * 2);
+      ctx.moveTo(hcx - HOLE_W + r, hcy - HOLE_H);
+      ctx.lineTo(hcx + HOLE_W - r, hcy - HOLE_H);
+      ctx.quadraticCurveTo(hcx + HOLE_W, hcy - HOLE_H, hcx + HOLE_W, hcy - HOLE_H + r);
+      ctx.lineTo(hcx + HOLE_W, hcy + HOLE_H - r);
+      ctx.quadraticCurveTo(hcx + HOLE_W, hcy + HOLE_H, hcx + HOLE_W - r, hcy + HOLE_H);
+      ctx.lineTo(hcx - HOLE_W + r, hcy + HOLE_H);
+      ctx.quadraticCurveTo(hcx - HOLE_W, hcy + HOLE_H, hcx - HOLE_W, hcy + HOLE_H - r);
+      ctx.lineTo(hcx - HOLE_W, hcy - HOLE_H + r);
+      ctx.quadraticCurveTo(hcx - HOLE_W, hcy - HOLE_H, hcx - HOLE_W + r, hcy - HOLE_H);
+      ctx.closePath();
       ctx.fill();
-      // Inner-rim shadow on the upper half of the opening
-      ctx.strokeStyle = 'rgba(20, 10, 4, 0.85)';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.ellipse(mx, surfaceY - MOUND_H * 0.4, HOLE_W, HOLE_H, 0, Math.PI * 1.05, Math.PI * 1.95);
-      ctx.stroke();
-      // A couple of loose rocks at the base of the mound for texture
-      ctx.fillStyle = '#5a2810';
-      ctx.fillRect(mx - MOUND_W - 2, surfaceY,     4, 3);
-      ctx.fillRect(mx + MOUND_W - 2, surfaceY,     4, 3);
-      ctx.fillRect(mx - MOUND_W + 6, surfaceY + 1, 3, 2);
-      ctx.fillRect(mx + MOUND_W - 9, surfaceY + 1, 3, 2);
+      // Soft inner gradient overlay so the opening reads as a deep
+      // hole rather than a flat black rectangle
+      const og = ctx.createRadialGradient(hcx, hcy, 2, hcx, hcy, HOLE_W);
+      og.addColorStop(0,   'rgba(0, 0, 0, 0.55)');
+      og.addColorStop(0.6, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = og;
+      ctx.fillRect(hcx - HOLE_W, hcy - HOLE_H, HOLE_W * 2, HOLE_H * 2);
+      // Inner-rim shadow along the TOP edge of the opening (the lip
+      // casts a shadow into the hole)
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+      ctx.fillRect(hcx - HOLE_W + r, hcy - HOLE_H, (HOLE_W - r) * 2, 2);
     };
     drawMound(sx,        entrySurfaceY);
     drawMound(sx + len,  exitSurfaceY);
