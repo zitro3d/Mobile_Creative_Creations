@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v205';
+const DLX_BUILD = 'v206';
 
 (function() {
   // ---------- Device detection ----------
@@ -6835,21 +6835,25 @@ const DLX_BUILD = 'v205';
             // Tighter gaps in later stages
             const gap = dailyCurrentStage >= 2 ? 120 + Math.random() * 30
                                                 : 150 + Math.random() * 30;
-            const top = 60 + Math.random() * (PLAY_H - 140 - gap);
+            // Clamp the gap to the new sky region so the lower pipe
+            // base sits ABOVE the underground horizon (~PLAY_H - 132).
+            const skyFloor = PLAY_H - 152;       // bottom pipe must stop above this
+            const top = 60 + Math.random() * Math.max(40, skyFloor - 60 - gap);
             o.top = top;
             o.gap = gap;
           } else if (kind === 'tunnel') {
             // ---- UNDERGROUND TUNNEL SECTION ----
-            // The ground rises into a hill, and the tunnel is carved
-            // through it — cut-away view, like a ferret-farm cross
-            // section. Aerial enemies stay in the sky above the hill.
-            // Player dives underground to enter, threads the channel,
-            // exits the far side back into the sky.
+            // World now has a permanent horizon at PLAY_H - 132 (sky
+            // gameplay above, dirt mass below). The tunnel is carved
+            // INTO that dirt mass. Player dives DOWN through the
+            // surface to enter, threads the cavern, exits back up.
             o.length    = 240 + Math.floor(Math.random() * 80);   // 240-320 px
             o.gap       = 104 + Math.floor(Math.random() * 18);   // 104-122 px channel
-            // Channel center sits well below the dune baseline so the
-            // tunnel is visibly underground (PLAY_H - 110 ± 18)
-            o.centerY   = PLAY_H - 110 + Math.floor(Math.random() * 36) - 18;
+            // Channel center deep in the underground dirt block.
+            // Dirt cap above (~30px from horizon to cavern ceiling)
+            // and the cavern floor lands a few px above PLAY_H so the
+            // stone-block masonry strip stays on-screen.
+            o.centerY   = PLAY_H - 60 + Math.floor(Math.random() * 16) - 8;
             // Pick a shape variant — straight is the most common
             const shapes = ['straight','straight','slope','zigzag','pinch','scurve'];
             o.shape = shapes[Math.floor(Math.random() * shapes.length)];
@@ -9638,11 +9642,14 @@ const DLX_BUILD = 'v205';
     for (let sx = -step; sx <= W + step; sx += step) {
       samples.push({ sx: sx, y: terrainHeightAt(sx + dailyScrollX) });
     }
-    // Filled body — warm orange-tan dune sand fading to deep rust at depth
-    const grad = ctx.createLinearGradient(0, PLAY_H - 80, 0, PLAY_H);
-    grad.addColorStop(0,   '#e8a868');
-    grad.addColorStop(0.5, '#b86838');
-    grad.addColorStop(1,   '#5a2818');
+    // Filled body — warm orange-tan dune surface fading to deep rust
+    // at depth. Now spans the full ~132px dirt mass below the horizon
+    // so the underground reads as a thick earth wall, not a thin strip.
+    const grad = ctx.createLinearGradient(0, PLAY_H - 160, 0, PLAY_H);
+    grad.addColorStop(0,    '#e8a868');
+    grad.addColorStop(0.20, '#c87848');
+    grad.addColorStop(0.55, '#7a3818');
+    grad.addColorStop(1,    '#2a1208');
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.moveTo(samples[0].sx, PLAY_H + 4);
@@ -9650,6 +9657,17 @@ const DLX_BUILD = 'v205';
     ctx.lineTo(samples[samples.length - 1].sx, PLAY_H + 4);
     ctx.closePath();
     ctx.fill();
+    // Soft horizontal stratum line ~40px below the surface — gives
+    // the dirt mass a sense of layering / depth.
+    ctx.strokeStyle = 'rgba(60, 24, 10, 0.35)';
+    ctx.lineWidth = 1.0;
+    ctx.beginPath();
+    for (let i = 0; i < samples.length; i++) {
+      const y = samples[i].y + 42;
+      if (i === 0) ctx.moveTo(samples[i].sx, y);
+      else ctx.lineTo(samples[i].sx, y);
+    }
+    ctx.stroke();
     // Pale cream highlight along the dune crest catching the sky light
     ctx.strokeStyle = '#fce0a8';
     ctx.lineWidth = 1.6;
@@ -11881,106 +11899,46 @@ const DLX_BUILD = 'v205';
     }
     const last = tunnelChannelAt(t, len);
     samples.push({ x: sx + len, top: last.center - last.halfH, bot: last.center + last.halfH });
-    const baseGround = PLAY_H - 28;
-    // Subtle hill — barely a berm so the cavern reads as fully UNDERGROUND
-    // instead of inside a tall mound. The cavern is the focal point now.
-    const hillRise = 12;
 
-    // ---- DIRT layer above the tunnel (subtle berm) ----
-    ctx.save();
-    const hillTopY = samples[0].top - hillRise;
-    const hillGrad = ctx.createLinearGradient(0, hillTopY, 0, baseGround);
-    hillGrad.addColorStop(0,   '#e8a868');
-    hillGrad.addColorStop(0.5, '#b86838');
-    hillGrad.addColorStop(1,   '#7a3018');
-    ctx.fillStyle = hillGrad;
-    ctx.beginPath();
-    const leftEdgeWX  = (samples[0].x - 24) + dailyScrollX;
-    const rightEdgeWX = (samples[samples.length - 1].x + 24) + dailyScrollX;
-    const leftEdgeY  = terrainHeightAt(leftEdgeWX);
-    const rightEdgeY = terrainHeightAt(rightEdgeWX);
-    ctx.moveTo(samples[0].x - 24, leftEdgeY);
-    for (let r = 0; r <= 6; r++) {
-      const t01 = r / 6;
-      const ease = 1 - Math.pow(1 - t01, 2);
-      const rx = samples[0].x - 24 + r * 4;
-      const rampBase = leftEdgeY + (baseGround - leftEdgeY) * t01;
-      const ry = rampBase - ease * (rampBase - (samples[0].top - hillRise));
-      ctx.lineTo(rx, ry);
-    }
-    for (const s of samples) ctx.lineTo(s.x, s.top - hillRise);
-    for (let r = 1; r <= 6; r++) {
-      const t01 = r / 6;
-      const ease = 1 - Math.pow(t01, 2);
-      const rx = samples[samples.length - 1].x + r * 4;
-      const rampBase = baseGround + (rightEdgeY - baseGround) * t01;
-      const ry = rampBase - ease * (rampBase - (samples[samples.length - 1].top - hillRise));
-      ctx.lineTo(rx, ry);
-    }
-    ctx.lineTo(samples[samples.length - 1].x + 24, rightEdgeY);
-    ctx.closePath();
-    ctx.fill();
-    // Pale cream crest highlight along the very top of the hill
-    ctx.strokeStyle = '#fce0a8';
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    for (let i = 0; i < samples.length; i++) {
-      const py = samples[i].top - hillRise;
-      if (i === 0) ctx.moveTo(samples[i].x, py);
-      else ctx.lineTo(samples[i].x, py);
-    }
-    ctx.stroke();
-    // Sand grit specks across the hill surface
-    ctx.fillStyle = 'rgba(70, 28, 14, 0.55)';
-    for (let i = 0; i < 14; i++) {
-      const sLx = (i * 23) % len;
-      const sxx = sx + sLx;
-      const syy = (samples[Math.floor(sLx / step)] || samples[0]).top - hillRise + 6 + (i % 3) * 4;
-      ctx.fillRect(sxx, syy, 1.4, 1.4);
-    }
-    ctx.restore();
+    // Cavern is carved INTO the daily dirt mass that drawDailyTerrain
+    // has already painted (the world has a permanent horizon now). We
+    // paint the cave interior on top of that dirt — two layers for
+    // depth, foreground stalactites + stalagmites, and a stone-block
+    // masonry strip along the cavern floor.
 
-    // ---- DIRT layer BELOW the tunnel — gradient blends with dune base ----
-    const underGrad = ctx.createLinearGradient(0, baseGround - 4, 0, PLAY_H);
-    underGrad.addColorStop(0,   '#b86838');
-    underGrad.addColorStop(0.5, '#7a3018');
-    underGrad.addColorStop(1,   '#3a1a08');
-    ctx.fillStyle = underGrad;
+    // ---- BACKGROUND (deepest) cave fill — almost black, carved out
+    const bgGrad = ctx.createLinearGradient(0, samples[0].top, 0, samples[0].bot);
+    bgGrad.addColorStop(0,    '#3a1c0a');
+    bgGrad.addColorStop(0.4,  '#1c0e06');
+    bgGrad.addColorStop(0.65, '#0e0604');
+    bgGrad.addColorStop(1,    '#1c0e06');
+    ctx.fillStyle = bgGrad;
     ctx.beginPath();
-    ctx.moveTo(samples[0].x - 24, baseGround);
-    for (const s of samples) ctx.lineTo(s.x, s.bot + 8);
-    ctx.lineTo(samples[samples.length - 1].x + 24, baseGround);
-    ctx.lineTo(samples[samples.length - 1].x + 24, PLAY_H);
-    ctx.lineTo(samples[0].x - 24, PLAY_H);
+    ctx.moveTo(samples[0].x, samples[0].top);
+    for (let i = 1; i < samples.length; i++) ctx.lineTo(samples[i].x, samples[i].top);
+    for (let i = samples.length - 1; i >= 0; i--) ctx.lineTo(samples[i].x, samples[i].bot);
     ctx.closePath();
     ctx.fill();
 
-    // ---- CAVE WALL EDGES — darker dirt band along channel top + bottom ----
-    // No concrete bunker — just the natural earth tone going darker at
-    // the cavern walls (like the floor shadow in the reference image)
-    ctx.fillStyle = 'rgba(40, 18, 8, 0.55)';
-    for (let i = 1; i < samples.length; i++) {
-      ctx.fillRect(samples[i - 1].x, samples[i - 1].top - 0.8, step + 0.5, 2.2);
-      ctx.fillRect(samples[i - 1].x, samples[i - 1].bot - 1.4, step + 0.5, 2.2);
-    }
-    // Faint earthy texture pebbles along the wall edges
-    ctx.fillStyle = 'rgba(20, 8, 4, 0.7)';
-    for (let lx = 14; lx <= len - 6; lx += 22) {
-      const ch = tunnelChannelAt(t, lx);
-      ctx.fillRect(sx + lx,     ch.center - ch.halfH - 3, 1.6, 1.6);
-      ctx.fillRect(sx + lx + 6, ch.center + ch.halfH + 1, 1.6, 1.6);
-    }
-
-    // ---- INTERIOR — dim cave wash with subtle vignette toward the bottom ----
-    const cavWash = ctx.createLinearGradient(0, samples[0].top, 0, samples[0].bot);
-    cavWash.addColorStop(0,   'rgba(20, 12, 6, 0.55)');
-    cavWash.addColorStop(0.5, 'rgba(10, 6, 4, 0.65)');
-    cavWash.addColorStop(1,   'rgba(20, 12, 6, 0.55)');
-    ctx.fillStyle = cavWash;
+    // ---- BACKGROUND wavy silhouette layer — reads as "more cave"
+    // behind the cave, gives the 3D layered feel from the reference.
+    ctx.fillStyle = 'rgba(80, 40, 20, 0.85)';
     ctx.beginPath();
+    ctx.moveTo(samples[0].x, samples[0].top);
     for (let i = 0; i < samples.length; i++) {
-      if (i === 0) ctx.moveTo(samples[i].x, samples[i].top);
-      else ctx.lineTo(samples[i].x, samples[i].top);
+      const wave = Math.sin((samples[i].x + (typeof dailyScrollX !== 'undefined' ? dailyScrollX : 0)) * 0.055 + t.seed) * 5;
+      ctx.lineTo(samples[i].x, samples[i].top + 7 + wave);
+    }
+    for (let i = samples.length - 1; i >= 0; i--) {
+      ctx.lineTo(samples[i].x, samples[i].top);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(samples[0].x, samples[0].bot);
+    for (let i = 0; i < samples.length; i++) {
+      const wave = Math.sin((samples[i].x + (typeof dailyScrollX !== 'undefined' ? dailyScrollX : 0)) * 0.047 + t.seed + 1.7) * 4;
+      ctx.lineTo(samples[i].x, samples[i].bot - 7 + wave);
     }
     for (let i = samples.length - 1; i >= 0; i--) {
       ctx.lineTo(samples[i].x, samples[i].bot);
@@ -11988,14 +11946,117 @@ const DLX_BUILD = 'v205';
     ctx.closePath();
     ctx.fill();
 
-    // ---- BONES + SKULL DETAILS embedded in the dirt above + below ----
-    // Replaces the military stencils — bone fragments scattered in the
-    // earth around the cavern give the cave-mine vibe from the photo
-    ctx.fillStyle = 'rgba(232, 220, 192, 0.75)';
+    // ---- FOREGROUND STALACTITES — tan rock points hanging from ceiling
+    const spaceX = 26;
+    for (let lx = 12; lx < len - 4; lx += spaceX) {
+      const ch = tunnelChannelAt(t, lx);
+      const px = sx + lx;
+      const baseY = ch.center - ch.halfH;
+      const phase = (Math.floor(lx / spaceX) + Math.floor(t.seed)) % 5;
+      const h = 9 + phase * 2;
+      const w = 7;
+      // Shadow (darker, offset right for depth)
+      ctx.fillStyle = '#3a1c08';
+      ctx.beginPath();
+      ctx.moveTo(px - w / 2 + 1.2, baseY);
+      ctx.lineTo(px + w / 2 + 1.2, baseY);
+      ctx.lineTo(px + 1.2,         baseY + h);
+      ctx.closePath();
+      ctx.fill();
+      // Front face — lighter tan
+      ctx.fillStyle = '#b07038';
+      ctx.beginPath();
+      ctx.moveTo(px - w / 2, baseY);
+      ctx.lineTo(px + w / 2, baseY);
+      ctx.lineTo(px,         baseY + h);
+      ctx.closePath();
+      ctx.fill();
+      // Left-edge highlight
+      ctx.fillStyle = '#e0a060';
+      ctx.beginPath();
+      ctx.moveTo(px - w / 2,     baseY);
+      ctx.lineTo(px - w / 2 + 2, baseY);
+      ctx.lineTo(px - 0.6,       baseY + h * 0.9);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // ---- FOREGROUND STALAGMITES — tan rocks rising from cavern floor
+    for (let lx = 22; lx < len - 4; lx += spaceX) {
+      const ch = tunnelChannelAt(t, lx);
+      const px = sx + lx;
+      const baseY = ch.center + ch.halfH;
+      const phase = (Math.floor(lx / spaceX) + Math.floor(t.seed) + 2) % 4;
+      const h = 7 + phase * 2;
+      const w = 8;
+      // Shadow
+      ctx.fillStyle = '#3a1c08';
+      ctx.beginPath();
+      ctx.moveTo(px - w / 2 + 1.2, baseY);
+      ctx.lineTo(px + w / 2 + 1.2, baseY);
+      ctx.lineTo(px + 1.2,         baseY - h);
+      ctx.closePath();
+      ctx.fill();
+      // Front face
+      ctx.fillStyle = '#b07038';
+      ctx.beginPath();
+      ctx.moveTo(px - w / 2, baseY);
+      ctx.lineTo(px + w / 2, baseY);
+      ctx.lineTo(px,         baseY - h);
+      ctx.closePath();
+      ctx.fill();
+      // Highlight
+      ctx.fillStyle = '#e0a060';
+      ctx.beginPath();
+      ctx.moveTo(px - w / 2,     baseY);
+      ctx.lineTo(px - w / 2 + 2, baseY);
+      ctx.lineTo(px - 0.6,       baseY - h * 0.85);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // ---- STONE-BLOCK MASONRY FLOOR — brick strip just below the
+    // cavern channel, hugging the bottom contour of the tunnel.
+    ctx.fillStyle = '#7a4e28';
+    ctx.beginPath();
+    ctx.moveTo(samples[0].x, samples[0].bot);
+    for (let i = 1; i < samples.length; i++) ctx.lineTo(samples[i].x, samples[i].bot);
+    for (let i = samples.length - 1; i >= 0; i--) ctx.lineTo(samples[i].x, samples[i].bot + 6);
+    ctx.closePath();
+    ctx.fill();
+    // Brick joints
+    ctx.strokeStyle = 'rgba(20, 10, 4, 0.85)';
+    ctx.lineWidth = 0.8;
+    const brickW = 12;
+    for (let i = 0; i < samples.length - 1; i++) {
+      const left = samples[i];
+      const right = samples[i + 1];
+      // Vertical seams every brickW within this segment
+      for (let bx = left.x; bx < right.x; bx += brickW) {
+        const t01 = (bx - left.x) / Math.max(1, right.x - left.x);
+        const yTop = left.bot + (right.bot - left.bot) * t01;
+        ctx.beginPath();
+        ctx.moveTo(bx, yTop);
+        ctx.lineTo(bx, yTop + 6);
+        ctx.stroke();
+      }
+    }
+    // Bright top edge of the masonry — like the photo's highlight
+    ctx.strokeStyle = '#d89060';
+    ctx.lineWidth = 1.0;
+    ctx.beginPath();
+    for (let i = 0; i < samples.length; i++) {
+      if (i === 0) ctx.moveTo(samples[i].x, samples[i].bot);
+      else ctx.lineTo(samples[i].x, samples[i].bot);
+    }
+    ctx.stroke();
+
+    // ---- BONES embedded in the dirt walls
+    ctx.fillStyle = 'rgba(232, 220, 192, 0.65)';
     const boneSpots = [
-      { lx: 0.20, side: 'top' },
-      { lx: 0.55, side: 'bot' },
-      { lx: 0.78, side: 'top' },
+      { lx: 0.22, side: 'top' },
+      { lx: 0.58, side: 'bot' },
+      { lx: 0.80, side: 'top' },
     ];
     for (let bi = 0; bi < boneSpots.length; bi++) {
       const b = boneSpots[bi];
@@ -12003,33 +12064,16 @@ const DLX_BUILD = 'v205';
       const ch = tunnelChannelAt(t, lx);
       const bx = sx + lx;
       const by = b.side === 'top'
-        ? ch.center - ch.halfH - 6 - ((Math.floor(t.seed) + bi) % 3) * 3
-        : ch.center + ch.halfH + 6 + ((Math.floor(t.seed) + bi) % 3) * 3;
-      // Tiny bone with two end-knobs
+        ? ch.center - ch.halfH - 4 - ((Math.floor(t.seed) + bi) % 3) * 2
+        : ch.center + ch.halfH + 9 + ((Math.floor(t.seed) + bi) % 3) * 2;
       ctx.fillRect(bx - 2.4, by, 4.8, 0.9);
       ctx.beginPath();
       ctx.arc(bx - 2.4, by + 0.4, 0.9, 0, Math.PI * 2);
       ctx.arc(bx + 2.4, by + 0.4, 0.9, 0, Math.PI * 2);
       ctx.fill();
     }
-    // One tiny skull fragment for character
-    if (len > 200) {
-      const lx = len * 0.40;
-      const ch = tunnelChannelAt(t, lx);
-      const bx = sx + lx;
-      const by = ch.center - ch.halfH - 12;
-      ctx.fillStyle = 'rgba(232, 220, 192, 0.75)';
-      ctx.beginPath();
-      ctx.arc(bx, by, 2.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(20, 10, 6, 0.85)';
-      ctx.beginPath();
-      ctx.arc(bx - 0.8, by - 0.4, 0.5, 0, Math.PI * 2);
-      ctx.arc(bx + 0.8, by - 0.4, 0.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
 
-    // ---- ENTRANCE chevron telegraph ----
+    // ---- ENTRANCE chevron telegraph
     if (sx > -40 && sx < W) {
       const entryCh = tunnelChannelAt(t, 0);
       const pulse = 0.6 + 0.4 * Math.sin(frame * 0.18);
@@ -17836,7 +17880,12 @@ const DLX_BUILD = 'v205';
   // Procedural ground height for the delivery course. Multi-octave sine so
   // it rolls believably without a heightmap allocation.
   function terrainHeightAt(worldX) {
-    const base = PLAY_H - 32;
+    // Daily mode lifts the horizon up significantly so the bottom ~25%
+    // of the playfield is visible "underground" — that's where the
+    // tunnel system lives. Top of the playfield stays open sky for the
+    // rig + scrap towers + air wrecks. Campaign keeps the original
+    // ground line near the bottom.
+    const base = isDaily ? (PLAY_H - 132) : (PLAY_H - 32);
     const a = Math.sin(worldX * 0.0030) * 22;
     const b = Math.sin(worldX * 0.0110 + 1.7) * 11;
     const c = Math.sin(worldX * 0.0270 + 0.3) * 6;
