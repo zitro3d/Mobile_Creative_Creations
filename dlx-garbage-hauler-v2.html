@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v216';
+const DLX_BUILD = 'v217';
 
 (function() {
   // ---------- Device detection ----------
@@ -7326,7 +7326,10 @@ const DLX_BUILD = 'v216';
     // ground hazards instead of pipes / bosses.
     if (isDaily) {
       if (bird.y - r <= 0) { bird.y = r; bird.vy = 0; }
-      const gy = terrainHeightAt(bird.x + dailyScrollX);
+      // Use surfaceAt so collision matches the visible dune (which
+      // bumps up around tunnel openings). Outside tunnels this is
+      // identical to terrainHeightAt.
+      const gy = surfaceAt(bird.x + dailyScrollX);
       // The ground colliders have a GAP at each tunnel's vertical
       // shaft (entry + exit). Outside the shaft windows the surface
       // is solid earth and the rig dies if it hits it; inside a
@@ -9665,14 +9668,14 @@ const DLX_BUILD = 'v216';
   function drawDailyTerrain() {
     if (!isDaily) return;
     ctx.save();
-    // Sample terrain heights — no dip near tunnels. The tunnel's
-    // visible above-ground feature is the MOUND drawn in drawTunnel
-    // (rises out of the dunes with a dark hole) rather than a pit
-    // dipping into them.
+    // Sample the surface using surfaceAt so the dune line itself
+    // bumps UP smoothly around each tunnel entry / exit. The tunnel
+    // opening then reads as part of the dune (a hole in a natural
+    // bump), not a separate sprite stamped on top.
     const samples = [];
-    const step = 6;
+    const step = 4;            // finer step so the bump curve stays smooth
     for (let sx = -step; sx <= W + step; sx += step) {
-      samples.push({ sx: sx, y: terrainHeightAt(sx + dailyScrollX) });
+      samples.push({ sx: sx, y: surfaceAt(sx + dailyScrollX) });
     }
     // Filled body — warm orange-tan dune surface fading smoothly to
     // deep brown at depth. A continuous gradient with no hard color
@@ -11950,8 +11953,10 @@ const DLX_BUILD = 'v216';
     // painted the dunes; the cave fill below carves into the dirt
     // following the curved samples, so the cavern emerges from the
     // ground naturally — no separate vertical shaft needed.
-    const entrySurfaceY = terrainHeightAt(sx + dailyScrollX);
-    const exitSurfaceY  = terrainHeightAt(sx + len + dailyScrollX);
+    // Use the BUMPED surface (surfaceAt) so the shaft rises out of
+    // the dune's natural bump, not the un-bumped baseline.
+    const entrySurfaceY = surfaceAt(sx + dailyScrollX);
+    const exitSurfaceY  = surfaceAt(sx + len + dailyScrollX);
 
     // ---- BACKGROUND cave fill — warm tan-brown that matches the
     // dirt palette so the cavern reads as earthy + lit, not a black
@@ -12157,77 +12162,27 @@ const DLX_BUILD = 'v216';
     drawShaft(sx,        entrySurfaceY, entryCavernTop);
     drawShaft(sx + len,  exitSurfaceY,  exitCavernTop);
 
-    // ---- TUNNEL MOUND at each opening — earth dome rising up out
-    // of the dunes with a clear dark opening in its center. This is
-    // the "tunnel coming out above ground" visual the player needs
-    // to recognize from far away — much bigger than a manhole rim.
-    const drawMound = function(mx, surfaceY) {
-      const MOUND_W = 56;          // half-width — wider, flatter profile
-      const MOUND_H = 22;           // peak height above the dune
-      const HOLE_W  = 30;           // half-width of the rectangular opening
-      const HOLE_H  = 14;           // half-height of the opening
-      // Mound body — flat-topped trapezoid (rectangular feel) with
-      // softly rounded shoulders. Reads as a man-made tunnel berm
-      // rather than a dome.
-      const mg = ctx.createLinearGradient(0, surfaceY - MOUND_H, 0, surfaceY + 4);
-      mg.addColorStop(0,    '#e8a868');
-      mg.addColorStop(0.5,  '#b86838');
-      mg.addColorStop(1,    '#7a3818');
-      ctx.fillStyle = mg;
-      ctx.beginPath();
-      ctx.moveTo(mx - MOUND_W,      surfaceY + 2);
-      ctx.quadraticCurveTo(
-        mx - MOUND_W + 8, surfaceY - MOUND_H + 2,
-        mx - MOUND_W + 18, surfaceY - MOUND_H);
-      ctx.lineTo(mx + MOUND_W - 18, surfaceY - MOUND_H);
-      ctx.quadraticCurveTo(
-        mx + MOUND_W - 8, surfaceY - MOUND_H + 2,
-        mx + MOUND_W,     surfaceY + 2);
-      ctx.closePath();
-      ctx.fill();
-      // Pale flat-top crest highlight (only along the flat top, not
-      // continuing down the rounded shoulders, so we don't get any
-      // stroke-tail artifacts at the dune surface).
-      ctx.strokeStyle = '#fce0a8';
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.moveTo(mx - MOUND_W + 18, surfaceY - MOUND_H);
-      ctx.lineTo(mx + MOUND_W - 18, surfaceY - MOUND_H);
-      ctx.stroke();
-      // Wide RECTANGULAR OPENING with rounded corners — matches the
-      // rectangle the user drew. Centered horizontally around mx,
-      // straddling the surface line so part of the opening is below
-      // ground (visually connecting to the shaft below).
-      const hcx = mx;
-      const hcy = surfaceY - MOUND_H * 0.25;
-      const r = 5;                          // corner radius
-      ctx.fillStyle = '#1a0c04';
-      ctx.beginPath();
-      ctx.moveTo(hcx - HOLE_W + r, hcy - HOLE_H);
-      ctx.lineTo(hcx + HOLE_W - r, hcy - HOLE_H);
-      ctx.quadraticCurveTo(hcx + HOLE_W, hcy - HOLE_H, hcx + HOLE_W, hcy - HOLE_H + r);
-      ctx.lineTo(hcx + HOLE_W, hcy + HOLE_H - r);
-      ctx.quadraticCurveTo(hcx + HOLE_W, hcy + HOLE_H, hcx + HOLE_W - r, hcy + HOLE_H);
-      ctx.lineTo(hcx - HOLE_W + r, hcy + HOLE_H);
-      ctx.quadraticCurveTo(hcx - HOLE_W, hcy + HOLE_H, hcx - HOLE_W, hcy + HOLE_H - r);
-      ctx.lineTo(hcx - HOLE_W, hcy - HOLE_H + r);
-      ctx.quadraticCurveTo(hcx - HOLE_W, hcy - HOLE_H, hcx - HOLE_W + r, hcy - HOLE_H);
-      ctx.closePath();
-      ctx.fill();
-      // Soft inner gradient overlay so the opening reads as a deep
-      // hole rather than a flat black rectangle
-      const og = ctx.createRadialGradient(hcx, hcy, 2, hcx, hcy, HOLE_W);
-      og.addColorStop(0,   'rgba(0, 0, 0, 0.55)');
-      og.addColorStop(0.6, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = og;
-      ctx.fillRect(hcx - HOLE_W, hcy - HOLE_H, HOLE_W * 2, HOLE_H * 2);
-      // Inner-rim shadow along the TOP edge of the opening (the lip
-      // casts a shadow into the hole)
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-      ctx.fillRect(hcx - HOLE_W + r, hcy - HOLE_H, (HOLE_W - r) * 2, 2);
+    // The standalone mound has been removed — the dune itself bumps
+    // up around the tunnel via surfaceAt(), and the SHAFT above
+    // already paints the dark opening at the top of that bump. The
+    // result is one continuous earth surface with a rectangular cut,
+    // not a sprite glued on top.
+    //
+    // We only add a soft shadow under the lip and a faint highlight
+    // on the bump's crest to sell the curvature of the dune.
+    const drawOpeningLip = function(mx, surfaceY) {
+      // Top-edge inner shadow — the lip casts a shadow into the hole
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+      ctx.fillRect(mx - SHAFT_HALF_W + 2, surfaceY, (SHAFT_HALF_W - 2) * 2, 2.4);
+      // Faint pale crest highlight just OUTSIDE the opening, on the
+      // dune's bump shoulders — sells the dune curvature around the
+      // hole without stamping a separate object.
+      ctx.fillStyle = 'rgba(252, 224, 168, 0.8)';
+      ctx.fillRect(mx - SHAFT_HALF_W - 8, surfaceY - 1, 7, 1.2);
+      ctx.fillRect(mx + SHAFT_HALF_W + 1, surfaceY - 1, 7, 1.2);
     };
-    drawMound(sx,        entrySurfaceY);
-    drawMound(sx + len,  exitSurfaceY);
+    drawOpeningLip(sx,        entrySurfaceY);
+    drawOpeningLip(sx + len,  exitSurfaceY);
 
     // ---- SURFACE ARROWS — pulsing gold cues above each rim
     const arrowPulse = 0.55 + 0.45 * Math.sin(frame * 0.16);
@@ -18043,6 +17998,32 @@ const DLX_BUILD = 'v216';
     const b = Math.sin(worldX * 0.0110 + 1.7) * 11;
     const c = Math.sin(worldX * 0.0270 + 0.3) * 6;
     return base + a + b + c;
+  }
+  // Surface Y INCLUDING the dune bumps that rise smoothly around each
+  // tunnel entry / exit. Used both by the renderer (so the dune line
+  // visibly bumps up around the opening) and by ground collision (so
+  // the rig must clear the bump or drop into the shaft window). The
+  // bump is a half-cosine taper — perfectly continuous with the
+  // surrounding dune, so the opening reads as part of the terrain
+  // rather than a patch dropped on top.
+  function surfaceAt(worldX) {
+    let y = terrainHeightAt(worldX);
+    if (!isDaily || !dailyAirObstacles || !dailyAirObstacles.length) return y;
+    const BUMP_R = 56;
+    const BUMP_H = 22;
+    for (let i = 0; i < dailyAirObstacles.length; i++) {
+      const o = dailyAirObstacles[i];
+      if (o.kind !== 'tunnel') continue;
+      const dEntry = Math.abs(worldX - o.worldX);
+      const dExit  = Math.abs(worldX - (o.worldX + o.length));
+      const d = Math.min(dEntry, dExit);
+      if (d < BUMP_R) {
+        const t01 = d / BUMP_R;
+        // Half-cosine: 1 at center, 0 at edge — silky-smooth taper
+        y -= BUMP_H * 0.5 * (1 + Math.cos(t01 * Math.PI));
+      }
+    }
+    return y;
   }
   const _origRandom = Math.random;
   function todayStr() {
