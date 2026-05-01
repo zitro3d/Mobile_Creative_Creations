@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v226';
+const DLX_BUILD = 'v227';
 
 (function() {
   // ---------- Device detection ----------
@@ -9642,7 +9642,10 @@ const DLX_BUILD = 'v226';
     const floorPts = [];
     for (let sx = -step; sx <= W + step; sx += step) {
       const L = tunnelLayoutAt(sx + dailyScrollX);
-      floorPts.push({ sx: sx, y: L.floor });
+      // Snap to integer Y so the dune polyline doesn't shimmer
+      // sub-pixel as the world scrolls (which made the cacti planted
+      // on it appear to "dance" against the shifting background).
+      floorPts.push({ sx: sx, y: Math.round(L.floor) });
     }
 
     // ---- EARTH FILL — one continuous polygon under the floor
@@ -9669,15 +9672,23 @@ const DLX_BUILD = 'v226';
       if (sxEnd < -step || sxStart > W + step) continue;
 
       // Sample SnoutTop / Ceiling / Floor across the WHOLE tunnel.
+      // Round Y to integer so polygon edges snap to pixel grid and
+      // don't shimmer as the world scrolls.
       const tPts = [];
       for (let sx = sxStart; sx < sxEnd; sx += step) {
         const wx = sx + dailyScrollX;
         const L  = tunnelLayoutAt(wx);
-        tPts.push({ sx: sx, snoutTop: L.snoutTop, ceiling: L.ceiling, floor: L.floor });
+        tPts.push({ sx: sx,
+                    snoutTop: Math.round(L.snoutTop),
+                    ceiling:  Math.round(L.ceiling),
+                    floor:    Math.round(L.floor) });
       }
       const wxEnd = sxEnd + dailyScrollX;
       const LEnd  = tunnelLayoutAt(wxEnd);
-      tPts.push({ sx: sxEnd, snoutTop: LEnd.snoutTop, ceiling: LEnd.ceiling, floor: LEnd.floor });
+      tPts.push({ sx: sxEnd,
+                  snoutTop: Math.round(LEnd.snoutTop),
+                  ceiling:  Math.round(LEnd.ceiling),
+                  floor:    Math.round(LEnd.floor) });
 
       // CAVERN INTERIOR — dark fill from ceiling polyline down to
       // floor polyline. Drawn before the dirt cap so the cap covers
@@ -17825,11 +17836,13 @@ const DLX_BUILD = 'v226';
   const TUNNEL_EXIT_RAMP     = 8 * TUNNEL_TILE;     // 128 px slide-out slope (~45°)
   const TUNNEL_CEILING_OFFSET = 3 * TUNNEL_TILE;     // 48 px cap thickness in body
   // ---- Mouth structure (the "snout" sticking up out of the dune) ----
-  // The entrance and exit don't sit BELOW the surface — they rise up
-  // OUT of the ground so the rig can fly into them at sky level.
-  const TUNNEL_MOUTH_RISE     = 40;     // floor at mouth is 40 px ABOVE MainGround
-  const TUNNEL_MOUTH_CORRIDOR = 48;     // 48 px corridor height at the mouth
-  const TUNNEL_CAP_THICKNESS  = 12;     // thin snout-roof dirt above the ceiling at mouth
+  // The corridor's FLOOR enters the mouth at the dune surface so the
+  // rig can fly straight in at sky level — no climbing up to a raised
+  // floor, no diving into a hole. The CEILING is what rises above the
+  // dune to create a clear doorway, with a thin dirt cap on top
+  // forming the visible snout exterior.
+  const TUNNEL_MOUTH_CORRIDOR = 56;     // 56 px corridor height at the mouth (rig fits with buffer)
+  const TUNNEL_CAP_THICKNESS  = 14;     // dirt-roof thickness above the ceiling at mouth
   function tunnelFloorY(o) {
     return o.floorY != null ? o.floorY : (PLAY_H - 8);
   }
@@ -17847,19 +17860,17 @@ const DLX_BUILD = 'v226';
       const fY = tunnelFloorY(o);
       const bodyCeiling = mainGround + TUNNEL_CEILING_OFFSET;
       if (localX < TUNNEL_ENTRANCE_RAMP) {
-        // ENTRANCE — the corridor's mouth sits ABOVE MainGround.
-        // Floor at mouth is MOUTH_RISE px above the dune surface;
-        // ceiling is MOUTH_CORRIDOR px above the floor; snoutTop
-        // (visible snout exterior) is CAP_THICKNESS px above the
-        // ceiling. All three lerp toward their body values across
-        // the ramp:
-        //   floor      → TunnelFloor
-        //   ceiling    → bodyCeiling (MainGround + 48)
-        //   snoutTop   → MainGround (snout exterior merges back into the dune)
+        // ENTRANCE — the corridor's FLOOR meets the dune surface at
+        // the mouth so the rig flies straight in along the surface;
+        // it then ramps DOWN to TunnelFloor across the entrance.
+        // The CEILING starts MOUTH_CORRIDOR px ABOVE the surface
+        // (creating an open doorway above the floor), and snoutTop
+        // is CAP_THICKNESS px above the ceiling (the snout's roof
+        // peak). All three reach their body values at body start.
         const t01 = localX / TUNNEL_ENTRANCE_RAMP;
-        const startFloor    = mainGround - TUNNEL_MOUTH_RISE;
-        const startCeiling  = startFloor - TUNNEL_MOUTH_CORRIDOR;
-        const startSnoutTop = startCeiling - TUNNEL_CAP_THICKNESS;
+        const startFloor    = mainGround;                              // flush with surface
+        const startCeiling  = mainGround - TUNNEL_MOUTH_CORRIDOR;      // above surface
+        const startSnoutTop = startCeiling - TUNNEL_CAP_THICKNESS;     // snout peak above
         const rampFloor    = startFloor    + (fY - startFloor)            * t01;
         const rampCeiling  = startCeiling  + (bodyCeiling - startCeiling) * t01;
         const rampSnoutTop = startSnoutTop + (mainGround - startSnoutTop) * t01;
@@ -17868,11 +17879,11 @@ const DLX_BUILD = 'v226';
                  snoutTop: rampSnoutTop };
       }
       if (localX > o.length - TUNNEL_EXIT_RAMP) {
-        // EXIT — mirror of entrance: corridor ramps up out of the
-        // ground at the exit mouth.
+        // EXIT — mirror of entrance: floor ramps UP from TunnelFloor
+        // back to the dune surface; ceiling rises into the snout.
         const t01 = (localX - (o.length - TUNNEL_EXIT_RAMP)) / TUNNEL_EXIT_RAMP;
-        const endFloor    = mainGround - TUNNEL_MOUTH_RISE;
-        const endCeiling  = endFloor - TUNNEL_MOUTH_CORRIDOR;
+        const endFloor    = mainGround;
+        const endCeiling  = mainGround - TUNNEL_MOUTH_CORRIDOR;
         const endSnoutTop = endCeiling - TUNNEL_CAP_THICKNESS;
         const rampFloor    = fY          + (endFloor    - fY)          * t01;
         const rampCeiling  = bodyCeiling + (endCeiling  - bodyCeiling) * t01;
