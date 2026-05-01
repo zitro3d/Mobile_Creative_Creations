@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v190';
+const DLX_BUILD = 'v191';
 
 (function() {
   // ---------- Device detection ----------
@@ -6815,25 +6815,53 @@ const DLX_BUILD = 'v190';
           dailyAirObstacles.shift();
         }
 
+        // ---- Helper: skip pickup spawn if an obstacle is too close ----
+        // Prevents pink boxes / cogs from landing on top of scrap towers,
+        // wrecks, or ground-hazard piles. Returns true if any obstacle
+        // sits within `range` worldX of the proposed spawn position.
+        const obstacleNear = function(wx, range) {
+          for (const o of dailyAirObstacles) {
+            if (Math.abs(o.worldX - wx) < range) return true;
+          }
+          for (const h of dailyHazards) {
+            // Spike clusters are wide — give them a bigger margin
+            const halfW = h.kind === 'spikes' ? 32 : 16;
+            if (Math.abs(h.worldX - wx) < range + halfW) return true;
+          }
+          return false;
+        };
+
         // ---- Scrap cog pickups (points) ----
         while (dailyNextPickupX < dailyScrollX + W + 200) {
-          dailyPickups.push({
-            worldX: dailyNextPickupX,
-            y: 100 + Math.random() * (PLAY_H * 0.55),
-            kind: 'scrapCog',
-            alive: true,
-            bobPhase: Math.random() * Math.PI * 2,
-            orbitR: 4 + Math.random() * 7,        // 4-11 px orbit radius
-            orbitSpeed: 0.04 + Math.random() * 0.05, // varied tempo so they desync
-          });
-          // Spacing 200-360 px so there's always something to fly toward
+          // Skip the spawn slot if an obstacle is right there
+          if (!obstacleNear(dailyNextPickupX, 50)) {
+            dailyPickups.push({
+              worldX: dailyNextPickupX,
+              y: 100 + Math.random() * (PLAY_H * 0.55),
+              kind: 'scrapCog',
+              alive: true,
+              bobPhase: Math.random() * Math.PI * 2,
+              orbitR: 4 + Math.random() * 7,        // 4-11 px orbit radius
+              orbitSpeed: 0.04 + Math.random() * 0.05, // varied tempo so they desync
+            });
+          }
+          // Always advance so the loop terminates; the next slot may
+          // spawn even if this one was skipped
           dailyNextPickupX += 200 + Math.floor(Math.random() * 160);
         }
         // ---- Magnet recall boxes (cargo recovery + scrap magnet field) ----
         // Mostly low to the ground (must dive for them) but ~25% spawn
         // mid-air so the altitude isn't predictable.
         while (dailyNextMagnetX < dailyScrollX + W + 200) {
-          const groundY = terrainHeightAt(dailyNextMagnetX);
+          // Nudge spawn forward up to 6 times to find a clear spot —
+          // pink boxes are too important to skip outright
+          let spawnX = dailyNextMagnetX;
+          let nudges = 0;
+          while (obstacleNear(spawnX, 80) && nudges < 6) {
+            spawnX += 60;
+            nudges++;
+          }
+          const groundY = terrainHeightAt(spawnX);
           let py;
           if (Math.random() < 0.25) {
             // Higher up — anywhere in the upper 60% of the playfield
@@ -6843,15 +6871,16 @@ const DLX_BUILD = 'v190';
             py = groundY - 24 - Math.random() * 12;
           }
           dailyPickups.push({
-            worldX: dailyNextMagnetX,
+            worldX: spawnX,
             y: py,
             kind: 'magnetBox',
             alive: true,
             bobPhase: Math.random() * Math.PI * 2,
           });
-          // Frequent enough to actually show up early in a run —
-          // every 500-900 worldX (~3-6 sec at cruise speed)
-          dailyNextMagnetX += 1200 + Math.floor(Math.random() * 700);
+          // Advance from the actual spawn position (which may have
+          // been nudged forward to clear obstacles) so the next box
+          // doesn't pile on top of this one.
+          dailyNextMagnetX = spawnX + 1200 + Math.floor(Math.random() * 700);
         }
         // Magnet field timer (set when a magnet box is picked up)
         if (dailyMagnetFieldFrames > 0) dailyMagnetFieldFrames--;
