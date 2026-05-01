@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v187-preview';
+const DLX_BUILD = 'v188';
 
 (function() {
   // ---------- Device detection ----------
@@ -6916,9 +6916,9 @@ const DLX_BUILD = 'v187-preview';
         // Trigger 3x earlier so the truck stop + alien waver are visible
         // for the full approach. The 270-frame docking duration gives
         // the player ~4.5s of dock-visible time (was 1.5s).
-        if (!dailyDeliveredAtFinish && dailyScrollX >= 380) {       // PREVIEW: production trigger ~9040
+        if (!dailyDeliveredAtFinish && dailyScrollX >= 9040) {
           dailyDeliveredAtFinish = true;
-          const truckStopWX = 700;
+          const truckStopWX = 9400;
           const dockScreenX = truckStopWX - dailyScrollX;
           dailyDockingFrames = 270;
           dailyDockingStartX = bird.x;
@@ -12012,10 +12012,14 @@ const DLX_BUILD = 'v187-preview';
   // mid-air. 3 smaller debris pieces orbit the main hulk so the cluster
   // reads as "this used to be a whole rival rig".
   function drawAirWreck(sx, alt, seed) {
+    // ---- ALL-BLACK SILHOUETTE WRECK ----
+    // Same swept-fighter outline as the live thief but rendered as a
+    // solid black charred hulk. No smoke, no decorative panels, no
+    // skull, no cockpit details — just the recognizable rig shape
+    // burnt to a crisp, with active flames + embers + glowing cracks
+    // layered on top so the wreckage reads as freshly destroyed.
+
     // Draw debris fragments AROUND the main hull first (behind it).
-    // Mix of sizes — one BIG chunk at 0.85x scale, smaller bits down to
-    // 0.35x — so the cluster reads as varied wreckage, not 3 identical
-    // pieces. Same scaling per seed for replay consistency.
     const fragOffsets = [
       { dx: -46, dy: -24, scale: 0.85, spin: 0.014 },   // BIG chunk
       { dx:  42, dy: -28, scale: 0.45, spin: -0.027 },
@@ -12025,7 +12029,6 @@ const DLX_BUILD = 'v187-preview';
     for (let f = 0; f < fragOffsets.length; f++) {
       const fo = fragOffsets[f];
       const seedF = seed * 0.071 + f * 1.71;
-      // Per-fragment bob in a small circle so it looks like it's drifting
       const bobAng = frame * 0.04 + seedF;
       const bobX = Math.cos(bobAng) * 2;
       const bobY = Math.sin(bobAng) * 2;
@@ -12039,251 +12042,93 @@ const DLX_BUILD = 'v187-preview';
 
     ctx.save();
     ctx.translate(sx, alt);
-    // Hull tilt — listing nose-up/down + slow drift rotation
+    // Hull tilt + slow drift rotation
     const tilt = (srand(seed * 0.013 + 1.1) - 0.5) * 0.5
                + Math.sin(frame * 0.012 + seed) * 0.04;
     ctx.rotate(tilt);
 
-    // ---- Heavy black smoke pouring out the broken rear ----
-    ctx.fillStyle = 'rgba(20, 12, 8, 0.65)';
-    for (let p = 0; p < 8; p++) {
-      const sw = Math.sin(frame * 0.05 + p) * 2;
+    // ---- HULL PATH — IDENTICAL silhouette to the live thief so the
+    // wreck reads as the same rig, just blacked out. Helper closes
+    // the path so we can fill + outline with one shape definition.
+    const hw = 30, hh = 16;
+    const drawHullPath = function() {
       ctx.beginPath();
-      ctx.arc(28 + p * 6 + sw, -2 + Math.sin(p * 0.9 + frame * 0.04) * 4,
-              5 + p * 1.1, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // Inner darker smoke core
-    ctx.fillStyle = 'rgba(60, 30, 16, 0.55)';
-    for (let p = 0; p < 5; p++) {
-      ctx.beginPath();
-      ctx.arc(26 + p * 5, -2 + Math.sin(p * 0.7 + frame * 0.06) * 3,
-              3 + p * 0.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // ---- Main BURNT hull — same premium swept-fighter silhouette as
-    // the live thief, but with a JAGGED TEAR in the upper-rear where
-    // the engine exploded out. Reads as "this is one of THOSE rigs,
-    // cracked open" instead of a random clump of parts.
-    const drawWreckPath = function() {
-      ctx.beginPath();
-      ctx.moveTo(-36,    0);            // sharp front nose (intact)
-      ctx.lineTo(-22,  -14);            // upper-front chamfer
-      ctx.lineTo(  0,  -16);            // upper mid (intact)
-      // ---- jagged tear: upper-rear blown open ----
-      ctx.lineTo(  6,  -12);
-      ctx.lineTo( 14,  -16);
-      ctx.lineTo( 18,   -8);
-      ctx.lineTo( 24,  -12);
-      ctx.lineTo( 28,   -4);            // ragged remaining rear edge
-      // ---- continue intact lower silhouette ----
-      ctx.lineTo( 28,    8);            // rear bottom corner
-      ctx.lineTo( 22,   13);            // lower-rear taper
-      ctx.lineTo(  0,   16);            // lower mid (intact)
-      ctx.lineTo(-22,   14);            // lower-front chamfer
+      ctx.moveTo(-hw - 6,    0);            // sharp front nose
+      ctx.lineTo(-hw + 8,   -hh + 2);       // upper-front chamfer
+      ctx.lineTo( 0,        -hh);           // upper mid
+      ctx.lineTo( hw - 8,   -hh + 4);       // upper-rear taper
+      ctx.lineTo( hw,       -hh + 9);       // rear top corner
+      ctx.lineTo( hw,        hh - 9);       // rear bottom corner
+      ctx.lineTo( hw - 8,    hh - 4);       // lower-rear taper
+      ctx.lineTo( 0,         hh);           // lower mid
+      ctx.lineTo(-hw + 8,    hh - 2);       // lower-front chamfer
       ctx.closePath();
     };
-    // Belly fill — almost black
-    ctx.fillStyle = '#0a0604';
-    drawWreckPath();
-    ctx.fill();
-    // Charred upper-body band (same wedge from nose to mid, just upper)
-    ctx.fillStyle = '#1a1008';
-    ctx.beginPath();
-    ctx.moveTo(-36,    0);
-    ctx.lineTo(-22,  -14);
-    ctx.lineTo(  0,  -16);
-    ctx.lineTo(  6,  -12);
-    ctx.lineTo(-12,   -2);
-    ctx.lineTo(-22,    0);
-    ctx.closePath();
-    ctx.fill();
-    // Singed top edge highlight (only on the intact upper section)
-    ctx.fillStyle = '#3a1a08';
-    ctx.beginPath();
-    ctx.moveTo(-22, -14);
-    ctx.lineTo(  0, -16);
-    ctx.lineTo(  4, -13);
-    ctx.lineTo(-22, -11);
-    ctx.closePath();
+
+    // ---- Solid BLACK silhouette fill ----
+    ctx.fillStyle = '#000000';
+    drawHullPath();
     ctx.fill();
 
-    // ---- GLOWING ember CRACKS bleeding through the hull ----
-    // Red-orange glow that pulses based on frame so it reads as still hot
+    // ---- Single jagged tear line across the silhouette so it reads
+    // as broken in half (drawn slightly darker than black to suggest
+    // depth without breaking the all-black aesthetic) ----
+    ctx.strokeStyle = '#1a0a06';
+    ctx.lineWidth = 1.4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo( 6, -hh);
+    ctx.lineTo( 9, -8);
+    ctx.lineTo( 14, -4);
+    ctx.lineTo( 11,  2);
+    ctx.lineTo( 16,  7);
+    ctx.lineTo( 13, hh);
+    ctx.stroke();
+
+    // ---- GLOWING ember CRACKS bleeding through the black hull ----
+    // Pulse based on frame so they read as still hot
     const crackPulse = 0.5 + 0.5 * Math.sin(frame * 0.18 + seed);
     ctx.shadowBlur = 8 + crackPulse * 6;
     ctx.shadowColor = '#ff4020';
     ctx.strokeStyle = 'rgba(255, 100, 30, ' + (0.7 + crackPulse * 0.3) + ')';
-    ctx.lineWidth = 1.4;
-    ctx.lineCap = 'round';
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
     ctx.moveTo(-22, -8); ctx.lineTo(-18, -2); ctx.lineTo(-12, -6); ctx.lineTo(-6, 1);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(2, -10); ctx.lineTo(8, -3); ctx.lineTo(14, -7);
+    ctx.moveTo(2, 8); ctx.lineTo(8, 11); ctx.lineTo(14, 6);
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(-14, 8); ctx.lineTo(-8, 13); ctx.lineTo(0, 10);
-    ctx.stroke();
-    // Bright yellow cores along the cracks
+    // Bright yellow inner cores
     ctx.shadowBlur = 4;
     ctx.shadowColor = '#ffd060';
     ctx.strokeStyle = 'rgba(255, 220, 100, ' + (0.6 + crackPulse * 0.4) + ')';
-    ctx.lineWidth = 0.6;
+    ctx.lineWidth = 0.5;
     ctx.beginPath();
     ctx.moveTo(-22, -8); ctx.lineTo(-18, -2); ctx.lineTo(-12, -6); ctx.lineTo(-6, 1);
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(2, -10); ctx.lineTo(8, -3); ctx.lineTo(14, -7);
-    ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // ---- BIG black SCORCH patches across the hull ----
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-    ctx.beginPath();
-    ctx.ellipse(-14, -2, 8, 4, 0.3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse( 8, 4, 7, 3.5, -0.2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(-6, 12, 6, 2.6, 0.1, 0, Math.PI * 2);
-    ctx.fill();
-
-    // ---- Cracked cockpit visor — completely shattered, dead empty ----
-    ctx.fillStyle = '#0a0604';
-    ctx.fillRect(-29, -13, 16, 9);
-    ctx.fillStyle = '#1a1008';
-    ctx.fillRect(-28, -12, 14, 7);
-    ctx.fillStyle = '#000000';                        // just black void
-    ctx.fillRect(-27, -11, 12, 3);
-    ctx.fillRect(-26, -10.4, 10, 1.2);
-    // Cracked-glass break shards
-    ctx.strokeStyle = 'rgba(180, 180, 180, 0.45)';
-    ctx.lineWidth = 0.6;
-    ctx.beginPath();
-    ctx.moveTo(-26, -7); ctx.lineTo(-18, -12); ctx.lineTo(-15, -5);
-    ctx.moveTo(-22, -11); ctx.lineTo(-19, -7);
-    ctx.stroke();
-
-    // ---- Caution stripe — burnt to charred black, tiny embers in it ----
-    ctx.fillStyle = '#1a0e04';
-    ctx.fillRect(-26, 11, 28, 3);
-    ctx.fillStyle = '#3a1808';
-    for (let s = 0; s < 6; s++) ctx.fillRect(-24 + s * 5, 11, 2, 3);
-    // A few embers still glowing along the stripe
-    ctx.shadowBlur = 4; ctx.shadowColor = '#ff6020';
-    ctx.fillStyle = 'rgba(255, 140, 50, ' + (0.7 + crackPulse * 0.3) + ')';
-    ctx.fillRect(-12, 11.6, 1.6, 1.6);
-    ctx.fillRect(  4, 11.6, 1.4, 1.4);
-    ctx.shadowBlur = 0;
-
-    // ---- Spike rams — most snapped off, the rest blackened ----
-    ctx.fillStyle = '#0a0604';
-    const spikeStates = [0, 1, 0, 1, 0];        // most are gone
-    for (let s = 0; s < 5; s++) {
-      const sx2 = -20 + s * 9;
-      const intact = spikeStates[s];
-      if (intact) {
-        const tipBend = (s === 1) ? 1.5 : (s === 4) ? -1.2 : 0;
-        ctx.beginPath();
-        ctx.moveTo(sx2 - 2,        -16);
-        ctx.lineTo(sx2 + tipBend,  -25);
-        ctx.lineTo(sx2 + 2,        -16);
-        ctx.closePath();
-        ctx.fill();
-      } else {
-        // Snapped — jagged glowing stub
-        ctx.beginPath();
-        ctx.moveTo(sx2 - 2, -16);
-        ctx.lineTo(sx2,     -19);
-        ctx.lineTo(sx2 + 2, -16);
-        ctx.closePath();
-        ctx.fill();
-        // Tiny ember at the broken stub
-        ctx.shadowBlur = 4; ctx.shadowColor = '#ff8030';
-        ctx.fillStyle = 'rgba(255, 160, 60, ' + (0.6 + crackPulse * 0.4) + ')';
-        ctx.beginPath();
-        ctx.arc(sx2, -19, 0.9, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#0a0604';
-      }
-    }
-
-    // ---- Skull decal — heavily scorched, mostly burnt away ----
-    ctx.fillStyle = '#5a4828';                       // burnt-bone tan
-    ctx.beginPath();
-    ctx.arc(5, -1.5, 4, 0, Math.PI * 2);
-    ctx.fill();
-    // Heavy black scorch all over the skull
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-    ctx.beginPath();
-    ctx.arc(7, 0, 3, 0, Math.PI * 2);
-    ctx.fill();
-    // Eye sockets — empty black voids
-    ctx.fillStyle = '#000000';
-    ctx.beginPath(); ctx.arc(3.4, -2, 1.1, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(6.6, -2, 1.1, 0, Math.PI * 2); ctx.fill();
-    // Jaw — barely visible
-    ctx.fillStyle = '#0a0604';
-    ctx.fillRect(2.6, 1, 4.4, 1.6);
-
-    // (Snapped magnet cable + dangling plate removed — they were
-    // reading as a "tail" sticking out the back instead of broken
-    // wreckage. The torn upper-rear silhouette tells the explosion
-    // story now.)
-
-    // Heavy hairline outline along the same wreck silhouette
+    // ---- Hull silhouette OUTLINE in pure black (defines the edge) ----
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 1.6;
-    drawWreckPath();
+    drawHullPath();
     ctx.stroke();
-    // Skip the legacy outline path below
-    if (false) {
-    ctx.beginPath();
-    ctx.moveTo(-32,   2);
-    ctx.lineTo(-34,  -4);
-    ctx.lineTo(-30, -14);
-    ctx.lineTo(-12, -18);
-    ctx.lineTo( 10, -16);
-    ctx.lineTo( 22, -12);
-    ctx.lineTo( 26,  -2);
-    ctx.lineTo( 18,   3);
-    ctx.lineTo( 24,  10);
-    ctx.lineTo( 14,   8);
-    ctx.lineTo( 18,  16);
-    ctx.lineTo(  6,  14);
-    ctx.lineTo( -8,  18);
-    ctx.lineTo(-26,  14);
-    ctx.lineTo(-34,   6);
-    ctx.closePath();
-    ctx.stroke();
-    } /* end legacy outline */
 
     // ---- ACTIVE FIRE FLAMES at multiple points on the hull ----
-    // Each flame has its own position + flicker phase so the wreck
-    // reads as actively burning in several places
-    drawHullFlame(-14,  -8, 0.8, seed * 0.3 + 1.1);     // upper-left scorched
-    drawHullFlame( 12, -10, 1.5, seed * 0.5 + 2.7);     // BIG flame at the tear
-    drawHullFlame( 22,  -6, 1.0, seed * 0.7 + 0.4);     // rear edge
-    drawHullFlame( -4,  10, 0.7, seed * 0.9 + 3.3);     // lower belly
+    drawHullFlame(-18,  -6, 0.8, seed * 0.3 + 1.1);    // upper-left
+    drawHullFlame(  4, -10, 1.2, seed * 0.5 + 2.7);    // top mid
+    drawHullFlame( 18,  -2, 1.5, seed * 0.7 + 0.4);    // BIG rear
+    drawHullFlame( -8,  10, 0.7, seed * 0.9 + 3.3);    // lower belly
 
     // ---- RISING EMBERS floating up from the wreck ----
-    // 10 embers cycling through 60-frame lifespans, each rising +
-    // drifting horizontally as it fades from bright yellow → red → out
     for (let e = 0; e < 10; e++) {
       const lifeSpan = 60;
       const emPhase = ((frame + e * 9) % lifeSpan) / lifeSpan;     // 0..1
-      // Embers concentrated near the tear (positive X) so the wreck
-      // looks like it's belching from where it broke open
-      const emBaseX = ((e * 7 + Math.floor(seed) * 3) % 36) - 8;
+      const emBaseX = ((e * 7 + Math.floor(seed) * 3) % 36) - 14;
       const emX = emBaseX + Math.sin(frame * 0.06 + e * 1.3) * 3;
       const emY = -emPhase * 38 - 4;
       const emAlpha = 1 - emPhase;
       const emR = 1.1 - emPhase * 0.5;
-      // Color shifts yellow → orange → red as it fades
       const r = 255;
       const g = Math.floor(220 - emPhase * 160);
       const b = Math.floor(80  - emPhase * 70);
@@ -17620,7 +17465,7 @@ const DLX_BUILD = 'v187-preview';
     { kind: 'driveIn',         worldX: 5400 },
     { kind: 'sphinx',          worldX: 6900 },
     { kind: 'collapsedOffice', worldX: 8200 },
-    { kind: 'truckStop',       worldX: 700 },     // PREVIEW: was 9400
+    { kind: 'truckStop',       worldX: 9400 },
   ];
   // Ground-level rival haulers chasing on the dunes (Phase A4)
   let dailyGroundOps = [];         // [{ x, y, vx, state, stateFrames, hookY }]
@@ -17661,11 +17506,10 @@ const DLX_BUILD = 'v187-preview';
   // magnet field that auto-pulls nearby cogs for ~4 seconds. Counts
   // down each frame.
   let dailyMagnetFieldFrames = 0;
-  // ⚠ PREVIEW MODE — temporarily shortened course so the player can
-  // see the truck stop arrival + victory screen artwork without
-  // surviving the full 60-90s run. Will be reverted after design
-  // feedback. Production target is 400.
-  const DELIVERY_TARGET = 25;
+  // Score the daily run needs to reach to count as "delivery made".
+  // Below this and a crash counts as a failed delivery; at or above
+  // it the run ends in DELIVERY MADE. Course is broken into 4 stages.
+  const DELIVERY_TARGET = 400;
   const DAILY_STAGES = [
     { threshold: 0,    label: 'STAGE 1 — OPEN DUNES'           },
     { threshold: 100,  label: 'STAGE 2 — DRONE ZONE'           },
