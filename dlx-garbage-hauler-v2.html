@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v222';
+const DLX_BUILD = 'v223';
 
 (function() {
   // ---------- Device detection ----------
@@ -7297,13 +7297,11 @@ const DLX_BUILD = 'v222';
       const L = tunnelLayoutAt(wxRig);
       // FLOOR — every state has one. Rig dies hitting it.
       if (bird.y + r >= L.floor) return true;
-      // BODY — also has a 3-tile dirt cap above the corridor. The
-      // rig dies if its body sits inside that cap (between MainGround
-      // and Ceiling). Sky above MainGround is open; corridor below
-      // Ceiling is open.
-      if (L.state === 'body') {
-        if (bird.y - r > L.mainGround && bird.y - r < L.ceiling) return true;
-      }
+      // DIRT CAP — entrance, body, and exit all have a roof: the
+      // dirt between MainGround and Ceiling. If the rig's top edge
+      // is below MainGround AND above the ceiling, it's inside the
+      // cap = collide. Sky above MainGround stays open.
+      if (L.ceiling > 0 && bird.y - r > L.mainGround && bird.y - r < L.ceiling) return true;
       if (ghostFrames > 0) return false;
       for (const h of dailyHazards) {
         const sx = h.worldX - dailyScrollX;
@@ -9609,10 +9607,12 @@ const DLX_BUILD = 'v222';
     earthGrad.addColorStop(0.35, '#a85838');
     earthGrad.addColorStop(0.75, '#5a2818');
     earthGrad.addColorStop(1,    '#3a1808');
+    // Cavern interior — DARK brown / near-black so the underground
+    // reads as a true cavern, not lit dirt.
     const cavGrad = ctx.createLinearGradient(0, PLAY_H - 100, 0, PLAY_H);
-    cavGrad.addColorStop(0,    '#7a3818');
-    cavGrad.addColorStop(0.5,  '#5a2810');
-    cavGrad.addColorStop(1,    '#3a1c08');
+    cavGrad.addColorStop(0,    '#3a1408');
+    cavGrad.addColorStop(0.5,  '#1a0a04');
+    cavGrad.addColorStop(1,    '#0a0402');
 
     // ---- Build floor silhouette across the whole visible width.
     // Simple uniform 2 px sample step — the boundary corners are
@@ -9636,48 +9636,49 @@ const DLX_BUILD = 'v222';
     ctx.closePath();
     ctx.fill();
 
-    // ---- Per-tunnel CAVERN INTERIOR + DIRT CAP polygons (body only)
+    // ---- Per-tunnel CAVERN INTERIOR + DIRT CAP polygons spanning
+    // the FULL entrance + body + exit range. Both polygons are
+    // sampled directly from tunnelLayoutAt so the ceiling and floor
+    // polylines slope cleanly through the ramps and stay flat in
+    // the body, with one continuous chain — no seams between states.
     for (let i = 0; i < dailyAirObstacles.length; i++) {
       const o = dailyAirObstacles[i];
       if (o.kind !== 'tunnel') continue;
       const sxStart = o.worldX - dailyScrollX;
       const sxEnd   = sxStart + o.length;
       if (sxEnd < -step || sxStart > W + step) continue;
-      const bodyStart = sxStart + TUNNEL_ENTRANCE_RAMP;
-      const bodyEnd   = sxEnd - TUNNEL_EXIT_RAMP;
-      if (bodyEnd <= bodyStart) continue;
 
-      // Sample MainGround + ceiling along the body
-      const bodyPts = [];
-      for (let sx = bodyStart; sx < bodyEnd; sx += step) {
+      // Sample MainGround / Ceiling / Floor across the WHOLE tunnel.
+      const tPts = [];
+      for (let sx = sxStart; sx < sxEnd; sx += step) {
         const wx = sx + dailyScrollX;
         const mg = terrainHeightAt(wx);
-        bodyPts.push({ sx: sx, mg: mg, ceiling: mg + TUNNEL_CEILING_OFFSET });
+        const L  = tunnelLayoutAt(wx);
+        tPts.push({ sx: sx, mg: mg, ceiling: L.ceiling, floor: L.floor });
       }
-      const wxEnd = bodyEnd + dailyScrollX;
+      const wxEnd = sxEnd + dailyScrollX;
       const mgEnd = terrainHeightAt(wxEnd);
-      bodyPts.push({ sx: bodyEnd, mg: mgEnd, ceiling: mgEnd + TUNNEL_CEILING_OFFSET });
-      const tFloor = tunnelFloorY(o);
+      const LEnd  = tunnelLayoutAt(wxEnd);
+      tPts.push({ sx: sxEnd, mg: mgEnd, ceiling: LEnd.ceiling, floor: LEnd.floor });
 
-      // CAVERN INTERIOR — dark fill from the (sloped/flat) ceiling
-      // down to the floor inside the body. Drawn before the dirt
-      // cap so the cap covers the top edge cleanly.
+      // CAVERN INTERIOR — dark fill from ceiling polyline down to
+      // floor polyline. Drawn before the dirt cap so the cap covers
+      // the top edge cleanly.
       ctx.fillStyle = cavGrad;
       ctx.beginPath();
-      ctx.moveTo(bodyPts[0].sx, bodyPts[0].ceiling);
-      for (let p = 1; p < bodyPts.length; p++) ctx.lineTo(bodyPts[p].sx, bodyPts[p].ceiling);
-      ctx.lineTo(bodyPts[bodyPts.length - 1].sx, tFloor);
-      ctx.lineTo(bodyPts[0].sx, tFloor);
+      ctx.moveTo(tPts[0].sx, tPts[0].ceiling);
+      for (let p = 1; p < tPts.length; p++) ctx.lineTo(tPts[p].sx, tPts[p].ceiling);
+      for (let p = tPts.length - 1; p >= 0; p--) ctx.lineTo(tPts[p].sx, tPts[p].floor);
       ctx.closePath();
       ctx.fill();
 
       // DIRT CAP — earth band above the cavern (between MainGround
-      // and Ceiling), continuous polygon following both contours.
+      // and Ceiling). Sloped through entrance + exit, flat in body.
       ctx.fillStyle = earthGrad;
       ctx.beginPath();
-      ctx.moveTo(bodyPts[0].sx, bodyPts[0].mg);
-      for (let p = 1; p < bodyPts.length; p++) ctx.lineTo(bodyPts[p].sx, bodyPts[p].mg);
-      for (let p = bodyPts.length - 1; p >= 0; p--) ctx.lineTo(bodyPts[p].sx, bodyPts[p].ceiling);
+      ctx.moveTo(tPts[0].sx, tPts[0].mg);
+      for (let p = 1; p < tPts.length; p++) ctx.lineTo(tPts[p].sx, tPts[p].mg);
+      for (let p = tPts.length - 1; p >= 0; p--) ctx.lineTo(tPts[p].sx, tPts[p].ceiling);
       ctx.closePath();
       ctx.fill();
     }
@@ -9892,9 +9893,9 @@ const DLX_BUILD = 'v222';
   function drawDailyLandmarks() {
     if (!isDaily) return;
     for (const lm of DAILY_LANDMARKS) {
-      const sx = lm.worldX - dailyScrollX;
+      const sx = Math.round(lm.worldX - dailyScrollX);
       if (sx < -180 || sx > W + 180) continue;
-      const gy = terrainHeightAt(lm.worldX);
+      const gy = Math.round(terrainHeightAt(lm.worldX));
       if      (lm.kind === 'fromBurger')      drawLandmarkFromBurger(sx, gy);
       else if (lm.kind === 'arches')          drawLandmarkArches(sx, gy);
       else if (lm.kind === 'driveIn')         drawLandmarkDriveIn(sx, gy);
@@ -11633,9 +11634,9 @@ const DLX_BUILD = 'v222';
   function drawDailyGroundOps() {
     if (!isDaily || !dailyGroundOps.length) return;
     for (const op of dailyGroundOps) {
-      const sx = op.worldX - dailyScrollX;
+      const sx = Math.round(op.worldX - dailyScrollX);
       if (sx < -50 || sx > W + 50) continue;
-      const gy = terrainHeightAt(op.worldX);
+      const gy = Math.round(terrainHeightAt(op.worldX));
       ctx.save();
       ctx.translate(sx, gy);
       // Wheels
@@ -11780,9 +11781,9 @@ const DLX_BUILD = 'v222';
   function drawDailyTentacles() {
     if (!isDaily || !dailyTentacles.length) return;
     for (const t of dailyTentacles) {
-      const sx = t.worldX - dailyScrollX;
+      const sx = Math.round(t.worldX - dailyScrollX);
       if (sx < -80 || sx > W + 80) continue;
-      const gy = terrainHeightAt(t.worldX);
+      const gy = Math.round(terrainHeightAt(t.worldX));
       // 0..1 reach factor — rises in first 60 frames, sustains, then sinks
       let reach = 0;
       if (t.life < 60)            reach = t.life / 60;
@@ -12499,8 +12500,8 @@ const DLX_BUILD = 'v222';
     if (!isDaily || !dailyPickups.length) return;
     for (const p of dailyPickups) {
       if (!p.alive) continue;
-      const sx = p.worldX - dailyScrollX;
-      if (sx < -30 || sx > W + 30) continue;
+      const sxF = p.worldX - dailyScrollX;
+      if (sxF < -30 || sxF > W + 30) continue;
       let offX = 0, offY = 0;
       if (p.kind === 'scrapCog') {
         // Each cog has a randomized orbit radius + orbit speed seeded
@@ -12515,7 +12516,9 @@ const DLX_BUILD = 'v222';
         offY = Math.sin(frame * 0.08 + p.bobPhase) * 2;
       }
       ctx.save();
-      ctx.translate(sx + offX, p.y + offY);
+      // Round screen position so the sprite snaps to integer pixels
+      // and stops shimmering as the world scrolls.
+      ctx.translate(Math.round(sxF + offX), Math.round(p.y + offY));
       if (p.kind === 'scrapCog') drawScrapCog();
       else if (p.kind === 'magnetBox') drawMagnetBox();
       ctx.restore();
@@ -12665,7 +12668,7 @@ const DLX_BUILD = 'v222';
     if (!isDaily || !dailyDrones.length) return;
     for (const dr of dailyDrones) {
       ctx.save();
-      ctx.translate(dr.x, dr.y);
+      ctx.translate(Math.round(dr.x), Math.round(dr.y));
       // ---- Hover platform body (dark industrial drone) ----
       ctx.fillStyle = '#3a3e44';
       ctx.fillRect(-12, -4, 24, 8);
@@ -12784,7 +12787,7 @@ const DLX_BUILD = 'v222';
     if (!isDaily || !dailyThieves.length) return;
     for (const tf of dailyThieves) {
       ctx.save();
-      ctx.translate(tf.x, tf.y);
+      ctx.translate(Math.round(tf.x), Math.round(tf.y));
 
       // ---- Heavy ground shadow that swells when it hovers for the strike ----
       const shadowAlpha = (tf.state === 'lower') ? 0.40 : 0.22;
@@ -16512,10 +16515,13 @@ const DLX_BUILD = 'v222';
       ctx.globalAlpha = 0.5;
     }
 
-    // Constant engine-wobble vibration so the whole ship shakes slightly
+    // Constant engine-wobble vibration so the whole ship shakes slightly.
+    // Snap the final translate to integer pixels so the ship sprite
+    // doesn't smear sub-pixel and read as ugly jitter against the
+    // pixel-art crispness of the rest of the scene.
     const wobbleX = (Math.random() - 0.5) * 1.4;
     const wobbleY = (Math.random() - 0.5) * 1.4;
-    ctx.translate(bird.x + wobbleX, bird.y + wobbleY);
+    ctx.translate(Math.round(bird.x + wobbleX), Math.round(bird.y + wobbleY));
 
     // Base tilt from velocity, clamped to ±20°
     const tilt = Math.max(-0.349, Math.min(0.349, bird.vy * 0.1));
@@ -17813,23 +17819,29 @@ const DLX_BUILD = 'v222';
       const localX = worldX - o.worldX;
       if (localX < 0 || localX > o.length) continue;
       const fY = tunnelFloorY(o);
-      const ceiling = mainGround + TUNNEL_CEILING_OFFSET;
+      const bodyCeiling = mainGround + TUNNEL_CEILING_OFFSET;
       if (localX < TUNNEL_ENTRANCE_RAMP) {
-        // Slope down from MainGround to TunnelFloor
+        // ENTRANCE — floor ramps down to TunnelFloor; ceiling
+        // ramps from MainGround (flush with surface at the mouth)
+        // down to bodyCeiling at body start, sloping the same
+        // direction as the floor for a carved-cavern look.
         const t01 = localX / TUNNEL_ENTRANCE_RAMP;
-        const rampFloor = mainGround + (fY - mainGround) * t01;
+        const rampFloor   = mainGround + (fY - mainGround) * t01;
+        const rampCeiling = mainGround + (bodyCeiling - mainGround) * t01;
         return { state: 'entrance', mainGround: mainGround,
-                 ceiling: 0, floor: rampFloor };
+                 ceiling: rampCeiling, floor: rampFloor };
       }
       if (localX > o.length - TUNNEL_EXIT_RAMP) {
-        // Slope up from TunnelFloor to MainGround
+        // EXIT — floor ramps up; ceiling ramps from bodyCeiling
+        // back up to MainGround at the mouth.
         const t01 = (localX - (o.length - TUNNEL_EXIT_RAMP)) / TUNNEL_EXIT_RAMP;
-        const rampFloor = fY + (mainGround - fY) * t01;
+        const rampFloor   = fY + (mainGround - fY) * t01;
+        const rampCeiling = bodyCeiling + (mainGround - bodyCeiling) * t01;
         return { state: 'exit', mainGround: mainGround,
-                 ceiling: 0, floor: rampFloor };
+                 ceiling: rampCeiling, floor: rampFloor };
       }
       return { state: 'body', mainGround: mainGround,
-               ceiling: ceiling, floor: fY };
+               ceiling: bodyCeiling, floor: fY };
     }
     return { state: 'outside', mainGround: mainGround,
              ceiling: 0, floor: mainGround };
