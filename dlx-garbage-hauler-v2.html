@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v213';
+const DLX_BUILD = 'v214';
 
 (function() {
   // ---------- Device detection ----------
@@ -6438,8 +6438,8 @@ const DLX_BUILD = 'v213';
           if (bird.x < sx - 4 || bird.x > sx + o.length + 4) continue;
           const localX = Math.max(0, Math.min(o.length, bird.x - sx));
           // Skip stabilize in the entry / exit bend windows
-          const BEND_LEN = 40;
-          if (localX < BEND_LEN || localX > o.length - BEND_LEN) break;
+          const SHAFT_BUFFER = 24;     // shaft width + small settle buffer
+          if (localX < SHAFT_BUFFER || localX > o.length - SHAFT_BUFFER) break;
           const ch = tunnelChannelAt(o, localX);
           const surfaceY = terrainHeightAt(o.worldX + localX);
           // Only stabilize if rig is below the surface — committed
@@ -7327,22 +7327,24 @@ const DLX_BUILD = 'v213';
     if (isDaily) {
       if (bird.y - r <= 0) { bird.y = r; bird.vy = 0; }
       const gy = terrainHeightAt(bird.x + dailyScrollX);
-      // The tunnel cavern emerges from the dirt with a curved bend at
-      // each end that reaches the surface. Skip ground collision over
-      // the entire tunnel X-range so the rig can dive down into the
-      // bend — the tunnel-channel collision below enforces "stay in
-      // the cavern" once the rig has crossed the surface line.
+      // The ground colliders have a GAP at each tunnel's vertical
+      // shaft (entry + exit). Outside the shaft windows the surface
+      // is solid earth and the rig dies if it hits it; inside a
+      // shaft window the rig falls THROUGH the floor into the
+      // cavern below.
       const wxRig = bird.x + dailyScrollX;
-      let overTunnel = false;
+      const TUNNEL_SHAFT_HALF_W = 18;
+      let inShaftX = false;
       for (let i = 0; i < dailyAirObstacles.length; i++) {
         const o = dailyAirObstacles[i];
         if (o.kind !== 'tunnel') continue;
-        if (wxRig >= o.worldX && wxRig <= o.worldX + o.length) {
-          overTunnel = true;
+        if (Math.abs(wxRig - o.worldX) < TUNNEL_SHAFT_HALF_W ||
+            Math.abs(wxRig - (o.worldX + o.length)) < TUNNEL_SHAFT_HALF_W) {
+          inShaftX = true;
           break;
         }
       }
-      if (!overTunnel && bird.y + r >= gy) return true;          // crashed into the ground
+      if (!inShaftX && bird.y + r >= gy) return true;          // crashed into the ground
       if (ghostFrames > 0) return false;
       for (const h of dailyHazards) {
         const sx = h.worldX - dailyScrollX;
@@ -7374,16 +7376,28 @@ const DLX_BUILD = 'v213';
             return true;
           }
         } else if (o.kind === 'tunnel') {
-          // Tunnel section — cavern emerges from a dipped pit at each
-          // end. Above the channel top = sky route (free flight,
-          // including diving through the pit). Below channel top =
-          // must be in the channel.
+          // Tunnel section — horizontal cavern with VERTICAL SHAFTS
+          // at the entry + exit. Inside a shaft window above the
+          // cavern = falling through the shaft (free pass). Inside
+          // the cavern body = must stay in the channel. Outside the
+          // shaft window above the cavern = solid dirt = collide.
           if (bird.x + r > sx && bird.x - r < sx + o.length) {
             const localX = Math.max(0, Math.min(o.length, bird.x - sx));
             const ch = tunnelChannelAt(o, localX);
-            // Above channel top = sky route, no collision
-            if (bird.y + r < ch.center - ch.halfH) continue;
-            // Below channel top = must be in the cavern channel
+            const SHAFT_HALF_W = 18;
+            const inShaft = (localX < SHAFT_HALF_W) ||
+                            (localX > o.length - SHAFT_HALF_W);
+            const surfaceY = terrainHeightAt(o.worldX + localX);
+            // Above the surface = sky route, free flight
+            if (bird.y + r < surfaceY) continue;
+            // Above the cavern channel top
+            if (bird.y + r < ch.center - ch.halfH) {
+              // In the shaft window? Free pass (falling down into cavern)
+              if (inShaft) continue;
+              // Otherwise it's solid dirt above the cavern — die
+              return true;
+            }
+            // In the cavern channel = OK; outside = die
             if (bird.y - r < ch.center - ch.halfH ||
                 bird.y + r > ch.center + ch.halfH) {
               return true;
@@ -11893,28 +11907,10 @@ const DLX_BUILD = 'v213';
     } else if (tunnel.shape === 'scurve') {
       center += Math.sin(t * Math.PI * 2) * 28;
     }
-    let top = center - halfH;
-    let bot = center + halfH;
-    // ENTRY + EXIT BENDS — the channel TOP curves UP to meet the
-    // SURFACE line at each end. The visible above-ground feature is
-    // the dirt MOUND drawn in drawTunnel; the cavern's top reaches
-    // the surface so the cavern visibly connects to the mound's
-    // dark inner hole.
-    const bendLen = 40;
-    if (localX < bendLen) {
-      const t01 = localX / bendLen;
-      const ease = t01 * t01;
-      const surfaceY = terrainHeightAt(tunnel.worldX + localX);
-      top = surfaceY * (1 - ease) + (center - halfH) * ease;
-    } else if (localX > tunnel.length - bendLen) {
-      const t01 = (tunnel.length - localX) / bendLen;
-      const ease = t01 * t01;
-      const surfaceY = terrainHeightAt(tunnel.worldX + localX);
-      top = surfaceY * (1 - ease) + (center - halfH) * ease;
-    }
-    const cy = (top + bot) / 2;
-    const hh = (bot - top) / 2;
-    return { center: cy, halfH: hh };
+    // Channel is HORIZONTAL — no bend. Vertical shafts at the entry +
+    // exit are drawn separately in drawTunnel and the collision logic
+    // grants a free pass when the rig is inside a shaft window.
+    return { center: center, halfH: halfH };
   }
 
   // Air obstacles — flappy-bird-style verticals to weave through.
@@ -12144,6 +12140,31 @@ const DLX_BUILD = 'v213';
       ctx.arc(bx + 2.4, by + 0.4, 0.9, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // ---- VERTICAL SHAFTS — dark dirt-mass holes connecting the
+    // surface mounds to the cavern top. These are the "physics gap"
+    // in the floor: the rig falls through these to enter the cavern
+    // and climbs through them to exit. Drawn BEFORE the mound so the
+    // mound's hole gradient sits on top of the shaft.
+    const SHAFT_HALF_W = 18;
+    const drawShaft = function(shaftX, surfaceY, cavernTopY) {
+      if (cavernTopY <= surfaceY + 2) return;          // nothing to draw
+      const sg = ctx.createLinearGradient(0, surfaceY, 0, cavernTopY);
+      sg.addColorStop(0,   '#3a1c08');
+      sg.addColorStop(0.5, '#1a0c04');
+      sg.addColorStop(1,   '#5a2810');                  // matches cavern bg
+      ctx.fillStyle = sg;
+      ctx.fillRect(shaftX - SHAFT_HALF_W, surfaceY,
+                   SHAFT_HALF_W * 2, cavernTopY - surfaceY);
+      // Inner left + right wall edges (slightly darker stripes)
+      ctx.fillStyle = '#1a0c04';
+      ctx.fillRect(shaftX - SHAFT_HALF_W,     surfaceY, 1.6, cavernTopY - surfaceY);
+      ctx.fillRect(shaftX + SHAFT_HALF_W - 1.6, surfaceY, 1.6, cavernTopY - surfaceY);
+    };
+    const entryCavernTop = samples[0].top;
+    const exitCavernTop  = samples[samples.length - 1].top;
+    drawShaft(sx,        entrySurfaceY, entryCavernTop);
+    drawShaft(sx + len,  exitSurfaceY,  exitCavernTop);
 
     // ---- TUNNEL MOUND at each opening — earth dome rising up out
     // of the dunes with a clear dark opening in its center. This is
