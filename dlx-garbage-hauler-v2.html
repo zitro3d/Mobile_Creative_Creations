@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v198';
+const DLX_BUILD = 'v199';
 
 (function() {
   // ---------- Device detection ----------
@@ -6425,11 +6425,9 @@ const DLX_BUILD = 'v198';
       bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
 
       // ---- TUNNEL AUTO-STABILIZE ----
-      // While the rig is inside a tunnel section, apply a centering
-      // spring force toward the channel center and damp vertical
-      // velocity so the rig settles into the tunnel naturally instead
-      // of yo-yo-ing between gravity falls and frantic flap pulses.
-      // Player can still flap to steer up/down within the channel.
+      // Only kicks in when the rig is COMMITTED to a tunnel — i.e.,
+      // it has dived below the hill top into the channel. Above the
+      // hill, normal flight applies (the sky route).
       if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
         for (const o of dailyAirObstacles) {
           if (o.kind !== 'tunnel') continue;
@@ -6437,6 +6435,10 @@ const DLX_BUILD = 'v198';
           if (bird.x < sx - 4 || bird.x > sx + o.length + 4) continue;
           const localX = Math.max(0, Math.min(o.length, bird.x - sx));
           const ch = tunnelChannelAt(o, localX);
+          const hillTop = ch.center - ch.halfH - 36;
+          // Only stabilize if rig is BELOW hill top — i.e., inside
+          // the hill / committed to threading the tunnel
+          if (bird.y < hillTop) break;
           // Cancel most of the gravity that just got applied
           bird.vy -= GRAVITY * 0.75;
           // Spring toward channel center + heavy damping
@@ -7342,12 +7344,19 @@ const DLX_BUILD = 'v198';
             return true;
           }
         } else if (o.kind === 'tunnel') {
-          // Tunnel section — rig must stay INSIDE the channel while
-          // it overlaps the tunnel's x-range. Hitting either wall is
-          // a crash. Sample the channel at the rig's local-X.
+          // Tunnel section — the tunnel is carved through a HILL, so
+          // flying ABOVE the hill top is the sky route (free, no
+          // collision). Only when the rig dives below the hill top
+          // are they committed to the tunnel and must stay inside
+          // the channel. This is the lane choice the design hinges on.
           if (bird.x + r > sx && bird.x - r < sx + o.length) {
             const localX = Math.max(0, Math.min(o.length, bird.x - sx));
             const ch = tunnelChannelAt(o, localX);
+            const hillRise = 36;            // matches drawTunnel
+            const hillTop = ch.center - ch.halfH - hillRise;
+            // Above the hill = sky route, no collision
+            if (bird.y + r < hillTop) continue;
+            // Below hill top = inside the hill mass — must be in channel
             if (bird.y - r < ch.center - ch.halfH ||
                 bird.y + r > ch.center + ch.halfH) {
               return true;
