@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v210';
+const DLX_BUILD = 'v211';
 
 (function() {
   // ---------- Device detection ----------
@@ -7374,17 +7374,16 @@ const DLX_BUILD = 'v210';
             return true;
           }
         } else if (o.kind === 'tunnel') {
-          // Tunnel section — the cavern is a curved pipe that emerges
-          // from the ground at each end. Above the surface = sky route
-          // (free flight). Below the surface = must be inside the
-          // channel (curved at the bends, horizontal in the middle).
+          // Tunnel section — cavern emerges from a dipped pit at each
+          // end. Above the channel top = sky route (free flight,
+          // including diving through the pit). Below channel top =
+          // must be in the channel.
           if (bird.x + r > sx && bird.x - r < sx + o.length) {
             const localX = Math.max(0, Math.min(o.length, bird.x - sx));
             const ch = tunnelChannelAt(o, localX);
-            const surfaceY = terrainHeightAt(o.worldX + localX);
-            // Above the surface = sky route, no collision
-            if (bird.y + r < surfaceY) continue;
-            // Below surface = must be in the cavern channel
+            // Above channel top = sky route, no collision
+            if (bird.y + r < ch.center - ch.halfH) continue;
+            // Below channel top = must be in the cavern channel
             if (bird.y - r < ch.center - ch.halfH ||
                 bird.y + r > ch.center + ch.halfH) {
               return true;
@@ -9652,20 +9651,42 @@ const DLX_BUILD = 'v210';
   function drawDailyTerrain() {
     if (!isDaily) return;
     ctx.save();
-    // Sample terrain heights once and reuse for both fill + stroke
+    // Sample terrain heights once and reuse for both fill + stroke.
+    // Near each tunnel entry / exit, the surface DIPS down to expose
+    // the cavern mouth — that's how the tunnel reads as emerging
+    // above ground (a visible pit in the dunes that the cavern flows
+    // out of).
     const samples = [];
     const step = 6;
+    const TUNNEL_DIP_DEPTH = 18;
+    const TUNNEL_DIP_RADIUS = 22;
     for (let sx = -step; sx <= W + step; sx += step) {
-      samples.push({ sx: sx, y: terrainHeightAt(sx + dailyScrollX) });
+      let y = terrainHeightAt(sx + dailyScrollX);
+      if (dailyAirObstacles && dailyAirObstacles.length) {
+        for (let i = 0; i < dailyAirObstacles.length; i++) {
+          const o = dailyAirObstacles[i];
+          if (o.kind !== 'tunnel') continue;
+          const wx = sx + dailyScrollX;
+          const dEntry = Math.abs(wx - o.worldX);
+          const dExit  = Math.abs(wx - (o.worldX + o.length));
+          const d = Math.min(dEntry, dExit);
+          if (d < TUNNEL_DIP_RADIUS) {
+            const t01 = d / TUNNEL_DIP_RADIUS;
+            y += TUNNEL_DIP_DEPTH * (1 - t01 * t01);
+          }
+        }
+      }
+      samples.push({ sx: sx, y: y });
     }
-    // Filled body — warm orange-tan dune surface fading to deep rust
-    // at depth. Now spans the full ~132px dirt mass below the horizon
-    // so the underground reads as a thick earth wall, not a thin strip.
-    const grad = ctx.createLinearGradient(0, PLAY_H - 160, 0, PLAY_H);
+    // Filled body — warm orange-tan dune surface fading smoothly to
+    // deep brown at depth. A continuous gradient with no hard color
+    // stops, so the dirt mass reads as one earth wall (no banding,
+    // no horizontal stratum lines breaking up the area).
+    const grad = ctx.createLinearGradient(0, PLAY_H - 160, 0, PLAY_H + 8);
     grad.addColorStop(0,    '#e8a868');
-    grad.addColorStop(0.20, '#c87848');
-    grad.addColorStop(0.55, '#7a3818');
-    grad.addColorStop(1,    '#2a1208');
+    grad.addColorStop(0.35, '#a85838');
+    grad.addColorStop(0.75, '#5a2818');
+    grad.addColorStop(1,    '#3a1808');
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.moveTo(samples[0].sx, PLAY_H + 4);
@@ -9673,17 +9694,6 @@ const DLX_BUILD = 'v210';
     ctx.lineTo(samples[samples.length - 1].sx, PLAY_H + 4);
     ctx.closePath();
     ctx.fill();
-    // Soft horizontal stratum line ~40px below the surface — gives
-    // the dirt mass a sense of layering / depth.
-    ctx.strokeStyle = 'rgba(60, 24, 10, 0.35)';
-    ctx.lineWidth = 1.0;
-    ctx.beginPath();
-    for (let i = 0; i < samples.length; i++) {
-      const y = samples[i].y + 42;
-      if (i === 0) ctx.moveTo(samples[i].sx, y);
-      else ctx.lineTo(samples[i].sx, y);
-    }
-    ctx.stroke();
     // Pale cream highlight along the dune crest catching the sky light
     ctx.strokeStyle = '#fce0a8';
     ctx.lineWidth = 1.6;
@@ -11921,21 +11931,25 @@ const DLX_BUILD = 'v210';
     }
     let top = center - halfH;
     let bot = center + halfH;
-    // ENTRY + EXIT BENDS — the channel TOP curves UP to the ground
-    // surface at each end, so the cavern visibly emerges from the
-    // ground (no separate vertical shaft). Bot is anchored deep so
-    // the bend looks like a pipe coming up out of the dirt.
+    // ENTRY + EXIT BENDS — the channel TOP curves UP to meet the
+    // dipped pit-bottom that drawDailyTerrain carves into the dunes
+    // (PIT_DEPTH below the original surface line). Bot stays anchored
+    // deep so the bend reads as a curved pipe rising out of the dirt
+    // and emerging into a visible pit at the surface.
     const bendLen = 40;
+    const PIT_DEPTH = 18;          // matches TUNNEL_DIP_DEPTH in drawDailyTerrain
     if (localX < bendLen) {
       const t01 = localX / bendLen;
-      const ease = t01 * t01;                 // accelerating descent
+      const ease = t01 * t01;
       const surfaceY = terrainHeightAt(tunnel.worldX + localX);
-      top = surfaceY * (1 - ease) + (center - halfH) * ease;
+      const pitBottom = surfaceY + PIT_DEPTH;
+      top = pitBottom * (1 - ease) + (center - halfH) * ease;
     } else if (localX > tunnel.length - bendLen) {
       const t01 = (tunnel.length - localX) / bendLen;
       const ease = t01 * t01;
       const surfaceY = terrainHeightAt(tunnel.worldX + localX);
-      top = surfaceY * (1 - ease) + (center - halfH) * ease;
+      const pitBottom = surfaceY + PIT_DEPTH;
+      top = pitBottom * (1 - ease) + (center - halfH) * ease;
     }
     const cy = (top + bot) / 2;
     const hh = (bot - top) / 2;
@@ -11991,12 +12005,13 @@ const DLX_BUILD = 'v210';
     const entrySurfaceY = terrainHeightAt(sx + dailyScrollX);
     const exitSurfaceY  = terrainHeightAt(sx + len + dailyScrollX);
 
-    // ---- BACKGROUND (deepest) cave fill — almost black, carved out
+    // ---- BACKGROUND cave fill — warm medium brown (NOT black) so
+    // the cavern reads as an earthy buried space, not a void.
     const bgGrad = ctx.createLinearGradient(0, samples[0].top, 0, samples[0].bot);
-    bgGrad.addColorStop(0,    '#3a1c0a');
-    bgGrad.addColorStop(0.4,  '#1c0e06');
-    bgGrad.addColorStop(0.65, '#0e0604');
-    bgGrad.addColorStop(1,    '#1c0e06');
+    bgGrad.addColorStop(0,    '#7a3818');
+    bgGrad.addColorStop(0.45, '#5a2810');
+    bgGrad.addColorStop(0.75, '#3a1c08');
+    bgGrad.addColorStop(1,    '#5a2810');
     ctx.fillStyle = bgGrad;
     ctx.beginPath();
     ctx.moveTo(samples[0].x, samples[0].top);
@@ -12007,7 +12022,7 @@ const DLX_BUILD = 'v210';
 
     // ---- BACKGROUND wavy silhouette layer — reads as "more cave"
     // behind the cave, gives the 3D layered feel from the reference.
-    ctx.fillStyle = 'rgba(80, 40, 20, 0.85)';
+    ctx.fillStyle = 'rgba(40, 20, 10, 0.55)';
     ctx.beginPath();
     ctx.moveTo(samples[0].x, samples[0].top);
     for (let i = 0; i < samples.length; i++) {
@@ -12031,73 +12046,82 @@ const DLX_BUILD = 'v210';
     ctx.closePath();
     ctx.fill();
 
-    // ---- FOREGROUND STALACTITES — tan rock points hanging from ceiling
-    const spaceX = 26;
-    for (let lx = 12; lx < len - 4; lx += spaceX) {
+    // ---- FOREGROUND CEILING — hanging BONES (not spikes)
+    // Long thin pale shafts with rounded knobs at the ends, dangling
+    // from the cavern ceiling. Spaced apart with deterministic per-
+    // tunnel variation so each cavern feels different.
+    const spaceX = 30;
+    for (let lx = 14; lx < len - 4; lx += spaceX) {
       const ch = tunnelChannelAt(t, lx);
       const px = sx + lx;
       const baseY = ch.center - ch.halfH;
       const phase = (Math.floor(lx / spaceX) + Math.floor(t.seed)) % 5;
-      const h = 9 + phase * 2;
-      const w = 7;
-      // Shadow (darker, offset right for depth)
-      ctx.fillStyle = '#3a1c08';
+      const boneH = 11 + phase * 2;
+      // Shadow — dark sliver behind the bone for depth
+      ctx.fillStyle = 'rgba(20, 10, 4, 0.7)';
+      ctx.fillRect(px - 0.6, baseY,        2.4, boneH);
+      // Bone shaft — pale tan/cream
+      ctx.fillStyle = '#d8c898';
+      ctx.fillRect(px - 1, baseY,        2, boneH);
+      // Knob at top (attached to ceiling)
       ctx.beginPath();
-      ctx.moveTo(px - w / 2 + 1.2, baseY);
-      ctx.lineTo(px + w / 2 + 1.2, baseY);
-      ctx.lineTo(px + 1.2,         baseY + h);
-      ctx.closePath();
+      ctx.arc(px - 1.4, baseY + 0.6, 1.6, 0, Math.PI * 2);
+      ctx.arc(px + 1.4, baseY + 0.6, 1.6, 0, Math.PI * 2);
       ctx.fill();
-      // Front face — lighter tan
-      ctx.fillStyle = '#b07038';
+      // Knob at bottom (free end)
       ctx.beginPath();
-      ctx.moveTo(px - w / 2, baseY);
-      ctx.lineTo(px + w / 2, baseY);
-      ctx.lineTo(px,         baseY + h);
-      ctx.closePath();
+      ctx.arc(px - 1.4, baseY + boneH, 1.6, 0, Math.PI * 2);
+      ctx.arc(px + 1.4, baseY + boneH, 1.6, 0, Math.PI * 2);
       ctx.fill();
-      // Left-edge highlight
-      ctx.fillStyle = '#e0a060';
-      ctx.beginPath();
-      ctx.moveTo(px - w / 2,     baseY);
-      ctx.lineTo(px - w / 2 + 2, baseY);
-      ctx.lineTo(px - 0.6,       baseY + h * 0.9);
-      ctx.closePath();
-      ctx.fill();
+      // Tiny bright highlight on the shaft
+      ctx.fillStyle = '#fce8b8';
+      ctx.fillRect(px - 1, baseY + 1, 0.6, boneH - 2);
     }
 
-    // ---- FOREGROUND STALAGMITES — tan rocks rising from cavern floor
-    for (let lx = 22; lx < len - 4; lx += spaceX) {
+    // ---- FOREGROUND FLOOR — rounded ROCKS (not spike stalagmites)
+    // Brown rounded chunks sitting on the cavern floor, with a
+    // shadow side and a sun-lit highlight for 3D pop.
+    for (let lx = 20; lx < len - 4; lx += spaceX) {
       const ch = tunnelChannelAt(t, lx);
       const px = sx + lx;
       const baseY = ch.center + ch.halfH;
       const phase = (Math.floor(lx / spaceX) + Math.floor(t.seed) + 2) % 4;
-      const h = 7 + phase * 2;
-      const w = 8;
-      // Shadow
-      ctx.fillStyle = '#3a1c08';
+      const rW = 7 + phase;
+      const rH = 4 + (phase % 3);
+      // Drop shadow ellipse
+      ctx.fillStyle = 'rgba(20, 10, 4, 0.55)';
       ctx.beginPath();
-      ctx.moveTo(px - w / 2 + 1.2, baseY);
-      ctx.lineTo(px + w / 2 + 1.2, baseY);
-      ctx.lineTo(px + 1.2,         baseY - h);
-      ctx.closePath();
+      ctx.ellipse(px + 1, baseY - 1, rW + 0.6, rH + 0.6, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Front face
-      ctx.fillStyle = '#b07038';
+      // Rock body — rounded brown
+      ctx.fillStyle = '#7a3818';
       ctx.beginPath();
-      ctx.moveTo(px - w / 2, baseY);
-      ctx.lineTo(px + w / 2, baseY);
-      ctx.lineTo(px,         baseY - h);
-      ctx.closePath();
+      ctx.ellipse(px, baseY - rH * 0.6, rW, rH, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Highlight
-      ctx.fillStyle = '#e0a060';
+      // Sun-lit highlight on the upper-left
+      ctx.fillStyle = '#a85838';
       ctx.beginPath();
-      ctx.moveTo(px - w / 2,     baseY);
-      ctx.lineTo(px - w / 2 + 2, baseY);
-      ctx.lineTo(px - 0.6,       baseY - h * 0.85);
-      ctx.closePath();
+      ctx.ellipse(px - rW * 0.35, baseY - rH * 0.85, rW * 0.5, rH * 0.45, 0, 0, Math.PI * 2);
       ctx.fill();
+      // Bright top dot
+      ctx.fillStyle = '#d88848';
+      ctx.fillRect(px - rW * 0.4, baseY - rH * 1.05, 1.4, 1.2);
+    }
+
+    // ---- Scattered SMALL BONES + RIBS on the cavern floor — extra
+    // texture between the rocks. Deterministic per-slot so they
+    // don't shimmer.
+    ctx.fillStyle = 'rgba(216, 200, 152, 0.85)';
+    for (let lx = 8; lx < len - 4; lx += 18) {
+      const slot = Math.floor((lx + Math.floor(t.seed)) / 4) % 7;
+      if (slot > 2) continue;
+      const ch = tunnelChannelAt(t, lx);
+      const px = sx + lx;
+      const baseY = ch.center + ch.halfH - 1.4;
+      // Tiny rib — short curve of 3 segments
+      ctx.fillRect(px,     baseY,     3, 0.8);
+      ctx.fillRect(px - 1, baseY - 1, 1, 1.2);
+      ctx.fillRect(px + 3, baseY - 1, 1, 1.2);
     }
 
     // ---- STONE-BLOCK MASONRY FLOOR — brick strip just below the
