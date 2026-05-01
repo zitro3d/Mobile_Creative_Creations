@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v220';
+const DLX_BUILD = 'v221';
 
 (function() {
   // ---------- Device detection ----------
@@ -9615,39 +9615,14 @@ const DLX_BUILD = 'v220';
     cavGrad.addColorStop(1,    '#3a1c08');
 
     // ---- Build floor silhouette across the whole visible width.
-    // We sample at coarse step (4 px) then explicitly insert exact
-    // vertices at every tunnel state-change boundary (entrance start
-    // / body start / body end / exit end) so the slope corners are
-    // pixel-perfect, not snapped to the sample grid.
-    const step = 4;
-    const events = [];   // sorted screen-X positions where layout state changes
-    for (let i = 0; i < dailyAirObstacles.length; i++) {
-      const o = dailyAirObstacles[i];
-      if (o.kind !== 'tunnel') continue;
-      const s0 = o.worldX - dailyScrollX;
-      const s1 = s0 + TUNNEL_ENTRANCE_RAMP;
-      const s2 = s0 + o.length - TUNNEL_EXIT_RAMP;
-      const s3 = s0 + o.length;
-      events.push(s0, s1, s2, s3);
-    }
-    events.sort((a, b) => a - b);
-
+    // Simple uniform 2 px sample step — the boundary corners are
+    // within 2 px of true position, which reads as smooth without
+    // any event-insertion logic that risked locking up.
+    const step = 2;
     const floorPts = [];
-    function pushFloorAt(sx) {
+    for (let sx = -step; sx <= W + step; sx += step) {
       const L = tunnelLayoutAt(sx + dailyScrollX);
       floorPts.push({ sx: sx, y: L.floor });
-    }
-    pushFloorAt(-step);
-    let evIdx = 0;
-    for (let sx = 0; sx <= W + step; sx += step) {
-      // Insert any pending boundary events that fall before this sx
-      while (evIdx < events.length && events[evIdx] <= sx) {
-        if (events[evIdx] >= -step - 1 && events[evIdx] !== floorPts[floorPts.length - 1].sx) {
-          pushFloorAt(events[evIdx]);
-        }
-        evIdx++;
-      }
-      pushFloorAt(sx);
     }
 
     // ---- EARTH FILL — one continuous polygon under the floor
