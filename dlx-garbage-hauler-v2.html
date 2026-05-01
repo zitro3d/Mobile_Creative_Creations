@@ -18,6 +18,7 @@
 <link rel="preload" href="audio/sunset-ambient-v2.m4a" as="audio" type="audio/mp4">
 <link rel="preload" href="audio/TENTACLE.m4a" as="audio" type="audio/mp4">
 <link rel="preload" href="audio/DLX_SHREDD.m4a" as="audio" type="audio/mp4">
+<link rel="preload" href="audio/MXBX_v06.m4a" as="audio" type="audio/mp4">
 <title>DLX Garbage Hauler</title>
 <style>
   :root {
@@ -1954,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v224';
+const DLX_BUILD = 'v225';
 
 (function() {
   // ---------- Device detection ----------
@@ -2619,19 +2620,23 @@ const DLX_BUILD = 'v224';
     stopSplashMusic(300);
     if (muted) { stopThemeAmbient(0.1); return; }
     const a = audio(); if (!a) return;
-    if (ambientTheme === selectedTheme) return;   // already running this theme
-    const cfg = THEME_AMBIENT[selectedTheme];
+    // Daily Challenge has its own dedicated track, separate from the
+    // campaign biome music. Use a synthetic theme key so the
+    // "already running this theme" guard correctly swaps in / out.
+    const themeKey = isDaily ? 'daily' : selectedTheme;
+    if (ambientTheme === themeKey) return;
+    const cfg = isDaily
+      ? { file: 'audio/MXBX_v06.m4a', volume: 0.56 }
+      : THEME_AMBIENT[selectedTheme];
     if (!cfg) return;
     // If a file-based track is already playing and the new biome uses
     // the same file, keep the song flowing — just update the theme tag.
-    // This makes the track carry the whole campaign across biome
-    // transitions instead of restarting on every advance.
     if (cfg.file && activeAmbientPair && activeAmbientPair.url === cfg.file) {
-      ambientTheme = selectedTheme;
+      ambientTheme = themeKey;
       return;
     }
     stopThemeAmbient(0.25);
-    ambientTheme = selectedTheme;
+    ambientTheme = themeKey;
     // ---- File-based theme: streamed playback with crossfade loop ----
     if (cfg.file) {
       const targetVol = (typeof cfg.volume === 'number') ? cfg.volume : 0.55;
@@ -7297,11 +7302,13 @@ const DLX_BUILD = 'v224';
       const L = tunnelLayoutAt(wxRig);
       // FLOOR — every state has one. Rig dies hitting it.
       if (bird.y + r >= L.floor) return true;
-      // DIRT CAP — entrance, body, and exit all have a roof: the
-      // dirt between MainGround and Ceiling. If the rig's top edge
-      // is below MainGround AND above the ceiling, it's inside the
-      // cap = collide. Sky above MainGround stays open.
-      if (L.ceiling > 0 && bird.y - r > L.mainGround && bird.y - r < L.ceiling) return true;
+      // DIRT CAP / SNOUT — every tunnel state has a roof: the dirt
+      // between SnoutTop and Ceiling. If the rig's top edge is
+      // INSIDE that band, it's clipping into solid dirt = collide.
+      // SnoutTop is the snout exterior at the mouth (above the
+      // dune) and the dune surface in the body. Sky above SnoutTop
+      // stays open so the rig flies into the mouth freely.
+      if (L.ceiling > 0 && bird.y - r > L.snoutTop && bird.y - r < L.ceiling) return true;
       if (ghostFrames > 0) return false;
       for (const h of dailyHazards) {
         const sx = h.worldX - dailyScrollX;
@@ -9648,18 +9655,16 @@ const DLX_BUILD = 'v224';
       const sxEnd   = sxStart + o.length;
       if (sxEnd < -step || sxStart > W + step) continue;
 
-      // Sample MainGround / Ceiling / Floor across the WHOLE tunnel.
+      // Sample SnoutTop / Ceiling / Floor across the WHOLE tunnel.
       const tPts = [];
       for (let sx = sxStart; sx < sxEnd; sx += step) {
         const wx = sx + dailyScrollX;
-        const mg = terrainHeightAt(wx);
         const L  = tunnelLayoutAt(wx);
-        tPts.push({ sx: sx, mg: mg, ceiling: L.ceiling, floor: L.floor });
+        tPts.push({ sx: sx, snoutTop: L.snoutTop, ceiling: L.ceiling, floor: L.floor });
       }
       const wxEnd = sxEnd + dailyScrollX;
-      const mgEnd = terrainHeightAt(wxEnd);
       const LEnd  = tunnelLayoutAt(wxEnd);
-      tPts.push({ sx: sxEnd, mg: mgEnd, ceiling: LEnd.ceiling, floor: LEnd.floor });
+      tPts.push({ sx: sxEnd, snoutTop: LEnd.snoutTop, ceiling: LEnd.ceiling, floor: LEnd.floor });
 
       // CAVERN INTERIOR — dark fill from ceiling polyline down to
       // floor polyline. Drawn before the dirt cap so the cap covers
@@ -9672,12 +9677,14 @@ const DLX_BUILD = 'v224';
       ctx.closePath();
       ctx.fill();
 
-      // DIRT CAP — earth band above the cavern (between MainGround
-      // and Ceiling). Sloped through entrance + exit, flat in body.
+      // DIRT CAP / SNOUT — earth band ABOVE the cavern, between
+      // SnoutTop and Ceiling. SnoutTop is above MainGround at the
+      // mouth (the snout exterior poking out of the dune) and merges
+      // back to MainGround at body start.
       ctx.fillStyle = earthGrad;
       ctx.beginPath();
-      ctx.moveTo(tPts[0].sx, tPts[0].mg);
-      for (let p = 1; p < tPts.length; p++) ctx.lineTo(tPts[p].sx, tPts[p].mg);
+      ctx.moveTo(tPts[0].sx, tPts[0].snoutTop);
+      for (let p = 1; p < tPts.length; p++) ctx.lineTo(tPts[p].sx, tPts[p].snoutTop);
       for (let p = tPts.length - 1; p >= 0; p--) ctx.lineTo(tPts[p].sx, tPts[p].ceiling);
       ctx.closePath();
       ctx.fill();
@@ -17803,8 +17810,13 @@ const DLX_BUILD = 'v224';
   const TUNNEL_TILE          = 16;
   const TUNNEL_ENTRANCE_RAMP = 8 * TUNNEL_TILE;     // 128 px slide-in slope (~45°)
   const TUNNEL_EXIT_RAMP     = 8 * TUNNEL_TILE;     // 128 px slide-out slope (~45°)
-  const TUNNEL_CEILING_OFFSET = 3 * TUNNEL_TILE;     // 48 px cap thickness
-  const TUNNEL_MOUTH_OPENING = 3 * TUNNEL_TILE;     // 48 px doorway height at the mouth
+  const TUNNEL_CEILING_OFFSET = 3 * TUNNEL_TILE;     // 48 px cap thickness in body
+  // ---- Mouth structure (the "snout" sticking up out of the dune) ----
+  // The entrance and exit don't sit BELOW the surface — they rise up
+  // OUT of the ground so the rig can fly into them at sky level.
+  const TUNNEL_MOUTH_RISE     = 40;     // floor at mouth is 40 px ABOVE MainGround
+  const TUNNEL_MOUTH_CORRIDOR = 48;     // 48 px corridor height at the mouth
+  const TUNNEL_CAP_THICKNESS  = 12;     // thin snout-roof dirt above the ceiling at mouth
   function tunnelFloorY(o) {
     return o.floorY != null ? o.floorY : (PLAY_H - 8);
   }
@@ -17812,7 +17824,7 @@ const DLX_BUILD = 'v224';
     const mainGround = terrainHeightAt(worldX);
     if (!isDaily || !dailyAirObstacles || !dailyAirObstacles.length) {
       return { state: 'outside', mainGround: mainGround,
-               ceiling: 0, floor: mainGround };
+               ceiling: 0, floor: mainGround, snoutTop: mainGround };
     }
     for (let i = 0; i < dailyAirObstacles.length; i++) {
       const o = dailyAirObstacles[i];
@@ -17822,36 +17834,46 @@ const DLX_BUILD = 'v224';
       const fY = tunnelFloorY(o);
       const bodyCeiling = mainGround + TUNNEL_CEILING_OFFSET;
       if (localX < TUNNEL_ENTRANCE_RAMP) {
-        // ENTRANCE — at the mouth (localX=0) the corridor is a real
-        // doorway: floor sits TUNNEL_MOUTH_OPENING below the dune
-        // surface, ceiling is right at the surface. The floor then
-        // ramps down to TunnelFloor and the ceiling ramps down to
-        // bodyCeiling, both reaching their body values at body start.
-        // This way the cavern visibly opens at the surface — no
-        // closed wedge.
+        // ENTRANCE — the corridor's mouth sits ABOVE MainGround.
+        // Floor at mouth is MOUTH_RISE px above the dune surface;
+        // ceiling is MOUTH_CORRIDOR px above the floor; snoutTop
+        // (visible snout exterior) is CAP_THICKNESS px above the
+        // ceiling. All three lerp toward their body values across
+        // the ramp:
+        //   floor      → TunnelFloor
+        //   ceiling    → bodyCeiling (MainGround + 48)
+        //   snoutTop   → MainGround (snout exterior merges back into the dune)
         const t01 = localX / TUNNEL_ENTRANCE_RAMP;
-        const startFloor = mainGround + TUNNEL_MOUTH_OPENING;
-        const rampFloor   = startFloor + (fY - startFloor) * t01;
-        const rampCeiling = mainGround + (bodyCeiling - mainGround) * t01;
+        const startFloor    = mainGround - TUNNEL_MOUTH_RISE;
+        const startCeiling  = startFloor - TUNNEL_MOUTH_CORRIDOR;
+        const startSnoutTop = startCeiling - TUNNEL_CAP_THICKNESS;
+        const rampFloor    = startFloor    + (fY - startFloor)            * t01;
+        const rampCeiling  = startCeiling  + (bodyCeiling - startCeiling) * t01;
+        const rampSnoutTop = startSnoutTop + (mainGround - startSnoutTop) * t01;
         return { state: 'entrance', mainGround: mainGround,
-                 ceiling: rampCeiling, floor: rampFloor };
+                 ceiling: rampCeiling, floor: rampFloor,
+                 snoutTop: rampSnoutTop };
       }
       if (localX > o.length - TUNNEL_EXIT_RAMP) {
-        // EXIT — mirror of entrance: floor ramps up to a doorway
-        // (TUNNEL_MOUTH_OPENING below MainGround) at the mouth, and
-        // ceiling rises back to MainGround.
+        // EXIT — mirror of entrance: corridor ramps up out of the
+        // ground at the exit mouth.
         const t01 = (localX - (o.length - TUNNEL_EXIT_RAMP)) / TUNNEL_EXIT_RAMP;
-        const endFloor = mainGround + TUNNEL_MOUTH_OPENING;
-        const rampFloor   = fY + (endFloor - fY) * t01;
-        const rampCeiling = bodyCeiling + (mainGround - bodyCeiling) * t01;
+        const endFloor    = mainGround - TUNNEL_MOUTH_RISE;
+        const endCeiling  = endFloor - TUNNEL_MOUTH_CORRIDOR;
+        const endSnoutTop = endCeiling - TUNNEL_CAP_THICKNESS;
+        const rampFloor    = fY          + (endFloor    - fY)          * t01;
+        const rampCeiling  = bodyCeiling + (endCeiling  - bodyCeiling) * t01;
+        const rampSnoutTop = mainGround  + (endSnoutTop - mainGround)  * t01;
         return { state: 'exit', mainGround: mainGround,
-                 ceiling: rampCeiling, floor: rampFloor };
+                 ceiling: rampCeiling, floor: rampFloor,
+                 snoutTop: rampSnoutTop };
       }
       return { state: 'body', mainGround: mainGround,
-               ceiling: bodyCeiling, floor: fY };
+               ceiling: bodyCeiling, floor: fY,
+               snoutTop: mainGround };
     }
     return { state: 'outside', mainGround: mainGround,
-             ceiling: 0, floor: mainGround };
+             ceiling: 0, floor: mainGround, snoutTop: mainGround };
   }
   // Back-compat shim: surfaceAt now resolves to the layout floor at
   // that X (so callers get the surface the rig stands on, including
