@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v194';
+const DLX_BUILD = 'v195';
 
 (function() {
   // ---------- Device detection ----------
@@ -11842,8 +11842,17 @@ const DLX_BUILD = 'v194';
     const baseGround = PLAY_H - 28;
     const hillRise = 36;
     // ---- DIRT layer above the tunnel (the hill) ----
+    // Color-matched to the dune terrain palette (drawDailyTerrain) so
+    // the tunnel hill blends seamlessly with the surrounding desert
+    // floor instead of looking like a separate prop.
     ctx.save();
-    ctx.fillStyle = '#5a3818';
+    // Vertical gradient: warm tan top → mid rust → deep rust base
+    const hillTopY = samples[0].top - hillRise;
+    const hillGrad = ctx.createLinearGradient(0, hillTopY, 0, baseGround);
+    hillGrad.addColorStop(0,   '#e8a868');   // warm tan (matches dune top)
+    hillGrad.addColorStop(0.5, '#b86838');   // mid rust (matches dune mid)
+    hillGrad.addColorStop(1,   '#7a3018');   // deep rust at base of hill
+    ctx.fillStyle = hillGrad;
     ctx.beginPath();
     ctx.moveTo(samples[0].x - 24, baseGround);
     for (let r = 0; r <= 6; r++) {
@@ -11864,22 +11873,28 @@ const DLX_BUILD = 'v194';
     ctx.lineTo(samples[samples.length - 1].x + 24, baseGround);
     ctx.closePath();
     ctx.fill();
-    // Lighter dirt highlight on the lit (top) face of the hill
-    ctx.fillStyle = '#7a4828';
+    // Pale cream crest highlight along the very top of the hill
+    // (matches the dune-crest highlight in drawDailyTerrain)
+    ctx.strokeStyle = '#fce0a8';
+    ctx.lineWidth = 1.4;
     ctx.beginPath();
     for (let i = 0; i < samples.length; i++) {
       const py = samples[i].top - hillRise;
       if (i === 0) ctx.moveTo(samples[i].x, py);
       else ctx.lineTo(samples[i].x, py);
     }
-    for (let i = samples.length - 1; i >= 0; i--) {
-      ctx.lineTo(samples[i].x, samples[i].top - hillRise + 4);
+    ctx.stroke();
+    // Sand grit specks across the hill surface (matches dune texture)
+    ctx.fillStyle = 'rgba(70, 28, 14, 0.55)';
+    for (let i = 0; i < 14; i++) {
+      const sLx = (i * 23) % len;
+      const sxx = sx + sLx;
+      const syy = (samples[Math.floor(sLx / step)] || samples[0]).top - hillRise + 6 + (i % 3) * 4;
+      ctx.fillRect(sxx, syy, 1.4, 1.4);
     }
-    ctx.closePath();
-    ctx.fill();
     ctx.restore();
-    // ---- DIRT layer below the tunnel (rest of underground to bottom) ----
-    ctx.fillStyle = '#3a2418';
+    // ---- DIRT layer below the tunnel — deep rust matching dune base ----
+    ctx.fillStyle = '#5a2818';
     ctx.beginPath();
     ctx.moveTo(samples[0].x - 24, baseGround);
     for (const s of samples) ctx.lineTo(s.x, s.bot + 24);
@@ -17525,7 +17540,11 @@ const DLX_BUILD = 'v194';
     dailyDockingFrames = 0;
     dailyPostDockFrames = 0;
     dailyAirObstacles = [];
-    dailyNextAirObstacleX = 300;         // first air obstacle ~300px in (tunnels can show up early)
+    // First air obstacle holds ~2 seconds past the warehouse takeoff
+    // so tunnels can't spawn ON TOP of the launch sequence (no way to
+    // dive into a tunnel while the rig is still climbing out of the
+    // hangar).
+    dailyNextAirObstacleX = 800;
     dailyPickups = [];
     dailyNextPickupX = 280;               // first scrap cog pickup right out of the gate
     dailyNextMagnetX = 700;               // first magnet recall box ~700px in (sooner so you see one early)
