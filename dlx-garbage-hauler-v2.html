@@ -1954,7 +1954,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v196';
+const DLX_BUILD = 'v197';
 
 (function() {
   // ---------- Device detection ----------
@@ -6423,6 +6423,30 @@ const DLX_BUILD = 'v196';
       if (invulnFrames > 0)  invulnFrames--;
 
       bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
+
+      // ---- TUNNEL AUTO-STABILIZE ----
+      // While the rig is inside a tunnel section, apply a centering
+      // spring force toward the channel center and damp vertical
+      // velocity so the rig settles into the tunnel naturally instead
+      // of yo-yo-ing between gravity falls and frantic flap pulses.
+      // Player can still flap to steer up/down within the channel.
+      if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
+        for (const o of dailyAirObstacles) {
+          if (o.kind !== 'tunnel') continue;
+          const sx = o.worldX - dailyScrollX;
+          if (bird.x < sx - 4 || bird.x > sx + o.length + 4) continue;
+          const localX = Math.max(0, Math.min(o.length, bird.x - sx));
+          const ch = tunnelChannelAt(o, localX);
+          // Cancel most of the gravity that just got applied
+          bird.vy -= GRAVITY * 0.75;
+          // Spring toward channel center + heavy damping
+          const dy = ch.center - bird.y;
+          bird.vy += dy * 0.06;
+          bird.vy *= 0.88;
+          break;
+        }
+      }
+
       bird.y += bird.vy;
       bird.rot = Math.max(-0.5, Math.min(1.2, bird.vy * 0.09));
 
