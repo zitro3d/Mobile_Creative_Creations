@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v242';
+const DLX_BUILD = 'v243';
 
 (function() {
   // ---------- Device detection ----------
@@ -6768,21 +6768,38 @@ const DLX_BUILD = 'v242';
         // to dodge them as they cross. Direct kill on contact.
         // (Underground rig is safe via the v234 underground gate.)
         if (dailyCurrentStage >= 1 && frame >= dailyNextLavaAt && !dailyDelivered) {
-          const altY = 100 + Math.random() * (PLAY_H * 0.45);
-          dailyLavaBalls.push({
-            x: W + 32,
-            y: altY,
-            vx: -(3.6 + Math.random() * 2.2),       // 3.6-5.8 px/frame LEFTWARD
-            vy: -2.2 - Math.random() * 1.4,         // small upward kick → arcs down under gravity
-            r: 13 + Math.random() * 5,              // 13-18 px base radius
-            life: 0,
-            seed: Math.random() * 1000,
-          });
+          // Spawn a primary ball, plus a SALVO partner 30 % of the
+          // time so the player occasionally has to thread between two
+          // arcs. Partner is altitude-offset and slightly delayed
+          // (off-screen further to the right) so they cross at
+          // staggered times instead of stacking.
+          const spawnLava = function(altY, xOffset) {
+            dailyLavaBalls.push({
+              x: W + 32 + (xOffset || 0),
+              y: altY,
+              vx: -(3.6 + Math.random() * 2.2),
+              vy: -2.2 - Math.random() * 1.4,
+              r: 13 + Math.random() * 5,
+              life: 0,
+              seed: Math.random() * 1000,
+            });
+          };
+          const altA = 100 + Math.random() * (PLAY_H * 0.45);
+          spawnLava(altA, 0);
+          if (Math.random() < 0.30) {
+            const altDelta = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 50);
+            const altB = Math.max(60, Math.min(PLAY_H * 0.55, altA + altDelta));
+            spawnLava(altB, 120 + Math.random() * 160);
+          }
           playSound('missile');
-          const interval = dailyCurrentStage >= 3 ? 220
-                         : dailyCurrentStage >= 2 ? 320
-                         :                          480;
-          dailyNextLavaAt = frame + interval + Math.floor(Math.random() * 240);
+          // Tighter intervals so 1-2 balls are usually on screen.
+          // At vx ≈ 5 px/frame, screen-W ~360 px ≈ 72 frames per
+          // traversal, so a ~100-200 frame interval keeps something
+          // visible most of the time.
+          const interval = dailyCurrentStage >= 3 ? 80
+                         : dailyCurrentStage >= 2 ? 140
+                         :                          200;
+          dailyNextLavaAt = frame + interval + Math.floor(Math.random() * 120);
         }
         for (let i = dailyLavaBalls.length - 1; i >= 0; i--) {
           const lb = dailyLavaBalls[i];
@@ -17699,7 +17716,7 @@ const DLX_BUILD = 'v242';
     dailyPostDockFrames = 0;
     dailyAirObstacles = [];
     dailyLavaBalls = [];
-    dailyNextLavaAt = frame + 720;       // first lava ball ~12 sec after launch
+    dailyNextLavaAt = frame + 480;       // first lava ball ~8 sec after launch
     // First air obstacle holds ~2 seconds past the warehouse takeoff
     // so tunnels can't spawn ON TOP of the launch sequence (no way to
     // dive into a tunnel while the rig is still climbing out of the
