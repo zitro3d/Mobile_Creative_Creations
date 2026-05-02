@@ -3,7 +3,7 @@
 //   when they're online; the old cached HTML is only used as a fallback
 //   when offline.
 // - The icon + manifest are CACHE-FIRST (they almost never change).
-const CACHE = 'dlx-hauler-v252';
+const CACHE = 'dlx-hauler-v253';
 const PRECACHE = [
   './manifest.webmanifest',
   './dlx-icon.svg',

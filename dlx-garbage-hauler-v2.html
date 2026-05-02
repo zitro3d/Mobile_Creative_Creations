@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v252';
+const DLX_BUILD = 'v253';
 
 (function() {
   // ---------- Device detection ----------
@@ -2841,6 +2841,49 @@ const DLX_BUILD = 'v252';
         tone(110, 0.55, 'sawtooth', 0.22, 360);
         setTimeout(function(){ tone(220, 0.30, 'square',   0.16, 520); },  90);
         setTimeout(function(){ tone(440, 0.18, 'triangle', 0.12, 880); }, 220);
+        break;
+      case 'forceField':
+        // DLX Fuel Cell activation — distinctive 4-step rising
+        // arpeggio over a wide bell tone so it doesn't blur with
+        // the ordinary 'powerup' sound that the magnet box uses.
+        tone(440, 0.18, 'triangle', 0.13, 880);
+        setTimeout(function(){ tone(660, 0.18, 'triangle', 0.13, 1320); }, 70);
+        setTimeout(function(){ tone(880, 0.20, 'triangle', 0.14, 1760); }, 140);
+        setTimeout(function(){ tone(1320,0.30, 'sine',     0.12, 1320); }, 220);
+        // Soft sub-rumble underneath so it FEELS energising, not chirpy.
+        tone(110, 0.50, 'sine', 0.10, 220);
+        break;
+      case 'lavaWhoosh':
+        // Lava ball entering screen — long sizzling sweep instead
+        // of the punchy 'missile' tone. High freq descending +
+        // noise burst reads as rushing fire.
+        noiseBurst(0.30, 0.28);
+        tone(900, 0.35, 'sawtooth', 0.10, 220);
+        setTimeout(function(){ noiseBurst(0.20, 0.16); }, 110);
+        break;
+      case 'tunnelEnter':
+        // Soft echoey whoosh when the rig drops into a tunnel
+        // mouth — low-mid sweep + faint reverb tone.
+        noiseBurst(0.22, 0.30);
+        tone(180, 0.45, 'triangle', 0.10, 90);
+        setTimeout(function(){ tone( 90, 0.35, 'sine', 0.08, 60); }, 80);
+        break;
+      case 'delivery':
+        // DELIVERY MADE! victory fanfare — 4-note major triad
+        // ascending into a sustained bell, with a celebratory
+        // noise burst kickoff so it lands harder than the
+        // generic 'levelup' jingle.
+        noiseBurst(0.40, 0.20);
+        const dArp = [
+          [523, 0.16, 'triangle', 0.14, 523],   // C5
+          [659, 0.16, 'triangle', 0.14, 659],   // E5
+          [784, 0.16, 'triangle', 0.14, 784],   // G5
+          [1047,0.45, 'sine',     0.16, 1047],  // C6 sustained
+        ];
+        for (let i = 0; i < dArp.length; i++) {
+          const n = dArp[i];
+          setTimeout(function(){ tone(n[0], n[1], n[2], n[3], n[4]); }, i * 130);
+        }
         break;
       case 'pickup':
         s = sfx.pickup;  tone(s[0], s[1], s[2], s[3], s[4]); break;
@@ -6464,6 +6507,13 @@ const DLX_BUILD = 'v252';
           const localX = Math.max(0, Math.min(o.length, bird.x - sx));
           const L = tunnelLayoutAt(o.worldX + localX);
           if (bird.y < L.snoutTop) break;            // still above the snout = sky route
+          // First frame the rig drops into THIS tunnel's mouth —
+          // play a one-shot whoosh so the player audibly registers
+          // that they've committed to the corridor.
+          if (!o.rigEntered) {
+            o.rigEntered = true;
+            playSound('tunnelEnter');
+          }
           const center = (L.ceiling + L.floor) / 2;
           // Inside the tunnel: cancel gravity entirely, run a stronger
           // spring toward the corridor midline with heavier damping,
@@ -6559,7 +6609,7 @@ const DLX_BUILD = 'v252';
         if (dailyDockingFrames === 0 && dailyPostDockFrames === 0 && !dailyDelivered) {
           dailyPostDockFrames = 240;     // 4 seconds at 60fps
           setLevelBanner('★ DELIVERY MADE!');
-          playSound('levelup');
+          playSound('delivery');
         }
       } else if (isDaily && dailyPostDockFrames > 0) {
         // ---- Post-landing dwell — rig parked, world frozen, player
@@ -6794,7 +6844,7 @@ const DLX_BUILD = 'v252';
             const altB = Math.max(60, Math.min(PLAY_H * 0.55, altA + altDelta));
             spawnLava(altB, 120 + Math.random() * 160);
           }
-          playSound('missile');
+          playSound('lavaWhoosh');
           // Tighter intervals so 1-2 balls are usually on screen.
           // At vx ≈ 5 px/frame, screen-W ~360 px ≈ 72 frames per
           // traversal, so a ~100-200 frame interval keeps something
@@ -7123,7 +7173,7 @@ const DLX_BUILD = 'v252';
               forceFieldFrames = Math.max(forceFieldFrames, 360);
               grantScore(50);
               emitPickupSparks(pickupX, pickupY, '#ff9a30', 22);
-              playSound('powerup');
+              playSound('forceField');
             }
           }
         }
