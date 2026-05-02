@@ -2125,7 +2125,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v267';
+const DLX_BUILD = 'v268';
 
 (function() {
   // ---------- Device detection ----------
@@ -6812,14 +6812,20 @@ const DLX_BUILD = 'v267';
       // gravity that just got applied and spring the rig toward the
       // corridor midline. Outside any tunnel, in the sky above the
       // snout, or before reaching one: full normal flight.
+      //
+      // EXIT FADE: stabilize doesn't snap off the moment the rig
+      // clears the exit ramp — it fades linearly over the next 100 px.
+      // Old behavior was a hard cutoff at +40 px which made the rig
+      // feel like gravity slammed it down (the player had spent the
+      // last few seconds adjusted to ±4 px/frame clamp; full
+      // MAX_FALL ~9-10 returning instantly read as a slam).
       if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
         for (const o of dailyAirObstacles) {
           if (o.kind !== 'tunnel') continue;
           const sx = o.worldX - dailyScrollX;
-          // Extend the stabilize x-range 40 px past the tunnel exit so
-          // the rig has a soft handoff back to normal gravity instead
-          // of dropping like a stone the instant it clears the mouth.
-          if (bird.x < sx - 4 || bird.x > sx + o.length + 40) continue;
+          const exitX = sx + o.length;
+          const fadeEnd = exitX + 100;
+          if (bird.x < sx - 4 || bird.x > fadeEnd) continue;
           const localX = Math.max(0, Math.min(o.length, bird.x - sx));
           const L = tunnelLayoutAt(o.worldX + localX);
           if (bird.y < L.snoutTop) break;            // still above the snout = sky route
@@ -6830,17 +6836,23 @@ const DLX_BUILD = 'v267';
             o.rigEntered = true;
             playSound('tunnelEnter');
           }
+          // Fade amount: 1.0 inside the corridor, eases to 0.0 over
+          // the 100 px past the exit ramp. Gravity-cancel, spring,
+          // damping, and velocity clamp all scale by this so the
+          // handoff is gradual instead of a snap.
+          let amt = 1.0;
+          if (bird.x > exitX) {
+            amt = 1.0 - (bird.x - exitX) / 100;
+            if (amt < 0) amt = 0;
+          }
           const center = (L.ceiling + L.floor) / 2;
-          // Inside the tunnel: cancel gravity entirely, run a stronger
-          // spring toward the corridor midline with heavier damping,
-          // and clamp velocity so taps still steer but can't fling
-          // the rig past the buffer into floor / ceiling.
-          bird.vy -= GRAVITY;                        // fully cancel the gravity that was just added
-          bird.vy += (center - bird.y) * 0.11;       // stronger spring (was 0.06)
-          bird.vy *= 0.78;                           // heavier damping (was 0.82)
-          const TUNNEL_MAX_VY = 4.0;
-          if (bird.vy >  TUNNEL_MAX_VY) bird.vy =  TUNNEL_MAX_VY;
-          if (bird.vy < -TUNNEL_MAX_VY) bird.vy = -TUNNEL_MAX_VY;
+          bird.vy -= GRAVITY * amt;                      // partial gravity cancel
+          bird.vy += (center - bird.y) * 0.11 * amt;     // spring fades to nothing
+          bird.vy *= (1 - 0.22 * amt);                   // damping 0.78 → 1.0 as amt → 0
+          // Clamp eases from ±4 (full stabilize) toward MAX_FALL
+          const maxVy = 4.0 + (MAX_FALL - 4.0) * (1 - amt);
+          if (bird.vy >  maxVy) bird.vy =  maxVy;
+          if (bird.vy < -maxVy) bird.vy = -maxVy;
           break;
         }
       }
@@ -6848,16 +6860,20 @@ const DLX_BUILD = 'v267';
       // ---- TUNNEL EXIT SOUND ----
       // Mirror of the rigEntered cue — fire a one-shot 'tunnelExit'
       // when a rig that previously committed to a tunnel is no
-      // longer inside its corridor (either past the obstacle or
-      // popped back above the snout). Without this the rig feels
-      // like it just vanishes from the underground.
+      // longer inside its corridor (either past the exit ramp or
+      // popped back above the snout). Decoupled from the stabilize
+      // fade window above: sound fires the moment the rig leaves the
+      // ramp (exitX), even though stabilize continues fading for
+      // another 100 px — that way the audio cue lands with the
+      // visual emergence rather than 100 px later.
       if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
         for (const o of dailyAirObstacles) {
           if (o.kind !== 'tunnel') continue;
           if (!o.rigEntered || o.rigExited) continue;
           const sx = o.worldX - dailyScrollX;
+          const exitX = sx + o.length;
           let outside = false;
-          if (bird.x < sx - 4 || bird.x > sx + o.length + 40) {
+          if (bird.x < sx - 4 || bird.x > exitX) {
             outside = true;
           } else {
             const localX = Math.max(0, Math.min(o.length, bird.x - sx));
