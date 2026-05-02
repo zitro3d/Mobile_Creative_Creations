@@ -2125,7 +2125,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v276';
+const DLX_BUILD = 'v277';
 
 (function() {
   // ---------- Device detection ----------
@@ -4024,7 +4024,12 @@ const DLX_BUILD = 'v276';
   }
   function triggerDeliverySuccess() {
     // Daily delivery course reached the GOOD BUDDY TRUCK STOP.
-    setLevelBanner('★ DELIVERY MADE!');
+    // Banner text mirrors the cargo-aware "★ DELIVERY MADE!" /
+    // "★ ARRIVED · CARGO LOST" check the post-dock block fires 4 sec
+    // earlier, so we don't overwrite the honest text with a misleading
+    // unconditional "DELIVERY MADE!" right before the victory screen.
+    const cargoIntact = !!(cargo && !cargo.lost && cargo.attached);
+    setLevelBanner(cargoIntact ? '★ DELIVERY MADE!' : '★ ARRIVED · CARGO LOST');
     burstFrames = Math.max(burstFrames, 30);
     flashAlpha = 0.4;
     playSound('levelup');
@@ -6851,16 +6856,23 @@ const DLX_BUILD = 'v276';
           bird.vy -= GRAVITY * amt;                      // partial gravity cancel
           bird.vy += (center - bird.y) * 0.11 * amt;     // spring fades to nothing
           bird.vy *= (1 - 0.22 * amt);                   // damping 0.78 → 1.0 as amt → 0
-          // ---- POST-EXIT LIFT BIAS ----
-          // The fade alone just relaxes the assist; the rig still drags
-          // down because gravity is back at full strength by amt=0.
-          // User asked for actual lift on exit. This adds an upward
-          // velocity bias that GROWS as the fade progresses (zero
-          // inside the corridor, peak right when stabilize is gone),
-          // so the rig has natural upward momentum exiting the tunnel
-          // instead of dropping toward the dune. ~0.40 - GRAVITY (0.27)
-          // = ~0.13 net upward at amt=0, which gives a gentle but
-          // felt rise over the back half of the buffer.
+          // ---- POST-EXIT LIFT ----
+          // Two layers, because v276's growing bias (zero at corridor,
+          // peak at end of fade) was still dragging in the early
+          // frames after exit — the first ~10 frames have very small
+          // (1-amt) so gravity wins and the user feels a drop.
+          //
+          // (a) ONE-TIME UPWARD IMPULSE on first crossing of exitX —
+          //     immediate kick so there's no early-frame drag.
+          //     bird.vy = -4 = ~30 px peak rise from impulse alone.
+          // (b) SUSTAINED BIAS during the fade — keeps lift active
+          //     through the rest of the buffer so the rig keeps
+          //     climbing instead of decelerating once the impulse
+          //     plays out.
+          if (bird.x > exitX && !o.exitKicked) {
+            o.exitKicked = true;
+            if (bird.vy > -4) bird.vy = -4;
+          }
           bird.vy -= 0.40 * (1 - amt);
           // Clamp eases from ±4 (full stabilize) toward MAX_FALL
           const maxVy = 4.0 + (MAX_FALL - 4.0) * (1 - amt);
@@ -18754,8 +18766,8 @@ const DLX_BUILD = 'v276';
     { wall: '#2a1a08', mid: '#4a2812', light: '#7a4828' },
     // 2 — IRON RED (deeper, more saturated red)
     { wall: '#1c0604', mid: '#3a1206', light: '#6a281a' },
-    // 3 — COOL SLATE (cool gray-brown — feels like wet rock)
-    { wall: '#181a1c', mid: '#2c2c30', light: '#52453a' },
+    // 3 — BLACK EARTH (very dark soil brown — wet, cave-like dirt)
+    { wall: '#0c0604', mid: '#20100a', light: '#3a200e' },
   ];
   function tunnelFloorY(o) {
     return o.floorY != null ? o.floorY : (PLAY_H - 8);
@@ -19121,13 +19133,15 @@ const DLX_BUILD = 'v276';
     // subtitle / biome cell so the player sees "DELIVERY MADE" framing instead
     // of the campaign-completion copy.
     const deliveredDaily = (isDaily && dailyDelivered);
-    // Honest cargo-state read — was hardcoded "Cargo intact." even when
-    // a thief or fall had taken the crate, which made the victory screen
-    // lie to the player about what they delivered. lastDailyRun stores
-    // the same snapshot finalize used for payout, so the copy now matches
-    // the 300 vs 50 SCRAP base the player actually got paid.
-    const cargoIntactDaily = !!(lastDailyRun ? lastDailyRun.cargoArrived
-                                             : (cargo && !cargo.lost && cargo.attached));
+    // Honest cargo-state read directly from live cargo. v266 read from
+    // lastDailyRun.cargoArrived — but finalizeDailyRunIfNeeded (which
+    // sets lastDailyRun) is called LATER in this same function, so on
+    // a player's second+ daily run the lookup returned STALE data from
+    // the previous run. Live cargo state is the source of truth at
+    // showVictory time: post-dock dwell glues an attached cargo to the
+    // rig and never re-attaches a lost one, so cargo.attached + .lost
+    // here reflects exactly what landed.
+    const cargoIntactDaily = !!(cargo && !cargo.lost && cargo.attached);
     const titleEl = document.getElementById('victoryTitle');
     const subEl   = document.querySelector('#victoryScreen .victorySubtitle');
     if (titleEl) {
