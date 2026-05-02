@@ -2125,7 +2125,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v277';
+const DLX_BUILD = 'v278';
 
 (function() {
   // ---------- Device detection ----------
@@ -6853,23 +6853,27 @@ const DLX_BUILD = 'v277';
             if (amt < 0) amt = 0;
           }
           const center = (L.ceiling + L.floor) / 2;
+          const pastExit = bird.x > exitX;
           bird.vy -= GRAVITY * amt;                      // partial gravity cancel
-          bird.vy += (center - bird.y) * 0.11 * amt;     // spring fades to nothing
-          bird.vy *= (1 - 0.22 * amt);                   // damping 0.78 → 1.0 as amt → 0
+          // SPRING — only pull toward midline if rig is BELOW it past exit.
+          // Otherwise the spring would fight the lift impulse by pulling
+          // the rig back DOWN to corridor altitude after it rises.
+          if (!pastExit || bird.y > center) {
+            bird.vy += (center - bird.y) * 0.11 * amt;
+          }
+          // DAMPING — only damp DOWNWARD vy past exit. Inside corridor we
+          // want both-direction damping for stability; past exit we need
+          // upward velocity preserved so the impulse + lift bias don't
+          // get dampened away every frame (which was the actual root
+          // cause of the persistent "drag" feel — damping at amt=0.985
+          // kills 22% of the impulse on frame 1).
+          if (!pastExit || bird.vy > 0) {
+            bird.vy *= (1 - 0.22 * amt);
+          }
           // ---- POST-EXIT LIFT ----
-          // Two layers, because v276's growing bias (zero at corridor,
-          // peak at end of fade) was still dragging in the early
-          // frames after exit — the first ~10 frames have very small
-          // (1-amt) so gravity wins and the user feels a drop.
-          //
-          // (a) ONE-TIME UPWARD IMPULSE on first crossing of exitX —
-          //     immediate kick so there's no early-frame drag.
-          //     bird.vy = -4 = ~30 px peak rise from impulse alone.
-          // (b) SUSTAINED BIAS during the fade — keeps lift active
-          //     through the rest of the buffer so the rig keeps
-          //     climbing instead of decelerating once the impulse
-          //     plays out.
-          if (bird.x > exitX && !o.exitKicked) {
+          // (a) one-time upward IMPULSE on first crossing of exitX
+          // (b) sustained bias during the rest of the fade
+          if (pastExit && !o.exitKicked) {
             o.exitKicked = true;
             if (bird.vy > -4) bird.vy = -4;
           }
