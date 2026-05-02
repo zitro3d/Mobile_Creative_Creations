@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v243';
+const DLX_BUILD = 'v244';
 
 (function() {
   // ---------- Device detection ----------
@@ -7414,6 +7414,14 @@ const DLX_BUILD = 'v243';
       // auto-stabilize hadn't pulled it deep enough yet. Floor +
       // ramp geometry are the only kill surfaces now.)
       if (ghostFrames > 0) return false;
+      // "Committed to tunnel" — the rig has crossed below the snout
+      // peak (entrance / body / exit corridor or snout cavity) OR is
+      // fully below the dune line. Either way the rig is in the
+      // tunnel zone and surface / sky entities (lava balls, drones,
+      // wrecks, towers, thieves, hazards) can't physically touch it.
+      const groundY = terrainHeightAt(wxRig);
+      const inTunnelZone = (L.state !== 'outside' && bird.y > L.snoutTop)
+                        || (bird.y - r > groundY);
       for (const h of dailyHazards) {
         const sx = h.worldX - dailyScrollX;
         const dx = bird.x - sx;
@@ -7421,21 +7429,16 @@ const DLX_BUILD = 'v243';
         const halfW = h.kind === 'spikes' ? 28 : 8;
         if (Math.abs(dx) > r + halfW) continue;
         const gh = terrainHeightAt(h.worldX);
-        // If the rig is fully underground (e.g. inside a tunnel
-        // corridor below the surface), surface-mounted hazards on
-        // the dune can't reach it — skip the collision check.
-        if (bird.y - r > gh) continue;
+        // Rig in the tunnel zone is safe from surface hazards.
+        if (inTunnelZone) continue;
         const topY = h.kind === 'spikes'   ? gh - 52
                    : h.kind === 'cactusBig' ? gh - 22
                    :                          gh - 14;
         if (bird.y + r > topY) return true;       // clipped a hazard
       }
-      // Air obstacles + thieves are surface / sky entities. If the rig
-      // is fully underground (in a tunnel corridor), it can't physically
-      // touch anything floating above the dune line, so skip those
-      // checks entirely.
-      const groundY = terrainHeightAt(wxRig);
-      const undergroundDaily = bird.y - r > groundY;
+      // Air obstacles + thieves + lava balls — all sky / surface
+      // entities. Skipped while the rig is in the tunnel zone.
+      const undergroundDaily = inTunnelZone;
       // Air obstacles — scrap towers (gap between top + bottom stack) and
       // single floating wreckage chunks
       if (!undergroundDaily) {
