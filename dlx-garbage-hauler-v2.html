@@ -2125,7 +2125,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v269';
+const DLX_BUILD = 'v270';
 
 (function() {
   // ---------- Device detection ----------
@@ -6814,17 +6814,22 @@ const DLX_BUILD = 'v269';
       // snout, or before reaching one: full normal flight.
       //
       // EXIT FADE: stabilize doesn't snap off the moment the rig
-      // clears the exit ramp — it fades linearly over the next 100 px.
-      // Old behavior was a hard cutoff at +40 px which made the rig
-      // feel like gravity slammed it down (the player had spent the
-      // last few seconds adjusted to ±4 px/frame clamp; full
-      // MAX_FALL ~9-10 returning instantly read as a slam).
+      // clears the exit ramp — it fades over the next 200 px on a
+      // smoothstep curve. Earlier ships used hard cutoff at +40 px
+      // (v268: linear fade to +100 px). Both still read as gravity
+      // slamming the rig — the player had spent the last few seconds
+      // adjusted to ±4 px/frame clamp, so any sharp return to full
+      // MAX_FALL ~9-10 felt abrupt. v270: 200 px smoothstep keeps
+      // the assist near full for ~70 px after exit, then eases off
+      // through the middle, then settles to zero with a tangent so
+      // there's no perceived "lift drop".
       if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
         for (const o of dailyAirObstacles) {
           if (o.kind !== 'tunnel') continue;
           const sx = o.worldX - dailyScrollX;
           const exitX = sx + o.length;
-          const fadeEnd = exitX + 100;
+          const fadeLen = 200;
+          const fadeEnd = exitX + fadeLen;
           if (bird.x < sx - 4 || bird.x > fadeEnd) continue;
           const localX = Math.max(0, Math.min(o.length, bird.x - sx));
           const L = tunnelLayoutAt(o.worldX + localX);
@@ -6837,13 +6842,15 @@ const DLX_BUILD = 'v269';
             playSound('tunnelEnter');
           }
           // Fade amount: 1.0 inside the corridor, eases to 0.0 over
-          // the 100 px past the exit ramp. Gravity-cancel, spring,
-          // damping, and velocity clamp all scale by this so the
-          // handoff is gradual instead of a snap.
+          // the fadeLen px past the exit ramp on a smoothstep curve.
+          // Gravity-cancel, spring, damping, and velocity clamp all
+          // scale by this so the handoff is gradual instead of a snap.
           let amt = 1.0;
           if (bird.x > exitX) {
-            amt = 1.0 - (bird.x - exitX) / 100;
-            if (amt < 0) amt = 0;
+            const t = (bird.x - exitX) / fadeLen;
+            const tc = t < 0 ? 0 : (t > 1 ? 1 : t);
+            const sm = tc * tc * (3 - 2 * tc);    // smoothstep eases in + out
+            amt = 1.0 - sm;
           }
           const center = (L.ceiling + L.floor) / 2;
           bird.vy -= GRAVITY * amt;                      // partial gravity cancel
@@ -7254,7 +7261,7 @@ const DLX_BUILD = 'v269';
           }
         }
         // ---- Tentacle monsters (Phase A5) — stage 4 only ----
-        if (dailyCurrentStage >= 3 && frame >= dailyNextTentacleAt && !dailyDelivered && dailyTentaclesSpawned < 3 && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
+        if (dailyCurrentStage >= 3 && frame >= dailyNextTentacleAt && !dailyDelivered && dailyTentaclesSpawned < 4 && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
           // Don't erupt right at a tunnel mouth or exit — the rig is
           // committed to the corridor in that range and the
           // auto-stabilize handoff buffer extends ~40 px past it, so a
@@ -18610,7 +18617,7 @@ const DLX_BUILD = 'v269';
   // Tentacle monster encounters (Phase A5)
   let dailyTentacles = [];         // [{ worldX, y, phase, height, captured, capFrames }]
   let dailyNextTentacleAt = 0;
-  let dailyTentaclesSpawned = 0;   // capped at 3 per run (was 2; player wanted more grab moments)
+  let dailyTentaclesSpawned = 0;   // capped at 4 per run; the 12-20 sec random gap spaces them across stage 4
   // Origin / destination markers
   let dailyDeliveredAtFinish = false;
   // Air obstacles — floating wreckage and scrap towers to weave through
@@ -18745,27 +18752,34 @@ const DLX_BUILD = 'v269';
         // (creating an open doorway above the floor), and snoutTop
         // is CAP_THICKNESS px above the ceiling (the snout's roof
         // peak). All three reach their body values at body start.
+        // Smoothstep (3t² - 2t³) instead of linear t — the ramp shape
+        // is now flat-tangent at both ends and steep through the
+        // middle, so the entrance reads as a curved descent into
+        // the corridor instead of a hard 45° cliff (user-requested).
         const t01 = localX / TUNNEL_ENTRANCE_RAMP;
+        const sm  = t01 * t01 * (3 - 2 * t01);
         const startFloor    = mainGround;                              // flush with surface
         const startCeiling  = mainGround - TUNNEL_MOUTH_CORRIDOR;      // above surface
         const startSnoutTop = startCeiling - TUNNEL_CAP_THICKNESS;     // snout peak above
-        const rampFloor    = startFloor    + (fY - startFloor)            * t01;
-        const rampCeiling  = startCeiling  + (bodyCeiling - startCeiling) * t01;
-        const rampSnoutTop = startSnoutTop + (mainGround - startSnoutTop) * t01;
+        const rampFloor    = startFloor    + (fY - startFloor)            * sm;
+        const rampCeiling  = startCeiling  + (bodyCeiling - startCeiling) * sm;
+        const rampSnoutTop = startSnoutTop + (mainGround - startSnoutTop) * sm;
         return { state: 'entrance', mainGround: mainGround,
                  ceiling: rampCeiling, floor: rampFloor,
                  snoutTop: rampSnoutTop };
       }
       if (localX > o.length - TUNNEL_EXIT_RAMP) {
-        // EXIT — mirror of entrance: floor ramps UP from TunnelFloor
-        // back to the dune surface; ceiling rises into the snout.
+        // EXIT — mirror of entrance, same smoothstep curve so the
+        // exit ramp reads as a graceful rise back to the surface
+        // instead of a hard diagonal.
         const t01 = (localX - (o.length - TUNNEL_EXIT_RAMP)) / TUNNEL_EXIT_RAMP;
+        const sm  = t01 * t01 * (3 - 2 * t01);
         const endFloor    = mainGround;
         const endCeiling  = mainGround - TUNNEL_MOUTH_CORRIDOR;
         const endSnoutTop = endCeiling - TUNNEL_CAP_THICKNESS;
-        const rampFloor    = fY          + (endFloor    - fY)          * t01;
-        const rampCeiling  = bodyCeiling + (endCeiling  - bodyCeiling) * t01;
-        const rampSnoutTop = mainGround  + (endSnoutTop - mainGround)  * t01;
+        const rampFloor    = fY          + (endFloor    - fY)          * sm;
+        const rampCeiling  = bodyCeiling + (endCeiling  - bodyCeiling) * sm;
+        const rampSnoutTop = mainGround  + (endSnoutTop - mainGround)  * sm;
         return { state: 'exit', mainGround: mainGround,
                  ceiling: rampCeiling, floor: rampFloor,
                  snoutTop: rampSnoutTop };
