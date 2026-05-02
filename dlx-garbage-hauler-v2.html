@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v235';
+const DLX_BUILD = 'v236';
 
 (function() {
   // ---------- Device detection ----------
@@ -9777,6 +9777,7 @@ const DLX_BUILD = 'v235';
       const seed = i * 0.2917 + 4.13;
       if (srand(seed) < 0.55) continue;     // 45% of slots have a butte
       const wx = i * slot + Math.floor(srand(seed + 0.4) * 100);
+      if (isOverDailyTunnel(wx)) continue;        // hide buttes above tunnels
       // Round to integer pixels — prevents sub-pixel jitter as the
       // world scrolls.
       const sx = Math.round(wx - dailyScrollX);
@@ -9828,6 +9829,11 @@ const DLX_BUILD = 'v235';
     if (!isDaily) return;
     ctx.save();
     for (const h of dailyHazards) {
+      // Hide surface hazards over a tunnel — the dune dips through
+      // the ramps so the prop would float / jitter against the dipped
+      // silhouette, and the rig already can't be hit by them while
+      // underground.
+      if (isOverDailyTunnel(h.worldX)) continue;
       // Round screen X to integer to prevent sub-pixel jitter as the
       // world scrolls (otherwise sprites smear across pixel boundaries).
       const sx = Math.round(h.worldX - dailyScrollX);
@@ -9972,6 +9978,7 @@ const DLX_BUILD = 'v235';
   function drawDailyLandmarks() {
     if (!isDaily) return;
     for (const lm of DAILY_LANDMARKS) {
+      if (isOverDailyTunnel(lm.worldX)) continue;   // hide signs/landmarks above tunnels
       const sx = Math.round(lm.worldX - dailyScrollX);
       if (sx < -180 || sx > W + 180) continue;
       const gy = Math.round(terrainHeightAt(lm.worldX));
@@ -11371,6 +11378,7 @@ const DLX_BUILD = 'v235';
       const roll = srand(seed);
       if (roll < 0.40) continue; // 60% of slots are empty so it doesn't get crowded
       const worldX = i * slot + Math.floor(srand(seed + 1.3) * 30);
+      if (isOverDailyTunnel(worldX)) continue;     // hide scenery (cacti, brush, etc.) above tunnels
       // Snap to integer pixels to kill scroll-driven sub-pixel jitter.
       const sx = Math.round(worldX - dailyScrollX);
       if (sx < -24 || sx > W + 24) continue;
@@ -17896,6 +17904,19 @@ const DLX_BUILD = 'v235';
   const TUNNEL_CAP_THICKNESS  = 14;     // dirt-roof thickness above the ceiling at mouth
   function tunnelFloorY(o) {
     return o.floorY != null ? o.floorY : (PLAY_H - 8);
+  }
+  // True when worldX falls inside any active tunnel obstacle's x-range.
+  // Used to skip rendering surface props (cacti, scenery, buttes) above
+  // the tunnel — the dune surface is dipped through the ramps and the
+  // props would float / jitter against the dipped silhouette.
+  function isOverDailyTunnel(worldX) {
+    if (!isDaily || !dailyAirObstacles || !dailyAirObstacles.length) return false;
+    for (let i = 0; i < dailyAirObstacles.length; i++) {
+      const o = dailyAirObstacles[i];
+      if (o.kind !== 'tunnel') continue;
+      if (worldX >= o.worldX && worldX <= o.worldX + o.length) return true;
+    }
+    return false;
   }
   function tunnelLayoutAt(worldX) {
     const mainGround = terrainHeightAt(worldX);
