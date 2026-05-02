@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v244';
+const DLX_BUILD = 'v245';
 
 (function() {
   // ---------- Device detection ----------
@@ -3577,6 +3577,7 @@ const DLX_BUILD = 'v244';
   let junkSats = [];
   // Power-up state
   let shieldCharges = 0;   // absorbs one hit each
+  let forceFieldFrames = 0; // amber bubble from a tunnel DLX FUEL CELL — full invuln vs lava/towers/etc. while > 0
   let slowFrames    = 0;   // slow-motion timer (frames)
   let doubleFrames  = 0;   // double-score timer (frames)
   let magnetFrames  = 0;   // magnet pulls pickups toward ship
@@ -6004,6 +6005,7 @@ const DLX_BUILD = 'v244';
     let startShields = (selectedSkin === 'hotrod' && !isMod('hardcore')) ? 1 : 0;
     if (!isMod('hardcore')) startShields += garageStartingShields();
     shieldCharges = Math.min(garageMaxShields(), startShields);
+    forceFieldFrames = 0;
     slowFrames = 0;
     doubleFrames = 0;
     magnetFrames = 0;
@@ -6626,6 +6628,7 @@ const DLX_BUILD = 'v244';
         // Cargo zap timer (briefly suppresses the magnet bond after a
         // drone strike — cargo falls free and must be re-magnetized)
         if (cargoZapFrames > 0) cargoZapFrames--;
+        if (forceFieldFrames > 0) forceFieldFrames--;
         // ---- Anti-magnet drones — enter from stage 2 onward ----
         // Industrial drone hovers above the player and fires a vertical
         // red lightning beam straight down. If the beam crosses the
@@ -6926,17 +6929,23 @@ const DLX_BUILD = 'v244';
             const bodyStart = TUNNEL_ENTRANCE_RAMP + 8;
             const bodyEnd   = o.length - TUNNEL_EXIT_RAMP - 8;
             const cogStep   = 36;
+            const bodyMid   = (bodyStart + bodyEnd) * 0.5;
             for (let cx = bodyStart; cx < bodyEnd; cx += cogStep) {
               const wx = dailyNextAirObstacleX + cx;
               const cy = (terrainHeightAt(wx) + TUNNEL_CEILING_OFFSET + o.floorY) / 2;
+              // Center slot of the cog row gets a DLX FUEL CELL —
+              // an amber crystal that grants 6 seconds of force-field
+              // invulnerability when collected. Replaces the gold
+              // cog at the mid-body slot only.
+              const isCenter = Math.abs(cx - bodyMid) < cogStep * 0.5;
               dailyPickups.push({
                 worldX: wx,
                 y: cy,
-                kind: 'scrapCog',
-                gold: true,                              // gold variant
+                kind: isCenter ? 'fuelCell' : 'scrapCog',
+                gold: !isCenter,                          // non-center cogs are still gold
                 alive: true,
                 bobPhase: Math.random() * Math.PI * 2,
-                orbitR: 0,                               // tunnel cogs don't orbit
+                orbitR: 0,                                // tunnel pickups don't orbit
                 orbitSpeed: 0,
               });
             }
@@ -7109,6 +7118,12 @@ const DLX_BUILD = 'v244';
               // 4-second scrap magnet field that auto-pulls nearby cogs
               dailyMagnetFieldFrames = 240;
               emitPickupSparks(pickupX, pickupY, '#ff60a0', 14);
+              playSound('powerup');
+            } else if (p.kind === 'fuelCell') {
+              // DLX FUEL CELL — 6 sec amber force field + score bonus.
+              forceFieldFrames = Math.max(forceFieldFrames, 360);
+              grantScore(50);
+              emitPickupSparks(pickupX, pickupY, '#ff9a30', 22);
               playSound('powerup');
             }
           }
@@ -7419,9 +7434,13 @@ const DLX_BUILD = 'v244';
       // fully below the dune line. Either way the rig is in the
       // tunnel zone and surface / sky entities (lava balls, drones,
       // wrecks, towers, thieves, hazards) can't physically touch it.
+      // The DLX FUEL CELL force field grants the same blanket
+      // immunity for ~6 sec when picked up.
       const groundY = terrainHeightAt(wxRig);
       const inTunnelZone = (L.state !== 'outside' && bird.y > L.snoutTop)
                         || (bird.y - r > groundY);
+      const forceFieldActive = forceFieldFrames > 0;
+      const safeFromSky = inTunnelZone || forceFieldActive;
       for (const h of dailyHazards) {
         const sx = h.worldX - dailyScrollX;
         const dx = bird.x - sx;
@@ -7429,16 +7448,17 @@ const DLX_BUILD = 'v244';
         const halfW = h.kind === 'spikes' ? 28 : 8;
         if (Math.abs(dx) > r + halfW) continue;
         const gh = terrainHeightAt(h.worldX);
-        // Rig in the tunnel zone is safe from surface hazards.
-        if (inTunnelZone) continue;
+        // Rig in the tunnel zone or with force field active is safe.
+        if (safeFromSky) continue;
         const topY = h.kind === 'spikes'   ? gh - 52
                    : h.kind === 'cactusBig' ? gh - 22
                    :                          gh - 14;
         if (bird.y + r > topY) return true;       // clipped a hazard
       }
       // Air obstacles + thieves + lava balls — all sky / surface
-      // entities. Skipped while the rig is in the tunnel zone.
-      const undergroundDaily = inTunnelZone;
+      // entities. Skipped while the rig is safe (tunnel zone or
+      // force field active).
+      const undergroundDaily = safeFromSky;
       // Air obstacles — scrap towers (gap between top + bottom stack) and
       // single floating wreckage chunks
       if (!undergroundDaily) {
@@ -12643,6 +12663,8 @@ const DLX_BUILD = 'v244';
         const ang = frame * speed + p.bobPhase;
         offX = Math.cos(ang) * radius;
         offY = Math.sin(ang) * radius;
+      } else if (p.kind === 'fuelCell') {
+        offY = Math.sin(frame * 0.10 + p.bobPhase) * 3;
       } else {
         // Magnet box — gentle vertical bob
         offY = Math.sin(frame * 0.08 + p.bobPhase) * 2;
@@ -12653,8 +12675,64 @@ const DLX_BUILD = 'v244';
       ctx.translate(Math.round(sxF + offX), Math.round(p.y + offY));
       if (p.kind === 'scrapCog') drawScrapCog();
       else if (p.kind === 'magnetBox') drawMagnetBox();
+      else if (p.kind === 'fuelCell') drawFuelCell();
       ctx.restore();
     }
+  }
+
+  // DLX FUEL CELL — amber crystal canister at the heart of every
+  // tunnel. Six-sided gem with a glowing core and a slow rotating
+  // halo, color-coded to the lava balls so the "this absorbs heat"
+  // read is intuitive.
+  function drawFuelCell() {
+    const rot = frame * 0.03;
+    const pulse = 0.5 + 0.5 * Math.sin(frame * 0.13);
+    // Outer halo
+    ctx.shadowBlur = 14 + pulse * 10;
+    ctx.shadowColor = '#ff9a30';
+    ctx.fillStyle = 'rgba(255, 154, 48, 0.42)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 14 + pulse * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    // Crystal body — 6-sided amber gem
+    ctx.rotate(rot);
+    ctx.fillStyle = '#ffae42';
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const px = Math.cos(a) * 9;
+      const py = Math.sin(a) * 9;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    // Bright facet highlight
+    ctx.fillStyle = '#ffe080';
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const px = Math.cos(a) * 5;
+      const py = Math.sin(a) * 5;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    // Hot core
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = '#fff8d0';
+    ctx.fillStyle = '#fff8d0';
+    ctx.beginPath();
+    ctx.arc(0, 0, 2.4 + pulse * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+    // "DLX" stencil etched across the front facet — branding
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(60, 24, 8, 0.85)';
+    ctx.font = 'bold 5px Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DLX', 0, 0.4);
   }
 
   // Electric-cyan cog/gear collectible — pops hard against the warm
@@ -16709,6 +16787,7 @@ const DLX_BUILD = 'v244';
 
     // Shield bubble rendered underneath the ship
     if (shieldCharges > 0) drawShieldBubble();
+    if (forceFieldFrames > 0) drawForceFieldBubble();
     // Magnet pulse ring
     if (magnetFrames > 0) drawMagnetRing();
     // Ghost aura — soft mint halo + dashed spinning ring telegraphs
@@ -17061,6 +17140,47 @@ const DLX_BUILD = 'v244';
     ctx.setLineDash([4, 8]);
     ctx.beginPath(); ctx.arc(0, 0, r * 0.65, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // Amber force-field bubble from a DLX FUEL CELL. Pulses faster +
+  // hotter than the cool blue shield, fades the last second so the
+  // player can see it's expiring.
+  function drawForceFieldBubble() {
+    ctx.save();
+    const fade = Math.min(1, forceFieldFrames / 60);    // last 1 sec eases out
+    const r = BIRD_R + 14 + Math.sin(frame * 0.22) * 2.0;
+    const px = Math.round(bird.x), py = Math.round(bird.y);
+    // Outer amber glow
+    ctx.shadowBlur = 22; ctx.shadowColor = '#ffaa30';
+    ctx.fillStyle = 'rgba(255, 154, 48, ' + (0.18 * fade) + ')';
+    ctx.beginPath();
+    ctx.arc(px, py, r + 4, 0, Math.PI * 2);
+    ctx.fill();
+    // Inner bubble
+    ctx.fillStyle = 'rgba(255, 200, 80, ' + (0.10 * fade) + ')';
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+    // Crackling ring outline
+    ctx.shadowBlur = 14; ctx.shadowColor = '#ffe080';
+    ctx.strokeStyle = 'rgba(255, 224, 128, ' + (0.85 * fade) + ')';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.stroke();
+    // Six tick-mark sparks rotating around the ring
+    const tickCt = 6;
+    const tickAng = frame * 0.08;
+    ctx.fillStyle = 'rgba(255, 240, 160, ' + fade + ')';
+    for (let i = 0; i < tickCt; i++) {
+      const a = tickAng + (i / tickCt) * Math.PI * 2;
+      const tx = px + Math.cos(a) * r;
+      const ty = py + Math.sin(a) * r;
+      ctx.beginPath();
+      ctx.arc(tx, ty, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   }
 
