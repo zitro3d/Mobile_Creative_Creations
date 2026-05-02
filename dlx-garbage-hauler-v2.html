@@ -2125,7 +2125,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v266';
+const DLX_BUILD = 'v267';
 
 (function() {
   // ---------- Device detection ----------
@@ -7251,9 +7251,21 @@ const DLX_BUILD = 'v266';
           do {
             pushed = false;
             for (const o of dailyAirObstacles) {
-              if (o.kind !== 'tunnel') continue;
-              const noStart = o.worldX - 80;
-              const noEnd   = o.worldX + o.length + 200;
+              // Tunnels: avoid the entire mouth-to-exit-handoff range.
+              // Scrap towers + air wrecks: avoid a tighter window
+              // (point-obstacles, 60 px each side) so a rising tentacle
+              // tip doesn't visually intersect the pillar above. User
+              // reported "ground monster lands on the obstacle pillar".
+              let noStart, noEnd;
+              if (o.kind === 'tunnel') {
+                noStart = o.worldX - 80;
+                noEnd   = o.worldX + o.length + 200;
+              } else if (o.kind === 'scrapTower' || o.kind === 'airWreck') {
+                noStart = o.worldX - 60;
+                noEnd   = o.worldX + 60;
+              } else {
+                continue;
+              }
               if (spawnWX >= noStart && spawnWX <= noEnd) {
                 spawnWX = noEnd + 40 + Math.random() * 80;
                 pushed = true;
@@ -7261,7 +7273,7 @@ const DLX_BUILD = 'v266';
               }
             }
             attempts++;
-          } while (pushed && attempts < 4);
+          } while (pushed && attempts < 6);
           dailyTentacles.push({
             worldX: spawnWX,
             phase: Math.random() * Math.PI * 2,
@@ -7855,12 +7867,21 @@ const DLX_BUILD = 'v266';
         ? L.floor + 12
         : L.floor;
       if (bird.y + r >= floorKill) return true;
-      // (Dirt cap collision removed entirely — both entrance/exit
-      // ramps and the body cap let the rig phase through the dirt
-      // above the corridor. The rig was crashing on the body's
-      // 24-px cap right at the entrance→body transition because
-      // auto-stabilize hadn't pulled it deep enough yet. Floor +
-      // ramp geometry are the only kill surfaces now.)
+      // ---- DIRT CAP — body state only ----
+      // The rig must enter the corridor via the entrance ramp. Without
+      // this kill the dune above the body is phase-through, so a player
+      // could fly above the tunnel and drop straight down through the
+      // dirt mid-corridor (user-reported v266 bug). Body-only is
+      // important: the entrance / exit ramps need to remain phase-able
+      // because that's the entire point of the ramp transition; a
+      // mistimed flap there used to insta-kill on the cap (the v229/
+      // v231 issue we removed it for). Body state has no transition
+      // ambiguity — if you're in body x-range above the ceiling you
+      // either came in via the ramp (and are below mainGround already)
+      // or you skipped it (and should die for it).
+      if (L.state === 'body' && bird.y + r >= L.mainGround && bird.y - r < L.ceiling) {
+        return true;
+      }
       if (ghostFrames > 0) return false;
       // "Committed to tunnel" — the rig has crossed below the snout
       // peak (entrance / body / exit corridor or snout cavity) OR is
@@ -11925,7 +11946,7 @@ const DLX_BUILD = 'v266';
       else if (pick < 0.50) drawDailyBones(sx, gy);
       else if (pick < 0.62) drawDailyDeadCactus(sx, gy);
       else if (pick < 0.78) drawDailyBrush(sx, gy, srand(seed + 4.1));
-      else if (pick < 0.92) drawDailySaguaro(sx, gy);
+      else if (pick < 0.92) drawDailySaguaro(sx, gy, srand(seed + 5.1));
       else                  drawDailyTumbleweed(sx, gy);
     }
     ctx.restore();
@@ -11977,10 +11998,13 @@ const DLX_BUILD = 'v266';
   }
 
   // Live saguaro cactus — tall green cactus with two arms
-  function drawDailySaguaro(x, y) {
+  function drawDailySaguaro(x, y, seedVar) {
     ctx.save();
     ctx.translate(x, y);
-    const h = 14 + Math.floor(Math.random() * 6);
+    // Height variant from a stable per-prop seed (was Math.random()
+    // re-rolled every frame, which made the saguaro top visibly grow
+    // and shrink — what the user reported as "plants bouncing").
+    const h = 14 + Math.floor((seedVar || 0) * 6);
     // Trunk
     ctx.fillStyle = '#3a6a2a';
     ctx.fillRect(-2.4, -h, 4.8, h);
