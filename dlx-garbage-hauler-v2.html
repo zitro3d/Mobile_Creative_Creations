@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v239';
+const DLX_BUILD = 'v240';
 
 (function() {
   // ---------- Device detection ----------
@@ -6761,6 +6761,33 @@ const DLX_BUILD = 'v239';
             if (sx < -60) dailyGroundOps.splice(i, 1);
           }
         }
+        // ---- Lava balls — fiery glowing amber projectiles streaming
+        // in from off-screen right. Random intervals, frequency scales
+        // with stage. Direct kill if the rig touches one (gated to
+        // surface flight; rig in tunnel is safe).
+        if (dailyCurrentStage >= 1 && frame >= dailyNextLavaAt && !dailyDelivered) {
+          const altY = 80 + Math.random() * (PLAY_H * 0.50);
+          dailyLavaBalls.push({
+            x: W + 32,
+            y: altY,
+            vx: -(3.4 + Math.random() * 2.4),       // 3.4-5.8 px/frame leftward (faster than scroll)
+            r: 13 + Math.random() * 5,              // 13-18 px radius
+            life: 0,
+            seed: Math.random() * 1000,
+          });
+          playSound('missile');
+          // Spacing — heavier in later stages
+          const interval = dailyCurrentStage >= 3 ? 220
+                         : dailyCurrentStage >= 2 ? 320
+                         :                          480;
+          dailyNextLavaAt = frame + interval + Math.floor(Math.random() * 240);
+        }
+        for (let i = dailyLavaBalls.length - 1; i >= 0; i--) {
+          const lb = dailyLavaBalls[i];
+          lb.x += lb.vx;
+          lb.life++;
+          if (lb.x < -50) dailyLavaBalls.splice(i, 1);
+        }
         // ---- Moving sand patches (Phase A4) — enter during stage 3 ----
         // Conveyor-belt strip on the ground. If cargo lands on it while
         // detached, the cargo drifts toward the right edge of the patch
@@ -7417,6 +7444,14 @@ const DLX_BUILD = 'v239';
           const dx = bird.x - tf.x;
           const dy = bird.y - tf.y;
           if (Math.abs(dx) < r + 26 && Math.abs(dy) < r + 14) return true;
+        }
+        // Lava balls — direct hit on the rig is a kill. Tracked in
+        // screen-space, so just radial distance.
+        for (const lb of dailyLavaBalls) {
+          const dx = bird.x - lb.x;
+          const dy = bird.y - lb.y;
+          const reach = r + lb.r - 2;        // small grace inside the glow
+          if (dx * dx + dy * dy < reach * reach) return true;
         }
       }
       if (hazardHit()) return true;               // shared mid-run hazards
@@ -12737,6 +12772,59 @@ const DLX_BUILD = 'v239';
   // Anti-magnet drones — small industrial hover-drones that lock onto
   // the rig and fire a vertical red lightning beam straight down. The
   // beam disables the magnet bond on contact, dropping the cargo.
+  // Lava balls — fiery glowing amber projectiles. Trail of fading
+  // sparks behind the leading orb, with a hot yellow-white core.
+  function drawDailyLavaBalls() {
+    if (!isDaily || !dailyLavaBalls.length) return;
+    ctx.save();
+    for (const lb of dailyLavaBalls) {
+      const cx = Math.round(lb.x);
+      const cy = Math.round(lb.y);
+      // Trailing embers — drawn first so the head sits on top
+      for (let t = 1; t <= 6; t++) {
+        const tx = Math.round(lb.x + lb.vx * t * 1.6);
+        const ty = Math.round(lb.y + Math.sin(lb.life * 0.4 + lb.seed + t) * 1.5);
+        const ta = 0.55 - t * 0.085;
+        const tr = lb.r * (1 - t * 0.12);
+        if (tr < 1 || ta <= 0) continue;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#ff7020';
+        ctx.fillStyle = 'rgba(255, 130, 40, ' + ta + ')';
+        ctx.beginPath();
+        ctx.arc(tx, ty, tr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Outer halo
+      ctx.shadowBlur = 22;
+      ctx.shadowColor = '#ffaa30';
+      ctx.fillStyle = 'rgba(255, 160, 50, 0.55)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, lb.r * 1.45, 0, Math.PI * 2);
+      ctx.fill();
+      // Body — saturated amber
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = '#ff8a20';
+      ctx.fillStyle = '#ff8420';
+      ctx.beginPath();
+      ctx.arc(cx, cy, lb.r, 0, Math.PI * 2);
+      ctx.fill();
+      // Bright yellow-white core
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = '#ffe080';
+      ctx.fillStyle = '#ffe080';
+      ctx.beginPath();
+      ctx.arc(cx, cy, lb.r * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      // Hot white center pulse
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff8d0';
+      ctx.beginPath();
+      ctx.arc(cx, cy, lb.r * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawDailyDrones() {
     if (!isDaily || !dailyDrones.length) return;
     for (const dr of dailyDrones) {
@@ -17138,6 +17226,7 @@ const DLX_BUILD = 'v239';
       drawDailyTentacles();
       drawDailyThieves();
       drawDailyDrones();
+      drawDailyLavaBalls();
       drawCargoBond();
       drawDailyCargo();
     }
