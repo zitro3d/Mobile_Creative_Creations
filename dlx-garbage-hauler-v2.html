@@ -2125,7 +2125,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v274';
+const DLX_BUILD = 'v275';
 
 (function() {
   // ---------- Device detection ----------
@@ -7377,6 +7377,13 @@ const DLX_BUILD = 'v274';
             // exit ramp (5 tiles) plus some breathing room.
             o.length = 560 + Math.floor(Math.random() * 100);  // 560-660 px (12-tile ramps + 176-276 body)
             o.floorY = PLAY_H - 8;                             // tunnel floor near bottom
+            // ---- PER-TUNNEL VARIATION ----
+            // Same seed drives palette, cap thickness, and bone spacing
+            // so the same tunnel always looks identical (deterministic
+            // per-spawn) but a level full of tunnels reads as varied.
+            o.paletteIdx = o.seed % TUNNEL_PALETTES.length;          // 0..3 cavern palette
+            o.capThick   = 10 + Math.floor(o.seed / 11) % 9;         // 10..18 px snout height
+            o.boneStep   = 24 + Math.floor(o.seed / 17) % 12;        // 24..35 px bone spacing
             // Spawn GOLD cogs in the BODY corridor (mid-tunnel
             // space) — between the entrance gap and the exit ramp.
             const bodyStart = TUNNEL_ENTRANCE_RAMP + 8;
@@ -10310,12 +10317,17 @@ const DLX_BUILD = 'v274';
         if (p.ceiling < cavTopY) cavTopY = p.ceiling;
         if (p.floor   > cavBotY) cavBotY = p.floor;
       }
+      // Per-tunnel palette so a level with multiple tunnels reads as
+      // varied. Falls back to the standard rust palette for any tunnel
+      // without paletteIdx set (shouldn't happen in normal play, but
+      // safe for legacy save state).
+      const pal = TUNNEL_PALETTES[o.paletteIdx || 0] || TUNNEL_PALETTES[0];
       const cavGrad = ctx.createLinearGradient(0, cavTopY, 0, cavBotY);
-      cavGrad.addColorStop(0,    '#1a0a04');   // shadow at the top wall
-      cavGrad.addColorStop(0.25, '#3a1808');   // shading inward
-      cavGrad.addColorStop(0.5,  '#5a3018');   // lightest along the midline
-      cavGrad.addColorStop(0.75, '#3a1808');   // shading outward toward floor
-      cavGrad.addColorStop(1,    '#1a0a04');   // shadow at the floor wall
+      cavGrad.addColorStop(0,    pal.wall);    // shadow at the top wall
+      cavGrad.addColorStop(0.25, pal.mid);     // shading inward
+      cavGrad.addColorStop(0.5,  pal.light);   // lightest along the midline
+      cavGrad.addColorStop(0.75, pal.mid);     // shading outward toward floor
+      cavGrad.addColorStop(1,    pal.wall);    // shadow at the floor wall
       ctx.fillStyle = cavGrad;
       ctx.beginPath();
       ctx.moveTo(tPts[0].sx, tPts[0].ceiling);
@@ -12591,12 +12603,16 @@ const DLX_BUILD = 'v274';
                  (bodyEnd - bodyStart), 1);
 
     // ---- Hanging BONES from the ceiling
-    const seedI = Math.floor(t.seed || 0);
-    for (let bx = bodyStart + 14; bx < bodyEnd - 10; bx += 30) {
+    // Per-tunnel bone spacing (24..35 px) so multiple tunnels in a run
+    // read as varied. Phase index keeps the bone-height pattern stable
+    // per-tunnel via the seed.
+    const seedI    = Math.floor(t.seed || 0);
+    const boneStep = t.boneStep || 30;
+    for (let bx = bodyStart + 14; bx < bodyEnd - 10; bx += boneStep) {
       const screenX = bx - dailyScrollX;
       if (screenX < -10 || screenX > W + 10) continue;
       const ceilingY = terrainHeightAt(bx) + TUNNEL_CEILING_OFFSET;
-      const phase = (Math.floor((bx - bodyStart) / 30) + seedI) % 5;
+      const phase = (Math.floor((bx - bodyStart) / boneStep) + seedI) % 5;
       const bH = 11 + phase * 2;
       // Shadow + shaft
       ctx.fillStyle = 'rgba(20, 10, 4, 0.7)';
@@ -18715,7 +18731,21 @@ const DLX_BUILD = 'v274';
   // dune to create a clear doorway, with a thin dirt cap on top
   // forming the visible snout exterior.
   const TUNNEL_MOUTH_CORRIDOR = 96;     // 96 px corridor height at the mouth (matches body, comfortable buffer)
-  const TUNNEL_CAP_THICKNESS  = 14;     // dirt-roof thickness above the ceiling at mouth
+  const TUNNEL_CAP_THICKNESS  = 14;     // default dirt-roof thickness (per-tunnel override via o.capThick)
+  // Per-tunnel cavern palette options. Picked by o.paletteIdx at spawn,
+  // applied in drawDailyTerrain when building each tunnel's interior
+  // gradient. Five stops each: dark ceiling-shadow → mid → bright midline
+  // → mid → dark floor-shadow. Same vignette shape, different rust tone.
+  const TUNNEL_PALETTES = [
+    // 0 — STANDARD RUST (the original)
+    { wall: '#1a0a04', mid: '#3a1808', light: '#5a3018' },
+    // 1 — OCHRE / SAND (warmer, lighter brown)
+    { wall: '#2a1a08', mid: '#4a2812', light: '#7a4828' },
+    // 2 — IRON RED (deeper, more saturated red)
+    { wall: '#1c0604', mid: '#3a1206', light: '#6a281a' },
+    // 3 — COOL SLATE (cool gray-brown — feels like wet rock)
+    { wall: '#181a1c', mid: '#2c2c30', light: '#52453a' },
+  ];
   function tunnelFloorY(o) {
     return o.floorY != null ? o.floorY : (PLAY_H - 8);
   }
@@ -18763,7 +18793,7 @@ const DLX_BUILD = 'v274';
         const t01 = localX / TUNNEL_ENTRANCE_RAMP;
         const startFloor    = mainGround;                              // flush with surface
         const startCeiling  = mainGround - TUNNEL_MOUTH_CORRIDOR;      // above surface
-        const startSnoutTop = startCeiling - TUNNEL_CAP_THICKNESS;     // snout peak above
+        const startSnoutTop = startCeiling - (o.capThick || TUNNEL_CAP_THICKNESS);     // snout peak above
         const rampFloor    = startFloor    + (fY - startFloor)            * t01;
         const rampCeiling  = startCeiling  + (bodyCeiling - startCeiling) * t01;
         const rampSnoutTop = startSnoutTop + (mainGround - startSnoutTop) * t01;
@@ -18778,7 +18808,7 @@ const DLX_BUILD = 'v274';
         const t01 = (localX - (o.length - TUNNEL_EXIT_RAMP)) / TUNNEL_EXIT_RAMP;
         const endFloor    = mainGround;
         const endCeiling  = mainGround - TUNNEL_MOUTH_CORRIDOR;
-        const endSnoutTop = endCeiling - TUNNEL_CAP_THICKNESS;
+        const endSnoutTop = endCeiling - (o.capThick || TUNNEL_CAP_THICKNESS);
         const rampFloor    = fY          + (endFloor    - fY)          * t01;
         const rampCeiling  = bodyCeiling + (endCeiling  - bodyCeiling) * t01;
         const rampSnoutTop = mainGround  + (endSnoutTop - mainGround)  * t01;
