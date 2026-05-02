@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v238';
+const DLX_BUILD = 'v239';
 
 (function() {
   // ---------- Device detection ----------
@@ -7351,8 +7351,14 @@ const DLX_BUILD = 'v238';
       if (bird.y - r <= 0) { bird.y = r; bird.vy = 0; }
       const wxRig = bird.x + dailyScrollX;
       const L = tunnelLayoutAt(wxRig);
-      // FLOOR — every state has one. Rig dies hitting it.
-      if (bird.y + r >= L.floor) return true;
+      // FLOOR — every state has one. Rig dies hitting it. Inside the
+      // entrance + exit ramps, give the rig a 12 px grace so a small
+      // overshoot during stabilize tracking doesn't insta-kill on the
+      // sloping floor — it can dip slightly into the slope and recover.
+      const floorKill = (L.state === 'entrance' || L.state === 'exit')
+        ? L.floor + 12
+        : L.floor;
+      if (bird.y + r >= floorKill) return true;
       // (Dirt cap collision removed entirely — both entrance/exit
       // ramps and the body cap let the rig phase through the dirt
       // above the corridor. The rig was crashing on the body's
@@ -9679,9 +9685,9 @@ const DLX_BUILD = 'v238';
     // Cavern interior — DARK brown / near-black so the underground
     // reads as a true cavern, not lit dirt.
     const cavGrad = ctx.createLinearGradient(0, PLAY_H - 100, 0, PLAY_H);
-    cavGrad.addColorStop(0,    '#3a1408');
-    cavGrad.addColorStop(0.5,  '#1a0a04');
-    cavGrad.addColorStop(1,    '#0a0402');
+    cavGrad.addColorStop(0,    '#5a2410');
+    cavGrad.addColorStop(0.5,  '#3a1808');
+    cavGrad.addColorStop(1,    '#2a1208');
 
     // ---- Build floor silhouette across the whole visible width.
     // Simple uniform 2 px sample step — the boundary corners are
@@ -12050,30 +12056,9 @@ const DLX_BUILD = 'v238';
       ctx.fillRect(screenX - rW * 0.4, fY - 5 - rH * 1.05, 1.4, 1.2);
     }
 
-    // ---- ENTRY ARROW above the entrance gap (down) and EXIT ARROW
-    // above the exit ramp (up).
-    const pulse = 0.55 + 0.45 * Math.sin(frame * 0.16);
-    ctx.shadowBlur = 6; ctx.shadowColor = '#ffd060';
-    ctx.fillStyle = 'rgba(255, 224, 96, ' + pulse + ')';
-    // Down arrow at center of entrance gap
-    const entryCx = sx + TUNNEL_ENTRANCE_RAMP * 0.5;
-    const entrySy = terrainHeightAt(wxStart + TUNNEL_ENTRANCE_RAMP * 0.5);
-    ctx.beginPath();
-    ctx.moveTo(entryCx - 8, entrySy - 22);
-    ctx.lineTo(entryCx + 8, entrySy - 22);
-    ctx.lineTo(entryCx,     entrySy - 10);
-    ctx.closePath();
-    ctx.fill();
-    // Up arrow at start of exit ramp
-    const exitCx = sx + len - TUNNEL_EXIT_RAMP * 0.5;
-    const exitSy = terrainHeightAt(wxStart + len - TUNNEL_EXIT_RAMP * 0.5);
-    ctx.beginPath();
-    ctx.moveTo(exitCx - 8, exitSy - 10);
-    ctx.lineTo(exitCx + 8, exitSy - 10);
-    ctx.lineTo(exitCx,     exitSy - 22);
-    ctx.closePath();
-    ctx.fill();
-    ctx.shadowBlur = 0;
+    // (Entry / exit yellow arrows removed per user — once the tunnel
+    // shape is recognisable from the dipped silhouette and snout
+    // mound, the pulsing arrows just clutter the view.)
   }
 
 
@@ -17599,6 +17584,8 @@ const DLX_BUILD = 'v238';
     dailyDockingFrames = 0;
     dailyPostDockFrames = 0;
     dailyAirObstacles = [];
+    dailyLavaBalls = [];
+    dailyNextLavaAt = frame + 720;       // first lava ball ~12 sec after launch
     // First air obstacle holds ~2 seconds past the warehouse takeoff
     // so tunnels can't spawn ON TOP of the launch sequence (no way to
     // dive into a tunnel while the rig is still climbing out of the
@@ -17823,6 +17810,11 @@ const DLX_BUILD = 'v238';
   // Air obstacles — floating wreckage and scrap towers to weave through
   let dailyAirObstacles = [];      // [{ worldX, kind, top, gap, alt, seed }]
   let dailyNextAirObstacleX = 0;
+  // Lava balls — fiery incoming projectiles streaming from off-screen
+  // right toward the rig at random intervals. Tracked in screen-space
+  // (their motion is independent of dailyScrollX).
+  let dailyLavaBalls = [];         // [{ x, y, vx, r, life, seed }]
+  let dailyNextLavaAt = 0;
   // Pickups — flyable scrap cogs (points) and magnet boxes (cargo recall)
   let dailyPickups = [];           // [{ worldX, y, kind, alive, bobPhase }]
   let dailyNextPickupX = 0;
