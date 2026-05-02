@@ -495,6 +495,77 @@
     touch-action: pan-y;
     overscroll-behavior: contain;
   }
+  /* Generic purchase confirmation overlay — covers rig, trail, modifier
+     buys so a stray scroll-tap on a BUY button can't drain tokens. The
+     modal sits at the body level (outside the scrolling garage screen)
+     so it stays anchored in viewport regardless of scroll position. */
+  #buyConfirmModal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.82);
+    z-index: 50;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    pointer-events: auto;
+  }
+  #buyConfirmModal.visible { display: flex; }
+  #buyConfirmModal .panel {
+    background: rgba(8, 16, 24, 0.98);
+    border: 2px solid #ffd83d;
+    border-radius: 12px;
+    padding: 18px 20px;
+    max-width: 320px;
+    width: 100%;
+    box-shadow: 0 0 26px rgba(255, 200, 60, 0.35);
+    text-align: center;
+    color: #fff;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  #buyConfirmModal .bcTitle {
+    font-family: "Courier New", monospace;
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: 2px;
+    color: #ffd83d;
+    margin-bottom: 8px;
+  }
+  #buyConfirmModal .bcItem { font-size: 18px; color: #fff; margin: 6px 0; }
+  #buyConfirmModal .bcLine { color: #cfe6ff; }
+  #buyConfirmModal .bcCost { color: #ffd83d; font-weight: 700; }
+  #buyConfirmModal .bcAfter { color: #a4d8ff; }
+  #buyConfirmModal .bcBtns {
+    display: flex;
+    gap: 12px;
+    margin-top: 14px;
+    justify-content: center;
+  }
+  #buyConfirmModal button {
+    flex: 1;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 2px solid;
+    font-family: "Courier New", monospace;
+    font-weight: 900;
+    font-size: 14px;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  #bcCancelBtn {
+    background: rgba(60, 60, 70, 0.6);
+    border-color: #5a6a78;
+    color: #cfd8e0;
+  }
+  #bcConfirmBtn {
+    background: rgba(255, 180, 30, 0.18);
+    border-color: #ffd83d;
+    color: #ffd83d;
+  }
+  #bcConfirmBtn:active { transform: scale(0.96); }
+  #bcCancelBtn:active { transform: scale(0.96); }
   .garagePanel {
     background: rgba(6, 12, 20, 0.96);
     border: 2px solid #6ab8ff;
@@ -1943,6 +2014,19 @@
         <button id="garageCloseBtn">DONE</button>
       </div>
     </div>
+    <div id="buyConfirmModal">
+      <div class="panel">
+        <div class="bcTitle">CONFIRM PURCHASE</div>
+        <div class="bcItem" id="bcItem">—</div>
+        <div class="bcLine">Cost: <span class="bcCost" id="bcCost">0 🔩</span></div>
+        <div class="bcLine">You have: <span id="bcBalance">0 🔩</span></div>
+        <div class="bcAfter">After: <span id="bcAfter">0 🔩</span></div>
+        <div class="bcBtns">
+          <button id="bcCancelBtn">CANCEL</button>
+          <button id="bcConfirmBtn">CONFIRM</button>
+        </div>
+      </div>
+    </div>
     <div id="gameOverScreen" class="hidden">
       <div class="panel">
         <div id="gameOverTitle">RIG TOTALED</div>
@@ -2041,7 +2125,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v263';
+const DLX_BUILD = 'v264';
 
 (function() {
   // ---------- Device detection ----------
@@ -19779,24 +19863,125 @@ const DLX_BUILD = 'v263';
     garageScreen.classList.add('hidden');
     refreshGarageBtn();
   }
+
+  // ---------- Generic buy confirmation modal ----------
+  // Routes every BUY action (rig, trail, modifier, level) through a
+  // confirm step so a stray tap-while-scrolling can't drain tokens.
+  // The pending purchase descriptor stores the cost + the closure that
+  // actually executes it; the modal just displays and dispatches.
+  let pendingPurchase = null;
+  const buyConfirmEl = document.getElementById('buyConfirmModal');
+  const bcItemEl     = document.getElementById('bcItem');
+  const bcCostEl     = document.getElementById('bcCost');
+  const bcBalanceEl  = document.getElementById('bcBalance');
+  const bcAfterEl    = document.getElementById('bcAfter');
+  const bcConfirmEl  = document.getElementById('bcConfirmBtn');
+  const bcCancelEl   = document.getElementById('bcCancelBtn');
+  function showBuyConfirm(opts) {
+    if (!buyConfirmEl || !opts) return;
+    pendingPurchase = opts;
+    if (bcItemEl)    bcItemEl.textContent    = opts.label;
+    if (bcCostEl)    bcCostEl.textContent    = opts.cost + ' 🔩';
+    if (bcBalanceEl) bcBalanceEl.textContent = tokensTotal + ' 🔩';
+    if (bcAfterEl)   bcAfterEl.textContent   = (tokensTotal - opts.cost) + ' 🔩';
+    buyConfirmEl.classList.add('visible');
+  }
+  function hideBuyConfirm() {
+    if (buyConfirmEl) buyConfirmEl.classList.remove('visible');
+    pendingPurchase = null;
+  }
+  if (bcConfirmEl) {
+    const onConfirmTap = function(e) {
+      e.stopPropagation();
+      if (e.cancelable) e.preventDefault();
+      const p = pendingPurchase;
+      if (!p) { hideBuyConfirm(); return; }
+      // Re-check affordability at confirm time in case state changed
+      // (e.g., another panel opened tokens spent in parallel — unlikely
+      // but the modal can sit open across other interactions).
+      if (tokensTotal < p.cost) { hideBuyConfirm(); return; }
+      hideBuyConfirm();
+      if (typeof p.onConfirm === 'function') p.onConfirm();
+    };
+    bcConfirmEl.addEventListener('touchend', onConfirmTap, { passive: false });
+    bcConfirmEl.addEventListener('click',    onConfirmTap);
+  }
+  if (bcCancelEl) {
+    const onCancelTap = function(e) {
+      e.stopPropagation();
+      if (e.cancelable) e.preventDefault();
+      hideBuyConfirm();
+    };
+    bcCancelEl.addEventListener('touchend', onCancelTap, { passive: false });
+    bcCancelEl.addEventListener('click',    onCancelTap);
+  }
+  // Tap the dim backdrop (outside the panel) to dismiss — matches the
+  // garage-backdrop pattern.
+  if (buyConfirmEl) {
+    buyConfirmEl.addEventListener('touchstart', function(ev) {
+      if (ev.target === buyConfirmEl) {
+        if (ev.cancelable) ev.preventDefault();
+        hideBuyConfirm();
+      }
+    }, { passive: false });
+  }
+
+  // ---------- Scroll-vs-tap guard for the garage screen ----------
+  // The garage panel is scrollable (overflow-y: auto). Without a guard,
+  // touchend fires on whatever button the finger lifts off — meaning a
+  // user scrolling with their finger on a BUY button triggers the buy.
+  // Track the touchstart position; on touchend, if the finger moved
+  // more than 10 px, treat the gesture as a scroll and suppress the tap.
+  let garageTouchStartY = null;
+  let garageTouchMoved  = false;
+  if (typeof garageScreen !== 'undefined' && garageScreen) {
+    garageScreen.addEventListener('touchstart', function(ev) {
+      if (ev.touches && ev.touches[0]) {
+        garageTouchStartY = ev.touches[0].clientY;
+        garageTouchMoved = false;
+      }
+    }, { passive: true });
+    garageScreen.addEventListener('touchmove', function(ev) {
+      if (garageTouchStartY !== null && ev.touches && ev.touches[0]) {
+        const dy = Math.abs(ev.touches[0].clientY - garageTouchStartY);
+        if (dy > 10) garageTouchMoved = true;
+      }
+    }, { passive: true });
+  }
+
   function onGarageItemTap(e) {
     if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    // Suppress tap if the finger was scrolling — touchend fires on the
+    // button under the lift point, even if the user was just scrolling
+    // the panel. Only applies to touchend events; click fallback is OK.
+    if (e && e.type === 'touchend' && garageTouchMoved) {
+      garageTouchMoved = false;
+      return;
+    }
     const target = e.target && e.target.closest && e.target.closest('.garageItemBtn');
     if (!target || target.disabled) return;
     // Garage Level row — single buy action that advances the level by 1
     if (target.id === 'garageLevelBuyBtn') {
       const next = GARAGE_LEVELS[garageLevel + 1];
       if (!next || tokensTotal < next.cost) return;
-      tokensTotal -= next.cost;
-      saveTokensTotal();
-      garageLevel += 1;
-      saveGarageLevel();
-      // Brief banner so the upgrade feels tangible even before the next run
-      if (typeof setLevelBanner === 'function') {
-        setLevelBanner('🔧 ' + GARAGE_LEVELS[garageLevel].label + ' UNLOCKED');
-      }
-      refreshGaragePanel();
-      refreshGarageBtn();
+      const nextCost = next.cost;
+      const nextLabel = next.label || ('LEVEL ' + (garageLevel + 1));
+      showBuyConfirm({
+        label: nextLabel,
+        cost: nextCost,
+        onConfirm: function() {
+          if (tokensTotal < nextCost) return;
+          tokensTotal -= nextCost;
+          saveTokensTotal();
+          garageLevel += 1;
+          saveGarageLevel();
+          if (typeof setLevelBanner === 'function') {
+            setLevelBanner('🔧 ' + GARAGE_LEVELS[garageLevel].label + ' UNLOCKED');
+          }
+          refreshGaragePanel();
+          refreshGarageBtn();
+        },
+      });
       return;
     }
     // Skin row
@@ -19817,14 +20002,21 @@ const DLX_BUILD = 'v263';
       if (action === 'buy') {
         const cost = rigCost(rig);
         if (cost <= 0 || tokensTotal < cost) return;
-        tokensTotal -= cost;
-        saveTokensTotal();
-        setRigOwned(rig);
-        setSelectedShip(rig);
-        evaluateAchievements({ event: 'rigBuy' });
-        playSound('powerup');
-        refreshGaragePanel();
-        refreshGarageBtn();
+        showBuyConfirm({
+          label: SHIPS[rig] ? SHIPS[rig].label : rig.toUpperCase(),
+          cost: cost,
+          onConfirm: function() {
+            if (tokensTotal < cost) return;
+            tokensTotal -= cost;
+            saveTokensTotal();
+            setRigOwned(rig);
+            setSelectedShip(rig);
+            evaluateAchievements({ event: 'rigBuy' });
+            playSound('powerup');
+            refreshGaragePanel();
+            refreshGarageBtn();
+          },
+        });
       } else if (action === 'equip') {
         if (setSelectedShip(rig)) {
           refreshGaragePanel();
@@ -19841,13 +20033,21 @@ const DLX_BUILD = 'v263';
       if (action === 'buy') {
         const cost = trailCost(trail);
         if (cost <= 0 || tokensTotal < cost) return;
-        tokensTotal -= cost;
-        saveTokensTotal();
-        setTrailOwned(trail);
-        setSelectedTrail(trail);
-        evaluateAchievements({ event:'trailBuy' });
-        refreshGaragePanel();
-        refreshGarageBtn();
+        const tp = TRAIL_PALETTES[trail];
+        showBuyConfirm({
+          label: tp ? tp.label : trail.toUpperCase(),
+          cost: cost,
+          onConfirm: function() {
+            if (tokensTotal < cost) return;
+            tokensTotal -= cost;
+            saveTokensTotal();
+            setTrailOwned(trail);
+            setSelectedTrail(trail);
+            evaluateAchievements({ event: 'trailBuy' });
+            refreshGaragePanel();
+            refreshGarageBtn();
+          },
+        });
       } else if (action === 'equip') {
         if (setSelectedTrail(trail)) {
           refreshGaragePanel();
@@ -19869,13 +20069,21 @@ const DLX_BUILD = 'v263';
     if (action === 'buy') {
       const cost = modifierCost(mod);
       if (cost <= 0 || tokensTotal < cost) return;
-      tokensTotal -= cost;
-      saveTokensTotal();
-      setModifierOwned(mod);
-      setSelectedModifier(mod);
-      evaluateAchievements({ event:'modifierBuy' });
-      refreshGaragePanel();
-      refreshGarageBtn();
+      const md = MODIFIERS[mod];
+      showBuyConfirm({
+        label: md ? md.label : mod.toUpperCase(),
+        cost: cost,
+        onConfirm: function() {
+          if (tokensTotal < cost) return;
+          tokensTotal -= cost;
+          saveTokensTotal();
+          setModifierOwned(mod);
+          setSelectedModifier(mod);
+          evaluateAchievements({ event: 'modifierBuy' });
+          refreshGaragePanel();
+          refreshGarageBtn();
+        },
+      });
     } else if (action === 'equip') {
       if (setSelectedModifier(mod)) {
         refreshGaragePanel();
