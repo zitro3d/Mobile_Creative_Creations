@@ -2125,7 +2125,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v272';
+const DLX_BUILD = 'v273';
 
 (function() {
   // ---------- Device detection ----------
@@ -6813,21 +6813,19 @@ const DLX_BUILD = 'v272';
       // corridor midline. Outside any tunnel, in the sky above the
       // snout, or before reaching one: full normal flight.
       //
-      // EXIT FADE: stabilize fades linearly over 150 px past the
-      // exit ramp. v268 used 100 px linear (felt good). v270 tried
-      // 200 px smoothstep — that kept assist strong longer and then
-      // released abruptly through the middle, which the user
-      // reported as gravity slamming them harder than before.
-      // v271: back to a simple linear taper, slightly longer than
-      // v268 for breathing room. Linear release is monotonically
-      // gentle — gravity returns evenly across the buffer instead
-      // of all in one stretch.
+      // EXIT FADE: stabilize fades linearly over 200 px past the
+      // exit ramp. v268 = 100 px linear, v270 = 200 px smoothstep
+      // (felt worse — abrupt release through the middle), v271 = 150
+      // px linear (better but still felt gravity ramp), v273 = 200 px
+      // linear. Linear is monotonically gentle (gravity returns evenly
+      // across the whole buffer) and the longer length means more
+      // reaction time before the rig has dropped to dune level.
       if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
         for (const o of dailyAirObstacles) {
           if (o.kind !== 'tunnel') continue;
           const sx = o.worldX - dailyScrollX;
           const exitX = sx + o.length;
-          const fadeLen = 150;
+          const fadeLen = 200;
           const fadeEnd = exitX + fadeLen;
           if (bird.x < sx - 4 || bird.x > fadeEnd) continue;
           const localX = Math.max(0, Math.min(o.length, bird.x - sx));
@@ -7377,7 +7375,11 @@ const DLX_BUILD = 'v272';
             // ---- DUAL-LAYER TUNNEL ----
             // Length needs to fit entrance gap (4 tiles) + body +
             // exit ramp (5 tiles) plus some breathing room.
-            o.length = 560 + Math.floor(Math.random() * 100);  // 560-660 px (longer ramps + comfortable body)
+            // 432-532 px total. Ramps are now 8 tiles (128 px) each for the
+            // ~45° angle the user wanted, so total shrinks by 128 px to keep
+            // the BODY at the same 176-276 px range — cog spacing + bone
+            // layout in the corridor are unchanged.
+            o.length = 432 + Math.floor(Math.random() * 100);
             o.floorY = PLAY_H - 8;                             // tunnel floor near bottom
             // Spawn GOLD cogs in the BODY corridor (mid-tunnel
             // space) — between the entrance gap and the exit ramp.
@@ -18698,8 +18700,11 @@ const DLX_BUILD = 'v272';
   // Renderer + collision both read from tunnelLayoutAt(worldX) so
   // the silhouette is one continuous chain — no patches.
   const TUNNEL_TILE          = 16;
-  const TUNNEL_ENTRANCE_RAMP = 12 * TUNNEL_TILE;    // 192 px slide-in slope (~33°, gentler)
-  const TUNNEL_EXIT_RAMP     = 12 * TUNNEL_TILE;    // 192 px slide-out slope (~33°)
+  // 8 tiles = 128 px. Floor drops ~124 px (mainGround → fY) over the ramp,
+  // so atan(124/128) ≈ 44° — the user-requested ~45° entrance/exit angle.
+  // 12-tile ramps gave only ~33°, which felt too gentle.
+  const TUNNEL_ENTRANCE_RAMP = 8 * TUNNEL_TILE;     // 128 px slide-in slope (~45°)
+  const TUNNEL_EXIT_RAMP     = 8 * TUNNEL_TILE;     // 128 px slide-out slope (~45°)
   // Thinner cap = TALLER body corridor. With offset 24, body
   // corridor = TunnelFloor - (MainGround + 24) ≈ 100 px. Wider so
   // the rig has 34 px buffer top + bottom while in flight.
