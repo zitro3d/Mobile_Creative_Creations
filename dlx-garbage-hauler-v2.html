@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v258';
+const DLX_BUILD = 'v259';
 
 (function() {
   // ---------- Device detection ----------
@@ -18771,9 +18771,17 @@ const DLX_BUILD = 'v258';
     victoryShareBtn.addEventListener('touchend', function(e) { onShareBtnTap(e, victoryShareBtn); }, { passive: false });
     victoryShareBtn.addEventListener('click',    function(e) { onShareBtnTap(e, victoryShareBtn); });
   }
-  // Auto-pause when the tab is backgrounded (incoming call, app switch, etc.)
+  // Auto-pause when the tab is backgrounded (incoming call, app switch, etc.).
+  // When the app comes back to focus, resume any suspended AudioContext —
+  // mobile Safari (especially iPad PWA mode) suspends audio on background
+  // and the only re-arm path was the next tap, so swiping back into the
+  // game gave silent gameplay until the player flapped.
   document.addEventListener('visibilitychange', function() {
-    if (document.hidden && state === STATE_PLAY) pauseGame();
+    if (document.hidden) {
+      if (state === STATE_PLAY) pauseGame();
+    } else if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
   });
 
   const resumeRow       = document.getElementById('resumeRow');
@@ -19789,7 +19797,16 @@ const DLX_BUILD = 'v258';
       '#gameOverScreen, #pauseScreen, #victoryScreen'
     );
   }
-  stage.addEventListener('touchstart', handleTouchStart, { passive: false });
+  // Tracks the wall-clock time of the most recent touchstart so the click
+  // fallback below can suppress the ghost-click that mobile Safari fires
+  // ~300 ms after a touch (especially on iPad with a Magic Trackpad or
+  // keyboard, where both touch + click can dispatch for one tap and
+  // double-flap the rig).
+  let lastTouchAt = 0;
+  stage.addEventListener('touchstart', function(e) {
+    lastTouchAt = Date.now();
+    handleTouchStart(e);
+  }, { passive: false });
   stage.addEventListener('touchmove', function(e){
     if (touchInsideScrollScreen(e)) return;
     if (e.cancelable) e.preventDefault();
@@ -19801,6 +19818,7 @@ const DLX_BUILD = 'v258';
   // Click fallback for desktop Safari / testing
   stage.addEventListener('click', function(e) {
     if (e.target.closest('#restartBtn')) return;
+    if (Date.now() - lastTouchAt < 350) return;  // ghost-click suppression
     handleTouchStart(e);
   });
 
