@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v246';
+const DLX_BUILD = 'v247';
 
 (function() {
   // ---------- Device detection ----------
@@ -6815,19 +6815,9 @@ const DLX_BUILD = 'v246';
           lb.life++;
           if (lb.x < -60 || lb.y > PLAY_H + 30) dailyLavaBalls.splice(i, 1);
         }
-        // ---- Moving sand patches (Phase A4) — enter during stage 3 ----
-        // Conveyor-belt strip on the ground. If cargo lands on it while
-        // detached, the cargo drifts toward the right edge of the patch
-        // where a stationary opponent waits to grab it.
-        if (dailyCurrentStage >= 2 && (dailyNextSandAt === 0 || dailyScrollX >= dailyNextSandAt)) {
-          const sandStart = dailyScrollX + W + 200;
-          dailySandPatches.push({
-            worldX: sandStart,
-            w: 200 + Math.floor(Math.random() * 120),
-            phase: 0,
-          });
-          dailyNextSandAt = sandStart + 1100 + Math.floor(Math.random() * 600);
-        }
+        // (Conveyor-belt sand-patch spawn disabled per user — the
+        // graphic was visual noise the game didn't need. Render +
+        // cargo-drift logic stay in place but no patches ever spawn.)
         // Sand patch animation phase
         for (const sp of dailySandPatches) sp.phase += 0.05;
         // Cleanup off-screen sand patches
@@ -6897,7 +6887,13 @@ const DLX_BUILD = 'v246';
           // Don't spawn two tunnels back-to-back
           const lastWasTunnel = dailyAirObstacles.length > 0 &&
             dailyAirObstacles[dailyAirObstacles.length - 1].kind === 'tunnel';
-          if (!lastWasTunnel && r < 0.40) {
+          // Also don't spawn tunnels in the docking-approach zone —
+          // the Good Buddy truck stop sits at worldX 9400 and the
+          // landing animation triggers when scrollX hits 9040, so a
+          // tunnel landing in that band would visually clip + hide
+          // the dock during the victory sequence.
+          const inTruckStopApproach = dailyNextAirObstacleX > 8600;
+          if (!lastWasTunnel && !inTruckStopApproach && r < 0.40) {
             kind = 'tunnel';
           } else if (dailyCurrentStage >= 2 && r < 0.70) {
             kind = 'scrapTower';
@@ -10067,7 +10063,12 @@ const DLX_BUILD = 'v246';
   function drawDailyLandmarks() {
     if (!isDaily) return;
     for (const lm of DAILY_LANDMARKS) {
-      if (isOverDailyTunnel(lm.worldX)) continue;   // hide signs/landmarks above tunnels
+      // Hide cluttery roadside landmarks (signs, arches, etc.) when a
+      // tunnel happens to spawn over them, but ALWAYS draw the
+      // dispatch base (origin) and the Good Buddy truck stop —
+      // those are gameplay anchors and the player needs to see them.
+      const isAnchor = (lm.kind === 'origin' || lm.kind === 'truckStop');
+      if (!isAnchor && isOverDailyTunnel(lm.worldX)) continue;
       const sx = Math.round(lm.worldX - dailyScrollX);
       if (sx < -180 || sx > W + 180) continue;
       const gy = Math.round(terrainHeightAt(lm.worldX));
