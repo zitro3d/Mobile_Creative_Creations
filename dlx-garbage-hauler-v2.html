@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v255';
+const DLX_BUILD = 'v256';
 
 (function() {
   // ---------- Device detection ----------
@@ -2868,6 +2868,41 @@ const DLX_BUILD = 'v255';
         noiseBurst(0.22, 0.30);
         tone(180, 0.45, 'triangle', 0.10, 90);
         setTimeout(function(){ tone( 90, 0.35, 'sine', 0.08, 60); }, 80);
+        break;
+      case 'tunnelExit':
+        // Mirror of tunnelEnter — ascending sweep so emerging back
+        // into open sky reads as "popping out" rather than just
+        // vanishing. Lighter than the entry whoosh.
+        noiseBurst(0.16, 0.22);
+        tone(120, 0.30, 'triangle', 0.08, 280);
+        setTimeout(function(){ tone(360, 0.32, 'sine', 0.09, 540); }, 60);
+        break;
+      case 'forceFieldExpire':
+        // Descending 3-step arpeggio — counterpart to the rising
+        // 'forceField' activation. Fires when the bubble's last-1-sec
+        // visual fade begins so the player gets an audible warning
+        // before invuln drops.
+        tone(880, 0.14, 'triangle', 0.10, 660);
+        setTimeout(function(){ tone(660, 0.14, 'triangle', 0.09, 440); }, 80);
+        setTimeout(function(){ tone(440, 0.30, 'sine',     0.08, 220); }, 160);
+        break;
+      case 'tentacleCapture':
+        // Organic wet squelch + low gurgle — distinct from the
+        // generic 'boom' so the rare stage-4 grab reads as its own
+        // event, not just another collision.
+        noiseBurst(0.45, 0.55);
+        tone( 80, 0.50, 'sawtooth', 0.18, 30);
+        setTimeout(function(){ tone(140, 0.28, 'square', 0.12, 70); }, 100);
+        setTimeout(function(){ tone( 60, 0.40, 'sine',   0.14, 30); }, 250);
+        break;
+      case 'dock':
+        // Mechanical latch-engage when the truck stop docking
+        // sequence fires. Three-beat: latch click → engage tone →
+        // confirm chime. Lands the moment of arrival without
+        // stepping on the bigger 'delivery' fanfare 270 frames later.
+        tone(200, 0.10, 'square',   0.13, 200);
+        setTimeout(function(){ tone(330, 0.18, 'triangle', 0.13, 440); }, 90);
+        setTimeout(function(){ noiseBurst(0.18, 0.15); tone(660, 0.20, 'sine', 0.10, 660); }, 200);
         break;
       case 'delivery':
         // DELIVERY MADE! victory fanfare — 4-note major triad
@@ -6530,6 +6565,32 @@ const DLX_BUILD = 'v255';
         }
       }
 
+      // ---- TUNNEL EXIT SOUND ----
+      // Mirror of the rigEntered cue — fire a one-shot 'tunnelExit'
+      // when a rig that previously committed to a tunnel is no
+      // longer inside its corridor (either past the obstacle or
+      // popped back above the snout). Without this the rig feels
+      // like it just vanishes from the underground.
+      if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
+        for (const o of dailyAirObstacles) {
+          if (o.kind !== 'tunnel') continue;
+          if (!o.rigEntered || o.rigExited) continue;
+          const sx = o.worldX - dailyScrollX;
+          let outside = false;
+          if (bird.x < sx - 4 || bird.x > sx + o.length + 40) {
+            outside = true;
+          } else {
+            const localX = Math.max(0, Math.min(o.length, bird.x - sx));
+            const L = tunnelLayoutAt(o.worldX + localX);
+            if (bird.y < L.snoutTop) outside = true;
+          }
+          if (outside) {
+            o.rigExited = true;
+            playSound('tunnelExit');
+          }
+        }
+      }
+
       bird.y += bird.vy;
       bird.rot = Math.max(-0.5, Math.min(1.2, bird.vy * 0.09));
 
@@ -6679,7 +6740,13 @@ const DLX_BUILD = 'v255';
         // Cargo zap timer (briefly suppresses the magnet bond after a
         // drone strike — cargo falls free and must be re-magnetized)
         if (cargoZapFrames > 0) cargoZapFrames--;
-        if (forceFieldFrames > 0) forceFieldFrames--;
+        if (forceFieldFrames > 0) {
+          forceFieldFrames--;
+          // Bubble visual fade begins at frames=60 (last 1 sec).
+          // Pip a descending arpeggio at that exact moment so the
+          // player gets an audible warning before invuln drops.
+          if (forceFieldFrames === 60) playSound('forceFieldExpire');
+        }
         // ---- Anti-magnet drones — enter from stage 2 onward ----
         // Industrial drone hovers above the player and fires a vertical
         // red lightning beam straight down. If the beam crosses the
@@ -6920,7 +6987,7 @@ const DLX_BUILD = 'v255';
             t.captured = true;
             t.capFrames = 30;
             dailyScrollX = Math.max(0, dailyScrollX - 600);
-            playSound('boom');
+            playSound('tentacleCapture');
             shakeFrames = 24;
             flashAlpha = 0.6;
           }
@@ -7196,6 +7263,7 @@ const DLX_BUILD = 'v255';
           const truckStopWX = 9400;
           const dockScreenX = truckStopWX - dailyScrollX;
           dailyDockingFrames = 270;
+          playSound('dock');
           dailyDockingStartX = bird.x;
           dailyDockingStartY = bird.y;
           dailyDockingTargetX = dockScreenX - 70;     // left side of pad
@@ -17907,7 +17975,11 @@ const DLX_BUILD = 'v255';
     dailySandPatches = [];
     dailyNextSandAt = 0;
     dailyTentacles = [];
-    dailyNextTentacleAt = frame + 5000;  // tentacles erupt during stage 4
+    // First tentacle ~25 sec in (was 83 sec — by then a clean run
+    // was already docking, so most players never saw one). Combined
+    // with the stage-3 gate, tentacles now actually appear during
+    // stage 4 instead of being effectively dead content.
+    dailyNextTentacleAt = frame + 1500;
     dailyDeliveredAtFinish = false;
     dailyDockingFrames = 0;
     dailyPostDockFrames = 0;
