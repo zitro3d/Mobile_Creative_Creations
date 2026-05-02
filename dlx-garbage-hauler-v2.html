@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v237';
+const DLX_BUILD = 'v238';
 
 (function() {
   // ---------- Device detection ----------
@@ -6455,7 +6455,10 @@ const DLX_BUILD = 'v237';
         for (const o of dailyAirObstacles) {
           if (o.kind !== 'tunnel') continue;
           const sx = o.worldX - dailyScrollX;
-          if (bird.x < sx - 4 || bird.x > sx + o.length + 4) continue;
+          // Extend the stabilize x-range 40 px past the tunnel exit so
+          // the rig has a soft handoff back to normal gravity instead
+          // of dropping like a stone the instant it clears the mouth.
+          if (bird.x < sx - 4 || bird.x > sx + o.length + 40) continue;
           const localX = Math.max(0, Math.min(o.length, bird.x - sx));
           const L = tunnelLayoutAt(o.worldX + localX);
           if (bird.y < L.snoutTop) break;            // still above the snout = sky route
@@ -6899,15 +6902,13 @@ const DLX_BUILD = 'v237';
                         : dailyCurrentStage >= 2 ? 300
                         : dailyCurrentStage >= 1 ? 360
                         : 480;
-          // Tunnels are 560-660 px long; a baseGap of 240-480 lands
-          // the NEXT obstacle's spawn position inside the tunnel's
-          // x-range, where its sprite renders right through the
-          // corridor as a fake wall. If we just spawned a tunnel,
-          // jump dailyNextAirObstacleX past the tunnel's exit before
-          // applying the normal gap.
+          // Tunnels are 560-660 px long. After clearing one, give the
+          // player room to recover before the next obstacle so they
+          // aren't slammed by a tower / wreck while gravity is still
+          // catching up post-stabilize.
           let spawnAdvance = baseGap + Math.floor(Math.random() * 200);
           if (o.kind === 'tunnel') {
-            spawnAdvance = Math.max(spawnAdvance, o.length + 80);
+            spawnAdvance = Math.max(spawnAdvance, o.length + 240);
           }
           dailyNextAirObstacleX += spawnAdvance;
         }
