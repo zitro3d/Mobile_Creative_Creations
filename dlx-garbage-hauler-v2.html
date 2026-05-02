@@ -2125,7 +2125,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v264';
+const DLX_BUILD = 'v265';
 
 (function() {
   // ---------- Device detection ----------
@@ -6976,7 +6976,7 @@ const DLX_BUILD = 'v264';
         // Procedurally drop hazards out at the right edge as we travel.
         // Stage-aware mix — 'spikes' (jagged formations) introduced from
         // stage 2 onward so the early dunes stay easy to learn on.
-        while (dailyNextHazardX < dailyScrollX + W + 200) {
+        while (dailyNextHazardX < dailyScrollX + W + 200 && dailyNextHazardX < TRUCK_STOP_NO_SPAWN_AFTER) {
           const r = Math.random();
           let kind;
           if (dailyCurrentStage >= 1) {
@@ -7032,7 +7032,7 @@ const DLX_BUILD = 'v264';
         // red lightning beam straight down. If the beam crosses the
         // cargo while it's tethered, the bond breaks (cargo.attached =
         // false). Player dodges by NOT being directly under the drone.
-        if (dailyCurrentStage >= 1 && frame >= dailyNextDroneAt && !dailyDelivered) {
+        if (dailyCurrentStage >= 1 && frame >= dailyNextDroneAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
           const spawnY = 60 + Math.random() * (PLAY_H * 0.30);
           dailyDrones.push({
             x: W + 40,
@@ -7104,7 +7104,7 @@ const DLX_BUILD = 'v264';
         // grappling hook straight up at the cargo. Player evades by
         // climbing high or speeding away (cruise speed boost not in scope
         // for v157 — it's purely a vertical dodge).
-        if (dailyCurrentStage >= 2 && frame >= dailyNextGroundOpAt && !dailyDelivered) {
+        if (dailyCurrentStage >= 2 && frame >= dailyNextGroundOpAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
           const startWorldX = dailyScrollX + W + 40;
           dailyGroundOps.push({
             worldX: startWorldX,
@@ -7168,7 +7168,7 @@ const DLX_BUILD = 'v264';
         // trajectory arcs (rises briefly, then falls). The rig has
         // to dodge them as they cross. Direct kill on contact.
         // (Underground rig is safe via the v234 underground gate.)
-        if (frame >= dailyNextLavaAt && !dailyDelivered) {
+        if (frame >= dailyNextLavaAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
           // Spawn a primary ball, plus a SALVO partner 30 % of the
           // time so the player occasionally has to thread between two
           // arcs. Partner is altitude-offset and slightly delayed
@@ -7235,7 +7235,7 @@ const DLX_BUILD = 'v264';
           }
         }
         // ---- Tentacle monsters (Phase A5) — stage 4 only ----
-        if (dailyCurrentStage >= 3 && frame >= dailyNextTentacleAt && !dailyDelivered && dailyTentaclesSpawned < 2) {
+        if (dailyCurrentStage >= 3 && frame >= dailyNextTentacleAt && !dailyDelivered && dailyTentaclesSpawned < 3 && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
           // Don't erupt right at a tunnel mouth or exit — the rig is
           // committed to the corridor in that range and the
           // auto-stabilize handoff buffer extends ~40 px past it, so a
@@ -7302,7 +7302,7 @@ const DLX_BUILD = 'v264';
         // Tunnels available from the start — they're a lane choice,
         // not a difficulty ramp. Scrap towers gate behind stage 1+
         // since they're tight flappy-bird gaps.
-        while (dailyNextAirObstacleX < dailyScrollX + W + 200) {
+        while (dailyNextAirObstacleX < dailyScrollX + W + 200 && dailyNextAirObstacleX < TRUCK_STOP_NO_SPAWN_AFTER) {
           const r = Math.random();
           let kind;
           // Don't spawn two tunnels back-to-back
@@ -7577,7 +7577,7 @@ const DLX_BUILD = 'v264';
         // at varying altitudes, lower a magnetic claw on a cable to grab the
         // cargo, then retract and fly off. Player dodges by NOT being
         // directly under the thief when its claw extends.
-        if (frame >= dailyNextThiefAt && !dailyDelivered) {
+        if (frame >= dailyNextThiefAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
           // Random spawn altitude across the upper 60% of the playfield —
           // sometimes a thief comes in close (just above cargo level),
           // sometimes it stays high and drops the full cable.
@@ -7829,6 +7829,11 @@ const DLX_BUILD = 'v264';
 
   function collide() {
     if (invulnFrames > 0) return false;
+    // Once the daily docking sequence has triggered, the player has
+    // earned the delivery — make the rig invulnerable for the entire
+    // 270-frame landing animation so a stray on-screen lava ball /
+    // thief / drone can't steal the win in the final seconds.
+    if (isDaily && dailyDockingFrames > 0) return false;
     const r = BIRD_R - 3;
 
     // Daily delivery course has its own collision model — driven
@@ -10195,16 +10200,19 @@ const DLX_BUILD = 'v264';
     cavGrad.addColorStop(1,    '#2a1208');
 
     // ---- Build floor silhouette across the whole visible width.
-    // Simple uniform 2 px sample step — the boundary corners are
-    // within 2 px of true position, which reads as smooth without
-    // any event-insertion logic that risked locking up.
-    const step = 2;
+    // Sample step = 1 (one polygon vertex per screen pixel column).
+    // v255 used step=2; that left odd sx values landing BETWEEN two
+    // dune samples, so a prop at an odd sx couldn't perfectly match
+    // the polygon line and would visibly bob 1 px relative to the
+    // dune as scrollX crossed fractional thresholds. With step=1,
+    // every integer sx is itself a vertex — props at integer sx now
+    // sit exactly on the polygon line at all times.
+    const step = 1;
     const floorPts = [];
     for (let sx = -step; sx <= W + step; sx += step) {
       const L = tunnelLayoutAt(sx + dailyScrollX);
       // Snap to integer Y so the dune polyline doesn't shimmer
-      // sub-pixel as the world scrolls (which made the cacti planted
-      // on it appear to "dance" against the shifting background).
+      // sub-pixel as the world scrolls.
       floorPts.push({ sx: sx, y: Math.round(L.floor) });
     }
 
@@ -18546,7 +18554,7 @@ const DLX_BUILD = 'v264';
   // Tentacle monster encounters (Phase A5)
   let dailyTentacles = [];         // [{ worldX, y, phase, height, captured, capFrames }]
   let dailyNextTentacleAt = 0;
-  let dailyTentaclesSpawned = 0;   // capped at 2 per run so the rare grab stays rare
+  let dailyTentaclesSpawned = 0;   // capped at 3 per run (was 2; player wanted more grab moments)
   // Origin / destination markers
   let dailyDeliveredAtFinish = false;
   // Air obstacles — floating wreckage and scrap towers to weave through
@@ -18589,6 +18597,13 @@ const DLX_BUILD = 'v264';
   // Below this and a crash counts as a failed delivery; at or above
   // it the run ends in DELIVERY MADE. Course is broken into 4 stages.
   const DELIVERY_TARGET = 400;
+  // Truck stop sits at worldX 9400, docking trigger at scrollX 9200.
+  // Stop spawning hazards / obstacles / lava / drones / thieves once
+  // the rig is past this worldX so the final landing approach is clean.
+  // 600 px gap = ~2.5-3.3 sec at typical scroll speed — enough time for
+  // any in-flight projectiles spawned just before the gate to clear off.
+  // Backstopped by docking-invulnerability inside collide().
+  const TRUCK_STOP_NO_SPAWN_AFTER = 8800;
   const DAILY_STAGES = [
     { threshold: 0,    label: 'STAGE 1 — OPEN DUNES'           },
     { threshold: 100,  label: 'STAGE 2 — DRONE ZONE'           },
