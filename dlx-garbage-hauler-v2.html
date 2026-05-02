@@ -2125,7 +2125,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v265';
+const DLX_BUILD = 'v266';
 
 (function() {
   // ---------- Device detection ----------
@@ -6950,7 +6950,10 @@ const DLX_BUILD = 'v265';
         // for immediate feedback.
         if (dailyDockingFrames === 0 && dailyPostDockFrames === 0 && !dailyDelivered) {
           dailyPostDockFrames = 240;     // 4 seconds at 60fps
-          setLevelBanner('★ DELIVERY MADE!');
+          // Banner reflects actual cargo state — was unconditional
+          // "DELIVERY MADE!" even when a thief had taken the crate.
+          const cargoStillIntact = !!(cargo && !cargo.lost && cargo.attached);
+          setLevelBanner(cargoStillIntact ? '★ DELIVERY MADE!' : '★ ARRIVED · CARGO LOST');
           playSound('delivery');
         }
       } else if (isDaily && dailyPostDockFrames > 0) {
@@ -18862,6 +18865,7 @@ const DLX_BUILD = 'v265';
       ship: shipLabel,
       streak: currentStreakCount(),
       isNewBest: isNew,
+      cargoArrived: cargoArrived,   // honest cargo-state snapshot for the victory screen + share card
     };
     disableDailyRandom();
     // NOTE: do NOT flip isDaily off here — the game-over / victory overlay
@@ -19007,13 +19011,31 @@ const DLX_BUILD = 'v265';
     // subtitle / biome cell so the player sees "DELIVERY MADE" framing instead
     // of the campaign-completion copy.
     const deliveredDaily = (isDaily && dailyDelivered);
+    // Honest cargo-state read — was hardcoded "Cargo intact." even when
+    // a thief or fall had taken the crate, which made the victory screen
+    // lie to the player about what they delivered. lastDailyRun stores
+    // the same snapshot finalize used for payout, so the copy now matches
+    // the 300 vs 50 SCRAP base the player actually got paid.
+    const cargoIntactDaily = !!(lastDailyRun ? lastDailyRun.cargoArrived
+                                             : (cargo && !cargo.lost && cargo.attached));
     const titleEl = document.getElementById('victoryTitle');
     const subEl   = document.querySelector('#victoryScreen .victorySubtitle');
-    if (titleEl) titleEl.textContent = deliveredDaily ? 'DELIVERY MADE' : 'DELIVERY COMPLETE';
+    if (titleEl) {
+      titleEl.textContent = deliveredDaily
+        ? (cargoIntactDaily ? 'DELIVERY MADE' : 'ARRIVED · CARGO LOST')
+        : 'DELIVERY COMPLETE';
+    }
     if (subEl) {
-      subEl.innerHTML = deliveredDaily
-        ? '<b>GOOD BUDDY TRUCK STOP</b> reached.<br>Cargo intact. Pay\'s in your account.'
-        : '<b>Night Shift</b> outrun.<br>Cargo intact. Pay\'s in your account.';
+      let body;
+      if (deliveredDaily) {
+        body = '<b>GOOD BUDDY TRUCK STOP</b> reached.<br>'
+             + (cargoIntactDaily
+                  ? 'Cargo intact. Full pay\'s in your account.'
+                  : 'Cargo gone. Reduced pay only.');
+      } else {
+        body = '<b>Night Shift</b> outrun.<br>Cargo intact. Pay\'s in your account.';
+      }
+      subEl.innerHTML = body;
     }
     // Dispatcher victory quip lives here once VO clips are wired up.
     victoryScoreEl.textContent = String(score);
