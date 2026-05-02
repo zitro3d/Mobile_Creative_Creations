@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v248';
+const DLX_BUILD = 'v249';
 
 (function() {
   // ---------- Device detection ----------
@@ -7437,13 +7437,15 @@ const DLX_BUILD = 'v248';
       // fully below the dune line. Either way the rig is in the
       // tunnel zone and surface / sky entities (lava balls, drones,
       // wrecks, towers, thieves, hazards) can't physically touch it.
-      // The DLX FUEL CELL force field grants the same blanket
-      // immunity for ~6 sec when picked up.
+      // The DLX FUEL CELL force field is NARROW protection: it
+      // shields the rig from LAVA BALLS only — pillars (scrap
+      // towers), walls (air wrecks), surface hazards, thieves, and
+      // the floor still kill. The corridor itself remains the
+      // catch-all safe zone.
       const groundY = terrainHeightAt(wxRig);
       const inTunnelZone = (L.state !== 'outside' && bird.y > L.snoutTop)
                         || (bird.y - r > groundY);
       const forceFieldActive = forceFieldFrames > 0;
-      const safeFromSky = inTunnelZone || forceFieldActive;
       for (const h of dailyHazards) {
         const sx = h.worldX - dailyScrollX;
         const dx = bird.x - sx;
@@ -7451,20 +7453,21 @@ const DLX_BUILD = 'v248';
         const halfW = h.kind === 'spikes' ? 28 : 8;
         if (Math.abs(dx) > r + halfW) continue;
         const gh = terrainHeightAt(h.worldX);
-        // Rig in the tunnel zone or with force field active is safe.
-        if (safeFromSky) continue;
+        // Tunnel zone makes the rig unreachable from the surface.
+        // Force field does NOT cover surface hazards — pillars +
+        // walls should still hurt to keep stakes real.
+        if (inTunnelZone) continue;
         const topY = h.kind === 'spikes'   ? gh - 52
                    : h.kind === 'cactusBig' ? gh - 22
                    :                          gh - 14;
         if (bird.y + r > topY) return true;       // clipped a hazard
       }
-      // Air obstacles + thieves + lava balls — all sky / surface
-      // entities. Skipped while the rig is safe (tunnel zone or
-      // force field active).
-      const undergroundDaily = safeFromSky;
-      // Air obstacles — scrap towers (gap between top + bottom stack) and
-      // single floating wreckage chunks
-      if (!undergroundDaily) {
+      // Air obstacles + thieves — pillars / walls / hostile rigs.
+      // Skipped only when the rig is in the tunnel zone. The force
+      // field does NOT cover these (per user feedback): "I wanted
+      // to collide against the wall... pillars... those need to be
+      // included" — i.e. still kill the rig.
+      if (!inTunnelZone) {
         for (const o of dailyAirObstacles) {
           const sx = o.worldX - dailyScrollX;
           if (o.kind === 'scrapTower') {
@@ -7492,8 +7495,11 @@ const DLX_BUILD = 'v248';
           const dy = bird.y - tf.y;
           if (Math.abs(dx) < r + 26 && Math.abs(dy) < r + 14) return true;
         }
-        // Lava balls — direct hit on the rig is a kill. Tracked in
-        // screen-space, so just radial distance.
+      }
+      // Lava balls — the ONE thing the DLX FUEL CELL force field
+      // actually neutralises (per the player's expectation when
+      // they grab the cell). Tunnel-zone safety still applies.
+      if (!inTunnelZone && !forceFieldActive) {
         for (const lb of dailyLavaBalls) {
           const dx = bird.x - lb.x;
           const dy = bird.y - lb.y;
