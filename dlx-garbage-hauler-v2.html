@@ -1955,7 +1955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v249';
+const DLX_BUILD = 'v250';
 
 (function() {
   // ---------- Device detection ----------
@@ -7437,73 +7437,68 @@ const DLX_BUILD = 'v249';
       // fully below the dune line. Either way the rig is in the
       // tunnel zone and surface / sky entities (lava balls, drones,
       // wrecks, towers, thieves, hazards) can't physically touch it.
-      // The DLX FUEL CELL force field is NARROW protection: it
-      // shields the rig from LAVA BALLS only — pillars (scrap
-      // towers), walls (air wrecks), surface hazards, thieves, and
-      // the floor still kill. The corridor itself remains the
-      // catch-all safe zone.
+      // The DLX FUEL CELL force field's contract (per user spec):
+      //   - With field active, the ONLY things that still kill are
+      //     the FLOOR / terrain and the SCRAP TOWER walls
+      //     (= the obstacle "wall" the player has to thread).
+      //   - Lava balls, air wrecks, thieves, and surface hazards
+      //     are all passed through harmlessly while shielded.
+      //   - The tunnel corridor itself is still the catch-all safe
+      //     zone (no surface threats reach the rig there).
       const groundY = terrainHeightAt(wxRig);
       const inTunnelZone = (L.state !== 'outside' && bird.y > L.snoutTop)
                         || (bird.y - r > groundY);
       const forceFieldActive = forceFieldFrames > 0;
-      for (const h of dailyHazards) {
-        const sx = h.worldX - dailyScrollX;
-        const dx = bird.x - sx;
-        // Spike clusters are wider than the other hazards
-        const halfW = h.kind === 'spikes' ? 28 : 8;
-        if (Math.abs(dx) > r + halfW) continue;
-        const gh = terrainHeightAt(h.worldX);
-        // Tunnel zone makes the rig unreachable from the surface.
-        // Force field does NOT cover surface hazards — pillars +
-        // walls should still hurt to keep stakes real.
-        if (inTunnelZone) continue;
-        const topY = h.kind === 'spikes'   ? gh - 52
-                   : h.kind === 'cactusBig' ? gh - 22
-                   :                          gh - 14;
-        if (bird.y + r > topY) return true;       // clipped a hazard
-      }
-      // Air obstacles + thieves — pillars / walls / hostile rigs.
-      // Skipped only when the rig is in the tunnel zone. The force
-      // field does NOT cover these (per user feedback): "I wanted
-      // to collide against the wall... pillars... those need to be
-      // included" — i.e. still kill the rig.
-      if (!inTunnelZone) {
-        for (const o of dailyAirObstacles) {
-          const sx = o.worldX - dailyScrollX;
-          if (o.kind === 'scrapTower') {
-            const tw = 36;
-            if (bird.x + r > sx && bird.x - r < sx + tw) {
-              if (bird.y - r < o.top || bird.y + r > o.top + o.gap) return true;
-            }
-          } else if (o.kind === 'airWreck') {
-            // Rival hauler hulk is ~70x40 — collision bbox covers the
-            // main body without including the trailing magnet cable or
-            // surrounding orbital debris fragments
-            const ww = 30, wh = 16;
-            if (Math.abs(bird.x - sx) < r + ww && Math.abs(bird.y - o.alt) < r + wh) {
-              return true;
-            }
-          }
-          // 'tunnel' obstacles are handled by tunnelLayoutAt's floor +
-          // ceiling check above — no per-channel cavern collision here.
+      const passThrough = inTunnelZone || forceFieldActive;
+      // Surface hazards (cacti / spikes / rocks) — pass through with
+      // tunnel safety OR force field.
+      if (!passThrough) {
+        for (const h of dailyHazards) {
+          const sx = h.worldX - dailyScrollX;
+          const dx = bird.x - sx;
+          const halfW = h.kind === 'spikes' ? 28 : 8;
+          if (Math.abs(dx) > r + halfW) continue;
+          const gh = terrainHeightAt(h.worldX);
+          const topY = h.kind === 'spikes'   ? gh - 52
+                     : h.kind === 'cactusBig' ? gh - 22
+                     :                          gh - 14;
+          if (bird.y + r > topY) return true;
         }
-        // Rival nemesis rigs — touching a thief's hull crashes the rig.
-        // The hull is 60x32; using a slightly conservative bbox so the
-        // protruding spike rams + cable don't make collision feel cheap.
+      }
+      // Air obstacles split:
+      //   * SCRAP TOWERS = the "obstacle wall" — the field does NOT
+      //     protect, only tunnel zone does. Player must thread the gap.
+      //   * AIR WRECKS = floating debris — pass through with field.
+      for (const o of dailyAirObstacles) {
+        const sx = o.worldX - dailyScrollX;
+        if (o.kind === 'scrapTower') {
+          if (inTunnelZone) continue;            // only tunnel skips towers
+          const tw = 36;
+          if (bird.x + r > sx && bird.x - r < sx + tw) {
+            if (bird.y - r < o.top || bird.y + r > o.top + o.gap) return true;
+          }
+        } else if (o.kind === 'airWreck') {
+          if (passThrough) continue;             // field passes through wrecks
+          const ww = 30, wh = 16;
+          if (Math.abs(bird.x - sx) < r + ww && Math.abs(bird.y - o.alt) < r + wh) {
+            return true;
+          }
+        }
+      }
+      // Thieves — pass through with field.
+      if (!passThrough) {
         for (const tf of dailyThieves) {
           const dx = bird.x - tf.x;
           const dy = bird.y - tf.y;
           if (Math.abs(dx) < r + 26 && Math.abs(dy) < r + 14) return true;
         }
       }
-      // Lava balls — the ONE thing the DLX FUEL CELL force field
-      // actually neutralises (per the player's expectation when
-      // they grab the cell). Tunnel-zone safety still applies.
-      if (!inTunnelZone && !forceFieldActive) {
+      // Lava balls — pass through with field.
+      if (!passThrough) {
         for (const lb of dailyLavaBalls) {
           const dx = bird.x - lb.x;
           const dy = bird.y - lb.y;
-          const reach = r + lb.r - 2;        // small grace inside the glow
+          const reach = r + lb.r - 2;
           if (dx * dx + dy * dy < reach * reach) return true;
         }
       }
