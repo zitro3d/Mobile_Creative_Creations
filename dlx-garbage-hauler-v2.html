@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v289';
+const DLX_BUILD = 'v290';
 
 (function() {
   // ---------- Device detection ----------
@@ -6714,6 +6714,54 @@ const DLX_BUILD = 'v289';
     }
   }
 
+  // ---- Daily atmospheric dust ----
+  // Lighter cousin of the campaign dust streaks. Same drift-from-right
+  // pattern but tuned WAY softer:
+  //   • 22 particles (vs 40)             — sparser, less busy
+  //   • 1.5–3.3 px/frame speed (vs 4–8)  — gentle drift, not motion blur
+  //   • 1.5–4 px streak length (vs 3–8)  — small specks, not lines
+  //   • 0.18–0.43 alpha (vs 0.5–1.0)     — subtle, doesn't compete with the rig
+  //   • Warm sand tint (255,220,170)     — fits the hazy desert palette
+  // Confined to mid-air (skips the ground strip + the very top sky)
+  // so it reads as airborne haze, not weather.
+  let dailyDust = [];
+  function initDailyDust() {
+    dailyDust = [];
+    for (let i = 0; i < 22; i++) {
+      dailyDust.push({
+        x: Math.random() * W,
+        y: 80 + Math.random() * Math.max(40, PLAY_H - 200),
+        speed: 1.5 + Math.random() * 1.8,
+        len:   1.5 + Math.random() * 2.5,
+        a:     0.18 + Math.random() * 0.25,
+      });
+    }
+  }
+  function updateDailyDust() {
+    for (const d of dailyDust) {
+      d.x -= d.speed;
+      if (d.x < -d.len - 2) {
+        d.x = W + Math.random() * 8;
+        d.y = 80 + Math.random() * Math.max(40, PLAY_H - 200);
+      }
+    }
+  }
+  function drawDailyDust() {
+    if (!isDaily || !dailyDust.length) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 220, 170, 1)';
+    ctx.lineCap = 'round';
+    for (const d of dailyDust) {
+      ctx.globalAlpha = d.a;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x + d.len, d.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // Static nebula cloud in the far background
   function initNebula() {
     nebula = {
@@ -7021,6 +7069,7 @@ const DLX_BUILD = 'v289';
 
     updateStars();
     updateDust();
+    if (isDaily) updateDailyDust();
     updateJunkSats();
 
     if (thrusterFrames > 0) thrusterFrames--;
@@ -18228,6 +18277,7 @@ const DLX_BUILD = 'v289';
     }
     if (isDaily) drawDailySky();
     else drawBackground();
+    if (isDaily) drawDailyDust();   // light atmospheric dust over the sky
     drawBoss();              // body is below PLAY_H now — the ground covers it
     if (!isDaily) {
       drawAllDebris();
@@ -18688,6 +18738,7 @@ const DLX_BUILD = 'v289';
   // untouched. Uses the currently picked ship + skin.
   function startDailyChallenge() {
     applyShipStats(selectedShip);
+    initDailyDust();           // fresh atmospheric dust each daily run
     const today = todayStr();
     const seed = dateSeed(today);
     enableDailyRandom(seed);
