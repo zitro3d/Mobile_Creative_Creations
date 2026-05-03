@@ -984,6 +984,42 @@
   .victoryUnlock.hidden { display: none; }
   /* Daily Challenge summary chip, shown on the Game Over panel after a
      daily run. Same frame as victoryUnlock but purple-tinted. */
+  /* First-death hint card — only shown the first time a player crashes,
+     localStorage-flagged. The intent is targeted teaching at the
+     moment a new player most needs it (just failed for not knowing the
+     mechanic) without interrupting players who already know the genre. */
+  #firstDeathHint {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 8px 0 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(255, 200, 60, 0.14);
+    border: 1.5px solid #ffd83d;
+    box-shadow: 0 0 14px rgba(255, 200, 60, 0.25);
+    text-align: left;
+  }
+  #firstDeathHint.hidden { display: none; }
+  #firstDeathHint .hintIcon {
+    font-size: 22px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  #firstDeathHint .hintBody { flex: 1; }
+  #firstDeathHint .hintTitle {
+    font-family: "Courier New", monospace;
+    font-weight: 900;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    color: #ffd83d;
+    margin-bottom: 3px;
+  }
+  #firstDeathHint .hintText {
+    font-size: 12px;
+    line-height: 1.4;
+    color: #fff5d0;
+  }
   .dailyChip {
     margin: 6px 0 10px;
     padding: 6px 8px;
@@ -2236,6 +2272,13 @@
       <div class="panel">
         <div id="gameOverTitle">RIG TOTALED</div>
         <div id="gameOverQuip" class="dispatcherLine">—</div>
+        <div id="firstDeathHint" class="hidden">
+          <div class="hintIcon">💡</div>
+          <div class="hintBody">
+            <div class="hintTitle">QUICK TIP</div>
+            <div class="hintText">Tap repeatedly to stay aloft — every tap gives the rig a thrust upward. Don't let off, or gravity wins.</div>
+          </div>
+        </div>
         <div class="row"><span class="label">SCORE</span> <span id="finalScore">0</span></div>
         <div class="row"><span class="label">BEST</span> <span id="bestScore">0</span></div>
         <div class="row"><span class="label">SHIP</span> <span id="finalShip">HAULER</span></div>
@@ -2331,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v288';
+const DLX_BUILD = 'v289';
 
 (function() {
   // ---------- Device detection ----------
@@ -20746,12 +20789,32 @@ const DLX_BUILD = 'v288';
     gameOverScreen.classList.add('hidden');
     if (playBtnsEl) playBtnsEl.style.display = 'flex';
   }
+  // First-death tutorial hint — show ONCE, the first time the player
+  // crashes. Targeted teaching at the exact moment a new player needs
+  // it (they just died because they didn't know to tap continuously).
+  // Players who already know flappy-bird mechanics survive past the
+  // first run and never see this. localStorage-flagged so it persists
+  // across sessions / page reloads.
+  function showFirstDeathHintIfNeeded() {
+    const hintEl = document.getElementById('firstDeathHint');
+    if (!hintEl) return;
+    let shown = false;
+    try { shown = localStorage.getItem('dlx_first_death_hint_v1') === '1'; }
+    catch (e) {}
+    if (shown) {
+      hintEl.classList.add('hidden');
+      return;
+    }
+    hintEl.classList.remove('hidden');
+    try { localStorage.setItem('dlx_first_death_hint_v1', '1'); } catch (e) {}
+  }
   function showGameOver() {
     const wasDaily = isDaily;
     recordLevelBests(score, false, levelIndex, wasDaily);
     bankRunTokens(gameOverTokensEl);
     evaluateAchievements({ event:'runEnd', score: score, wasDaily: wasDaily });
     finalizeDailyRunIfNeeded();   // safe on non-daily runs (no-op)
+    showFirstDeathHintIfNeeded();
     // Dispatcher death quip lives here once VO clips are wired up.
     finalScoreEl.textContent = String(score);
     bestScoreEl.textContent = String(best);
