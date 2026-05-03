@@ -2125,7 +2125,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v280';
+const DLX_BUILD = 'v281';
 
 (function() {
   // ---------- Device detection ----------
@@ -7297,17 +7297,18 @@ const DLX_BUILD = 'v280';
             pushed = false;
             for (const o of dailyAirObstacles) {
               // Tunnels: avoid the entire mouth-to-exit-handoff range.
-              // Scrap towers + air wrecks: avoid a tighter window
-              // (point-obstacles, 60 px each side) so a rising tentacle
-              // tip doesn't visually intersect the pillar above. User
-              // reported "ground monster lands on the obstacle pillar".
+              // Scrap towers + air wrecks: avoid a wider window since
+              // these are point-obstacles with a tight gap the rig
+              // MUST thread through — a tentacle anywhere near the
+              // gap blocks the only path. Bumped 60 → 100 px each side
+              // after a player report of a tentacle blocking a tower.
               let noStart, noEnd;
               if (o.kind === 'tunnel') {
                 noStart = o.worldX - 80;
                 noEnd   = o.worldX + o.length + 200;
               } else if (o.kind === 'scrapTower' || o.kind === 'airWreck') {
-                noStart = o.worldX - 60;
-                noEnd   = o.worldX + 60;
+                noStart = o.worldX - 100;
+                noEnd   = o.worldX + 100;
               } else {
                 continue;
               }
@@ -7316,6 +7317,15 @@ const DLX_BUILD = 'v280';
                 pushed = true;
                 break;
               }
+            }
+            // Also avoid the UPCOMING tower spawn slot. A tower at
+            // dailyNextAirObstacleX hasn't been pushed to the obstacle
+            // list yet (spawns when its X comes onscreen) but we still
+            // need to keep clear, otherwise the tower lands on top of
+            // a tentacle that spawned a few frames earlier.
+            if (!pushed && Math.abs(spawnWX - dailyNextAirObstacleX) < 100) {
+              spawnWX = dailyNextAirObstacleX + 100 + Math.random() * 80;
+              pushed = true;
             }
             attempts++;
           } while (pushed && attempts < 6);
