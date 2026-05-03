@@ -1062,6 +1062,14 @@
     text-shadow: 0 0 6px rgba(255, 216, 61, 0.7);
     font-weight: 900;
   }
+  .dailyChip .dailyPayoutBreakdown {
+    display: inline-block;
+    margin-top: 1px;
+    color: #a4d8ff;
+    font-size: 10px;
+    letter-spacing: 1px;
+    opacity: 0.85;
+  }
   .statsGrid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1791,6 +1799,27 @@
               active: <i>launches with a bumper</i> and <i>double-flap
               kicks a boost</i>.</li>
           </ul>
+          <h4>The Daily Drop</h4>
+          <p>Every day, every player runs the <i>same</i> seeded delivery
+          course — same wreckage, same cargo thieves, same lava balls.
+          Unlimited attempts, best score saves. Haul cargo from the DLX
+          dispatch center to the <b>GOOD BUDDY TRUCK STOP</b>.</p>
+          <ul>
+            <li>Arrive with cargo intact: <b>+300 🔩</b></li>
+            <li>Arrive without it: <b>+50 🔩</b></li>
+            <li>Crash before arrival: <b>0 🔩</b></li>
+          </ul>
+          <h4>Streaks <span class="helpSub">(play every day, stack the bonus)</span></h4>
+          <p>Show up tomorrow to start a streak. Skip a day, it resets to 0.
+          Bonus stacks on every Daily Drop:</p>
+          <ul>
+            <li>3 days: <b>+50 🔩</b></li>
+            <li>7 days: <b>+100 🔩</b></li>
+            <li>14 days: <b>+200 🔩</b></li>
+            <li>30 days: <b>+400 🔩</b></li>
+          </ul>
+          <p class="helpSub">Daily seed rolls over at your local midnight.
+          The DAILY button shows ⏰ HH:MM until the next puzzle drops.</p>
         </div>
         <button id="helpCloseBtn">GOT IT</button>
       </div>
@@ -2125,7 +2154,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v281';
+const DLX_BUILD = 'v282';
 
 (function() {
   // ---------- Device detection ----------
@@ -18626,7 +18655,9 @@ const DLX_BUILD = 'v281';
   let isDaily = false;
   let dailyWasNewBest = false;     // set at finalize so over-screen can highlight
   let lastDailyRun = null;         // captured at finalize so Share can recall it
-  let dailyTokenPayout = 0;        // tokens earned from the most recent daily
+  let dailyTokenPayout = 0;        // tokens earned from the most recent daily (base + streak bonus)
+  let dailyTokenPayoutBase = 0;    // delivery / arrival base (300 or 50) — split out so the
+  let dailyTokenPayoutBonus = 0;   // result screens can show the streak bonus separately
   let dailyDelivered = false;      // true once the run reaches DELIVERY_TARGET (delivery success)
   // Daily delivery course (Phase A1) — replaces the campaign's pipe layout
   // when isDaily is true. The rig auto-scrolls a wasteland highway with
@@ -18893,6 +18924,18 @@ const DLX_BUILD = 'v281';
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return months[parts[1] - 1] + ' ' + parts[2];
   }
+  // Countdown to next local-midnight as HH:MM (the moment the daily seed
+  // rolls over). Used in the daily-button badge after the player has
+  // logged a run today, so they know when fresh content drops.
+  function countdownToTomorrow() {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(24, 0, 0, 0);
+    const totalSec = Math.max(0, Math.floor((next - now) / 1000));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+  }
   // FNV-1a 32-bit hash → 32-bit integer seed.
   function dateSeed(s) {
     let h = 2166136261 >>> 0;
@@ -18979,14 +19022,18 @@ const DLX_BUILD = 'v281';
     // polite tip. Days-between-tiers grow with the reward to match.
     const streak = currentStreakCount();
     const cargoArrived = !!(cargo && !cargo.lost && cargo.attached);
-    let dailyPayout = (dailyDelivered && cargoArrived) ? 300 : 50;
-    if (streak >= 30)      dailyPayout += 400;
-    else if (streak >= 14) dailyPayout += 200;
-    else if (streak >= 7)  dailyPayout += 100;
-    else if (streak >= 3)  dailyPayout += 50;
+    const dailyPayoutBase = (dailyDelivered && cargoArrived) ? 300 : 50;
+    let dailyPayoutBonus = 0;
+    if (streak >= 30)      dailyPayoutBonus = 400;
+    else if (streak >= 14) dailyPayoutBonus = 200;
+    else if (streak >= 7)  dailyPayoutBonus = 100;
+    else if (streak >= 3)  dailyPayoutBonus = 50;
+    const dailyPayout = dailyPayoutBase + dailyPayoutBonus;
     tokensTotal += dailyPayout;
     saveTokensTotal();
     dailyTokenPayout = dailyPayout;
+    dailyTokenPayoutBase  = dailyPayoutBase;
+    dailyTokenPayoutBonus = dailyPayoutBonus;
     if (state === STATE_PLAY || state === STATE_VICTORY || state === STATE_OVER) {
       setLevelBanner('+' + dailyPayout + ' 🔩 DAILY DROP');
     }
@@ -20297,11 +20344,27 @@ const DLX_BUILD = 'v281';
     const streak = currentStreakCount();
     if (hbDailyLabelEl) hbDailyLabelEl.textContent = 'DAILY';
     if (hbDailyBadgeEl) {
-      hbDailyBadgeEl.textContent = streak > 0 ? ('🔥 ' + streak) : '';
+      // After today's run is logged, swap the badge to a countdown to
+      // local midnight — Wordle-style "next puzzle in HH:MM" so the
+      // player knows when fresh content drops. Streak takes priority
+      // before they've played (so the badge still motivates the run).
+      if (todayBest != null) {
+        hbDailyBadgeEl.textContent = '⏰ ' + countdownToTomorrow();
+      } else if (streak > 0) {
+        hbDailyBadgeEl.textContent = '🔥 ' + streak;
+      } else {
+        hbDailyBadgeEl.textContent = '';
+      }
     }
     // Amber tint if the player has already logged a run today
     dailyBtn.classList.toggle('done', todayBest != null);
   }
+  // Tick the daily badge every 30 sec so the countdown stays fresh +
+  // catches local-midnight rollover (todayStr() returns the new date,
+  // todayBest becomes null, badge flips back to streak / empty).
+  setInterval(function() {
+    if (typeof refreshDailyRow === 'function') refreshDailyRow();
+  }, 30000);
   function onDailyTap(e) {
     if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
     if (state !== STATE_READY) return;
@@ -20363,9 +20426,19 @@ const DLX_BUILD = 'v281';
         const tag = dailyWasNewBest
           ? '<span class="dailyNew">★ NEW DAILY DROP BEST!</span><br>'
           : '';
-        const payoutLine = dailyTokenPayout > 0
-          ? '<br><span class="dailyPayout">+' + dailyTokenPayout + ' 🔩 DAILY DROP BONUS</span>'
-          : '';
+        // Payout broken out into base + streak bonus so the player sees
+        // why they got what they got (delivery vs arrival vs streak)
+        // instead of just a single opaque total.
+        let payoutLine = '';
+        if (dailyTokenPayout > 0) {
+          let breakdown = '+' + dailyTokenPayoutBase + ' BASE';
+          if (dailyTokenPayoutBonus > 0) {
+            breakdown += ' · +' + dailyTokenPayoutBonus + ' STREAK';
+          }
+          payoutLine =
+            '<br><span class="dailyPayout">+' + dailyTokenPayout + ' 🔩 DAILY DROP</span>' +
+            '<br><span class="dailyPayoutBreakdown">' + breakdown + '</span>';
+        }
         gameOverDaily.innerHTML =
           tag +
           'DAILY DROP · ' + formatDailyDate(today) +
