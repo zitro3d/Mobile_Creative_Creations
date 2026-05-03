@@ -2154,7 +2154,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v282';
+const DLX_BUILD = 'v283';
 
 (function() {
   // ---------- Device detection ----------
@@ -3294,6 +3294,17 @@ const DLX_BUILD = 'v282';
     try { return localStorage.getItem('dlx_rig_owned_' + key) === '1'; }
     catch (e) { return false; }
   }
+  // Returns the equipped rig's perk value if its perk.key matches, else null.
+  // Used in hot paths (cog pickup, lava-ball collision, gravity, fuel cell)
+  // so each system can branch cheaply on the player's currently-equipped rig.
+  function rigPerk(key) {
+    const s = SHIPS[selectedShip];
+    if (!s || !s.perk || s.perk.key !== key) return null;
+    return s.perk.value;
+  }
+  // Per-run state for once-only perks. Reset on each run start
+  // (campaign reset() and daily startDailyChallenge()).
+  let heatShieldUsed = false;
   function setRigOwned(key) {
     try { localStorage.setItem('dlx_rig_owned_' + key, '1'); } catch (e) {}
   }
@@ -6405,6 +6416,7 @@ const DLX_BUILD = 'v282';
     ghostFrames = 0;
     empFrames = 0;
     invulnFrames = 0;
+    heatShieldUsed = false;        // ANVIL perk reset — fresh shield per run
     combo = 0;
     comboMax = 0;
     missiles = [];
@@ -6837,7 +6849,10 @@ const DLX_BUILD = 'v282';
       if (empFrames > 0)     empFrames--;
       if (invulnFrames > 0)  invulnFrames--;
 
-      bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
+      // GHOST perk: Lift Assist scales gravity (0.85× = 15 % less drag
+      // per frame, makes the rig feel lighter / easier to keep aloft).
+      const liftMult = rigPerk('liftAssist') || 1.0;
+      bird.vy = Math.min(bird.vy + GRAVITY * liftMult, MAX_FALL);
 
       // ---- DAILY TUNNEL AUTO-STABILIZE ----
       // Gravity + flap dynamics make the corridor unflyable without
@@ -7578,13 +7593,19 @@ const DLX_BUILD = 'v282';
         // rig so the player feels the box doing something useful even
         // when their cargo is already attached.
         if (dailyMagnetFieldFrames > 0) {
+          // SPARK perk: Magnet Range +50% widens the active-field pull
+          // radius too (160 → 240 px) so the magnet box pickup feels
+          // even stronger on a magnet-spec rig.
+          const sparkMult = rigPerk('magnetRange') || 1.0;
+          const pullR = 160 * sparkMult;
+          const pullR2 = pullR * pullR;
           for (const p of dailyPickups) {
             if (!p.alive || p.kind !== 'scrapCog') continue;
             const psx = p.worldX - dailyScrollX;
             const dx = bird.x - psx;
             const dy = bird.y - p.y;
             const d2 = dx * dx + dy * dy;
-            if (d2 < 160 * 160 && d2 > 4) {
+            if (d2 < pullR2 && d2 > 4) {
               const d = Math.sqrt(d2);
               p.worldX += (dx / d) * 4.5;
               p.y      += (dy / d) * 4.5;
@@ -7610,7 +7631,10 @@ const DLX_BUILD = 'v282';
           const dy = bird.y - pickupY;
           // Magnet recall box has a bigger hit radius since it's a larger,
           // more important pickup the player should never bounce off.
-          const hitR = (p.kind === 'magnetBox') ? 28 : 22;
+          // SPARK perk: Magnet Range +50% widens the hit radius for cogs
+          // and fuel cells (auto-collect from further out).
+          const sparkMult = rigPerk('magnetRange') || 1.0;
+          const hitR = (p.kind === 'magnetBox') ? 28 : (22 * sparkMult);
           if (dx * dx + dy * dy < hitR * hitR) {
             p.alive = false;
             if (p.kind === 'scrapCog') {
@@ -7647,7 +7671,9 @@ const DLX_BUILD = 'v282';
               playSound('powerup');
             } else if (p.kind === 'fuelCell') {
               // DLX FUEL CELL — 6 sec amber force field + score bonus.
-              forceFieldFrames = Math.max(forceFieldFrames, 360);
+              // VOLT perk: Long Battery extends duration to 9 sec (540 fr).
+              const battery = rigPerk('longBattery') || 360;
+              forceFieldFrames = Math.max(forceFieldFrames, battery);
               grantScore(50);
               emitPickupSparks(pickupX, pickupY, '#ff9a30', 22);
               playSound('forceField');
@@ -8035,13 +8061,30 @@ const DLX_BUILD = 'v282';
           if (Math.abs(dx) < r + 26 && Math.abs(dy) < r + 14) return true;
         }
       }
-      // Lava balls — pass through with field.
+      // Lava balls — pass through with field. ANVIL perk: Heat Shield
+      // absorbs the first lava-ball hit per run, then arms gravity normal
+      // for subsequent hits. Burns the flag, plays a feedback sound +
+      // visual flash so the player can SEE the perk fire.
       if (!passThrough) {
         for (const lb of dailyLavaBalls) {
           const dx = bird.x - lb.x;
           const dy = bird.y - lb.y;
           const reach = r + lb.r - 2;
-          if (dx * dx + dy * dy < reach * reach) return true;
+          if (dx * dx + dy * dy < reach * reach) {
+            if (rigPerk('heatShield') && !heatShieldUsed) {
+              heatShieldUsed = true;
+              // Despawn the lava ball that hit, give brief invuln so
+              // the player isn't insta-killed by an adjacent ball, and
+              // play the force-field sound so the perk feels distinct.
+              lb.life = 9999;        // off-screen on next update
+              invulnFrames = Math.max(invulnFrames, 30);
+              flashAlpha = 0.5;
+              shakeFrames = Math.max(shakeFrames, 12);
+              playSound('forceField');
+              return false;
+            }
+            return true;
+          }
         }
       }
       if (hazardHit()) return true;               // shared mid-run hazards
