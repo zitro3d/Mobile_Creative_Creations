@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v292';
+const DLX_BUILD = 'v293';
 
 (function() {
   // ---------- Device detection ----------
@@ -6714,47 +6714,84 @@ const DLX_BUILD = 'v292';
     }
   }
 
-  // ---- Daily atmospheric dust ----
-  // Diagonal warm streaks drifting backward across the sky to create
-  // a sense of forward motion. Tuned bold enough to actually be SEEN
-  // (v290/v291 were too subtle — invisible against the warm sky).
-  //   • 40 particles                 — matches the campaign count
-  //   • 3-7 px/frame speed           — clear horizontal motion
-  //   • 4-9 px streak length         — readable streaks
-  //   • 0.50-0.80 alpha              — clearly present
-  //   • Dark warm brown (90,55,25)   — strong contrast vs peach sky
-  //   • 1.5 px line width            — visible without being heavy
-  // Y range covers most of the playfield so dust is visible wherever
-  // the rig is flying.
+  // ---- Daily atmospheric dust (two-layer system) ----
+  // v292 used short bold streaks but the user said they read as
+  // "black pepper" — too dot-like, too uniform, too fast. Real
+  // atmospheric haze has DEPTH: slow distant motes drift in the
+  // background while faster wind streaks sweep across the foreground.
+  // Splitting into two layers gives visual variety without adding
+  // density. Each particle also gets randomized length + speed so
+  // they're not lockstep — some long thin streaks, some short fat
+  // specks, mixed throughout.
+  //
+  //   LAYER 1 — slow background haze (motes)
+  //     22 particles · 1-2 px/frame · 1.5-3 px specks
+  //     0.30-0.50 alpha · warm sand (140,90,50) · 1 px line
+  //
+  //   LAYER 2 — faster foreground wind streaks
+  //     16 particles · 2.5-4.5 px/frame · 8-16 px elongated streaks
+  //     0.35-0.55 alpha · darker brown (80,50,25) · 1 px line
+  //
+  // Together: 38 particles, mixed speeds + lengths, two color tones.
+  // Reads as atmosphere drifting past, not pepper sprayed across.
   let dailyDust = [];
-  function initDailyDust() {
-    dailyDust = [];
-    for (let i = 0; i < 40; i++) {
+  function pushDustParticle(layer) {
+    if (layer === 'haze') {
       dailyDust.push({
+        layer: 'haze',
         x: Math.random() * W,
         y: 30 + Math.random() * Math.max(60, PLAY_H - 130),
-        speed: 3 + Math.random() * 4,
-        len:   4 + Math.random() * 5,
-        a:     0.50 + Math.random() * 0.30,
+        speed: 1.0 + Math.random() * 1.0,
+        len:   1.5 + Math.random() * 1.5,
+        a:     0.30 + Math.random() * 0.20,
+      });
+    } else {
+      dailyDust.push({
+        layer: 'streak',
+        x: Math.random() * W,
+        y: 40 + Math.random() * Math.max(60, PLAY_H - 150),
+        speed: 2.5 + Math.random() * 2.0,
+        len:   8 + Math.random() * 8,
+        a:     0.35 + Math.random() * 0.20,
       });
     }
+  }
+  function initDailyDust() {
+    dailyDust = [];
+    for (let i = 0; i < 22; i++) pushDustParticle('haze');
+    for (let i = 0; i < 16; i++) pushDustParticle('streak');
   }
   function updateDailyDust() {
     for (const d of dailyDust) {
       d.x -= d.speed;
       if (d.x < -d.len - 2) {
-        d.x = W + Math.random() * 8;
-        d.y = 30 + Math.random() * Math.max(60, PLAY_H - 130);
+        d.x = W + Math.random() * 10;
+        // Re-roll y so respawned particles don't form vertical lines
+        const isStreak = d.layer === 'streak';
+        d.y = (isStreak ? 40 : 30) + Math.random() *
+              Math.max(60, PLAY_H - (isStreak ? 150 : 130));
       }
     }
   }
   function drawDailyDust() {
     if (!isDaily || !dailyDust.length) return;
     ctx.save();
-    ctx.strokeStyle = 'rgba(90, 55, 25, 1)';   // dark warm brown — strong vs peach sky
     ctx.lineCap = 'round';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1;
+    // Haze layer first (background), streaks second (foreground) so
+    // streaks render over haze where they overlap.
+    ctx.strokeStyle = 'rgba(140, 90, 50, 1)';
     for (const d of dailyDust) {
+      if (d.layer !== 'haze') continue;
+      ctx.globalAlpha = d.a;
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x + d.len, d.y);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(80, 50, 25, 1)';
+    for (const d of dailyDust) {
+      if (d.layer !== 'streak') continue;
       ctx.globalAlpha = d.a;
       ctx.beginPath();
       ctx.moveTo(d.x, d.y);
