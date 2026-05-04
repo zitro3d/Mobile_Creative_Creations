@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v317';
+const DLX_BUILD = 'v318';
 
 (function() {
   // ---------- Device detection ----------
@@ -12594,51 +12594,104 @@ const DLX_BUILD = 'v317';
       ctx.stroke();
     }
 
-    // ---- 2. RIB BONES — left + right + arched top framing the bay.
+    // ---- 2. RIB BONES — left + arched top frame the bay; the right
+    // rib is a HINGED door that swings open during the launch intro
+    // so the rig can take off through the bay.
     ctx.lineCap = 'round';
     const ribW = 12;
+
+    // Compute the door angle from the launch state. Closed (0) when
+    // the rig is parked awaiting tap; ease-opens to 90deg over the
+    // first ~20 frames of the launch intro; stays fully open after.
+    let doorAngle = 0;
+    if (!dailyAwaitingLaunch) {
+      if (dailyIntroFrames > 55) {
+        const t01 = (75 - dailyIntroFrames) / 20;
+        const ease = 1 - (1 - t01) * (1 - t01);
+        doorAngle = ease * (Math.PI / 2);
+      } else {
+        doorAngle = Math.PI / 2;
+      }
+    }
+
     ctx.lineWidth = ribW;
     ctx.strokeStyle = 'rgba(238, 218, 204, 0.95)';
-    // Left rib
+    // Left rib (always drawn)
     ctx.beginPath();
     ctx.moveTo(bayLeft, floorY);
     ctx.quadraticCurveTo(bayLeft - 10, (floorY + ceilY) / 2, bayLeft + 10, ceilY);
     ctx.stroke();
-    // Right rib
-    ctx.beginPath();
-    ctx.moveTo(bayRight, floorY);
-    ctx.quadraticCurveTo(bayRight + 10, (floorY + ceilY) / 2, bayRight - 10, ceilY);
-    ctx.stroke();
-    // Top rib arch
+    // Top rib arch (always drawn — its right end is where the door
+    // detaches when it swings open)
     ctx.lineWidth = ribW * 0.85;
     ctx.beginPath();
     ctx.moveTo(bayLeft + 10, ceilY);
     ctx.quadraticCurveTo(bayMid, ceilY - 14, bayRight - 10, ceilY);
     ctx.stroke();
-    // Inner shadows
+    // Inner shadow on left rib + top arch
     ctx.lineWidth = ribW * 0.32;
     ctx.strokeStyle = 'rgba(70, 50, 38, 0.55)';
     ctx.beginPath();
     ctx.moveTo(bayLeft + 4, floorY);
     ctx.quadraticCurveTo(bayLeft - 6, (floorY + ceilY) / 2, bayLeft + 14, ceilY);
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(bayRight - 4, floorY);
-    ctx.quadraticCurveTo(bayRight + 6, (floorY + ceilY) / 2, bayRight - 14, ceilY);
-    ctx.stroke();
-    // Outer highlights
+    // Outer highlight on left rib
     ctx.lineWidth = ribW * 0.18;
     ctx.strokeStyle = 'rgba(255, 248, 232, 0.85)';
     ctx.beginPath();
     ctx.moveTo(bayLeft - 4, floorY);
     ctx.quadraticCurveTo(bayLeft - 14, (floorY + ceilY) / 2, bayLeft + 6, ceilY);
     ctx.stroke();
+
+    // ---- HINGED RIGHT RIB ---- pivots around (bayRight, floorY).
+    // Drawn in local coords with the pivot at origin; rotated by
+    // doorAngle so when the launch intro fires the rib swings clockwise
+    // (down + outward) like a drawbridge.
+    ctx.save();
+    ctx.translate(bayRight, floorY);
+    ctx.rotate(doorAngle);
+    const localCeilY = ceilY - floorY;          // negative — rib points up
+    const localMidY  = localCeilY * 0.5;
+    // Bone body
+    ctx.lineWidth = ribW;
+    ctx.strokeStyle = 'rgba(238, 218, 204, 0.95)';
     ctx.beginPath();
-    ctx.moveTo(bayRight + 4, floorY);
-    ctx.quadraticCurveTo(bayRight + 14, (floorY + ceilY) / 2, bayRight - 6, ceilY);
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(10, localMidY, -10, localCeilY);
     ctx.stroke();
-    // Joint nodules where ribs meet floor + meet top arch
-    ctx.fillStyle = 'rgba(245, 226, 212, 0.95)';
+    // Inner shadow
+    ctx.lineWidth = ribW * 0.32;
+    ctx.strokeStyle = 'rgba(70, 50, 38, 0.55)';
+    ctx.beginPath();
+    ctx.moveTo(-4, 0);
+    ctx.quadraticCurveTo(6, localMidY, -14, localCeilY);
+    ctx.stroke();
+    // Outer highlight
+    ctx.lineWidth = ribW * 0.18;
+    ctx.strokeStyle = 'rgba(255, 248, 232, 0.85)';
+    ctx.beginPath();
+    ctx.moveTo(4, 0);
+    ctx.quadraticCurveTo(14, localMidY, -6, localCeilY);
+    ctx.stroke();
+    // Top joint nodule that travels with the rib's tip
+    {
+      const jx = -10, jy = localCeilY, jr = 5;
+      ctx.fillStyle = 'rgba(70, 50, 38, 0.45)';
+      ctx.beginPath(); ctx.arc(jx + 1, jy + 1, jr, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(245, 226, 212, 0.95)';
+      ctx.beginPath(); ctx.arc(jx, jy, jr, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255, 250, 240, 0.85)';
+      ctx.beginPath(); ctx.arc(jx - jr * 0.3, jy - jr * 0.3, jr * 0.30, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+
+    // ---- Static joint nodules (do NOT rotate with the door) ----
+    // Floor anchors + top-arch endpoints. The (bayRight, floorY) joint
+    // is the door's pivot. The (bayRight - 10, ceilY) joint is the top
+    // arch's right end — when the door is closed, the right-rib's top
+    // joint coincides with this so they read as one. When the door
+    // opens, the rib's top travels with the rib while this static
+    // joint stays put as the arch's anchor.
     for (const j of [
       { jx: bayLeft,     jy: floorY,  r: 6 },
       { jx: bayRight,    jy: floorY,  r: 6 },
@@ -12815,6 +12868,77 @@ const DLX_BUILD = 'v317';
       ctx.beginPath();
       ctx.arc(bx, platY + platH * 0.55, 1.4, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // ---- 7b. PLATFORM SUPPORTS — tapering metal legs descending from
+    // the docking platform to the cavity floor so the bay reads as
+    // anchored, not floating. Two slanted leg trusses + a cross-brace
+    // + a flat foot slab with a yellow safety stripe.
+    const supTopY = platY + platH;
+    const supBotY = PLAY_H - 2;
+    const supTopL = platLeft + 4;
+    const supTopR = platRight - 4;
+    const supBotL = platLeft + 28;     // tapers inward toward the foot
+    const supBotR = platRight - 28;
+    // Leg outer edge — left
+    ctx.fillStyle = '#2a2a32';
+    ctx.beginPath();
+    ctx.moveTo(supTopL,     supTopY);
+    ctx.lineTo(supTopL + 6, supTopY);
+    ctx.lineTo(supBotL + 5, supBotY);
+    ctx.lineTo(supBotL,     supBotY);
+    ctx.closePath();
+    ctx.fill();
+    // Leg outer edge — right
+    ctx.beginPath();
+    ctx.moveTo(supTopR - 6, supTopY);
+    ctx.lineTo(supTopR,     supTopY);
+    ctx.lineTo(supBotR,     supBotY);
+    ctx.lineTo(supBotR - 5, supBotY);
+    ctx.closePath();
+    ctx.fill();
+    // Lit-edge highlight on each leg
+    ctx.fillStyle = 'rgba(140, 140, 160, 0.55)';
+    ctx.beginPath();
+    ctx.moveTo(supTopL + 4, supTopY);
+    ctx.lineTo(supTopL + 6, supTopY);
+    ctx.lineTo(supBotL + 5, supBotY);
+    ctx.lineTo(supBotL + 3, supBotY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(supTopR - 6, supTopY);
+    ctx.lineTo(supTopR - 4, supTopY);
+    ctx.lineTo(supBotR - 3, supBotY);
+    ctx.lineTo(supBotR - 5, supBotY);
+    ctx.closePath();
+    ctx.fill();
+    // Cross-brace — diagonal between the two legs at mid-height
+    ctx.strokeStyle = '#3a3a42';
+    ctx.lineWidth = 2;
+    const braceY = (supTopY + supBotY) * 0.55;
+    const lerpL = (braceY - supTopY) / (supBotY - supTopY);
+    const braceLx = supTopL + 8 + (supBotL + 4 - (supTopL + 8)) * lerpL;
+    const braceRx = supTopR - 8 + (supBotR - 4 - (supTopR - 8)) * lerpL;
+    ctx.beginPath();
+    ctx.moveTo(braceLx, braceY - 4);
+    ctx.lineTo(braceRx, braceY + 4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(braceLx, braceY + 4);
+    ctx.lineTo(braceRx, braceY - 4);
+    ctx.stroke();
+    // Foot — flat slab resting on the cavity floor with a yellow
+    // safety stripe so it reads as DLX-branded ground anchor.
+    const footX = supBotL - 6;
+    const footW = (supBotR - supBotL) + 12;
+    ctx.fillStyle = '#1a1a22';
+    ctx.fillRect(footX, supBotY - 2, footW, 4);
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(footX + 2, supBotY - 1, footW - 4, 1);
+    ctx.fillStyle = '#1a0a06';
+    for (let i = 0; i < 6; i++) {
+      ctx.fillRect(footX + 4 + i * (footW / 6), supBotY - 1, 1.4, 1);
     }
 
     // ---- 8. HAZARD LIGHT POLES — short metal poles flanking the
