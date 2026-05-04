@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v299';
+const DLX_BUILD = 'v300';
 
 (function() {
   // ---------- Device detection ----------
@@ -6738,17 +6738,15 @@ const DLX_BUILD = 'v299';
   // doesn't recompute hue math every frame.
   let dailyDust = [];
   function emberColorFromHue(h) {
-    // Desert-palette ramp instead of fire-palette.
-    //   h = 0 → pale cream  (255, 235, 200)   matches upper sky
-    //   h = 1 → soft peach  (255, 200, 145)   matches mid/lower sky
-    // v296 used yellow→orange but the saturation read as "fire embers"
-    // which clashed with the hazy desert mood. The new ramp lives
-    // inside the desert palette so particles BELONG to the scene
-    // instead of standing out as foreign hot sparks.
-    const r = 255;
-    const g = Math.round(235 - h * 35);
-    const b = Math.round(200 - h * 55);
-    return 'rgb(' + r + ',' + g + ',' + b + ')';
+    // Linear interpolation between the active level's two ember endpoints
+    // so each level's atmospheric motes belong to its palette. Sunset
+    // ramps cream → peach; Leviathan ramps bio-green → cyan.
+    const a = currentDeliveryLevel.dustEmberStart;
+    const b = currentDeliveryLevel.dustEmberEnd;
+    const r = Math.round(a[0] + (b[0] - a[0]) * h);
+    const g = Math.round(a[1] + (b[1] - a[1]) * h);
+    const bl = Math.round(a[2] + (b[2] - a[2]) * h);
+    return 'rgb(' + r + ',' + g + ',' + bl + ')';
   }
   function pushDustParticle(layer) {
     // Y bias toward the top of the SKY only. Particles stay strictly
@@ -10329,130 +10327,203 @@ const DLX_BUILD = 'v299';
     }
     ctx.fillStyle = bgCache.dailySkyGrad;
     ctx.fillRect(0, 0, W, PLAY_H);
-    // Continue the warm tone into the GROUND_H strip so we don't get a
-    // dark band below the playfield on game-over and home overlays.
+    // Continue the level's body color into the GROUND_H strip so we don't
+    // get a dark band below the playfield on game-over and home overlays.
     ctx.fillStyle = currentDeliveryLevel.groundBand;
     ctx.fillRect(0, PLAY_H, W, H - PLAY_H);
 
-    // ---- Twin pale moons in the upper sky ----
-    // Big crescent moon, top-left. Draw the lit body as a cream circle,
-    // then overlay a sky-colored circle slightly offset to "bite" the
-    // crescent shape (using the actual sky tone instead of destination-out
-    // which would expose the canvas background).
-    const moonX = W * 0.18, moonY = PLAY_H * 0.18, moonR = 22;
-    ctx.save();
-    ctx.shadowBlur = 18; ctx.shadowColor = 'rgba(255, 240, 220, 0.35)';
-    ctx.fillStyle = 'rgba(252, 238, 214, 0.92)';
-    ctx.beginPath();
-    ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    // Sky-tone bite to carve the crescent
-    const biteGrad = ctx.createRadialGradient(
-      moonX + 9, moonY - 3, 0,
-      moonX + 9, moonY - 3, moonR + 2
-    );
-    biteGrad.addColorStop(0,    '#f4c890');
-    biteGrad.addColorStop(0.85, '#f4c890');
-    biteGrad.addColorStop(1,    'rgba(244, 200, 144, 0)');
-    ctx.fillStyle = biteGrad;
-    ctx.beginPath();
-    ctx.arc(moonX + 9, moonY - 3, moonR + 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    // Smaller full moon, top-right — pale, washed out by haze
-    ctx.save();
-    ctx.shadowBlur = 12; ctx.shadowColor = 'rgba(255, 240, 220, 0.28)';
-    ctx.fillStyle = 'rgba(248, 224, 196, 0.42)';
-    ctx.beginPath();
-    ctx.arc(W * 0.82, PLAY_H * 0.10, 13, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    // ---- Twin pale moons in the upper sky (skies that have moons) ----
+    if (currentDeliveryLevel.skyMoons === 'twin') {
+      // Big crescent moon, top-left. Draw the lit body as a cream circle,
+      // then overlay a sky-colored circle slightly offset to "bite" the
+      // crescent shape (using the actual sky tone instead of destination-out
+      // which would expose the canvas background).
+      const moonX = W * 0.18, moonY = PLAY_H * 0.18, moonR = 22;
+      ctx.save();
+      ctx.shadowBlur = 18; ctx.shadowColor = 'rgba(255, 240, 220, 0.35)';
+      ctx.fillStyle = 'rgba(252, 238, 214, 0.92)';
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Sky-tone bite to carve the crescent
+      const biteGrad = ctx.createRadialGradient(
+        moonX + 9, moonY - 3, 0,
+        moonX + 9, moonY - 3, moonR + 2
+      );
+      biteGrad.addColorStop(0,    '#f4c890');
+      biteGrad.addColorStop(0.85, '#f4c890');
+      biteGrad.addColorStop(1,    'rgba(244, 200, 144, 0)');
+      ctx.fillStyle = biteGrad;
+      ctx.beginPath();
+      ctx.arc(moonX + 9, moonY - 3, moonR + 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // Smaller full moon, top-right — pale, washed out by haze
+      ctx.save();
+      ctx.shadowBlur = 12; ctx.shadowColor = 'rgba(255, 240, 220, 0.28)';
+      ctx.fillStyle = 'rgba(248, 224, 196, 0.42)';
+      ctx.beginPath();
+      ctx.arc(W * 0.82, PLAY_H * 0.10, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
 
     // ---- Drifting dust-haze stripes for atmosphere ----
-    ctx.fillStyle = 'rgba(255, 220, 180, 0.10)';
+    ctx.fillStyle = currentDeliveryLevel.hazeStripeColor;
     for (let i = 0; i < 5; i++) {
       const y = PLAY_H * (0.50 + i * 0.05);
       ctx.fillRect(0, y, W, 1);
     }
-    // Floating dust motes scattered in the haze (deterministic per-frame)
-    ctx.fillStyle = 'rgba(120, 80, 50, 0.35)';
+    // Floating dust / bioluminescent motes scattered in the haze
+    // (deterministic per-frame, drifts with scroll).
+    ctx.fillStyle = currentDeliveryLevel.dustMoteColor;
     for (let i = 0; i < 16; i++) {
       const dx = ((i * 73 + dailyScrollX * 0.4) % W + W) % W;
       const dy = PLAY_H * (0.30 + (i % 5) * 0.07);
       ctx.fillRect(dx, dy, 1.4, 1.4);
     }
+
+    // ---- Heartbeat tint overlay ----
+    // Levels with ambientField === 'pulse' get a faint color wash that
+    // pulses in time with the creature's heart. Visual-only; no physics.
+    if (currentDeliveryLevel.ambientField === 'pulse'
+        && currentDeliveryLevel.pulseTintColor) {
+      const period = currentDeliveryLevel.pulsePeriodFrames || 210;
+      const t = (frame % period) / period;             // 0 .. 1 over one beat
+      // Quick rise + slow fall envelope: peaks near t=0.15, fades back to 0
+      // by t=1. Two short beats per cycle (lub-DUB) give it life.
+      const beat = Math.max(
+        0,
+        Math.sin(Math.PI * Math.min(1, t * 5.0))
+          * (1 - t * 0.6)
+      );
+      const beat2 = Math.max(
+        0,
+        Math.sin(Math.PI * Math.min(1, Math.max(0, t - 0.18) * 4.5))
+          * (1 - t * 0.6) * 0.6
+      );
+      const alpha = (beat + beat2) * (currentDeliveryLevel.pulseTintAmp || 1);
+      if (alpha > 0.005) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, alpha);
+        ctx.fillStyle = currentDeliveryLevel.pulseTintColor;
+        ctx.fillRect(0, 0, W, PLAY_H);
+        ctx.restore();
+      }
+    }
   }
-  // Three-layer parallax horizon: industrial citadel on the deep horizon,
-  // then two soft dune ridges. All warm desert tones.
+  // Three-layer parallax horizon. Deep layer dispatches on the level's
+  // horizonStyle ('citadel' = industrial wasteland | 'cavern' = ribcage
+  // body interior). The two foreground dune ridges run for both styles
+  // with palette pulled from the level (warm tan for desert, fleshy red
+  // for organ surfaces).
   function drawDailyHorizon() {
     if (!isDaily) return;
     ctx.save();
 
-    // ---- Citadel silhouette layer (deepest, slowest parallax) ----
-    // Repeating chunks of tall sandstone industrial blocks across the
-    // horizon, with smoke columns and oxidized-copper roof bands. Most
-    // clusters are small/medium ruins; rare massive citadels punch up
-    // through the haze every few hundred world-units so the skyline has
-    // a clear focal point instead of a uniform wall.
-    const citY = PLAY_H * 0.62;
-    const citScroll = dailyScrollX * 0.06;
-    const citPattern = 220;       // world-units per repeating citadel block
-    const startB = Math.floor((citScroll - 60) / citPattern) - 1;
-    const endB   = Math.floor((citScroll + W + 60) / citPattern) + 1;
-    for (let b = startB; b <= endB; b++) {
-      const baseSeed = b * 0.5739 + 3.11;
-      const groupX = b * citPattern - citScroll;
-      // Skip occasional gaps so the skyline isn't a continuous wall
-      if (srand(baseSeed) < 0.20) continue;
-      // ~15% chance: this slot becomes a MASSIVE central citadel
-      const isHero = srand(baseSeed + 0.91) < 0.15;
-      drawCitadelGroup(groupX, citY, baseSeed, isHero);
+    if (currentDeliveryLevel.horizonStyle === 'citadel') {
+      // ---- Citadel silhouette layer (deepest, slowest parallax) ----
+      // Repeating chunks of tall sandstone industrial blocks across the
+      // horizon, with smoke columns and oxidized-copper roof bands. Most
+      // clusters are small/medium ruins; rare massive citadels punch up
+      // through the haze every few hundred world-units so the skyline has
+      // a clear focal point instead of a uniform wall.
+      const citY = PLAY_H * 0.62;
+      const citScroll = dailyScrollX * 0.06;
+      const citPattern = 220;       // world-units per repeating citadel block
+      const startB = Math.floor((citScroll - 60) / citPattern) - 1;
+      const endB   = Math.floor((citScroll + W + 60) / citPattern) + 1;
+      for (let b = startB; b <= endB; b++) {
+        const baseSeed = b * 0.5739 + 3.11;
+        const groupX = b * citPattern - citScroll;
+        // Skip occasional gaps so the skyline isn't a continuous wall
+        if (srand(baseSeed) < 0.20) continue;
+        // ~15% chance: this slot becomes a MASSIVE central citadel
+        const isHero = srand(baseSeed + 0.91) < 0.15;
+        drawCitadelGroup(groupX, citY, baseSeed, isHero);
+      }
+
+      // ---- Flying specks (vultures / debris) circling the smoke columns ----
+      // Scroll at the citadel's parallax speed so they look attached to
+      // that depth plane.
+      ctx.fillStyle = 'rgba(40, 18, 8, 0.7)';
+      for (let i = 0; i < 14; i++) {
+        const baseX = (i * 91 + 31) - citScroll;
+        const sx = ((baseX % (W + 80)) + (W + 80)) % (W + 80) - 40;
+        const sy = PLAY_H * (0.18 + (i % 5) * 0.06)
+                + Math.sin((dailyScrollX * 0.02 + i * 0.7)) * 4;
+        // Tiny V-shaped wing silhouette
+        ctx.beginPath();
+        ctx.moveTo(sx - 2, sy);
+        ctx.lineTo(sx,     sy - 1);
+        ctx.lineTo(sx + 2, sy);
+        ctx.lineTo(sx,     sy + 0.4);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Warm haze veil over the citadel layer to push it back in depth
+      ctx.fillStyle = 'rgba(248, 200, 144, 0.28)';
+      ctx.fillRect(0, 0, W, citY + 4);
+
+      // ---- Closer outpost layer — small lone ruins down on the dunes ----
+      // Sits LOW on the mid-dune line so it tucks against the foreground
+      // instead of crowding the citadel skyline above. Sparse — only 1 in
+      // 8 slots has an outpost.
+      const outY = PLAY_H * 0.79;
+      const outScroll = dailyScrollX * 0.18;
+      const outPattern = 280;
+      const startO = Math.floor((outScroll - 40) / outPattern) - 1;
+      const endO   = Math.floor((outScroll + W + 40) / outPattern) + 1;
+      for (let o = startO; o <= endO; o++) {
+        const oseed = o * 0.4173 + 7.91;
+        if (srand(oseed) < 0.85) continue;     // ~15% of slots
+        const ox = o * outPattern - outScroll + Math.floor(srand(oseed + 0.3) * 60);
+        drawDailyOutpost(ox, outY, oseed);
+      }
+
+    } else if (currentDeliveryLevel.horizonStyle === 'cavern') {
+      // ---- Ribcage silhouette layer (deepest, slowest parallax) ----
+      // Vertical bone arches receding into the body cavity. Each rib is a
+      // gently curving bone ribbon that runs from the cavern ceiling to
+      // its floor, spaced ~130 world-units apart. Pale bone color heavily
+      // washed by the body haze pushes them back in depth.
+      const ribTop = PLAY_H * 0.18;
+      const ribBot = PLAY_H * 0.66;
+      const ribScroll = dailyScrollX * 0.06;
+      const ribPattern = 130;
+      const startR = Math.floor((ribScroll - 80) / ribPattern) - 1;
+      const endR   = Math.floor((ribScroll + W + 80) / ribPattern) + 1;
+      for (let r = startR; r <= endR; r++) {
+        const seed = r * 0.4317 + 5.91;
+        const rx = r * ribPattern - ribScroll + Math.floor(srand(seed) * 30);
+        if (rx < -40 || rx > W + 40) continue;
+        drawCavernRib(rx, ribTop, ribBot, seed);
+      }
+
+      // Soft red haze veil over the rib layer to push it back in depth
+      ctx.fillStyle = 'rgba(180, 40, 70, 0.30)';
+      ctx.fillRect(0, 0, W, ribBot + 6);
+
+      // ---- Bioluminescent floating motes drifting through the cavity ----
+      // Slow upward drift gives the body an alive, breathing feel.
+      ctx.fillStyle = 'rgba(120, 240, 180, 0.65)';
+      for (let i = 0; i < 12; i++) {
+        const baseX = (i * 91 + 31) - ribScroll * 1.4;
+        const sx = ((baseX % (W + 80)) + (W + 80)) % (W + 80) - 40;
+        const sy = PLAY_H * (0.22 + (i % 5) * 0.05)
+                + Math.sin(dailyScrollX * 0.018 + i * 0.7) * 5;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 1.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
-    // ---- Flying specks (vultures / debris) circling the smoke columns ----
-    // Scroll at the citadel's parallax speed so they look attached to
-    // that depth plane.
-    ctx.fillStyle = 'rgba(40, 18, 8, 0.7)';
-    for (let i = 0; i < 14; i++) {
-      const baseX = (i * 91 + 31) - citScroll;
-      const sx = ((baseX % (W + 80)) + (W + 80)) % (W + 80) - 40;
-      const sy = PLAY_H * (0.18 + (i % 5) * 0.06)
-              + Math.sin((dailyScrollX * 0.02 + i * 0.7)) * 4;
-      // Tiny V-shaped wing silhouette
-      ctx.beginPath();
-      ctx.moveTo(sx - 2, sy);
-      ctx.lineTo(sx,     sy - 1);
-      ctx.lineTo(sx + 2, sy);
-      ctx.lineTo(sx,     sy + 0.4);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // Warm haze veil over the citadel layer to push it back in depth
-    ctx.fillStyle = 'rgba(248, 200, 144, 0.28)';
-    ctx.fillRect(0, 0, W, citY + 4);
-
-    // ---- Closer outpost layer — small lone ruins down on the dunes ----
-    // Sits LOW on the mid-dune line so it tucks against the foreground
-    // instead of crowding the citadel skyline above. Sparse — only 1 in
-    // 8 slots has an outpost.
-    const outY = PLAY_H * 0.79;
-    const outScroll = dailyScrollX * 0.18;
-    const outPattern = 280;
-    const startO = Math.floor((outScroll - 40) / outPattern) - 1;
-    const endO   = Math.floor((outScroll + W + 40) / outPattern) + 1;
-    for (let o = startO; o <= endO; o++) {
-      const oseed = o * 0.4173 + 7.91;
-      if (srand(oseed) < 0.85) continue;     // ~15% of slots
-      const ox = o * outPattern - outScroll + Math.floor(srand(oseed + 0.3) * 60);
-      drawDailyOutpost(ox, outY, oseed);
-    }
-
-    // ---- Far dunes — pale warm-tan, soft low-frequency curves ----
+    // ---- Far dunes — palette per level, soft low-frequency curves ----
     const farY = PLAY_H * 0.74;
     const farScroll = dailyScrollX * 0.14;
-    ctx.fillStyle = 'rgba(196, 130, 80, 0.85)';
+    ctx.fillStyle = currentDeliveryLevel.horizonDuneFarColor;
     ctx.beginPath();
     ctx.moveTo(-4, farY);
     for (let sx = -4; sx <= W + 4; sx += 8) {
@@ -10466,10 +10537,10 @@ const DLX_BUILD = 'v299';
     ctx.closePath();
     ctx.fill();
 
-    // ---- Mid dunes — warm rust-tan, bigger curves ----
+    // ---- Mid dunes — palette per level, bigger curves ----
     const midY = PLAY_H * 0.84;
     const midScroll = dailyScrollX * 0.28;
-    ctx.fillStyle = 'rgba(150, 80, 40, 0.96)';
+    ctx.fillStyle = currentDeliveryLevel.horizonDuneMidColor;
     ctx.beginPath();
     ctx.moveTo(-4, midY);
     for (let sx = -4; sx <= W + 4; sx += 8) {
@@ -10482,8 +10553,8 @@ const DLX_BUILD = 'v299';
     ctx.lineTo(W + 4, midY);
     ctx.closePath();
     ctx.fill();
-    // Soft cream highlight along the mid-dune crests catching the sky light
-    ctx.strokeStyle = 'rgba(252, 224, 168, 0.45)';
+    // Soft highlight along the mid-dune crests catching the sky light
+    ctx.strokeStyle = currentDeliveryLevel.horizonDuneHighlight;
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let sx = -4; sx <= W + 4; sx += 8) {
@@ -10496,6 +10567,38 @@ const DLX_BUILD = 'v299';
     }
     ctx.stroke();
     ctx.restore();
+  }
+
+  // One vertical curving rib running from the cavern ceiling to its floor.
+  // Drawn as a thick bone-pale stroke with a thin highlight along one edge
+  // for a hint of 3D, low alpha so it fades back into the body haze.
+  function drawCavernRib(rx, top, bot, seed) {
+    const curveAmt = 8 + (srand(seed + 0.3) - 0.5) * 5;
+    const widthPx  = 5 + Math.floor(srand(seed + 0.7) * 4);
+    ctx.lineCap = 'round';
+    // Bone body
+    ctx.lineWidth = widthPx;
+    ctx.strokeStyle = 'rgba(232, 210, 196, 0.55)';
+    ctx.beginPath();
+    ctx.moveTo(rx, top);
+    ctx.bezierCurveTo(
+      rx - curveAmt, top + (bot - top) * 0.35,
+      rx + curveAmt, top + (bot - top) * 0.65,
+      rx, bot
+    );
+    ctx.stroke();
+    // Edge highlight (thin, offset to one side)
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = 'rgba(255, 240, 230, 0.5)';
+    ctx.beginPath();
+    ctx.moveTo(rx - widthPx * 0.32, top + 3);
+    ctx.bezierCurveTo(
+      rx - curveAmt - widthPx * 0.32, top + (bot - top) * 0.35,
+      rx + curveAmt - widthPx * 0.32, top + (bot - top) * 0.65,
+      rx - widthPx * 0.32, bot - 3
+    );
+    ctx.stroke();
+    ctx.lineCap = 'butt';
   }
 
   // Cluster of industrial citadel blocks with rising smoke. Normal
@@ -10682,11 +10785,15 @@ const DLX_BUILD = 'v299';
     // scrolls). One earth polygon under the floor silhouette, plus
     // per-tunnel dirt-cap + cavern-interior polygons in the body.
 
-    const earthGrad = ctx.createLinearGradient(0, PLAY_H - 160, 0, PLAY_H + 8);
-    earthGrad.addColorStop(0,    '#e8a868');
-    earthGrad.addColorStop(0.35, '#a85838');
-    earthGrad.addColorStop(0.75, '#5a2818');
-    earthGrad.addColorStop(1,    '#3a1808');
+    if (!bgCache.dailyEarthGrad) {
+      const g = ctx.createLinearGradient(0, PLAY_H - 160, 0, PLAY_H + 8);
+      const stops = currentDeliveryLevel.earthPalette;
+      for (let i = 0; i < stops.length; i++) {
+        g.addColorStop(stops[i].stop, stops[i].color);
+      }
+      bgCache.dailyEarthGrad = g;
+    }
+    const earthGrad = bgCache.dailyEarthGrad;
     // Cavern interior — built per-tunnel below so each tunnel gets a
     // vignette gradient anchored to its OWN ceiling/floor range. Dark
     // at the top + bottom (where curved walls would shadow), brightest
@@ -11017,6 +11124,11 @@ const DLX_BUILD = 'v299';
   // the arch frame is wide and you're meant to pass under it).
   function drawDailyLandmarks() {
     if (!isDaily) return;
+    // Roadside Americana (DLX hangar, GOOD BUDDY diner, kitschy signs) is
+    // wasteland flavor — only render it for the citadel-style horizon.
+    // Other levels (Leviathan's cavern, future biomes) skip the whole set
+    // until they ship their own landmark art in a follow-up.
+    if (currentDeliveryLevel.horizonStyle !== 'citadel') return;
     for (const lm of DAILY_LANDMARKS) {
       // Hide cluttery roadside landmarks (signs, arches, etc.) when a
       // tunnel happens to spawn over them, but ALWAYS draw the
@@ -18803,20 +18915,24 @@ const DLX_BUILD = 'v299';
   // untouched. Uses the currently picked ship + skin.
   function startDailyChallenge() {
     applyShipStats(selectedShip);
-    initDailyDust();           // fresh atmospheric dust each daily run
     const today = todayStr();
     const seed = dateSeed(today);
     enableDailyRandom(seed);
     isDaily = true;
     dailyWasNewBest = false;
     dailyDelivered = false;
-    // Point the renderers at the active delivery level. Today the daily is
-    // always the wasteland highway; future ships rotate this through the
-    // other DELIVERY_LEVELS entries. Invalidate the cached sky gradient so
-    // a level change actually repaints (createLinearGradient is locked to
-    // the colors it was built with).
-    currentDeliveryLevel = DELIVERY_LEVELS.sunsetWastes;
+    // Point the renderers at the active delivery level. The default daily
+    // is the wasteland highway for everyone; ?level=<id> previews other
+    // levels for testing without changing what regular players see.
+    // Invalidate the cached sky + earth gradients so a level swap actually
+    // repaints (createLinearGradient locks the colors it was built with).
+    // Must come BEFORE initDailyDust(): the dust ember palette is sourced
+    // from currentDeliveryLevel.
+    const lvlParam = (/[?&]level=([a-zA-Z]+)/.exec(window.location.search) || [])[1];
+    currentDeliveryLevel = (lvlParam && DELIVERY_LEVELS[lvlParam]) || DELIVERY_LEVELS.sunsetWastes;
     bgCache.dailySkyGrad = null;
+    bgCache.dailyEarthGrad = null;
+    initDailyDust();           // fresh atmospheric dust each daily run
     // Daily delivery course is always the wasteland highway — sunset palette
     // regardless of which day of the week it is, so the backdrop matches
     // the GDD road-trip fiction (DLX Dist. Center → Good Buddy Truck Stop).
@@ -19124,27 +19240,95 @@ const DLX_BUILD = 'v299';
   // visual + label state that drawDailySky / drawDailyHorizon /
   // drawDailyTerrain (and friends) read from at render time. Adding a
   // new level = adding a new entry here and pointing currentDeliveryLevel
-  // at it during launch. Future ships extend this with horizonStyle /
-  // terrainProfile / ambientField / obstacleWeights / cargoStyle.
+  // at it during launch. Players access non-default levels via the
+  // ?level=<id> URL query string (default = sunsetWastes for everyone).
   const DELIVERY_LEVELS = {
     sunsetWastes: {
       label: 'SUNSET WASTES',
-      // Sky gradient stops, top to bottom. Format matches the sequence
-      // drawDailySky() previously hardcoded as 4 createLinearGradient
-      // addColorStop calls — same colors, same stops, just sourced from
-      // here so a new level can supply its own without touching renderer
-      // code.
+      // Sky gradient stops, top to bottom. Same values drawDailySky() used
+      // to hardcode — sourced from config so a new level can supply its
+      // own without touching renderer code.
       skyPalette: [
         { stop: 0,    color: '#f6e0b4' },
         { stop: 0.35, color: '#f4c890' },
         { stop: 0.65, color: '#e8a868' },
         { stop: 1,    color: '#c87040' },
       ],
+      skyMoons: 'twin',                     // 'twin' = big crescent + small full | 'none'
+      hazeStripeColor: 'rgba(255, 220, 180, 0.10)',
+      dustMoteColor: 'rgba(120, 80, 50, 0.35)',
+      // RGB endpoints for the additive-blended dust ember particles
+      // (linear interp on hue 0..1). sunset uses cream → peach; cavern
+      // levels swap in bioluminescent greens.
+      dustEmberStart: [255, 235, 200],
+      dustEmberEnd:   [255, 200, 145],
       // Solid color filled into the GROUND_H strip below PLAY_H so the
       // overlay area doesn't show a dark band.
       groundBand: '#5a2e18',
+      // Horizon parallax style. 'citadel' = industrial sandstone ruins +
+      // smoke + vultures + outpost layer + dune ridges (the wasteland).
+      // 'cavern' = no buildings; ribcage bone silhouettes + organic
+      // undulations (the inside of a creature).
+      horizonStyle: 'citadel',
+      // Per-layer dune palette. Far-back paler tan; mid layer richer rust;
+      // crest highlight catches the sky.
+      horizonDuneFarColor: 'rgba(196, 130, 80, 0.85)',
+      horizonDuneMidColor: 'rgba(150, 80, 40, 0.96)',
+      horizonDuneHighlight: 'rgba(252, 224, 168, 0.45)',
+      // Earth gradient (the dirt fill under the floor silhouette).
+      // Same stops drawDailyTerrain() previously hardcoded.
+      earthPalette: [
+        { stop: 0,    color: '#e8a868' },
+        { stop: 0.35, color: '#a85838' },
+        { stop: 0.75, color: '#5a2818' },
+        { stop: 1,    color: '#3a1808' },
+      ],
+      // Ambient field applied during flight. null = no per-frame effect.
+      // 'pulse' = visual heartbeat tint overlay (intensity comes from
+      // pulseTintColor + pulseTintAmp).
+      ambientField: null,
+      pulseTintColor: null,
+      pulseTintAmp: 0,
+      pulsePeriodFrames: 0,
       dispatchLabel: 'DLX DISPATCH CENTER',
       dockLabel: 'GOOD BUDDY TRUCK STOP',
+    },
+    leviathan: {
+      label: 'THE LEVIATHAN',
+      // Fleshy interior of a colossal creature: deep magentas at the
+      // ceiling fading down through pulsing pinks to a darker organic
+      // floor band. No sun, no warm sky — bioluminescent gloom.
+      skyPalette: [
+        { stop: 0,    color: '#3a0818' },
+        { stop: 0.35, color: '#6e1a30' },
+        { stop: 0.65, color: '#a82a48' },
+        { stop: 1,    color: '#5a1428' },
+      ],
+      skyMoons: 'none',                     // you're inside a creature; no moons
+      hazeStripeColor: 'rgba(255, 80, 120, 0.08)',
+      dustMoteColor: 'rgba(120, 240, 180, 0.55)',  // bioluminescent specks
+      dustEmberStart: [180, 255, 220],             // bright bio-green
+      dustEmberEnd:   [110, 230, 240],             // shifting toward cyan
+      groundBand: '#1a0610',
+      horizonStyle: 'cavern',
+      // Fleshy "dune" tones — organ undulations rather than sand.
+      horizonDuneFarColor: 'rgba(120, 28, 50, 0.85)',
+      horizonDuneMidColor: 'rgba(80, 16, 36, 0.96)',
+      horizonDuneHighlight: 'rgba(255, 140, 180, 0.35)',
+      earthPalette: [
+        { stop: 0,    color: '#a83048' },
+        { stop: 0.35, color: '#6a1828' },
+        { stop: 0.75, color: '#2a0810' },
+        { stop: 1,    color: '#100308' },
+      ],
+      // Heartbeat — a faint red tint pulses over the whole sky every
+      // ~3.5 seconds. Visual only; doesn't affect rig physics in MVP.
+      ambientField: 'pulse',
+      pulseTintColor: 'rgba(255, 40, 70, 0.18)',
+      pulseTintAmp: 1.0,
+      pulsePeriodFrames: 210,               // ~3.5s at 60fps
+      dispatchLabel: 'PARASITOLOGY OUTPOST',
+      dockLabel: 'CARDIAC CHAMBER',
     },
   };
   // The level currently driving the daily-mode renderers. Every daily
