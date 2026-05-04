@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v312';
+const DLX_BUILD = 'v313';
 
 (function() {
   // ---------- Device detection ----------
@@ -19693,6 +19693,18 @@ const DLX_BUILD = 'v312';
     if (thrusterFrames > 0) drawDirtyFlame();
     ctx.restore();
 
+    // Bio-shielded retrofit overlay — only on organic-theme levels.
+    // Draws a tarp over the cab + breather tube hooked into the side +
+    // biohazard sticker on the cab side, on top of the existing rig so
+    // the brand reads as DLX-but-contaminated. Uses the front's tilt.
+    if (isDaily && currentDeliveryLevel
+        && currentDeliveryLevel.obstacleTheme === 'organic') {
+      ctx.save();
+      ctx.rotate(tilt);
+      drawHaulerBioRetrofit();
+      ctx.restore();
+    }
+
     // Burst halo on score (kept as a sickly amber instead of cyan)
     if (burstFrames > 0) {
       const burstT = burstFrames / 14;
@@ -19994,6 +20006,148 @@ const DLX_BUILD = 'v312';
       }
       ctx.restore();
     }
+  }
+
+  // Bio-shield overlay drawn on top of the existing hauler when running
+  // an organic-theme level. Adds:
+  //   - Magenta tarp sheet draped over the cab with rope tie-down +
+  //     wet drips
+  //   - Yellow + black ribbed breather hose curving out the back of
+  //     the rig with a glowing cyan valve
+  //   - Yellow biohazard sticker on the cab side
+  // Reads as: DLX rig with field-modified containment kit.
+  function drawHaulerBioRetrofit() {
+    // ---- TARP draped over the cab (top of the rig).
+    const tarpY = -BIRD_R * 1.05;
+    ctx.fillStyle = 'rgba(60, 16, 40, 0.95)';
+    ctx.beginPath();
+    ctx.moveTo(-BIRD_R * 0.10, tarpY + BIRD_R * 0.10);
+    ctx.lineTo( BIRD_R * 0.95, tarpY - BIRD_R * 0.05);
+    ctx.lineTo( BIRD_R * 1.15, tarpY + BIRD_R * 0.45);
+    ctx.lineTo( BIRD_R * 0.40, tarpY + BIRD_R * 0.55);
+    ctx.lineTo(-BIRD_R * 0.10, tarpY + BIRD_R * 0.40);
+    ctx.closePath();
+    ctx.fill();
+    // Tarp fold shadows
+    ctx.strokeStyle = 'rgba(20, 4, 16, 0.85)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(BIRD_R * 0.20, tarpY + BIRD_R * 0.05);
+    ctx.lineTo(BIRD_R * 0.55, tarpY + BIRD_R * 0.50);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(BIRD_R * 0.65, tarpY + BIRD_R * 0.0);
+    ctx.lineTo(BIRD_R * 0.95, tarpY + BIRD_R * 0.45);
+    ctx.stroke();
+    // Wet specular highlight along the tarp edge
+    ctx.fillStyle = 'rgba(220, 110, 170, 0.55)';
+    ctx.fillRect(BIRD_R * 0.20, tarpY + BIRD_R * 0.10, BIRD_R * 0.60, 1.2);
+    // Tarp outline
+    ctx.strokeStyle = 'rgba(20, 4, 16, 0.95)';
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(-BIRD_R * 0.10, tarpY + BIRD_R * 0.10);
+    ctx.lineTo( BIRD_R * 0.95, tarpY - BIRD_R * 0.05);
+    ctx.lineTo( BIRD_R * 1.15, tarpY + BIRD_R * 0.45);
+    ctx.lineTo( BIRD_R * 0.40, tarpY + BIRD_R * 0.55);
+    ctx.lineTo(-BIRD_R * 0.10, tarpY + BIRD_R * 0.40);
+    ctx.closePath();
+    ctx.stroke();
+    // Rope tie-down across the tarp front
+    ctx.strokeStyle = 'rgba(160, 110, 60, 0.95)';
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(-BIRD_R * 0.05, tarpY + BIRD_R * 0.30);
+    ctx.lineTo( BIRD_R * 1.15, tarpY + BIRD_R * 0.55);
+    ctx.stroke();
+    // Knot bumps
+    ctx.fillStyle = 'rgba(120, 80, 40, 0.95)';
+    ctx.beginPath(); ctx.arc(BIRD_R * 0.30, tarpY + BIRD_R * 0.36, 0.9, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(BIRD_R * 0.80, tarpY + BIRD_R * 0.48, 0.9, 0, Math.PI * 2); ctx.fill();
+    // Wet green drip on the right edge of the tarp
+    ctx.shadowBlur = 3;
+    ctx.shadowColor = 'rgba(140, 255, 200, 0.95)';
+    ctx.fillStyle = 'rgba(180, 255, 200, 0.85)';
+    ctx.beginPath();
+    ctx.arc(BIRD_R * 1.05, tarpY + BIRD_R * 0.55, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // ---- BREATHER HOSE curving out the back of the rig — yellow with
+    // black ribbed bands, ending in a glowing cyan valve where it
+    // connects to the rig.
+    const tubeStartX = -BIRD_R * 0.30;
+    const tubeStartY = -BIRD_R * 0.20;
+    const tubeCtrlX  = -BIRD_R * 0.95;
+    const tubeCtrlY  = -BIRD_R * 0.85;
+    const tubeEndX   = -BIRD_R * 1.30;
+    const tubeEndY   = -BIRD_R * 0.40;
+    ctx.lineCap = 'round';
+    // Hose body
+    ctx.strokeStyle = '#d8a020';
+    ctx.lineWidth = 3.2;
+    ctx.beginPath();
+    ctx.moveTo(tubeStartX, tubeStartY);
+    ctx.quadraticCurveTo(tubeCtrlX, tubeCtrlY, tubeEndX, tubeEndY);
+    ctx.stroke();
+    // Black ribbed bands sampled along the bezier
+    ctx.strokeStyle = '#1a0808';
+    ctx.lineWidth = 3.2;
+    for (let i = 0; i < 5; i++) {
+      const tt = (i + 0.5) / 5;
+      const u = 1 - tt;
+      const px = u * u * tubeStartX + 2 * u * tt * tubeCtrlX + tt * tt * tubeEndX;
+      const py = u * u * tubeStartY + 2 * u * tt * tubeCtrlY + tt * tt * tubeEndY;
+      ctx.beginPath();
+      ctx.moveTo(px - 0.7, py);
+      ctx.lineTo(px + 0.7, py);
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+    // Glowing cyan valve at the rig end (where the hose connects)
+    ctx.shadowBlur = 5;
+    ctx.shadowColor = 'rgba(120, 240, 220, 0.95)';
+    ctx.fillStyle = 'rgba(140, 255, 220, 0.95)';
+    ctx.beginPath();
+    ctx.arc(tubeStartX, tubeStartY, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Bright catchlight
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.beginPath();
+    ctx.arc(tubeStartX - 0.4, tubeStartY - 0.4, 0.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ---- BIOHAZARD STICKER on the cab side — yellow circle with a
+    // black trefoil and ring outline.
+    const stickerCx = BIRD_R * 0.55;
+    const stickerCy = BIRD_R * 0.20;
+    const stickerR  = 3.2;
+    // Yellow circle base
+    ctx.fillStyle = '#ffd83d';
+    ctx.beginPath();
+    ctx.arc(stickerCx, stickerCy, stickerR, 0, Math.PI * 2);
+    ctx.fill();
+    // Trefoil — three small wedges arranged at 120deg
+    ctx.fillStyle = '#1a0a06';
+    for (let t = 0; t < 3; t++) {
+      const a = -Math.PI / 2 + t * (Math.PI * 2 / 3);
+      ctx.beginPath();
+      ctx.arc(stickerCx + Math.cos(a) * 1.6, stickerCy + Math.sin(a) * 1.6,
+              0.95, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Center dot
+    ctx.fillStyle = '#1a0a06';
+    ctx.beginPath();
+    ctx.arc(stickerCx, stickerCy, 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // Outer ring
+    ctx.strokeStyle = '#1a0a06';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.arc(stickerCx, stickerCy, stickerR, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   function drawMagnetRing() {
