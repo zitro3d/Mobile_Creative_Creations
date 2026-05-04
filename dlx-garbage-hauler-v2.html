@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v302';
+const DLX_BUILD = 'v303';
 
 (function() {
   // ---------- Device detection ----------
@@ -6803,6 +6803,52 @@ const DLX_BUILD = 'v302';
       }
     }
   }
+  // Bubbles drifting up through the cavity for organic-theme levels.
+  // Procedural (no pool) — each index computes its own position from
+  // frame + a per-bubble seed so we don't pay state-management cost.
+  // Bigger bubbles rise faster and parallax further with scroll, giving
+  // the cavity depth without a dedicated parallax layer.
+  function drawDailyBubbles() {
+    if (currentDeliveryLevel.obstacleTheme !== 'organic') return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const N = 32;
+    const period = PLAY_H + 30;
+    for (let i = 0; i < N; i++) {
+      const sizeBucket = i % 4;                          // 0..3 size bands
+      const r = 1.4 + sizeBucket * 1.4;                  // 1.4 .. 5.6 px
+      const speedF = 0.45 + sizeBucket * 0.35;           // bigger = faster rise
+      const yPhase = (i * 41 + 7) % period;
+      const y = (PLAY_H + 14) - ((frame * speedF + yPhase) % period);
+      if (y < -8 || y > PLAY_H + 4) continue;
+      const wobble = Math.sin(frame * 0.025 + i * 0.7) * 4;
+      const xBase = (i * 73 + 13);
+      const xParallax = dailyScrollX * 0.06 * speedF;
+      const x = ((xBase + wobble - xParallax) % W + W) % W;
+      // Body: faint cyan-green wash (additive blend brightens cavity)
+      const a = 0.22 + sizeBucket * 0.10;
+      ctx.shadowBlur = 3;
+      ctx.shadowColor = 'rgba(140, 255, 200, 0.75)';
+      ctx.fillStyle = 'rgba(120, 230, 180, ' + a + ')';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      // Outline ring catches the cavern light
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(220, 255, 230, ' + (a + 0.2) + ')';
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      // Specular highlight reflecting bioluminescent light
+      ctx.fillStyle = 'rgba(255, 255, 255, ' + (a + 0.2) + ')';
+      ctx.beginPath();
+      ctx.arc(x - r * 0.35, y - r * 0.35, r * 0.30, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawDailyDust() {
     if (!isDaily || !dailyDust.length) return;
     ctx.save();
@@ -10585,15 +10631,20 @@ const DLX_BUILD = 'v302';
   }
 
   // One vertical curving rib running from the cavern ceiling to its floor.
-  // Drawn as a thick bone-pale stroke with a thin highlight along one edge
-  // for a hint of 3D, low alpha so it fades back into the body haze.
+  // v303 made ribs thicker, more saturated, and added a rosy underglow +
+  // small joint nodules along each curve so the silhouette reads as a
+  // RIB rather than an abstract pale curve.
   function drawCavernRib(rx, top, bot, seed) {
-    const curveAmt = 8 + (srand(seed + 0.3) - 0.5) * 5;
-    const widthPx  = 5 + Math.floor(srand(seed + 0.7) * 4);
+    const curveAmt = 9 + (srand(seed + 0.3) - 0.5) * 5;
+    const widthPx  = 7 + Math.floor(srand(seed + 0.7) * 4);
     ctx.lineCap = 'round';
-    // Bone body
+    // Soft rosy underglow so the rib seems backlit by the body it's
+    // suspended in — pushes the bioluminescent feel further.
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(255, 140, 170, 0.55)';
+    // Bone body — slightly higher alpha so it reads more clearly
     ctx.lineWidth = widthPx;
-    ctx.strokeStyle = 'rgba(232, 210, 196, 0.55)';
+    ctx.strokeStyle = 'rgba(238, 218, 204, 0.72)';
     ctx.beginPath();
     ctx.moveTo(rx, top);
     ctx.bezierCurveTo(
@@ -10602,9 +10653,10 @@ const DLX_BUILD = 'v302';
       rx, bot
     );
     ctx.stroke();
+    ctx.shadowBlur = 0;
     // Edge highlight (thin, offset to one side)
-    ctx.lineWidth = 1.2;
-    ctx.strokeStyle = 'rgba(255, 240, 230, 0.5)';
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = 'rgba(255, 244, 234, 0.6)';
     ctx.beginPath();
     ctx.moveTo(rx - widthPx * 0.32, top + 3);
     ctx.bezierCurveTo(
@@ -10613,6 +10665,24 @@ const DLX_BUILD = 'v302';
       rx - widthPx * 0.32, bot - 3
     );
     ctx.stroke();
+    // Small joint nodules — three knobs along the rib's length read as
+    // anatomical joint bulges, pushing the silhouette away from
+    // "abstract curve" and toward "anatomical bone". Positions sampled
+    // along the same bezier as the rib body.
+    const total = bot - top;
+    const joints = [0.30, 0.55, 0.78];
+    ctx.fillStyle = 'rgba(245, 226, 212, 0.85)';
+    for (const tt of joints) {
+      const u = 1 - tt;
+      // Quadratic-bezier-ish midpoint along the rib's gentle S-curve
+      const jx = rx
+               + 3 * u * u * tt * (-curveAmt)
+               + 3 * u * tt * tt * ( curveAmt);
+      const jy = top + tt * total;
+      ctx.beginPath();
+      ctx.arc(jx, jy, widthPx * 0.42, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.lineCap = 'butt';
   }
 
@@ -10886,10 +10956,14 @@ const DLX_BUILD = 'v302';
         if (p.floor   > cavBotY) cavBotY = p.floor;
       }
       // Per-tunnel palette so a level with multiple tunnels reads as
-      // varied. Falls back to the standard rust palette for any tunnel
-      // without paletteIdx set (shouldn't happen in normal play, but
-      // safe for legacy save state).
-      const pal = TUNNEL_PALETTES[o.paletteIdx || 0] || TUNNEL_PALETTES[0];
+      // varied. Picks from the organic palette table for cavern levels;
+      // falls back to the standard rust palette for any tunnel without
+      // paletteIdx set (shouldn't happen in normal play, safe for
+      // legacy save state).
+      const palTable = currentDeliveryLevel.obstacleTheme === 'organic'
+        ? ORGAN_TUNNEL_PALETTES
+        : TUNNEL_PALETTES;
+      const pal = palTable[(o.paletteIdx || 0) % palTable.length] || palTable[0];
       const cavGrad = ctx.createLinearGradient(0, cavTopY, 0, cavBotY);
       cavGrad.addColorStop(0,    pal.wall);    // shadow at the top wall
       cavGrad.addColorStop(0.25, pal.mid);     // shading inward
@@ -13186,6 +13260,10 @@ const DLX_BUILD = 'v302';
     // tunnelLayoutAt. Here we only add interior DECORATIONS inside
     // the BODY corridor: bones hanging from the ceiling, rocks on
     // the floor, and a pulsing entry arrow above each opening.
+    if (currentDeliveryLevel.obstacleTheme === 'organic') {
+      drawTunnelOrgan(t, sx);
+      return;
+    }
     const len = t.length;
     const wxStart = t.worldX;
     const wxEnd   = t.worldX + len;
@@ -13263,6 +13341,139 @@ const DLX_BUILD = 'v302';
     // (Entry / exit yellow arrows removed per user — once the tunnel
     // shape is recognisable from the dipped silhouette and snout
     // mound, the pulsing arrows just clutter the view.)
+  }
+
+  // Organic re-skin of the tunnel decorations for cavern/body levels.
+  // The silhouette + cavern interior gradient still come from
+  // drawDailyTerrain (now using ORGAN_TUNNEL_PALETTES). Here we replace
+  // every desert decoration with an esophageal / organ-tube equivalent:
+  // a wet pulsing tissue floor strip, hanging vein cords instead of
+  // bones, bioluminescent nodules instead of rocks, periodic gill slits
+  // along the ceiling letting cyan light leak through, and a subtle red
+  // pulsing wash through the body so the tube feels alive.
+  function drawTunnelOrgan(t, sx) {
+    const len = t.length;
+    const wxStart = t.worldX;
+    const wxEnd   = t.worldX + len;
+    const bodyStart = wxStart + TUNNEL_ENTRANCE_RAMP;
+    const bodyEnd   = wxEnd   - TUNNEL_EXIT_RAMP;
+    const fY = t.floorY != null ? t.floorY : (PLAY_H - 8);
+
+    // ---- WET TISSUE FLOOR — pulsing red strip just above the floor.
+    // The pulse syncs to the level heartbeat so the whole organ throbs
+    // together.
+    const heartT = (frame % (currentDeliveryLevel.pulsePeriodFrames || 210))
+                 / (currentDeliveryLevel.pulsePeriodFrames || 210);
+    const heartGlow = 0.55 + 0.30 * Math.max(0, Math.sin(Math.PI * Math.min(1, heartT * 5)));
+    ctx.fillStyle = 'rgba(150, 24, 56, ' + heartGlow + ')';
+    ctx.fillRect(bodyStart - dailyScrollX, fY - 4,
+                 (bodyEnd - bodyStart), 4);
+    // Wet specular highlight along the top of the tissue strip
+    ctx.fillStyle = 'rgba(255, 180, 210, 0.55)';
+    ctx.fillRect(bodyStart - dailyScrollX, fY - 5,
+                 (bodyEnd - bodyStart), 1);
+    // Tendon stitches across the floor for an organic tissue feel
+    ctx.fillStyle = 'rgba(40, 8, 18, 0.85)';
+    for (let bx = bodyStart; bx < bodyEnd; bx += 14) {
+      const x = bx - dailyScrollX;
+      ctx.fillRect(x, fY - 4, 0.8, 4);
+    }
+
+    // ---- HANGING VEIN CORDS — vertical translucent veins drooping
+    // from the ceiling, replace the desert tunnel's bone shafts.
+    // Brighter inner highlight stripe makes them read as wet, alive.
+    const seedI    = Math.floor(t.seed || 0);
+    const veinStep = t.boneStep || 30;
+    for (let bx = bodyStart + 14; bx < bodyEnd - 10; bx += veinStep) {
+      const screenX = bx - dailyScrollX;
+      if (screenX < -10 || screenX > W + 10) continue;
+      const ceilingY = terrainHeightAt(bx) + TUNNEL_CEILING_OFFSET;
+      const phase = (Math.floor((bx - bodyStart) / veinStep) + seedI) % 5;
+      const vH = 12 + phase * 2;
+      // Outer vein body — translucent dark red so the cavern colour
+      // shows through and the vein feels wet.
+      ctx.fillStyle = 'rgba(120, 16, 40, 0.90)';
+      ctx.fillRect(screenX - 1.4, ceilingY, 2.8, vH);
+      // Brighter pulsing inner stripe
+      ctx.fillStyle = 'rgba(255, 90, 140, 0.85)';
+      ctx.fillRect(screenX - 0.5, ceilingY + 1, 1, vH - 2);
+      // Bulbous lower tip (a node where the vein swells)
+      ctx.fillStyle = 'rgba(160, 30, 60, 0.95)';
+      ctx.beginPath();
+      ctx.arc(screenX, ceilingY + vH + 1, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      // Faint glow halo around the tip
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(255, 100, 150, 0.7)';
+      ctx.fillStyle = 'rgba(255, 140, 180, 0.7)';
+      ctx.beginPath();
+      ctx.arc(screenX, ceilingY + vH + 1, 0.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // ---- BIOLUMINESCENT FLOOR NODULES — replace the desert tunnel's
+    // rocks. Small organic bumps that glow faintly cyan/green.
+    for (let rx = bodyStart + 22; rx < bodyEnd - 6; rx += 30) {
+      const screenX = rx - dailyScrollX;
+      if (screenX < -10 || screenX > W + 10) continue;
+      const phase = (Math.floor((rx - bodyStart) / 30) + seedI + 2) % 4;
+      const rW = 6 + phase * 0.7;
+      const rH = 3 + (phase % 3) * 0.7;
+      // Dark organic base
+      ctx.fillStyle = 'rgba(40, 6, 18, 0.85)';
+      ctx.beginPath();
+      ctx.ellipse(screenX, fY - 5 - rH * 0.3, rW + 0.6, rH + 0.6,
+                  0, 0, Math.PI * 2);
+      ctx.fill();
+      // Pulsing mid layer
+      ctx.fillStyle = 'rgba(140, 30, 60, 0.92)';
+      ctx.beginPath();
+      ctx.ellipse(screenX, fY - 5 - rH * 0.55, rW * 0.85, rH * 0.85,
+                  0, 0, Math.PI * 2);
+      ctx.fill();
+      // Bright bioluminescent tip — the glowing organelle
+      ctx.shadowBlur = 5;
+      ctx.shadowColor = 'rgba(160, 255, 200, 0.9)';
+      ctx.fillStyle = 'rgba(180, 255, 220, 0.95)';
+      ctx.beginPath();
+      ctx.ellipse(screenX, fY - 5 - rH * 0.85, rW * 0.45, rH * 0.45,
+                  0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // ---- GILL SLITS — paired vertical slits along the ceiling that
+    // let bioluminescent cyan light leak in from outside the body.
+    // Spaced every 60 world-units; each slit is a dark vertical line
+    // with a soft cyan glow halo above and a thin highlight at the
+    // ceiling edge so it reads as an opening, not a crack.
+    const gillStep = 60;
+    for (let gx = bodyStart + 26; gx < bodyEnd - 14; gx += gillStep) {
+      const screenX = gx - dailyScrollX;
+      if (screenX < -12 || screenX > W + 12) continue;
+      const ceilingY = terrainHeightAt(gx) + TUNNEL_CEILING_OFFSET;
+      // Pulsing cyan glow from above the slit (leaking light)
+      const gillGlow = 0.55 + 0.35 * Math.sin(frame * 0.07 + gx * 0.013);
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'rgba(120, 240, 220, 0.95)';
+      ctx.fillStyle = 'rgba(140, 255, 230, ' + gillGlow * 0.85 + ')';
+      ctx.beginPath();
+      ctx.ellipse(screenX, ceilingY + 1, 5, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Pair of dark vertical slits — the actual gill openings
+      ctx.fillStyle = 'rgba(8, 20, 18, 0.95)';
+      ctx.fillRect(screenX - 2.4, ceilingY - 0.5, 1.2, 5);
+      ctx.fillRect(screenX + 1.2, ceilingY - 0.5, 1.2, 5);
+      // Inner cyan light line down the centre of each slit
+      ctx.fillStyle = 'rgba(180, 255, 230, ' + gillGlow + ')';
+      ctx.fillRect(screenX - 1.95, ceilingY,     0.5, 4);
+      ctx.fillRect(screenX + 1.55, ceilingY,     0.5, 4);
+      // Thin highlight along the ceiling edge between the slits
+      ctx.fillStyle = 'rgba(255, 200, 220, 0.55)';
+      ctx.fillRect(screenX - 3.2, ceilingY - 1, 6.4, 0.8);
+    }
   }
 
 
@@ -14677,51 +14888,52 @@ const DLX_BUILD = 'v302';
       ctx.translate(Math.round(tf.x), Math.round(tf.y));
 
       // Subtle ground shadow so the rig still senses something hovers
-      // over it. Smaller than the gunship version since the phage is
-      // softer and translucent.
+      // over it. Bigger to match the bumped-up phage body in v303.
       const shadowAlpha = (tf.state === 'lower') ? 0.34 : 0.18;
       ctx.fillStyle = 'rgba(10, 4, 6, ' + shadowAlpha + ')';
       const shY = (PLAY_H - 28) - tf.y;
       ctx.beginPath();
-      ctx.ellipse(0, shY, 26, 5, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, shY, 36, 6, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // ---- Trailing tendrils where the gunship's engine flames go.
-      // Three thin curling tendrils sweep behind the body, animating
-      // each frame so the creature looks like it's swimming forward.
+      // Five thin curling tendrils (v303: more + longer) sweep behind
+      // the body, animating each frame so the creature looks like it's
+      // swimming forward.
       const flowPhase = frame * 0.18 + tf.x * 0.01;
-      ctx.strokeStyle = 'rgba(120, 220, 160, 0.85)';
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = 'rgba(120, 220, 160, 0.88)';
+      ctx.lineWidth = 2.0;
       ctx.lineCap = 'round';
-      for (let t = 0; t < 3; t++) {
-        const yOff = -8 + t * 8;
+      for (let t = 0; t < 5; t++) {
+        const yOff = -14 + t * 7;
         ctx.beginPath();
-        ctx.moveTo(28, yOff);
-        for (let s = 1; s <= 8; s++) {
-          const tt = s / 8;
-          const px = 28 + tt * 22;
-          const py = yOff + Math.sin(flowPhase + t * 1.4 + tt * 2.5) * (3 + tt * 4);
+        ctx.moveTo(38, yOff);
+        for (let s = 1; s <= 9; s++) {
+          const tt = s / 9;
+          const px = 38 + tt * 32;
+          const py = yOff + Math.sin(flowPhase + t * 1.4 + tt * 2.5) * (4 + tt * 5);
           ctx.lineTo(px, py);
         }
         ctx.stroke();
       }
       // Glowing tip droplets at the trailing ends
-      ctx.fillStyle = 'rgba(180, 255, 200, 0.9)';
-      ctx.shadowBlur = 5;
-      ctx.shadowColor = 'rgba(120, 240, 180, 0.95)';
-      for (let t = 0; t < 3; t++) {
-        const yOff = -8 + t * 8 + Math.sin(flowPhase + t * 1.4 + 2.5) * 7;
+      ctx.fillStyle = 'rgba(200, 255, 220, 0.95)';
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = 'rgba(140, 255, 200, 0.95)';
+      for (let t = 0; t < 5; t++) {
+        const yOff = -14 + t * 7 + Math.sin(flowPhase + t * 1.4 + 2.5) * 9;
         ctx.beginPath();
-        ctx.arc(50, yOff, 1.4, 0, Math.PI * 2);
+        ctx.arc(70, yOff, 1.8, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.shadowBlur = 0;
 
       // ---- Body — bulbous translucent gel sac with a slight breath
-      // pulse so it reads as alive. Wider than tall, faint outer halo.
+      // pulse so it reads as alive. v303 grew the body 1.55x so it
+      // bears down on the rig as a real predator.
       const breath = 1 + 0.06 * Math.sin(frame * 0.09 + tf.x * 0.013);
-      const bw = 26 * breath;
-      const bh = 17 * breath;
+      const bw = 40 * breath;
+      const bh = 26 * breath;
       // Outer membrane glow
       ctx.shadowBlur = 14;
       ctx.shadowColor = 'rgba(120, 240, 180, 0.9)';
@@ -14750,15 +14962,16 @@ const DLX_BUILD = 'v302';
 
       // ---- Multi-eye cluster on the front (left side). Five small
       // dark spots arranged in an arc, with one larger central eye.
-      // Reads as alien insectoid biology, not a cockpit.
+      // Reads as alien insectoid biology, not a cockpit. v303 scaled
+      // sizes to match the bigger body.
       const eyeCx = -bw * 0.55, eyeCy = -bh * 0.05;
       ctx.fillStyle = '#04200a';
       const eyePositions = [
-        { x: -3,   y: -4, r: 1.0 },
-        { x:  0,   y: -5, r: 1.1 },
-        { x:  3,   y: -4, r: 1.0 },
-        { x: -2.5, y:  3, r: 0.9 },
-        { x:  2.5, y:  3, r: 0.9 },
+        { x: -4.6, y: -6.2, r: 1.5 },
+        { x:  0,   y: -7.8, r: 1.7 },
+        { x:  4.6, y: -6.2, r: 1.5 },
+        { x: -3.9, y:  4.6, r: 1.4 },
+        { x:  3.9, y:  4.6, r: 1.4 },
       ];
       for (const e of eyePositions) {
         ctx.beginPath();
@@ -14767,48 +14980,48 @@ const DLX_BUILD = 'v302';
       }
       // Big central eye, glowing red — locks onto its target
       const lockGlow = (tf.state === 'lower') ? 1 : 0.5;
-      ctx.shadowBlur = 6 * lockGlow;
+      ctx.shadowBlur = 9 * lockGlow;
       ctx.shadowColor = 'rgba(255, 60, 80, 0.95)';
       ctx.fillStyle = 'rgba(255, 80, 100, ' + (0.85 + lockGlow * 0.15) + ')';
       ctx.beginPath();
-      ctx.arc(eyeCx, eyeCy, 2.2, 0, Math.PI * 2);
+      ctx.arc(eyeCx, eyeCy, 3.4, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#180408';
       ctx.beginPath();
-      ctx.arc(eyeCx, eyeCy, 0.9, 0, Math.PI * 2);
+      ctx.arc(eyeCx, eyeCy, 1.4, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // ---- Top tendrils — 4 short curly tendrils on the upper body
+      // ---- Top tendrils — 5 short curly tendrils on the upper body
       // waving in the cavern current. Lend the body its alien-creature
-      // silhouette (no rigid hull, no spike rams).
+      // silhouette (no rigid hull, no spike rams). v303: more + longer.
       ctx.strokeStyle = 'rgba(80, 180, 110, 0.9)';
-      ctx.lineWidth = 1.4;
-      for (let i = 0; i < 4; i++) {
-        const baseX = -bw * 0.5 + i * (bw * 0.33);
+      ctx.lineWidth = 1.8;
+      const TENDRIL_LEN = 14;
+      for (let i = 0; i < 5; i++) {
+        const baseX = -bw * 0.5 + i * (bw * 0.25);
         const phase = flowPhase * 0.7 + i * 0.9;
         ctx.beginPath();
         ctx.moveTo(baseX, -bh + 1);
-        for (let s = 1; s <= 6; s++) {
-          const tt = s / 6;
-          const len = 9;
-          const px = baseX + Math.sin(phase + tt * 2.6) * 3 * tt;
-          const py = -bh + 1 - tt * len;
+        for (let s = 1; s <= 7; s++) {
+          const tt = s / 7;
+          const px = baseX + Math.sin(phase + tt * 2.6) * 4 * tt;
+          const py = -bh + 1 - tt * TENDRIL_LEN;
           ctx.lineTo(px, py);
         }
         ctx.stroke();
       }
-      // Tiny glowing nodules at the top-tendril tips
-      ctx.fillStyle = 'rgba(180, 255, 220, 0.95)';
-      ctx.shadowBlur = 4;
-      ctx.shadowColor = 'rgba(140, 255, 200, 0.9)';
-      for (let i = 0; i < 4; i++) {
-        const baseX = -bw * 0.5 + i * (bw * 0.33);
+      // Glowing nodules at the top-tendril tips
+      ctx.fillStyle = 'rgba(200, 255, 230, 0.95)';
+      ctx.shadowBlur = 5;
+      ctx.shadowColor = 'rgba(140, 255, 200, 0.95)';
+      for (let i = 0; i < 5; i++) {
+        const baseX = -bw * 0.5 + i * (bw * 0.25);
         const phase = flowPhase * 0.7 + i * 0.9;
-        const tipX = baseX + Math.sin(phase + 2.6) * 3;
-        const tipY = -bh + 1 - 9;
+        const tipX = baseX + Math.sin(phase + 2.6) * 4;
+        const tipY = -bh + 1 - TENDRIL_LEN;
         ctx.beginPath();
-        ctx.arc(tipX, tipY, 1.0, 0, Math.PI * 2);
+        ctx.arc(tipX, tipY, 1.5, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.shadowBlur = 0;
@@ -18952,6 +19165,7 @@ const DLX_BUILD = 'v302';
     if (isDaily) drawDailySky();
     else drawBackground();
     if (isDaily) drawDailyDust();   // light atmospheric dust over the sky
+    if (isDaily) drawDailyBubbles(); // rising bubbles inside organic-theme cavities
     drawBoss();              // body is below PLAY_H now — the ground covers it
     if (!isDaily) {
       drawAllDebris();
@@ -19803,36 +20017,40 @@ const DLX_BUILD = 'v302';
     },
     leviathan: {
       label: 'THE LEVIATHAN',
-      // Fleshy interior of a colossal creature: deep magentas at the
-      // ceiling fading down through pulsing pinks to a darker organic
-      // floor band. No sun, no warm sky — bioluminescent gloom.
+      // Fleshy interior of a colossal creature: hot fluorescent magentas
+      // at the ceiling fading down through saturated pinks to a deep
+      // crimson floor band. No sun, no warm sky — wet bioluminescent
+      // gloom. v303 pushed the saturation up everywhere so the cavity
+      // reads as ALIVE rather than a muted background.
       skyPalette: [
-        { stop: 0,    color: '#3a0818' },
-        { stop: 0.35, color: '#6e1a30' },
-        { stop: 0.65, color: '#a82a48' },
-        { stop: 1,    color: '#5a1428' },
+        { stop: 0,    color: '#4a0a2c' },
+        { stop: 0.35, color: '#8a1c52' },
+        { stop: 0.65, color: '#d8326a' },
+        { stop: 1,    color: '#601434' },
       ],
       skyMoons: 'none',                     // you're inside a creature; no moons
-      hazeStripeColor: 'rgba(255, 80, 120, 0.08)',
-      dustMoteColor: 'rgba(120, 240, 180, 0.55)',  // bioluminescent specks
-      dustEmberStart: [180, 255, 220],             // bright bio-green
-      dustEmberEnd:   [110, 230, 240],             // shifting toward cyan
-      groundBand: '#1a0610',
+      hazeStripeColor: 'rgba(255, 110, 180, 0.10)',
+      dustMoteColor: 'rgba(160, 255, 220, 0.70)',  // bright bioluminescent specks
+      dustEmberStart: [200, 255, 230],             // hot bio-green
+      dustEmberEnd:   [120, 255, 250],             // bright cyan
+      groundBand: '#1a0612',
       horizonStyle: 'cavern',
       // Fleshy "dune" tones — organ undulations rather than sand.
-      horizonDuneFarColor: 'rgba(120, 28, 50, 0.85)',
-      horizonDuneMidColor: 'rgba(80, 16, 36, 0.96)',
-      horizonDuneHighlight: 'rgba(255, 140, 180, 0.35)',
+      // Pushed to richer reds with a hotter pink crest highlight.
+      horizonDuneFarColor: 'rgba(150, 36, 70, 0.88)',
+      horizonDuneMidColor: 'rgba(96, 18, 44, 0.96)',
+      horizonDuneHighlight: 'rgba(255, 170, 220, 0.55)',
       earthPalette: [
-        { stop: 0,    color: '#a83048' },
-        { stop: 0.35, color: '#6a1828' },
-        { stop: 0.75, color: '#2a0810' },
-        { stop: 1,    color: '#100308' },
+        { stop: 0,    color: '#c83a5c' },
+        { stop: 0.35, color: '#7a1c34' },
+        { stop: 0.75, color: '#300c14' },
+        { stop: 1,    color: '#10040a' },
       ],
-      // Heartbeat — a faint red tint pulses over the whole sky every
-      // ~3.5 seconds. Visual only; doesn't affect rig physics in MVP.
+      // Heartbeat — a hot fluorescent pink tint pulses over the whole
+      // sky every ~3.5 seconds. Visual only; doesn't affect rig physics
+      // in MVP.
       ambientField: 'pulse',
-      pulseTintColor: 'rgba(255, 40, 70, 0.18)',
+      pulseTintColor: 'rgba(255, 70, 150, 0.22)',
       pulseTintAmp: 1.0,
       pulsePeriodFrames: 210,               // ~3.5s at 60fps
       dispatchLabel: 'PARASITOLOGY OUTPOST',
@@ -20018,6 +20236,22 @@ const DLX_BUILD = 'v302';
     { wall: '#1c0604', mid: '#3a1206', light: '#6a281a' },
     // 3 — BLACK EARTH (very dark soil brown — wet, cave-like dirt)
     { wall: '#0c0604', mid: '#20100a', light: '#3a200e' },
+  ];
+
+  // Organic-theme cavern palettes — fleshy stomach / esophagus / vein
+  // interiors for levels where tunnels are organ tubes inside a creature.
+  // Used by drawDailyTerrain when currentDeliveryLevel.obstacleTheme is
+  // 'organic'. Same paletteIdx slot map so per-tunnel variation still
+  // works (each tunnel keeps its own seeded palette index).
+  const ORGAN_TUNNEL_PALETTES = [
+    // 0 — STOMACH LINING (deep wet red with pulsing pink midline)
+    { wall: '#1a0410', mid: '#3a0a1c', light: '#8a1c44' },
+    // 1 — ESOPHAGUS (warmer pink-brown undertone)
+    { wall: '#1c0610', mid: '#420e22', light: '#7a1c3a' },
+    // 2 — BRIGHT FLESH (more saturated, almost magenta)
+    { wall: '#200818', mid: '#4a1230', light: '#a02856' },
+    // 3 — VEIN INTERIOR (darkest, deep crimson-purple)
+    { wall: '#100208', mid: '#28061a', light: '#5a1830' },
   ];
   function tunnelFloorY(o) {
     return o.floorY != null ? o.floorY : (PLAY_H - 8);
