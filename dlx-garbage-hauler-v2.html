@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v303';
+const DLX_BUILD = 'v304';
 
 (function() {
   // ---------- Device detection ----------
@@ -10998,7 +10998,10 @@ const DLX_BUILD = 'v303';
 
   // Procedurally-placed butte outcrops along the dunes — bigger than
   // the small rocks in drawDailyScenery, deterministic per world-slot.
+  // Citadel-only — buttes are mesa rock outcrops and don't belong in a
+  // body cavity.
   function drawDailyButtes() {
+    if (currentDeliveryLevel.horizonStyle !== 'citadel') return;
     const slot = 180;
     const startX = Math.floor(dailyScrollX / slot) - 1;
     const endX   = Math.floor((dailyScrollX + W) / slot) + 1;
@@ -11060,6 +11063,9 @@ const DLX_BUILD = 'v303';
 
   function drawDailyHazards() {
     if (!isDaily) return;
+    // Cacti, spikes, rocks are wasteland flavor — no cacti grow inside
+    // a creature. Skip the whole layer for non-citadel levels.
+    if (currentDeliveryLevel.horizonStyle !== 'citadel') return;
     ctx.save();
     for (const h of dailyHazards) {
       // Hide surface hazards over a tunnel — the dune dips through
@@ -11213,12 +11219,14 @@ const DLX_BUILD = 'v303';
   // the arch frame is wide and you're meant to pass under it).
   function drawDailyLandmarks() {
     if (!isDaily) return;
-    // Roadside Americana (DLX hangar, GOOD BUDDY diner, kitschy signs) is
-    // wasteland flavor — only render it for the citadel-style horizon.
-    // Other levels (Leviathan's cavern, future biomes) skip the whole set
-    // until they ship their own landmark art in a follow-up.
-    if (currentDeliveryLevel.horizonStyle !== 'citadel') return;
+    // Roadside Americana (kitschy signs / arches / drive-in / sphinx /
+    // office) is wasteland flavor — only render it for the citadel-style
+    // horizon. Origin + truckStop are gameplay anchors and ALWAYS render;
+    // their renderers dispatch on horizonStyle so cavern levels get a
+    // mouth-entry + organ-dock instead of the DLX hangar + GOOD BUDDY.
+    const isCitadel = currentDeliveryLevel.horizonStyle === 'citadel';
     for (const lm of DAILY_LANDMARKS) {
+      if (!isCitadel && lm.kind !== 'origin' && lm.kind !== 'truckStop') continue;
       // Hide cluttery roadside landmarks (signs, arches, etc.) when a
       // tunnel happens to spawn over them, but ALWAYS draw the
       // dispatch base (origin) and the Good Buddy truck stop —
@@ -11520,6 +11528,10 @@ const DLX_BUILD = 'v303';
   // landed cargo crates showing "delivery zone". Mirrors the warehouse
   // hangar at the start of the run for a clean visual bookend.
   function drawLandmarkTruckStop(x, y) {
+    if (currentDeliveryLevel.obstacleTheme === 'organic') {
+      drawLandmarkOrganicHeart(x, y);
+      return;
+    }
     ctx.save();
     // Match the warehouse runway altitude so the rig docks at the same
     // height it launched from
@@ -12320,6 +12332,10 @@ const DLX_BUILD = 'v303';
   // caution-striped runway that extends out the open right side.
   // Hangar floor + interior align with where the rig sits at start.
   function drawLandmarkOrigin(x, y) {
+    if (currentDeliveryLevel.obstacleTheme === 'organic') {
+      drawLandmarkOrganicMouth(x, y);
+      return;
+    }
     ctx.save();
     // Hangar interior floor matches the rig's parking altitude. Floor
     // edge sits ~22px below mid-screen so the rig sits ON it cleanly.
@@ -12505,6 +12521,239 @@ const DLX_BUILD = 'v303';
     ctx.restore();
   }
 
+  // Organic-theme dispatch landmark — the rig launches from inside the
+  // creature's MOUTH. Wide cavernous opening with rows of pale teeth on
+  // top and bottom, a fleshy pink tongue along the floor that the rig
+  // sits on, and a backlit cyan glow from the outside world bleeding in
+  // through the throat. Sized to match the original DLX hangar's footprint
+  // so the launch animation lands the rig in the right spot.
+  function drawLandmarkOrganicMouth(x, y) {
+    ctx.save();
+    const floorY    = PLAY_H / 2 + 28;       // matches original runway altitude
+    const ceilingY  = PLAY_H / 2 - 70;
+    const backWallX = x - 110;
+    const frontX    = x + 30;
+    const w         = frontX - backWallX;
+
+    // ---- BACKLIT THROAT GLOW — bright cyan-green band bleeding in
+    // from outside the body (the world the rig came from). Placed first
+    // so all other layers overlay it.
+    const throatGrad = ctx.createLinearGradient(backWallX, 0, backWallX + w * 0.6, 0);
+    throatGrad.addColorStop(0,   'rgba(160, 255, 230, 0.70)');
+    throatGrad.addColorStop(0.6, 'rgba(80, 220, 200, 0.20)');
+    throatGrad.addColorStop(1,   'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = throatGrad;
+    ctx.fillRect(backWallX, ceilingY, w, floorY - ceilingY);
+
+    // ---- ROOF OF MOUTH — soft fleshy red dome curving down from the
+    // ceiling. Drawn as a flattened arc.
+    ctx.fillStyle = '#5a0e26';
+    ctx.beginPath();
+    ctx.moveTo(backWallX, ceilingY);
+    ctx.quadraticCurveTo(
+      backWallX + w * 0.5, ceilingY - 24,
+      frontX, ceilingY
+    );
+    ctx.lineTo(frontX, ceilingY + 22);
+    ctx.lineTo(backWallX, ceilingY + 22);
+    ctx.closePath();
+    ctx.fill();
+    // Wet highlight along the roof
+    ctx.fillStyle = 'rgba(255, 130, 180, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(backWallX + 6, ceilingY + 4);
+    ctx.quadraticCurveTo(
+      backWallX + w * 0.5, ceilingY - 14,
+      frontX - 6, ceilingY + 4
+    );
+    ctx.lineTo(frontX - 6, ceilingY + 8);
+    ctx.quadraticCurveTo(
+      backWallX + w * 0.5, ceilingY - 6,
+      backWallX + 6, ceilingY + 8
+    );
+    ctx.closePath();
+    ctx.fill();
+
+    // ---- TONGUE — fleshy pink tongue lying along the floor. The rig
+    // sits ON this. Curls up at the front edge so the tongue reads as
+    // EXITING the mouth.
+    const tongueY = floorY - 6;
+    const tongueGrad = ctx.createLinearGradient(0, tongueY - 8, 0, tongueY + 8);
+    tongueGrad.addColorStop(0, '#e8588c');
+    tongueGrad.addColorStop(0.5, '#c83870');
+    tongueGrad.addColorStop(1, '#7a1c44');
+    ctx.fillStyle = tongueGrad;
+    ctx.beginPath();
+    ctx.moveTo(backWallX, tongueY + 12);
+    ctx.lineTo(backWallX, tongueY - 6);
+    ctx.quadraticCurveTo(
+      x, tongueY - 9,
+      frontX, tongueY - 4
+    );
+    ctx.quadraticCurveTo(
+      frontX + 12, tongueY - 8,
+      frontX + 18, tongueY - 2
+    );
+    ctx.lineTo(frontX + 18, tongueY + 12);
+    ctx.closePath();
+    ctx.fill();
+    // Wet specular highlight along the tongue's centerline
+    ctx.strokeStyle = 'rgba(255, 200, 220, 0.65)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(backWallX + 14, tongueY - 4);
+    ctx.quadraticCurveTo(x, tongueY - 7, frontX, tongueY - 3);
+    ctx.stroke();
+
+    // ---- TEETH — thin pale spikes along top + bottom of the opening
+    // pointing inward. Top row hangs from the roof; bottom row stands
+    // on the tongue.
+    ctx.fillStyle = '#f4e6d0';
+    const TEETH = 7;
+    for (let i = 0; i < TEETH; i++) {
+      const tx = backWallX + 12 + i * (w - 24) / (TEETH - 1);
+      // Top tooth
+      ctx.beginPath();
+      ctx.moveTo(tx - 2.5, ceilingY + 18);
+      ctx.lineTo(tx + 2.5, ceilingY + 18);
+      ctx.lineTo(tx,        ceilingY + 18 + 8);
+      ctx.closePath();
+      ctx.fill();
+      // Bottom tooth (skip the front-most so the tongue reads as exiting cleanly)
+      if (i < TEETH - 1) {
+        ctx.beginPath();
+        ctx.moveTo(tx - 2.5, tongueY - 4);
+        ctx.lineTo(tx + 2.5, tongueY - 4);
+        ctx.lineTo(tx,        tongueY - 4 - 7);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    // Tooth shadow base
+    ctx.fillStyle = 'rgba(80, 16, 36, 0.55)';
+    ctx.fillRect(backWallX + 6, ceilingY + 18, w - 12, 1);
+
+    ctx.restore();
+  }
+
+  // Organic-theme dock landmark — the cargo gets implanted into a
+  // pulsing CARDIAC ORGAN at the end of the run. A large veined sphere
+  // embedded in the cavity floor, with a glowing receptacle slot facing
+  // the rig. Pulses with the level heartbeat so it feels alive.
+  function drawLandmarkOrganicHeart(x, y) {
+    ctx.save();
+    const cx = x;
+    const cy = PLAY_H / 2 + 8;
+    // Heartbeat sync — same period the sky pulse uses.
+    const period = currentDeliveryLevel.pulsePeriodFrames || 210;
+    const t = (frame % period) / period;
+    const beat = Math.max(0, Math.sin(Math.PI * Math.min(1, t * 5.0)) * (1 - t * 0.6));
+    const pulse = 1 + beat * 0.12;
+    const baseR = 60 * pulse;
+
+    // ---- Outer glow halo
+    ctx.shadowBlur = 30;
+    ctx.shadowColor = 'rgba(255, 80, 130, 0.95)';
+    ctx.fillStyle = 'rgba(255, 100, 160, ' + (0.20 + beat * 0.18) + ')';
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseR * 1.40, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // ---- Organ body — radial gradient from a wet highlight on the
+    // upper-left to a deep crimson rim, with a slight magenta core.
+    const bodyGrad = ctx.createRadialGradient(
+      cx - baseR * 0.30, cy - baseR * 0.30, baseR * 0.10,
+      cx,                cy,                baseR
+    );
+    bodyGrad.addColorStop(0,    'rgba(255, 200, 230, 0.95)');
+    bodyGrad.addColorStop(0.30, 'rgba(255, 100, 160, 0.95)');
+    bodyGrad.addColorStop(0.70, 'rgba(180,  40, 90,  0.95)');
+    bodyGrad.addColorStop(1,    'rgba(80,   12, 40,  0.95)');
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, baseR, baseR * 0.92, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ---- VEIN NETWORK — branching dark veins crossing the organ
+    // surface. Static per-frame pattern (doesn't animate, so the brain
+    // reads them as anatomical structure).
+    ctx.strokeStyle = 'rgba(60, 12, 30, 0.85)';
+    ctx.lineWidth = 1.4;
+    const veinPaths = [
+      [[-0.85, -0.20], [-0.55, -0.10], [-0.40, 0.30], [-0.20, 0.55]],
+      [[ 0.85, -0.10], [ 0.55,  0.05], [ 0.30, 0.30], [ 0.10, 0.55]],
+      [[-0.30, -0.85], [-0.10, -0.50], [ 0.10, -0.10]],
+      [[ 0.30, -0.85], [ 0.10, -0.50], [-0.10, -0.10]],
+      [[-0.65,  0.55], [-0.20,  0.65], [ 0.20, 0.55], [ 0.65, 0.40]],
+    ];
+    for (const path of veinPaths) {
+      ctx.beginPath();
+      for (let p = 0; p < path.length; p++) {
+        const px = cx + path[p][0] * baseR;
+        const py = cy + path[p][1] * baseR;
+        if (p === 0) ctx.moveTo(px, py);
+        else         ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    // Brighter vein cores pulsing with the heartbeat
+    ctx.strokeStyle = 'rgba(255, 120, 180, ' + (0.55 + beat * 0.35) + ')';
+    ctx.lineWidth = 0.7;
+    for (const path of veinPaths) {
+      ctx.beginPath();
+      for (let p = 0; p < path.length; p++) {
+        const px = cx + path[p][0] * baseR;
+        const py = cy + path[p][1] * baseR;
+        if (p === 0) ctx.moveTo(px, py);
+        else         ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+
+    // ---- RECEPTACLE SLOT — dark inset on the left side of the organ
+    // facing the rig. This is where the cargo gets implanted.
+    const slotX = cx - baseR * 0.55;
+    const slotY = cy;
+    ctx.fillStyle = 'rgba(20, 4, 12, 0.95)';
+    ctx.beginPath();
+    ctx.ellipse(slotX, slotY, 14, 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Inner glow within the slot — pulses brighter on each beat
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = 'rgba(255, 120, 200, 0.95)';
+    ctx.fillStyle = 'rgba(255, 140, 220, ' + (0.55 + beat * 0.40) + ')';
+    ctx.beginPath();
+    ctx.ellipse(slotX, slotY, 8, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Tiny core spark
+    ctx.fillStyle = 'rgba(255, 240, 250, ' + (0.85 + beat * 0.15) + ')';
+    ctx.beginPath();
+    ctx.arc(slotX, slotY, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ---- ROOTS — fleshy tendrils anchoring the organ to the cavity
+    // floor below it.
+    ctx.strokeStyle = 'rgba(120, 24, 50, 0.85)';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    for (let r = -2; r <= 2; r++) {
+      const rootX = cx + r * 14;
+      ctx.beginPath();
+      ctx.moveTo(rootX, cy + baseR * 0.85);
+      ctx.bezierCurveTo(
+        rootX + r * 4, cy + baseR + 12,
+        rootX + r * 8, cy + baseR + 24,
+        rootX + r * 6, PLAY_H + 4
+      );
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+
+    ctx.restore();
+  }
+
   // A single warehouse block — sandstone body with a terracotta roof
   // eave, optional yellow windows at random rows.
   function drawWarehouseBlock(cx, baseY, w, h, hasWindows) {
@@ -12615,6 +12864,10 @@ const DLX_BUILD = 'v303';
   // deterministically along the highway so the dunes feel inhabited.
   function drawDailyScenery() {
     if (!isDaily) return;
+    // Cacti / skulls / trash / rocks / brush are wasteland flavor — only
+    // render them when the level uses the citadel horizon. Other levels
+    // ship their own ground props (or skip them entirely) in a follow-up.
+    if (currentDeliveryLevel.horizonStyle !== 'citadel') return;
     ctx.save();
     const slot = 70; // world-units between potential prop slots
     const startX = Math.floor(dailyScrollX / slot) - 1;
@@ -13116,21 +13369,12 @@ const DLX_BUILD = 'v303';
   // for a few seconds, sweep through their reach, then sink back.
   function drawDailyTentacles() {
     if (!isDaily || !dailyTentacles.length) return;
-    // Per-level tentacle palette. Desert tentacles read as kraken-y wine;
-    // organic levels (Leviathan) shift to fleshier reds with a brighter
-    // pulsing highlight and bioluminescent suckers + eye.
-    const organic = currentDeliveryLevel.obstacleTheme === 'organic';
-    const pal = organic ? {
-      spine: '#3a0810',
-      spineW: 10,                         // thicker = fleshier tendril
-      highlight: '#d44a70',
-      highlightW: 4.2,
-      sucker: '#a8ffc8',
-      mound: '#1a0408',
-      eyeColor: 'rgba(120, 240, 180, 0.95)',
-      eyeShadow: '#80ffc8',
-      eyeCore: '#063018',
-    } : {
+    if (currentDeliveryLevel.obstacleTheme === 'organic') {
+      drawDailyMaws();
+      return;
+    }
+    // Desert tentacles — kraken-y wine palette.
+    const pal = {
       spine: '#5a1830',
       spineW: 8,
       highlight: '#a0405a',
@@ -13222,6 +13466,199 @@ const DLX_BUILD = 'v303';
         ctx.fill();
         ctx.shadowBlur = 0;
       }
+      ctx.restore();
+    }
+  }
+
+  // Organic re-skin of the ground tentacles for cavern/body levels.
+  // Replaces the desert kraken-arm visual with an ALIEN MAW CREATURE
+  // emerging from the cavity floor: a bulbous bioluminescent head with
+  // two big alien eyes and a wide gaping mouth lined with teeth, plus
+  // three tentacle arms reaching upward (those still drive the cargo-
+  // grab mechanic so peakLen / sway pattern stays the same).
+  function drawDailyMaws() {
+    for (const t of dailyTentacles) {
+      const sx = Math.round(t.worldX - dailyScrollX);
+      if (sx < -100 || sx > W + 100) continue;
+      const gy = Math.round(terrainHeightAt(sx + dailyScrollX));
+      // 0..1 reach factor matching the desert version's animation.
+      let reach = 0;
+      if (t.life < 60)            reach = t.life / 60;
+      else if (t.life < t.maxLife - 60) reach = 1;
+      else                         reach = (t.maxLife - t.life) / 60;
+      const peakLen = 150 * Math.max(0, reach);
+      // The HEAD rises from below the ground to its peak so the creature
+      // EMERGES rather than appearing fully formed.
+      const headRise = 30 * Math.max(0, reach);
+      ctx.save();
+      ctx.translate(sx, gy);
+
+      // ---- TENTACLE ARMS — three flesh tendrils reaching up from the
+      // creature's shoulders. Drawn FIRST so the head sits in front of
+      // their bases.
+      const armCount = 3;
+      ctx.lineCap = 'round';
+      for (let a = 0; a < armCount; a++) {
+        const angOffset = (a - 1) * 0.45;
+        const swayPhase = t.phase + a * 1.7;
+        // Outer flesh body
+        ctx.strokeStyle = '#3a0810';
+        ctx.lineWidth = 11;
+        ctx.beginPath();
+        ctx.moveTo(0, -headRise * 0.25);
+        for (let s = 1; s <= 12; s++) {
+          const tt = s / 12;
+          const px = Math.sin(tt * 1.6 + swayPhase) * 16 * tt
+                   + angOffset * peakLen * tt;
+          const py = -headRise * 0.25 - tt * peakLen;
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        // Brighter pulsing inner stripe
+        ctx.strokeStyle = '#d44a70';
+        ctx.lineWidth = 4.4;
+        ctx.beginPath();
+        ctx.moveTo(0, -headRise * 0.25);
+        for (let s = 1; s <= 12; s++) {
+          const tt = s / 12;
+          const px = Math.sin(tt * 1.6 + swayPhase) * 16 * tt
+                   + angOffset * peakLen * tt;
+          const py = -headRise * 0.25 - tt * peakLen;
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        // Glowing bioluminescent suckers along the inner side
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = 'rgba(160, 255, 200, 0.9)';
+        ctx.fillStyle = '#a8ffc8';
+        for (let s = 1; s <= 4; s++) {
+          const tt = s / 4;
+          const px = Math.sin(tt * 1.6 + swayPhase) * 16 * tt
+                   + angOffset * peakLen * tt;
+          const py = -headRise * 0.25 - tt * peakLen;
+          ctx.beginPath();
+          ctx.arc(px, py, 1.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+      }
+
+      // ---- HEAD — bulbous bioluminescent dome rising from the floor.
+      // Pulses subtly (heartbeat-ish) and is wider than tall.
+      const breath = 1 + 0.05 * Math.sin(t.phase * 0.4 + t.worldX * 0.013);
+      const headW = 36 * breath;
+      const headH = 26 * breath;
+      const headCy = -headRise;
+      // Outer glow halo
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = 'rgba(255, 80, 160, 0.95)';
+      ctx.fillStyle = 'rgba(255, 100, 180, 0.30)';
+      ctx.beginPath();
+      ctx.ellipse(0, headCy, headW * 1.20, headH * 1.15, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Head body — magenta gel with a wet highlight up top
+      const headGrad = ctx.createRadialGradient(
+        -headW * 0.30, headCy - headH * 0.40, headW * 0.10,
+        0,             headCy,                headW
+      );
+      headGrad.addColorStop(0,    'rgba(255, 220, 240, 0.95)');
+      headGrad.addColorStop(0.30, 'rgba(255, 130, 200, 0.95)');
+      headGrad.addColorStop(0.70, 'rgba(180,  40, 100, 0.95)');
+      headGrad.addColorStop(1,    'rgba(60,   12, 30,  0.95)');
+      ctx.fillStyle = headGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, headCy, headW, headH, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Anatomical fold across the brow
+      ctx.strokeStyle = 'rgba(80, 12, 36, 0.7)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-headW * 0.7, headCy - headH * 0.30);
+      ctx.quadraticCurveTo(0, headCy - headH * 0.55, headW * 0.7, headCy - headH * 0.30);
+      ctx.stroke();
+
+      // ---- EYES — two big alien eyes facing forward (toward the rig
+      // which is to the LEFT of incoming tentacles). Light up brighter
+      // when fully extended so the creature reads as ALERT and HUNTING.
+      const eyeY = headCy - headH * 0.10;
+      const eyeXOff = headW * 0.42;
+      const wakeful = (reach > 0.6) ? 1 : Math.max(0, (reach - 0.2) / 0.4);
+      // Eye whites — pale yellow-green
+      ctx.fillStyle = 'rgba(220, 255, 220, 0.95)';
+      ctx.beginPath(); ctx.arc(-eyeXOff, eyeY, 5.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( eyeXOff, eyeY, 5.4, 0, Math.PI * 2); ctx.fill();
+      // Iris — saturated cyan with soft glow
+      ctx.shadowBlur = 5 * wakeful;
+      ctx.shadowColor = 'rgba(120, 255, 220, 0.95)';
+      ctx.fillStyle = 'rgba(80, 220, 200, ' + (0.85 + 0.15 * wakeful) + ')';
+      ctx.beginPath(); ctx.arc(-eyeXOff, eyeY, 3.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( eyeXOff, eyeY, 3.4, 0, Math.PI * 2); ctx.fill();
+      // Slit pupils tracking the rig (always look LEFT — that's where
+      // the player is; the world scrolls right, rig stays at fixed sx)
+      ctx.fillStyle = '#031818';
+      ctx.beginPath(); ctx.ellipse(-eyeXOff - 1.2, eyeY, 0.9, 2.6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse( eyeXOff - 1.2, eyeY, 0.9, 2.6, 0, 0, Math.PI * 2); ctx.fill();
+      // Tiny white catchlight
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.beginPath(); ctx.arc(-eyeXOff - 0.5, eyeY - 1.5, 0.7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( eyeXOff - 1.7, eyeY - 1.5, 0.7, 0, Math.PI * 2); ctx.fill();
+
+      // ---- MOUTH — wide gaping maw across the lower head. Opens in
+      // sync with the creature's reach (closed when retracting, wide
+      // open at full extension).
+      const mouthY  = headCy + headH * 0.30;
+      const mouthW  = headW * 0.78;
+      const mouthH  = 5 + 6 * Math.max(0, reach);
+      // Dark cavity
+      ctx.fillStyle = 'rgba(15, 4, 12, 0.95)';
+      ctx.beginPath();
+      ctx.ellipse(0, mouthY, mouthW * 0.5, mouthH, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Inner red glow at the back of the throat
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(255, 60, 100, 0.95)';
+      ctx.fillStyle = 'rgba(180, 30, 60, 0.85)';
+      ctx.beginPath();
+      ctx.ellipse(0, mouthY, mouthW * 0.35, mouthH * 0.65, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Teeth — pale spikes along top + bottom of the mouth
+      ctx.fillStyle = '#f0e0c8';
+      const TEETH_M = 6;
+      for (let i = 0; i < TEETH_M; i++) {
+        const tx = -mouthW * 0.4 + i * (mouthW * 0.8) / (TEETH_M - 1);
+        // Top tooth
+        ctx.beginPath();
+        ctx.moveTo(tx - 1.0, mouthY - mouthH * 0.85);
+        ctx.lineTo(tx + 1.0, mouthY - mouthH * 0.85);
+        ctx.lineTo(tx,        mouthY - mouthH * 0.10);
+        ctx.closePath();
+        ctx.fill();
+        // Bottom tooth
+        ctx.beginPath();
+        ctx.moveTo(tx - 1.0, mouthY + mouthH * 0.85);
+        ctx.lineTo(tx + 1.0, mouthY + mouthH * 0.85);
+        ctx.lineTo(tx,        mouthY + mouthH * 0.10);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // ---- BASE MOUND — fleshy collar where the head meets the floor.
+      // Replaces the desert version's dark ellipse with a wet living
+      // body emerging from the ground.
+      ctx.fillStyle = '#6a1834';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, headW * 0.85, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Wet specular highlight along the front of the collar
+      ctx.fillStyle = 'rgba(255, 140, 200, 0.55)';
+      ctx.beginPath();
+      ctx.ellipse(0, -2, headW * 0.65, 2.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.lineCap = 'butt';
       ctx.restore();
     }
   }
@@ -14408,81 +14845,119 @@ const DLX_BUILD = 'v303';
   }
 
   // Organic re-skin of the lava-ball renderer for cavern/body levels.
-  // Same physics, completely different visual: a dripping bile globule
-  // instead of a fireball. Sickly green-yellow body with a translucent
-  // outer membrane, mucousy drip trail, no white-hot core, no fire glow.
+  // v304 redesigned this as a FLYING JELLYFISH — translucent magenta
+  // bell aimed along the velocity vector with 6 long tentacles
+  // streaming behind it. Reads as "alien medusa torpedoing at you,"
+  // not "green ball." Same arc physics, completely different read.
   function drawDailyBileGlobs() {
     ctx.save();
     for (const lb of dailyLavaBalls) {
-      const pulse = 1 + 0.08 * Math.sin(lb.life * 0.35 + lb.seed);
-      const baseR = lb.r * pulse;
-      const cx = Math.round(lb.x);
-      const cy = Math.round(lb.y);
-      // ---- Mucousy drip trail — translucent green strands shedding
-      // off the trailing edge. Slower fade than the fireball trail
-      // because viscous fluid clings.
-      const TRAIL_LEN = 10;
-      for (let t = 1; t <= TRAIL_LEN; t++) {
-        const tx = Math.round(lb.x - lb.vx * t * 1.6);
-        const ty = Math.round(lb.y - lb.vy * t * 1.6
-                              + Math.sin(lb.life * 0.4 + lb.seed + t * 1.1) * 1.5);
-        const tNorm = t / TRAIL_LEN;
-        const ta = 0.55 * (1 - tNorm);
-        const tr = baseR * (1 - tNorm * 0.7);
-        if (tr < 1 || ta <= 0) continue;
-        ctx.fillStyle = 'rgba(150, 220, 100, ' + ta + ')';
+      const cx = lb.x;
+      const cy = lb.y;
+      // Aim along the velocity vector so the bell faces forward and
+      // the tentacles trail behind regardless of arc direction.
+      const ang = Math.atan2(lb.vy, lb.vx);
+      // Bell breath pulse — quick contractions while in flight.
+      const breath = 1 + 0.10 * Math.sin(lb.life * 0.45 + lb.seed);
+      const bellR = (lb.r + 1.5) * breath;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(ang);
+
+      // ---- TENTACLES — six long flowing tentacles streaming behind
+      // the bell. Each tentacle is a wavy stroke from the bell's back
+      // edge, drawn first so the bell sits on top of them.
+      const TENT_COUNT = 6;
+      const TENT_LEN   = bellR * 4.8;
+      ctx.strokeStyle = 'rgba(255, 120, 200, 0.85)';
+      ctx.lineWidth = 1.4;
+      ctx.lineCap = 'round';
+      for (let t = 0; t < TENT_COUNT; t++) {
+        const yOff = -bellR * 0.55 + t * (bellR * 1.1 / (TENT_COUNT - 1));
+        const phase = lb.life * 0.35 + t * 1.1 + lb.seed;
         ctx.beginPath();
-        ctx.arc(tx, ty, tr, 0, Math.PI * 2);
+        ctx.moveTo(-bellR * 0.85, yOff);
+        for (let s = 1; s <= 10; s++) {
+          const tt = s / 10;
+          const px = -bellR * 0.85 - tt * TENT_LEN;
+          const py = yOff + Math.sin(phase + tt * 3.0) * (1.2 + tt * 4.0);
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      // Brighter inner highlight strand running through each tentacle
+      ctx.strokeStyle = 'rgba(255, 220, 240, 0.6)';
+      ctx.lineWidth = 0.5;
+      for (let t = 0; t < TENT_COUNT; t++) {
+        const yOff = -bellR * 0.55 + t * (bellR * 1.1 / (TENT_COUNT - 1));
+        const phase = lb.life * 0.35 + t * 1.1 + lb.seed;
+        ctx.beginPath();
+        ctx.moveTo(-bellR * 0.85, yOff);
+        for (let s = 1; s <= 10; s++) {
+          const tt = s / 10;
+          const px = -bellR * 0.85 - tt * TENT_LEN;
+          const py = yOff + Math.sin(phase + tt * 3.0) * (1.2 + tt * 4.0);
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+
+      // ---- OUTER GLOW HALO — soft magenta light around the bell.
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = 'rgba(255, 90, 180, 0.95)';
+      ctx.fillStyle = 'rgba(255, 110, 200, 0.30)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, bellR * 1.55, bellR * 1.20, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // ---- BELL BODY — translucent dome-ish ellipse pointing along
+      // the motion direction. Slightly elongated forward for that
+      // torpedoing-medusa silhouette.
+      const bodyGrad = ctx.createRadialGradient(
+        bellR * 0.30, -bellR * 0.30, bellR * 0.08,
+        0,            0,             bellR * 1.10
+      );
+      bodyGrad.addColorStop(0,    'rgba(255, 230, 245, 0.95)');     // wet highlight
+      bodyGrad.addColorStop(0.30, 'rgba(255, 150, 220, 0.92)');     // bright magenta body
+      bodyGrad.addColorStop(0.70, 'rgba(220,  60, 140, 0.88)');     // saturated pink rim
+      bodyGrad.addColorStop(1,    'rgba(120,  20,  60, 0.80)');     // deep pink edge
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = 'rgba(255, 100, 180, 0.55)';
+      ctx.fillStyle = bodyGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, bellR * 1.40, bellR * 0.95, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // ---- BELL RIM — darker line tracing the bottom edge of the
+      // dome so the bell reads as a CAP, not a flat circle.
+      ctx.strokeStyle = 'rgba(140, 30, 90, 0.85)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, bellR * 1.40, bellR * 0.95, 0,
+                  Math.PI * 0.10, Math.PI * 0.90);
+      ctx.stroke();
+
+      // ---- SENSE ORGANS — three small glowing dots arranged on the
+      // bell pointing forward. Reads as eyes / photoreceptors.
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(255, 240, 250, 0.95)';
+      ctx.fillStyle = 'rgba(255, 240, 255, 0.95)';
+      const dots = [
+        { x: bellR * 0.55, y: -bellR * 0.20, r: 0.9 },
+        { x: bellR * 0.78, y:  0,            r: 1.0 },
+        { x: bellR * 0.55, y:  bellR * 0.20, r: 0.9 },
+      ];
+      for (const d of dots) {
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
         ctx.fill();
       }
-      // ---- Outer membrane glow — soft sickly green halo, much dimmer
-      // than the fireball halo so it reads as wet/translucent, not hot.
-      ctx.shadowBlur = 14;
-      ctx.shadowColor = 'rgba(120, 220, 90, 0.7)';
-      ctx.fillStyle = 'rgba(140, 210, 80, 0.32)';
-      ctx.beginPath();
-      ctx.arc(cx, cy, baseR * 1.45, 0, Math.PI * 2);
-      ctx.fill();
-      // ---- Body — translucent gradient from a yellow-green core to
-      // an algae-rim, with a faint inner highlight that reads as wet
-      // membrane reflecting cavern light.
-      const wob = Math.sin(lb.life * 0.5 + lb.seed) * 1.4;
-      const dirScale = 0.45;
-      const coreOffX = lb.vx * dirScale + Math.sin(lb.life * 0.5 + lb.seed) * 0.8;
-      const coreOffY = lb.vy * dirScale * 0.5;
-      const bodyGrad = ctx.createRadialGradient(
-        cx - baseR * 0.35, cy - baseR * 0.35, baseR * 0.1,
-        cx,                cy,                baseR
-      );
-      bodyGrad.addColorStop(0,    'rgba(220, 255, 180, 0.95)');     // wet highlight
-      bodyGrad.addColorStop(0.30, 'rgba(180, 230, 110, 0.92)');     // yellow-green body
-      bodyGrad.addColorStop(0.70, 'rgba(110, 170,  60, 0.9)');      // bile green
-      bodyGrad.addColorStop(1,    'rgba(60,  90,  30, 0.85)');      // murky algae rim
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = 'rgba(80, 140, 40, 0.6)';
-      ctx.fillStyle = bodyGrad;
-      // Slightly oblong to suggest a dripping liquid blob deformed by
-      // its own velocity.
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, baseR * (1.05 + wob * 0.02), baseR * 0.95,
-                  Math.atan2(lb.vy, lb.vx), 0, Math.PI * 2);
-      ctx.fill();
-      // ---- Tiny dark "nucleus" that drifts inside the membrane —
-      // gives the glob an unsettling alive feel without the fire-orb
-      // brightness.
       ctx.shadowBlur = 0;
-      ctx.fillStyle = 'rgba(40, 70, 20, 0.8)';
-      ctx.beginPath();
-      ctx.arc(cx + coreOffX * 0.7, cy + coreOffY * 0.7,
-              baseR * 0.18, 0, Math.PI * 2);
-      ctx.fill();
-      // Single drip suspended below the body, lengthening with velocity
-      ctx.fillStyle = 'rgba(170, 220, 100, 0.7)';
-      ctx.beginPath();
-      ctx.ellipse(cx, cy + baseR * 0.85,
-                  baseR * 0.18, baseR * 0.32 + Math.abs(lb.vy) * 0.6,
-                  0, 0, Math.PI * 2);
-      ctx.fill();
+
+      ctx.restore();
     }
     ctx.restore();
   }
@@ -14888,52 +15363,51 @@ const DLX_BUILD = 'v303';
       ctx.translate(Math.round(tf.x), Math.round(tf.y));
 
       // Subtle ground shadow so the rig still senses something hovers
-      // over it. Bigger to match the bumped-up phage body in v303.
+      // over it. Sized for the original phage body in v304.
       const shadowAlpha = (tf.state === 'lower') ? 0.34 : 0.18;
       ctx.fillStyle = 'rgba(10, 4, 6, ' + shadowAlpha + ')';
       const shY = (PLAY_H - 28) - tf.y;
       ctx.beginPath();
-      ctx.ellipse(0, shY, 36, 6, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, shY, 26, 5, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // ---- Trailing tendrils where the gunship's engine flames go.
-      // Five thin curling tendrils (v303: more + longer) sweep behind
-      // the body, animating each frame so the creature looks like it's
-      // swimming forward.
+      // Three thin curling tendrils sweep behind the body, animating
+      // each frame so the creature looks like it's swimming forward.
       const flowPhase = frame * 0.18 + tf.x * 0.01;
-      ctx.strokeStyle = 'rgba(120, 220, 160, 0.88)';
-      ctx.lineWidth = 2.0;
+      ctx.strokeStyle = 'rgba(120, 220, 160, 0.85)';
+      ctx.lineWidth = 1.6;
       ctx.lineCap = 'round';
-      for (let t = 0; t < 5; t++) {
-        const yOff = -14 + t * 7;
+      for (let t = 0; t < 3; t++) {
+        const yOff = -8 + t * 8;
         ctx.beginPath();
-        ctx.moveTo(38, yOff);
-        for (let s = 1; s <= 9; s++) {
-          const tt = s / 9;
-          const px = 38 + tt * 32;
-          const py = yOff + Math.sin(flowPhase + t * 1.4 + tt * 2.5) * (4 + tt * 5);
+        ctx.moveTo(28, yOff);
+        for (let s = 1; s <= 8; s++) {
+          const tt = s / 8;
+          const px = 28 + tt * 22;
+          const py = yOff + Math.sin(flowPhase + t * 1.4 + tt * 2.5) * (3 + tt * 4);
           ctx.lineTo(px, py);
         }
         ctx.stroke();
       }
       // Glowing tip droplets at the trailing ends
-      ctx.fillStyle = 'rgba(200, 255, 220, 0.95)';
-      ctx.shadowBlur = 6;
-      ctx.shadowColor = 'rgba(140, 255, 200, 0.95)';
-      for (let t = 0; t < 5; t++) {
-        const yOff = -14 + t * 7 + Math.sin(flowPhase + t * 1.4 + 2.5) * 9;
+      ctx.fillStyle = 'rgba(180, 255, 200, 0.9)';
+      ctx.shadowBlur = 5;
+      ctx.shadowColor = 'rgba(120, 240, 180, 0.95)';
+      for (let t = 0; t < 3; t++) {
+        const yOff = -8 + t * 8 + Math.sin(flowPhase + t * 1.4 + 2.5) * 7;
         ctx.beginPath();
-        ctx.arc(70, yOff, 1.8, 0, Math.PI * 2);
+        ctx.arc(50, yOff, 1.4, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.shadowBlur = 0;
 
       // ---- Body — bulbous translucent gel sac with a slight breath
-      // pulse so it reads as alive. v303 grew the body 1.55x so it
-      // bears down on the rig as a real predator.
+      // pulse so it reads as alive. v304 reverted to the original size
+      // per user feedback that v303's bumped phage felt too big.
       const breath = 1 + 0.06 * Math.sin(frame * 0.09 + tf.x * 0.013);
-      const bw = 40 * breath;
-      const bh = 26 * breath;
+      const bw = 26 * breath;
+      const bh = 17 * breath;
       // Outer membrane glow
       ctx.shadowBlur = 14;
       ctx.shadowColor = 'rgba(120, 240, 180, 0.9)';
@@ -14962,16 +15436,15 @@ const DLX_BUILD = 'v303';
 
       // ---- Multi-eye cluster on the front (left side). Five small
       // dark spots arranged in an arc, with one larger central eye.
-      // Reads as alien insectoid biology, not a cockpit. v303 scaled
-      // sizes to match the bigger body.
+      // Reads as alien insectoid biology, not a cockpit.
       const eyeCx = -bw * 0.55, eyeCy = -bh * 0.05;
       ctx.fillStyle = '#04200a';
       const eyePositions = [
-        { x: -4.6, y: -6.2, r: 1.5 },
-        { x:  0,   y: -7.8, r: 1.7 },
-        { x:  4.6, y: -6.2, r: 1.5 },
-        { x: -3.9, y:  4.6, r: 1.4 },
-        { x:  3.9, y:  4.6, r: 1.4 },
+        { x: -3,   y: -4, r: 1.0 },
+        { x:  0,   y: -5, r: 1.1 },
+        { x:  3,   y: -4, r: 1.0 },
+        { x: -2.5, y:  3, r: 0.9 },
+        { x:  2.5, y:  3, r: 0.9 },
       ];
       for (const e of eyePositions) {
         ctx.beginPath();
@@ -14980,48 +15453,48 @@ const DLX_BUILD = 'v303';
       }
       // Big central eye, glowing red — locks onto its target
       const lockGlow = (tf.state === 'lower') ? 1 : 0.5;
-      ctx.shadowBlur = 9 * lockGlow;
+      ctx.shadowBlur = 6 * lockGlow;
       ctx.shadowColor = 'rgba(255, 60, 80, 0.95)';
       ctx.fillStyle = 'rgba(255, 80, 100, ' + (0.85 + lockGlow * 0.15) + ')';
       ctx.beginPath();
-      ctx.arc(eyeCx, eyeCy, 3.4, 0, Math.PI * 2);
+      ctx.arc(eyeCx, eyeCy, 2.2, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#180408';
       ctx.beginPath();
-      ctx.arc(eyeCx, eyeCy, 1.4, 0, Math.PI * 2);
+      ctx.arc(eyeCx, eyeCy, 0.9, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // ---- Top tendrils — 5 short curly tendrils on the upper body
+      // ---- Top tendrils — 4 short curly tendrils on the upper body
       // waving in the cavern current. Lend the body its alien-creature
-      // silhouette (no rigid hull, no spike rams). v303: more + longer.
+      // silhouette (no rigid hull, no spike rams).
       ctx.strokeStyle = 'rgba(80, 180, 110, 0.9)';
-      ctx.lineWidth = 1.8;
-      const TENDRIL_LEN = 14;
-      for (let i = 0; i < 5; i++) {
-        const baseX = -bw * 0.5 + i * (bw * 0.25);
+      ctx.lineWidth = 1.4;
+      for (let i = 0; i < 4; i++) {
+        const baseX = -bw * 0.5 + i * (bw * 0.33);
         const phase = flowPhase * 0.7 + i * 0.9;
         ctx.beginPath();
         ctx.moveTo(baseX, -bh + 1);
-        for (let s = 1; s <= 7; s++) {
-          const tt = s / 7;
-          const px = baseX + Math.sin(phase + tt * 2.6) * 4 * tt;
-          const py = -bh + 1 - tt * TENDRIL_LEN;
+        for (let s = 1; s <= 6; s++) {
+          const tt = s / 6;
+          const len = 9;
+          const px = baseX + Math.sin(phase + tt * 2.6) * 3 * tt;
+          const py = -bh + 1 - tt * len;
           ctx.lineTo(px, py);
         }
         ctx.stroke();
       }
-      // Glowing nodules at the top-tendril tips
-      ctx.fillStyle = 'rgba(200, 255, 230, 0.95)';
-      ctx.shadowBlur = 5;
-      ctx.shadowColor = 'rgba(140, 255, 200, 0.95)';
-      for (let i = 0; i < 5; i++) {
-        const baseX = -bw * 0.5 + i * (bw * 0.25);
+      // Tiny glowing nodules at the top-tendril tips
+      ctx.fillStyle = 'rgba(180, 255, 220, 0.95)';
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(140, 255, 200, 0.9)';
+      for (let i = 0; i < 4; i++) {
+        const baseX = -bw * 0.5 + i * (bw * 0.33);
         const phase = flowPhase * 0.7 + i * 0.9;
-        const tipX = baseX + Math.sin(phase + 2.6) * 4;
-        const tipY = -bh + 1 - TENDRIL_LEN;
+        const tipX = baseX + Math.sin(phase + 2.6) * 3;
+        const tipY = -bh + 1 - 9;
         ctx.beginPath();
-        ctx.arc(tipX, tipY, 1.5, 0, Math.PI * 2);
+        ctx.arc(tipX, tipY, 1.0, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.shadowBlur = 0;
@@ -19165,7 +19638,6 @@ const DLX_BUILD = 'v303';
     if (isDaily) drawDailySky();
     else drawBackground();
     if (isDaily) drawDailyDust();   // light atmospheric dust over the sky
-    if (isDaily) drawDailyBubbles(); // rising bubbles inside organic-theme cavities
     drawBoss();              // body is below PLAY_H now — the ground covers it
     if (!isDaily) {
       drawAllDebris();
