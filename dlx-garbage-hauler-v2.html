@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v306';
+const DLX_BUILD = 'v307';
 
 (function() {
   // ---------- Device detection ----------
@@ -12333,7 +12333,7 @@ const DLX_BUILD = 'v306';
   // Hangar floor + interior align with where the rig sits at start.
   function drawLandmarkOrigin(x, y) {
     if (currentDeliveryLevel.obstacleTheme === 'organic') {
-      drawLandmarkOrganicPod(x, y);
+      drawLandmarkOrganicArch(x, y);
       return;
     }
     ctx.save();
@@ -12521,23 +12521,22 @@ const DLX_BUILD = 'v306';
     ctx.restore();
   }
 
-  // Organic-theme dispatch landmark — the rig hatches from a BIOLOGICAL
-  // POD anchored to the cavity floor. v306 rebuilt to make every piece
-  // actually visible on screen: bigger silhouette, a real DARK CAVITY
-  // on the right (not just colored flaps), bright cyan glow drawn AFTER
-  // the body so it shows + leaks past the right edge, frayed rim spikes
-  // pointing into the cavity, thicker veins, brighter pulsing cores.
-  function drawLandmarkOrganicPod(x, y) {
+  // Organic-theme dispatch landmark — the rig launches from under a
+  // BONE ARCHWAY rising from the cavity floor. Two curving rib bones
+  // arch up from a fleshy mound and meet at an apex joint, framing a
+  // backlit cyan-green glow that suggests light leaking in from outside
+  // the body. Reads as an anatomical doorway — clean silhouette, no
+  // creature face. Replaces the v305-v306 pod attempt which read as a
+  // creepy alien eye-creature.
+  function drawLandmarkOrganicArch(x, y) {
     ctx.save();
-    const floorY    = PLAY_H / 2 + 28;       // matches original runway altitude
-    const podCx     = x - 24;                // pod center sits LEFT of the launch point
-    const podCy     = floorY - 50;           // pod centered above the rig's parking altitude
-    const podW      = 100;                   // half-width — bumped from 72 for presence
-    const podH      = 72;                    // half-height — bumped from 48
-    const breath    = 1 + 0.05 * Math.sin(frame * 0.06);
-    const w = podW * breath;
-    const h = podH * breath;
-    // Heartbeat sync — used by veins, glow, root pulses.
+    const floorY    = PLAY_H / 2 + 28;
+    const apexX     = x;
+    const apexY     = floorY - 130;
+    const leftBase  = { x: x - 70, y: floorY };
+    const rightBase = { x: x + 60, y: floorY };
+    const boneW     = 14;
+    // Heartbeat sync — drives the backlit glow + anchor pulses.
     const period = currentDeliveryLevel.pulsePeriodFrames || 210;
     const tBeat  = (frame % period) / period;
     const beat   = Math.max(
@@ -12545,206 +12544,153 @@ const DLX_BUILD = 'v306';
       Math.sin(Math.PI * Math.min(1, tBeat * 5.0)) * (1 - tBeat * 0.6)
     );
 
-    // ---- 1. OUTER MAGENTA HALO around the whole pod
-    ctx.shadowBlur = 18;
-    ctx.shadowColor = 'rgba(255, 100, 180, 0.85)';
-    ctx.fillStyle = 'rgba(255, 100, 180, 0.22)';
-    ctx.beginPath();
-    ctx.ellipse(podCx, podCy, w * 1.10, h * 1.15, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // ---- 2. POD BODY — full ellipse, translucent magenta gradient.
-    const membraneGrad = ctx.createRadialGradient(
-      podCx - w * 0.30, podCy - h * 0.30, w * 0.10,
-      podCx,            podCy,            w * 1.05
-    );
-    membraneGrad.addColorStop(0,    'rgba(255, 220, 240, 0.95)');
-    membraneGrad.addColorStop(0.30, 'rgba(255, 130, 200, 0.92)');
-    membraneGrad.addColorStop(0.70, 'rgba(180,  50, 110, 0.92)');
-    membraneGrad.addColorStop(1,    'rgba(70,   16,  40, 0.92)');
-    ctx.fillStyle = membraneGrad;
-    ctx.beginPath();
-    ctx.ellipse(podCx, podCy, w, h, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // ---- 3. VEIN NETWORK — thicker + higher alpha so they actually
-    // read against the magenta body. Plus a brighter pulsing inner
-    // stripe on top synced to the heartbeat.
-    ctx.strokeStyle = 'rgba(40, 8, 22, 0.95)';
-    ctx.lineWidth = 2.4;
-    const veinPaths = [
-      [[-0.85, -0.20], [-0.55, -0.05], [-0.25, 0.30], [-0.05, 0.55]],
-      [[ 0.10, -0.85], [ 0.20, -0.50], [ 0.30, -0.10], [ 0.40, 0.35]],
-      [[-0.40, -0.85], [-0.20, -0.50], [-0.05, -0.05]],
-      [[ 0.85, -0.10], [ 0.55,  0.10], [ 0.25, 0.30], [ 0.05, 0.55]],
-      [[-0.65,  0.55], [-0.25,  0.65], [ 0.20, 0.55], [ 0.55, 0.40]],
-    ];
-    for (const path of veinPaths) {
-      ctx.beginPath();
-      for (let p = 0; p < path.length; p++) {
-        const px = podCx + path[p][0] * w;
-        const py = podCy + path[p][1] * h;
-        if (p === 0) ctx.moveTo(px, py);
-        else         ctx.lineTo(px, py);
-      }
-      ctx.stroke();
-    }
-    ctx.strokeStyle = 'rgba(255, 130, 200, ' + (0.65 + beat * 0.30) + ')';
-    ctx.lineWidth = 1.2;
-    for (const path of veinPaths) {
-      ctx.beginPath();
-      for (let p = 0; p < path.length; p++) {
-        const px = podCx + path[p][0] * w;
-        const py = podCy + path[p][1] * h;
-        if (p === 0) ctx.moveTo(px, py);
-        else         ctx.lineTo(px, py);
-      }
-      ctx.stroke();
-    }
-
-    // ---- 4. WET SPECULAR HIGHLIGHT on the upper-left of the body.
-    ctx.fillStyle = 'rgba(255, 230, 245, 0.55)';
-    ctx.beginPath();
-    ctx.ellipse(podCx - w * 0.35, podCy - h * 0.45,
-                w * 0.30, h * 0.18, -0.4, 0, Math.PI * 2);
-    ctx.fill();
-
-    // ---- 5. TORN OPENING — actual DARK CAVITY on the right, clipped
-    // to the pod ellipse so it sits cleanly inside the silhouette. The
-    // cavity has an irregular jagged left edge that reads as the rim
-    // of the tear; everything inside the cavity is dark with a bright
-    // cyan glow at its core.
-    const RIM_PTS = 9;
-    const rimX0   = w * 0.30;     // farther in = mouth of the tear is closer to center
-    const rimX1   = w * 0.60;     // jagged spikes' tips
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(podCx, podCy, w + 1, h + 1, 0, 0, Math.PI * 2);
-    ctx.clip();
-
-    // Build the cavity polygon with a jagged left edge
-    ctx.beginPath();
-    ctx.moveTo(podCx + w * 1.5, podCy - h * 0.70);
-    for (let r = 0; r < RIM_PTS; r++) {
-      const tt = r / (RIM_PTS - 1);
-      const yPt = podCy - h * 0.70 + tt * h * 1.40;
-      const xPt = podCx + ((r % 2 === 0) ? rimX0 : rimX1);
-      ctx.lineTo(xPt, yPt);
-    }
-    ctx.lineTo(podCx + w * 1.5, podCy + h * 0.70);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(18, 4, 12, 0.95)';
-    ctx.fill();
-
-    // ---- 6. BRIGHT CYAN GLOW INSIDE THE CAVITY
-    ctx.shadowBlur = 18;
+    // ---- 1. BACKLIT CYAN GLOW filling the inside of the arch — the
+    // doorway opens onto "outside the body," so cyan-green light leaks
+    // through. Drawn first so the bones overlay only their narrow path.
+    ctx.shadowBlur = 26;
     ctx.shadowColor = 'rgba(140, 255, 220, 0.95)';
-    ctx.fillStyle = 'rgba(140, 255, 220, 0.65)';
+    ctx.fillStyle = 'rgba(140, 255, 220, ' + (0.32 + beat * 0.18) + ')';
     ctx.beginPath();
-    ctx.ellipse(podCx + w * 0.62, podCy, w * 0.32, h * 0.62,
-                0, 0, Math.PI * 2);
+    ctx.ellipse(apexX, floorY - 64, 56, 72, 0, 0, Math.PI * 2);
     ctx.fill();
-    // Brighter core
-    ctx.fillStyle = 'rgba(220, 255, 240, 0.75)';
+    ctx.shadowBlur = 0;
+    // Brighter inner core
+    ctx.shadowBlur = 14;
+    ctx.shadowColor = 'rgba(220, 255, 240, 0.95)';
+    ctx.fillStyle = 'rgba(220, 255, 240, ' + (0.45 + beat * 0.20) + ')';
     ctx.beginPath();
-    ctx.ellipse(podCx + w * 0.58, podCy, w * 0.18, h * 0.40,
-                0, 0, Math.PI * 2);
+    ctx.ellipse(apexX, floorY - 54, 30, 46, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    ctx.restore();   // pop pod-ellipse clip
-
-    // ---- 7. FRAYED RIM SPIKES — pale magenta spikes sticking out from
-    // the rim into the cavity. Drawn OUTSIDE the clip so they read as
-    // physical torn membrane edges, not silhouette artifacts.
-    ctx.fillStyle = 'rgba(220, 110, 170, 0.95)';
-    for (let r = 0; r < RIM_PTS; r++) {
-      if (r % 2 !== 0) continue;          // only on the inner-spike points
-      const tt = r / (RIM_PTS - 1);
-      const yPt = podCy - h * 0.70 + tt * h * 1.40;
-      const baseX = podCx + rimX0;
-      const tipX  = podCx + rimX0 + 12;
-      ctx.beginPath();
-      ctx.moveTo(baseX, yPt - 5);
-      ctx.lineTo(baseX, yPt + 5);
-      ctx.lineTo(tipX, yPt);
-      ctx.closePath();
-      ctx.fill();
-    }
-    // Inner edge highlight along the rim — connects the tip points
-    ctx.strokeStyle = 'rgba(255, 220, 240, 0.85)';
-    ctx.lineWidth = 1.4;
+    // ---- 2. FLESHY MOUND on the floor under the arch — pinkish
+    // platform the bones grow out of. Wide oval that the rig appears
+    // to sit in front of (rig is drawn separately at apex altitude).
+    const moundCx = x;
+    const moundY  = floorY + 4;
+    const moundGrad = ctx.createLinearGradient(0, floorY - 4, 0, floorY + 14);
+    moundGrad.addColorStop(0,   '#e8588c');
+    moundGrad.addColorStop(0.5, '#a82856');
+    moundGrad.addColorStop(1,   '#3a0e22');
+    ctx.fillStyle = moundGrad;
     ctx.beginPath();
-    let first = true;
-    for (let r = 0; r < RIM_PTS; r++) {
-      if (r % 2 !== 0) continue;
-      const tt = r / (RIM_PTS - 1);
-      const yPt = podCy - h * 0.70 + tt * h * 1.40;
-      const tipX = podCx + rimX0 + 12;
-      if (first) { ctx.moveTo(tipX, yPt); first = false; }
-      else       { ctx.lineTo(tipX, yPt); }
-    }
+    ctx.ellipse(moundCx, moundY, 76, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Wet specular highlight along the top of the mound
+    ctx.fillStyle = 'rgba(255, 200, 220, 0.65)';
+    ctx.beginPath();
+    ctx.ellipse(moundCx, moundY - 5, 56, 2.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Dark fold line for depth
+    ctx.strokeStyle = 'rgba(40, 8, 22, 0.55)';
+    ctx.lineWidth = 1.0;
+    ctx.beginPath();
+    ctx.moveTo(moundCx - 60, moundY + 1);
+    ctx.quadraticCurveTo(moundCx, moundY + 5, moundCx + 60, moundY + 1);
     ctx.stroke();
 
-    // ---- 8. STRINGY FIBERS across the gap (torn membrane strands)
-    ctx.strokeStyle = 'rgba(255, 170, 210, 0.65)';
-    ctx.lineWidth = 0.8;
-    for (let f = 0; f < 4; f++) {
-      const fT = (f + 0.5) / 4;
-      const yStart = podCy - h * 0.55 + fT * h * 1.10;
-      const yEnd   = yStart + Math.sin(f * 1.7) * 5;
-      ctx.beginPath();
-      ctx.moveTo(podCx + rimX0 + 2, yStart);
-      ctx.lineTo(podCx + rimX1 + 8, yEnd);
-      ctx.stroke();
-    }
+    // ---- 3. TWO BONE ARMS curving from the floor up to the apex.
+    // Each is a thick stroke with cool inner shadow, bright outer
+    // highlight, and three joint nodules along its length so it reads
+    // as anatomy.
+    drawArchBone(leftBase,  apexX, apexY, boneW, true);
+    drawArchBone(rightBase, apexX, apexY, boneW, false);
 
-    // ---- 9. EXTERIOR CYAN LEAK — light bleeding past the pod's right
-    // edge, drawn LAST so it sits on top of everything and is clearly
-    // visible. Brighter on each heartbeat.
-    ctx.shadowBlur = 28;
-    ctx.shadowColor = 'rgba(140, 255, 220, 0.95)';
-    ctx.fillStyle = 'rgba(160, 255, 220, ' + (0.32 + beat * 0.15) + ')';
+    // ---- 4. APEX JOINT — pale bone ball where the two arms meet.
+    ctx.fillStyle = '#f0e0c8';
     ctx.beginPath();
-    ctx.ellipse(podCx + w * 1.05, podCy, w * 0.38, h * 0.85,
-                0, 0, Math.PI * 2);
+    ctx.arc(apexX, apexY, 10, 0, Math.PI * 2);
     ctx.fill();
-    ctx.shadowBlur = 0;
+    // Cool shadow on the lower-right of the joint for 3D
+    ctx.fillStyle = 'rgba(60, 30, 18, 0.45)';
+    ctx.beginPath();
+    ctx.arc(apexX + 3, apexY + 3, 7, 0, Math.PI * 2);
+    ctx.fill();
+    // Bright catchlight on the upper-left
+    ctx.fillStyle = 'rgba(255, 250, 240, 0.95)';
+    ctx.beginPath();
+    ctx.arc(apexX - 3, apexY - 3, 2.6, 0, Math.PI * 2);
+    ctx.fill();
 
-    // ---- 10. ROOTS — three fleshy tendril anchors running off the
-    // bottom of the pod into the cavity floor. Plus a brighter pulsing
-    // inner stripe in each so they feel alive.
-    ctx.strokeStyle = 'rgba(100, 24, 50, 0.92)';
-    ctx.lineWidth = 5;
-    ctx.lineCap = 'round';
-    for (let r = -1; r <= 1; r++) {
-      const rootBaseX = podCx + r * w * 0.40;
+    // ---- 5. PULSING ANCHOR SEALS where each bone meets the floor —
+    // small red flesh patches that throb on the heartbeat, suggesting
+    // the bones are biologically rooted, not bolted in.
+    for (const base of [leftBase, rightBase]) {
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = 'rgba(255, 80, 130, 0.85)';
+      ctx.fillStyle = 'rgba(220, 40, 90, ' + (0.55 + beat * 0.30) + ')';
       ctx.beginPath();
-      ctx.moveTo(rootBaseX, podCy + h * 0.85);
-      ctx.bezierCurveTo(
-        rootBaseX + r * 5,  podCy + h + 8,
-        rootBaseX + r * 8,  podCy + h + 18,
-        rootBaseX + r * 6,  PLAY_H + 4
-      );
-      ctx.stroke();
-    }
-    ctx.strokeStyle = 'rgba(255, 130, 200, ' + (0.55 + beat * 0.35) + ')';
-    ctx.lineWidth = 1.4;
-    for (let r = -1; r <= 1; r++) {
-      const rootBaseX = podCx + r * w * 0.40;
+      ctx.ellipse(base.x, base.y, 14, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Brighter wet highlight along the top
+      ctx.fillStyle = 'rgba(255, 180, 220, 0.65)';
       ctx.beginPath();
-      ctx.moveTo(rootBaseX, podCy + h * 0.85);
-      ctx.bezierCurveTo(
-        rootBaseX + r * 5,  podCy + h + 8,
-        rootBaseX + r * 8,  podCy + h + 18,
-        rootBaseX + r * 6,  PLAY_H + 4
-      );
-      ctx.stroke();
+      ctx.ellipse(base.x, base.y - 1, 9, 1.6, 0, 0, Math.PI * 2);
+      ctx.fill();
     }
-    ctx.lineCap = 'butt';
 
     ctx.restore();
+  }
+
+  // One curving rib running from a base point on the floor up to the
+  // arch apex. Drawn as a thick pale-bone stroke with a thin shadow on
+  // the inner edge, a thin highlight on the outer edge, and three
+  // joint nodules along its length so the silhouette reads as anatomy
+  // rather than just a curved line.
+  function drawArchBone(base, apexX, apexY, widthPx, isLeft) {
+    // Bezier control point bows the bone OUTWARD (away from the arch
+    // interior) for a natural rib curve.
+    const ctrlX = base.x + (isLeft ? -16 : 16);
+    const ctrlY = (base.y + apexY) * 0.5;
+
+    ctx.lineCap = 'round';
+    // Bone body
+    ctx.lineWidth = widthPx;
+    ctx.strokeStyle = 'rgba(238, 218, 204, 0.95)';
+    ctx.beginPath();
+    ctx.moveTo(base.x, base.y);
+    ctx.quadraticCurveTo(ctrlX, ctrlY, apexX, apexY);
+    ctx.stroke();
+    // Inner shadow stripe (toward the arch interior)
+    const innerOff = (isLeft ? widthPx * 0.32 : -widthPx * 0.32);
+    ctx.lineWidth = widthPx * 0.30;
+    ctx.strokeStyle = 'rgba(70, 50, 38, 0.55)';
+    ctx.beginPath();
+    ctx.moveTo(base.x + innerOff, base.y);
+    ctx.quadraticCurveTo(ctrlX + innerOff * 0.5, ctrlY, apexX + innerOff * 0.4, apexY);
+    ctx.stroke();
+    // Outer highlight stripe
+    const outerOff = -innerOff;
+    ctx.lineWidth = widthPx * 0.18;
+    ctx.strokeStyle = 'rgba(255, 248, 232, 0.85)';
+    ctx.beginPath();
+    ctx.moveTo(base.x + outerOff, base.y);
+    ctx.quadraticCurveTo(ctrlX + outerOff * 0.5, ctrlY, apexX + outerOff * 0.4, apexY);
+    ctx.stroke();
+    // Joint nodules at three points along the bezier — sample using
+    // the standard quadratic-bezier interpolation formula.
+    for (const tt of [0.30, 0.55, 0.78]) {
+      const u = 1 - tt;
+      const jx = u * u * base.x + 2 * u * tt * ctrlX + tt * tt * apexX;
+      const jy = u * u * base.y + 2 * u * tt * ctrlY + tt * tt * apexY;
+      // Shadow under the nodule
+      ctx.fillStyle = 'rgba(60, 30, 18, 0.40)';
+      ctx.beginPath();
+      ctx.arc(jx + 1.4, jy + 1.4, widthPx * 0.40, 0, Math.PI * 2);
+      ctx.fill();
+      // Pale bone nodule body
+      ctx.fillStyle = 'rgba(245, 226, 212, 0.95)';
+      ctx.beginPath();
+      ctx.arc(jx, jy, widthPx * 0.42, 0, Math.PI * 2);
+      ctx.fill();
+      // Tiny catchlight
+      ctx.fillStyle = 'rgba(255, 250, 240, 0.85)';
+      ctx.beginPath();
+      ctx.arc(jx - widthPx * 0.15, jy - widthPx * 0.15, widthPx * 0.13, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.lineCap = 'butt';
   }
 
   // Organic-theme dock landmark — the cargo gets implanted into a
