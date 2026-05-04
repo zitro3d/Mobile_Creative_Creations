@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v313';
+const DLX_BUILD = 'v314';
 
 (function() {
   // ---------- Device detection ----------
@@ -13819,6 +13819,15 @@ const DLX_BUILD = 'v313';
   // ring + dark center) run along each arm, sized to scale with the
   // local arm thickness.
   function drawDailyMaws() {
+    // Heartbeat sync — drives the bioluminescent inner-stripe pulse
+    // and the cyan-core sucker glow so the whole creature throbs in
+    // time with the cavity.
+    const period = currentDeliveryLevel.pulsePeriodFrames || 210;
+    const tBeat  = (frame % period) / period;
+    const beat   = Math.max(
+      0,
+      Math.sin(Math.PI * Math.min(1, tBeat * 5.0)) * (1 - tBeat * 0.6)
+    );
     for (const t of dailyTentacles) {
       const sx = Math.round(t.worldX - dailyScrollX);
       if (sx < -100 || sx > W + 100) continue;
@@ -13833,10 +13842,19 @@ const DLX_BUILD = 'v313';
       ctx.translate(sx, gy);
 
       // ---- THREE OCTOPUS ARMS — drawn first so the mound at the base
-      // overlaps and visually anchors them.
+      // overlaps and visually anchors them. Each arm renders in five
+      // passes (back-to-front) so the bioluminescent style matches the
+      // rest of the cavity assets:
+      //   1. Outer magenta glow halo (single thick translucent stroke
+      //      with shadowBlur — drawn once per arm, not per segment, so
+      //      the glow cost stays bounded)
+      //   2. Tapered body — segmented strokes from BASE_W to TIP_W
+      //   3. Bright bioluminescent inner stripe pulsing on the heartbeat
+      //   4. Two-tone suckers with a glowing cyan core
+      //   5. Glowing nodule at the very tip
       const armCount = 3;
-      const BASE_W = 22;        // thick base
-      const TIP_W  = 2;         // skinny tip
+      const BASE_W = 22;
+      const TIP_W  = 2;
       ctx.lineCap = 'round';
       for (let a = 0; a < armCount; a++) {
         const angOffset = (a - 1) * 0.45;
@@ -13854,74 +13872,134 @@ const DLX_BUILD = 'v313';
           pts.push({ x: px, y: py });
         }
 
-        // ---- TAPERED ARM BODY — segmented strokes with linearly
-        // decreasing line width from BASE_W down to TIP_W. Drawing
-        // segment-by-segment is the only way canvas2D can taper a
-        // single stroke.
+        // ---- PASS 1: OUTER GLOW HALO — single translucent magenta
+        // stroke with shadowBlur, runs the whole arm. This is what
+        // gives the arm the same bioluminescent feel as the phages,
+        // bone tokens, and organelles.
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = 'rgba(255, 100, 180, 0.95)';
+        ctx.strokeStyle = 'rgba(255, 110, 180, 0.40)';
+        ctx.lineWidth = BASE_W * 1.10;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let s = 1; s < pts.length; s++) ctx.lineTo(pts[s].x, pts[s].y);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // ---- PASS 2: TAPERED BODY — segmented strokes from BASE_W
+        // down to TIP_W. Brighter saturated magenta than before so the
+        // arm reads as fluorescent flesh, not realistic dark muscle.
         for (let s = 0; s < SEGS; s++) {
           const tt0 = s / SEGS;
           const tt1 = (s + 1) / SEGS;
           const w0 = BASE_W + (TIP_W - BASE_W) * tt0;
           const w1 = BASE_W + (TIP_W - BASE_W) * tt1;
           const w  = (w0 + w1) * 0.5;
+          // Per-segment radial gradient between two saturated magentas
+          // to keep the body looking "lit" all along its length.
+          const tt = (tt0 + tt1) * 0.5;
+          const bodyColor = tt < 0.5
+            ? '#a82856'      // saturated magenta near the base
+            : '#c8326a';     // brighter pink toward the tip
           ctx.lineWidth = w;
-          ctx.strokeStyle = '#3a0810';
+          ctx.strokeStyle = bodyColor;
           ctx.beginPath();
           ctx.moveTo(pts[s].x,     pts[s].y);
           ctx.lineTo(pts[s + 1].x, pts[s + 1].y);
           ctx.stroke();
         }
-        // Bright magenta inner highlight stripe along the arm — also
-        // tapered, slightly offset toward one side so it reads as the
-        // lit edge rather than a center stripe.
-        const litOff = -Math.sign(angOffset || 1) * 3;
+
+        // ---- PASS 3: BRIGHT BIOLUMINESCENT INNER STRIPE — pulses on
+        // the heartbeat so the arm feels alive. Tapered, centered on
+        // the path (not offset to a side — symmetric brightness reads
+        // as a lit core, like an organism's vein).
         for (let s = 0; s < SEGS; s++) {
           const tt0 = s / SEGS;
           const tt1 = (s + 1) / SEGS;
           const w0 = BASE_W + (TIP_W - BASE_W) * tt0;
           const w1 = BASE_W + (TIP_W - BASE_W) * tt1;
-          const w  = (w0 + w1) * 0.5 * 0.40;
+          const w  = (w0 + w1) * 0.5 * 0.32;
           ctx.lineWidth = Math.max(0.6, w);
-          ctx.strokeStyle = '#d44a70';
+          ctx.strokeStyle = 'rgba(255, 150, 210, ' + (0.78 + beat * 0.20) + ')';
           ctx.beginPath();
-          ctx.moveTo(pts[s].x + litOff,     pts[s].y);
-          ctx.lineTo(pts[s + 1].x + litOff, pts[s + 1].y);
+          ctx.moveTo(pts[s].x,     pts[s].y);
+          ctx.lineTo(pts[s + 1].x, pts[s + 1].y);
+          ctx.stroke();
+        }
+        // Bright catchlight stripe — narrow + brighter, gives the arm
+        // a wet specular feel along its length.
+        for (let s = 0; s < SEGS; s++) {
+          const tt0 = s / SEGS;
+          const tt1 = (s + 1) / SEGS;
+          const w0 = BASE_W + (TIP_W - BASE_W) * tt0;
+          const w1 = BASE_W + (TIP_W - BASE_W) * tt1;
+          const w  = (w0 + w1) * 0.5 * 0.10;
+          if (w < 0.4) continue;
+          const offX = -Math.sign(angOffset || 1) * (w0 + w1) * 0.5 * 0.18;
+          ctx.lineWidth = w;
+          ctx.strokeStyle = 'rgba(255, 230, 245, 0.85)';
+          ctx.beginPath();
+          ctx.moveTo(pts[s].x + offX,     pts[s].y);
+          ctx.lineTo(pts[s + 1].x + offX, pts[s + 1].y);
           ctx.stroke();
         }
 
-        // ---- TWO-TONE SUCKERS along the arm — pale outer flesh ring
-        // with a dark inner center. Sized to scale with local arm
-        // thickness so suckers near the base are big and suckers near
-        // the tip shrink with the arm.
+        // ---- PASS 4: BIOLUMINESCENT SUCKERS — pale ring with a
+        // glowing cyan core (matches the cavity's bioluminescent
+        // language — the bone tokens, organelles, and gill slits all
+        // glow cyan-green).
         const SUCKER_COUNT = 8;
         for (let su = 1; su <= SUCKER_COUNT; su++) {
-          const tt = su / (SUCKER_COUNT + 1);  // skip the very base
+          const tt = su / (SUCKER_COUNT + 1);
           const localW = BASE_W + (TIP_W - BASE_W) * tt;
           const sucR = localW * 0.34;
           if (sucR < 1.0) continue;
-          // Sample the path at this fractional position
           const idxF = tt * SEGS;
           const idx  = Math.min(SEGS - 1, Math.floor(idxF));
           const lerp = idxF - idx;
           const sx_ = pts[idx].x + (pts[idx + 1].x - pts[idx].x) * lerp;
           const sy_ = pts[idx].y + (pts[idx + 1].y - pts[idx].y) * lerp;
-          // Outer pale flesh ring
-          ctx.fillStyle = '#f4d8c0';
+          // Outer pale flesh ring — slightly brighter than v309
+          ctx.fillStyle = '#f8e0c8';
           ctx.beginPath();
           ctx.arc(sx_, sy_, sucR, 0, Math.PI * 2);
           ctx.fill();
-          // Subtle outline around the ring for definition against the arm
+          // Outline for definition
           ctx.strokeStyle = 'rgba(60, 12, 30, 0.55)';
           ctx.lineWidth = 0.7;
           ctx.beginPath();
           ctx.arc(sx_, sy_, sucR, 0, Math.PI * 2);
           ctx.stroke();
-          // Inner dark center (deep magenta-red — the actual suction pit)
-          ctx.fillStyle = '#a8284c';
+          // Glowing CYAN core — the suction pit lit from inside
+          ctx.shadowBlur = 4;
+          ctx.shadowColor = 'rgba(140, 255, 220, 0.95)';
+          ctx.fillStyle = 'rgba(160, 255, 220, ' + (0.85 + beat * 0.15) + ')';
           ctx.beginPath();
-          ctx.arc(sx_, sy_, sucR * 0.50, 0, Math.PI * 2);
+          ctx.arc(sx_, sy_, sucR * 0.55, 0, Math.PI * 2);
           ctx.fill();
+          // Bright white center spark
+          ctx.fillStyle = 'rgba(255, 255, 250, 0.95)';
+          ctx.beginPath();
+          ctx.arc(sx_, sy_, sucR * 0.22, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
         }
+
+        // ---- PASS 5: GLOWING TIP NODULE — small bright bulb at the
+        // very end of each arm. Echoes the coral / anemone tips and
+        // the phage trailing-tendril nodules.
+        const tipP = pts[pts.length - 1];
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = 'rgba(140, 255, 200, 0.95)';
+        ctx.fillStyle = 'rgba(180, 255, 220, 0.95)';
+        ctx.beginPath();
+        ctx.arc(tipP.x, tipP.y, 2.2 + beat * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255, 255, 250, 0.95)';
+        ctx.beginPath();
+        ctx.arc(tipP.x, tipP.y, 0.9, 0, Math.PI * 2);
+        ctx.fill();
       }
       ctx.lineCap = 'butt';
 
