@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v300';
+const DLX_BUILD = 'v301';
 
 (function() {
   // ---------- Device detection ----------
@@ -7456,7 +7456,7 @@ const DLX_BUILD = 'v300';
         // red lightning beam straight down. If the beam crosses the
         // cargo while it's tethered, the bond breaks (cargo.attached =
         // false). Player dodges by NOT being directly under the drone.
-        if (dailyCurrentStage >= 1 && frame >= dailyNextDroneAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
+        if (currentDeliveryLevel.obstacleSet.drones && dailyCurrentStage >= 1 && frame >= dailyNextDroneAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
           const spawnY = 60 + Math.random() * (PLAY_H * 0.30);
           dailyDrones.push({
             x: W + 40,
@@ -7528,7 +7528,7 @@ const DLX_BUILD = 'v300';
         // grappling hook straight up at the cargo. Player evades by
         // climbing high or speeding away (cruise speed boost not in scope
         // for v157 — it's purely a vertical dodge).
-        if (dailyCurrentStage >= 2 && frame >= dailyNextGroundOpAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
+        if (currentDeliveryLevel.obstacleSet.groundOps && dailyCurrentStage >= 2 && frame >= dailyNextGroundOpAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
           const startWorldX = dailyScrollX + W + 40;
           dailyGroundOps.push({
             worldX: startWorldX,
@@ -7768,6 +7768,21 @@ const DLX_BUILD = 'v300';
             kind = 'scrapTower';
           } else {
             kind = 'airWreck';
+          }
+          // Suppress kinds the active level doesn't allow. We force-fall
+          // back to scrapTower because every level whitelists it (and
+          // its renderer dispatches on theme so the visual still fits).
+          if (kind === 'airWreck' && !currentDeliveryLevel.obstacleSet.airWrecks) {
+            kind = 'scrapTower';
+          }
+          if (kind === 'tunnel' && !currentDeliveryLevel.obstacleSet.tunnels) {
+            kind = 'scrapTower';
+          }
+          if (kind === 'scrapTower' && !currentDeliveryLevel.obstacleSet.scrapTowers) {
+            // Edge case for hypothetical future levels with no scrap towers —
+            // skip this slot entirely rather than spawn a forbidden kind.
+            dailyNextAirObstacleX += 200;
+            continue;
           }
           const o = {
             worldX: dailyNextAirObstacleX,
@@ -8041,7 +8056,7 @@ const DLX_BUILD = 'v300';
         // at varying altitudes, lower a magnetic claw on a cable to grab the
         // cargo, then retract and fly off. Player dodges by NOT being
         // directly under the thief when its claw extends.
-        if (frame >= dailyNextThiefAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
+        if (currentDeliveryLevel.obstacleSet.thieves && frame >= dailyNextThiefAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
           // Random spawn altitude across the upper 60% of the playfield —
           // sometimes a thief comes in close (just above cargo level),
           // sometimes it stays high and drops the full cable.
@@ -13027,6 +13042,31 @@ const DLX_BUILD = 'v300';
   // for a few seconds, sweep through their reach, then sink back.
   function drawDailyTentacles() {
     if (!isDaily || !dailyTentacles.length) return;
+    // Per-level tentacle palette. Desert tentacles read as kraken-y wine;
+    // organic levels (Leviathan) shift to fleshier reds with a brighter
+    // pulsing highlight and bioluminescent suckers + eye.
+    const organic = currentDeliveryLevel.obstacleTheme === 'organic';
+    const pal = organic ? {
+      spine: '#3a0810',
+      spineW: 10,                         // thicker = fleshier tendril
+      highlight: '#d44a70',
+      highlightW: 4.2,
+      sucker: '#a8ffc8',
+      mound: '#1a0408',
+      eyeColor: 'rgba(120, 240, 180, 0.95)',
+      eyeShadow: '#80ffc8',
+      eyeCore: '#063018',
+    } : {
+      spine: '#5a1830',
+      spineW: 8,
+      highlight: '#a0405a',
+      highlightW: 3.5,
+      sucker: '#fce0a8',
+      mound: '#3a0a18',
+      eyeColor: 'rgba(255, 224, 96, 0.95)',
+      eyeShadow: '#ffd060',
+      eyeCore: '#1a0604',
+    };
     for (const t of dailyTentacles) {
       const sx = Math.round(t.worldX - dailyScrollX);
       if (sx < -80 || sx > W + 80) continue;
@@ -13045,8 +13085,8 @@ const DLX_BUILD = 'v300';
         const angOffset = (a - 1) * 0.45;
         const swayPhase = t.phase + a * 1.7;
         // Build the wavy spine path
-        ctx.strokeStyle = '#5a1830';
-        ctx.lineWidth = 8;
+        ctx.strokeStyle = pal.spine;
+        ctx.lineWidth = pal.spineW;
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(0, 0);
@@ -13059,8 +13099,8 @@ const DLX_BUILD = 'v300';
         }
         ctx.stroke();
         // Inner highlight stripe
-        ctx.strokeStyle = '#a0405a';
-        ctx.lineWidth = 3.5;
+        ctx.strokeStyle = pal.highlight;
+        ctx.lineWidth = pal.highlightW;
         ctx.beginPath();
         ctx.moveTo(0, 0);
         for (let s = 1; s <= 12; s++) {
@@ -13071,8 +13111,14 @@ const DLX_BUILD = 'v300';
           ctx.lineTo(px, py);
         }
         ctx.stroke();
-        // Suckers along the inner side (small light circles)
-        ctx.fillStyle = '#fce0a8';
+        // Suckers along the inner side (small light circles).
+        // Organic levels add a faint glow halo so they read as
+        // bioluminescent nodes rather than skin pads.
+        if (organic) {
+          ctx.shadowBlur = 4;
+          ctx.shadowColor = 'rgba(160, 255, 200, 0.9)';
+        }
+        ctx.fillStyle = pal.sucker;
         for (let s = 1; s <= 4; s++) {
           const tt = s / 4;
           const px = Math.sin(tt * 1.6 + swayPhase) * 16 * tt
@@ -13082,20 +13128,21 @@ const DLX_BUILD = 'v300';
           ctx.arc(px, py, 1.1, 0, Math.PI * 2);
           ctx.fill();
         }
+        ctx.shadowBlur = 0;
       }
-      // Mound at the base where the tentacles emerge
-      ctx.fillStyle = '#3a0a18';
+      // Mound at the base where the tendrils emerge
+      ctx.fillStyle = pal.mound;
       ctx.beginPath();
       ctx.ellipse(0, 0, 22, 6, 0, 0, Math.PI * 2);
       ctx.fill();
       // Single glowing eye at the base
       if (reach > 0.3) {
-        ctx.shadowBlur = 6; ctx.shadowColor = '#ffd060';
-        ctx.fillStyle = 'rgba(255, 224, 96, 0.95)';
+        ctx.shadowBlur = 6; ctx.shadowColor = pal.eyeShadow;
+        ctx.fillStyle = pal.eyeColor;
         ctx.beginPath();
         ctx.arc(0, -3, 2.2, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#1a0604';
+        ctx.fillStyle = pal.eyeCore;
         ctx.beginPath();
         ctx.arc(0, -3, 0.8, 0, Math.PI * 2);
         ctx.fill();
@@ -13222,6 +13269,10 @@ const DLX_BUILD = 'v300';
   // Scrap junk tower — top + bottom rusted machinery stacks with a gap.
   // Built from layered rectangles so each tower reads as different junk.
   function drawScrapTower(sx, top, gap, seed) {
+    if (currentDeliveryLevel.obstacleTheme === 'organic') {
+      drawBoneSpur(sx, top, gap, seed);
+      return;
+    }
     const tw = 36;
     const cx = sx + tw / 2;
     ctx.save();
@@ -13239,6 +13290,113 @@ const DLX_BUILD = 'v300';
       ctx.fillRect(sx + 2 + s * 6, top + gap - 1, 2, 3);
     }
     ctx.restore();
+  }
+
+  // Organic re-skin of the scrap-tower obstacle for cavern/body levels.
+  // Same gap geometry + collision, completely different visual: a pair of
+  // pale calcified bone spurs tapering into pulsing red flesh bands at
+  // the gap edges. Reads like ribcage growth converging on the lane the
+  // rig has to thread.
+  function drawBoneSpur(sx, top, gap, seed) {
+    const tw = 36;
+    const cx = sx + tw / 2;
+    ctx.save();
+    // Top spur grows DOWN from the ceiling toward the gap.
+    drawBoneColumn(cx, 0, top, seed, true);
+    // Bottom spur grows UP from the floor toward the gap.
+    drawBoneColumn(cx, top + gap, PLAY_H - (top + gap), seed + 1.3, false);
+    // Pulsing red flesh band at the gap edges — pulse frequency tied to
+    // the heartbeat-ish pace so the gap throbs alive.
+    const bandPulse = 0.55 + 0.35 * Math.sin(frame * 0.12 + seed);
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(255, 60, 90, 0.9)';
+    ctx.fillStyle = 'rgba(220, 30, 70, ' + bandPulse + ')';
+    ctx.fillRect(sx - 2, top - 2, tw + 4, 3);
+    ctx.fillRect(sx - 2, top + gap - 1, tw + 4, 3);
+    // Tendon/sinew strands across the band for an organic stitch look
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(60, 10, 20, 0.85)';
+    for (let s = 0; s < 6; s++) {
+      ctx.fillRect(sx + 2 + s * 6, top - 2, 1, 3);
+      ctx.fillRect(sx + 2 + s * 6, top + gap - 1, 1, 3);
+    }
+    ctx.restore();
+  }
+
+  // One spur — top or bottom half of a bone-spur obstacle. Built as a
+  // stack of tapering bone segments with subtle wobble so the column
+  // doesn't read as a perfect rectangle. Tip ends in a dagger-like bone
+  // point aimed at the gap.
+  function drawBoneColumn(cx, startY, length, seed, isTopStack) {
+    if (length <= 0) return;
+    const tw = 36;
+    let cursor = startY;
+    let i = 0;
+    while (cursor < startY + length) {
+      const segH = 14 + Math.floor(srand(seed + i * 0.31) * 12);
+      // Taper the column near the gap so it reads as a converging spur.
+      const gapDist = isTopStack
+        ? (startY + length - cursor - segH)
+        : (cursor - startY);
+      const taper = Math.min(1, Math.max(0.35, gapDist / 60));
+      const halfW = (tw / 2) * taper;
+      const wobble = (srand(seed + i * 0.17) - 0.5) * 5 * (1 - taper * 0.6);
+      const segCx = cx + wobble;
+      // Bone body — pale ivory with a soft warm undertone
+      ctx.fillStyle = '#e6d4be';
+      ctx.fillRect(segCx - halfW, cursor, halfW * 2, segH);
+      // Cool shadow along the left edge for 3D
+      ctx.fillStyle = 'rgba(70, 50, 38, 0.55)';
+      ctx.fillRect(segCx - halfW, cursor, 2.4, segH);
+      // Bright highlight on the right edge
+      ctx.fillStyle = 'rgba(255, 248, 232, 0.65)';
+      ctx.fillRect(segCx + halfW - 1.6, cursor, 1.6, segH);
+      // Vertical bone fluting — thin grooves running down the segment
+      ctx.fillStyle = 'rgba(120, 90, 70, 0.30)';
+      for (let f = 0; f < 2; f++) {
+        const fx = segCx - halfW * 0.4 + f * (halfW * 0.8);
+        ctx.fillRect(fx, cursor + 2, 0.9, segH - 4);
+      }
+      // Occasional bone-growth nub jutting from one side, breaks the
+      // straight column and gives each spur its own organic profile
+      if (srand(seed + i * 0.41) > 0.62 && halfW > 8) {
+        const side = (srand(seed + i * 0.51) > 0.5) ? 1 : -1;
+        const nubR = 2.5 + srand(seed + i * 0.61) * 2.5;
+        ctx.fillStyle = '#d8c4ae';
+        ctx.beginPath();
+        ctx.arc(segCx + side * (halfW + 1), cursor + segH * 0.5,
+                nubR, 0, Math.PI * 2);
+        ctx.fill();
+        // Shadow nibble on the lee side of the nub
+        ctx.fillStyle = 'rgba(70, 50, 38, 0.4)';
+        ctx.fillRect(segCx + side * (halfW - 0.5), cursor + segH * 0.3,
+                     1, segH * 0.4);
+      }
+      cursor += segH;
+      i++;
+    }
+    // Dagger tip aimed at the gap — sharp triangular bone point
+    if (length > 10) {
+      const tipBase = isTopStack ? startY + length : startY;
+      const tipDir  = isTopStack ? 1 : -1;
+      const tipLen  = Math.min(10, length * 0.5);
+      const halfW0  = 5;
+      ctx.fillStyle = '#f2e2cc';
+      ctx.beginPath();
+      ctx.moveTo(cx - halfW0, tipBase);
+      ctx.lineTo(cx + halfW0, tipBase);
+      ctx.lineTo(cx,          tipBase + tipDir * tipLen);
+      ctx.closePath();
+      ctx.fill();
+      // Shadow ridge down the tip
+      ctx.fillStyle = 'rgba(70, 50, 38, 0.45)';
+      ctx.beginPath();
+      ctx.moveTo(cx - 1.2, tipBase);
+      ctx.lineTo(cx + 1.2, tipBase);
+      ctx.lineTo(cx,       tipBase + tipDir * (tipLen - 1));
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
   // One half of a scrap tower — a stacked vertical column of rusted
@@ -13958,6 +14116,10 @@ const DLX_BUILD = 'v300';
   // the left of motion, opposite of vx).
   function drawDailyLavaBalls() {
     if (!isDaily || !dailyLavaBalls.length) return;
+    if (currentDeliveryLevel.obstacleTheme === 'organic') {
+      drawDailyBileGlobs();
+      return;
+    }
     ctx.save();
     for (const lb of dailyLavaBalls) {
       // Pulsating size — quick flicker so the orb feels alive
@@ -14030,6 +14192,86 @@ const DLX_BUILD = 'v300';
       ctx.arc(cx + coreOffX, cy + coreOffY, baseR * 0.22, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+  }
+
+  // Organic re-skin of the lava-ball renderer for cavern/body levels.
+  // Same physics, completely different visual: a dripping bile globule
+  // instead of a fireball. Sickly green-yellow body with a translucent
+  // outer membrane, mucousy drip trail, no white-hot core, no fire glow.
+  function drawDailyBileGlobs() {
+    ctx.save();
+    for (const lb of dailyLavaBalls) {
+      const pulse = 1 + 0.08 * Math.sin(lb.life * 0.35 + lb.seed);
+      const baseR = lb.r * pulse;
+      const cx = Math.round(lb.x);
+      const cy = Math.round(lb.y);
+      // ---- Mucousy drip trail — translucent green strands shedding
+      // off the trailing edge. Slower fade than the fireball trail
+      // because viscous fluid clings.
+      const TRAIL_LEN = 10;
+      for (let t = 1; t <= TRAIL_LEN; t++) {
+        const tx = Math.round(lb.x - lb.vx * t * 1.6);
+        const ty = Math.round(lb.y - lb.vy * t * 1.6
+                              + Math.sin(lb.life * 0.4 + lb.seed + t * 1.1) * 1.5);
+        const tNorm = t / TRAIL_LEN;
+        const ta = 0.55 * (1 - tNorm);
+        const tr = baseR * (1 - tNorm * 0.7);
+        if (tr < 1 || ta <= 0) continue;
+        ctx.fillStyle = 'rgba(150, 220, 100, ' + ta + ')';
+        ctx.beginPath();
+        ctx.arc(tx, ty, tr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // ---- Outer membrane glow — soft sickly green halo, much dimmer
+      // than the fireball halo so it reads as wet/translucent, not hot.
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = 'rgba(120, 220, 90, 0.7)';
+      ctx.fillStyle = 'rgba(140, 210, 80, 0.32)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, baseR * 1.45, 0, Math.PI * 2);
+      ctx.fill();
+      // ---- Body — translucent gradient from a yellow-green core to
+      // an algae-rim, with a faint inner highlight that reads as wet
+      // membrane reflecting cavern light.
+      const wob = Math.sin(lb.life * 0.5 + lb.seed) * 1.4;
+      const dirScale = 0.45;
+      const coreOffX = lb.vx * dirScale + Math.sin(lb.life * 0.5 + lb.seed) * 0.8;
+      const coreOffY = lb.vy * dirScale * 0.5;
+      const bodyGrad = ctx.createRadialGradient(
+        cx - baseR * 0.35, cy - baseR * 0.35, baseR * 0.1,
+        cx,                cy,                baseR
+      );
+      bodyGrad.addColorStop(0,    'rgba(220, 255, 180, 0.95)');     // wet highlight
+      bodyGrad.addColorStop(0.30, 'rgba(180, 230, 110, 0.92)');     // yellow-green body
+      bodyGrad.addColorStop(0.70, 'rgba(110, 170,  60, 0.9)');      // bile green
+      bodyGrad.addColorStop(1,    'rgba(60,  90,  30, 0.85)');      // murky algae rim
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'rgba(80, 140, 40, 0.6)';
+      ctx.fillStyle = bodyGrad;
+      // Slightly oblong to suggest a dripping liquid blob deformed by
+      // its own velocity.
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, baseR * (1.05 + wob * 0.02), baseR * 0.95,
+                  Math.atan2(lb.vy, lb.vx), 0, Math.PI * 2);
+      ctx.fill();
+      // ---- Tiny dark "nucleus" that drifts inside the membrane —
+      // gives the glob an unsettling alive feel without the fire-orb
+      // brightness.
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(40, 70, 20, 0.8)';
+      ctx.beginPath();
+      ctx.arc(cx + coreOffX * 0.7, cy + coreOffY * 0.7,
+              baseR * 0.18, 0, Math.PI * 2);
+      ctx.fill();
+      // Single drip suspended below the body, lengthening with velocity
+      ctx.fillStyle = 'rgba(170, 220, 100, 0.7)';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + baseR * 0.85,
+                  baseR * 0.18, baseR * 0.32 + Math.abs(lb.vy) * 0.6,
+                  0, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.restore();
   }
@@ -19292,6 +19534,17 @@ const DLX_BUILD = 'v300';
       pulsePeriodFrames: 0,
       dispatchLabel: 'DLX DISPATCH CENTER',
       dockLabel: 'GOOD BUDDY TRUCK STOP',
+      // Per-level whitelist of obstacle types that are allowed to spawn.
+      // Things missing here get suppressed at their spawn point so a
+      // level only sees obstacles that fit its setting. Renderers that
+      // dispatch on level theme (lavaBalls, scrapTowers, tentacles)
+      // additionally swap their visuals.
+      obstacleSet: {
+        drones: true, thieves: true, groundOps: true,
+        lavaBalls: true, scrapTowers: true, airWrecks: true,
+        tunnels: true, tentacles: true,
+      },
+      obstacleTheme: 'desert',
     },
     leviathan: {
       label: 'THE LEVIATHAN',
@@ -19329,6 +19582,19 @@ const DLX_BUILD = 'v300';
       pulsePeriodFrames: 210,               // ~3.5s at 60fps
       dispatchLabel: 'PARASITOLOGY OUTPOST',
       dockLabel: 'CARDIAC CHAMBER',
+      // No machine-themed enemies inside a creature — drones/thieves/ground
+      // rigs are aircraft + tanks, they don't belong here. airWrecks are
+      // crashed scrap, also wrong setting. Lava balls + scrap towers stay
+      // because their RENDERERS dispatch on obstacleTheme below: lava
+      // balls draw as bile globs, scrap towers as bone spurs. Tentacles
+      // stay (re-skinned to deeper flesh). Tunnels stay (esophageal pipes
+      // — palette dispatch is a separate follow-up).
+      obstacleSet: {
+        drones: false, thieves: false, groundOps: false,
+        lavaBalls: true, scrapTowers: true, airWrecks: false,
+        tunnels: true, tentacles: true,
+      },
+      obstacleTheme: 'organic',
     },
   };
   // The level currently driving the daily-mode renderers. Every daily
