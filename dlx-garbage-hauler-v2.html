@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v315';
+const DLX_BUILD = 'v316';
 
 (function() {
   // ---------- Device detection ----------
@@ -14146,18 +14146,24 @@ const DLX_BUILD = 'v315';
   }
 
   // Organic re-skin of the tunnel decorations for cavern/body levels.
-  // v315 redesigned as a BIOLUMINESCENT RIBCAGE CORRIDOR. The cavern
-  // interior gradient still comes from drawDailyTerrain (organ palette).
-  // On top of that we layer:
-  //   - Backlit glow PANELS between each rib pair (alternating cyan +
-  //     magenta) so the corridor reads as illuminated from the inside
-  //   - Vertical RIB BONES at regular intervals running ceiling to floor,
-  //     with shadow + highlight + ceiling/floor joint nodules so they
-  //     read as anatomy
-  //   - A bright pulsing BIOLUMINESCENT FLOOR STRIP running the length
-  //     of the tunnel (matches the cyan-glow language of the cavity)
-  //   - Magenta GLOW RINGS at the entrance + exit telegraphing the
-  //     opening
+  // v316 rebuilt for FLOW + INTEGRATION. The v315 alternating cyan/
+  // magenta vertical bars + tightly-packed thin ribs read as separate
+  // decorations slapped on top of each other; in v316 the corridor is
+  // a single continuous bioluminescent space framed by fewer + bigger
+  // arched ribs. Layers (back to front):
+  //   1. Diffuse atmospheric WASH along the corridor's full length —
+  //      overlapping wide-radius soft ovals using lighter-blend so
+  //      they melt into one continuous illuminated tissue rather than
+  //      reading as bars
+  //   2. Rib-pocket BACKLIT BLOOMS tucked behind each rib so the rib
+  //      reads as silhouetted against living tissue
+  //   3. Curving RIB BONES — fewer (every 42 units instead of 28),
+  //      bigger (lineWidth 6 vs 4.6), with a more dramatic outward
+  //      bow so they read as actual arched bones, not vertical poles
+  //   4. Soft FLOOR GLOW gradient that fades up into the cavity
+  //      instead of a hard cyan stripe
+  //   5. Bleeding portal HALOS at entry/exit that diffuse INTO the
+  //      corridor instead of just outlining the openings
   function drawTunnelOrgan(t, sx) {
     const len = t.length;
     const wxStart = t.worldX;
@@ -14167,127 +14173,160 @@ const DLX_BUILD = 'v315';
     const fY = t.floorY != null ? t.floorY : (PLAY_H - 8);
     const seedI = Math.floor(t.seed || 0);
 
-    // Heartbeat pulse drives the floor strip + rim rings.
+    // Heartbeat pulse drives the floor wash + rim halos.
     const period = currentDeliveryLevel.pulsePeriodFrames || 210;
     const heartT = (frame % period) / period;
     const beat   = Math.max(
       0,
       Math.sin(Math.PI * Math.min(1, heartT * 5)) * (1 - heartT * 0.6)
     );
-    // Slow ambient pulse for the backlit panels.
-    const ambient = 0.5 + 0.3 * Math.sin(frame * 0.05);
-    const ribStep = 28;
+    // Slow ambient breath for the tissue wash.
+    const ambient = 0.5 + 0.3 * Math.sin(frame * 0.04);
 
-    // ---- 1. BACKLIT GLOW PANELS — bright translucent ovals filling
-    // each rib pocket. Alternate cyan/magenta along the length so the
-    // corridor has color rhythm. Drawn first so the ribs sit on top.
+    // ---- 1. CONTINUOUS TISSUE WASH ------------------------------
+    // Fat overlapping ovals along the corridor blended with 'lighter'
+    // so the colors add up into one illuminated space instead of
+    // distinct vertical bars. Spacing is denser than the rib step so
+    // the colors smear together cleanly.
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const washStep = 22;
+    let washIndex = 0;
+    for (let bx = bodyStart; bx < bodyEnd; bx += washStep) {
+      const screenX = bx - dailyScrollX;
+      if (screenX < -30 || screenX > W + 30) { washIndex++; continue; }
+      const ceilingY = terrainHeightAt(bx) + TUNNEL_CEILING_OFFSET;
+      const cy = (ceilingY + fY - 4) / 2;
+      const halfH = (fY - ceilingY) * 0.42;
+      // Cycle through three color phases so the wash drifts along the
+      // tunnel like blood pumping through tissue rather than stripes.
+      const phase = (washIndex + seedI) % 3;
+      let r, g, b;
+      if (phase === 0)      { r = 60;  g = 180; b = 130; }   // cyan-green
+      else if (phase === 1) { r = 180; g = 70;  b = 130; }   // magenta
+      else                  { r = 100; g = 110; b = 170; }   // soft violet bridge
+      ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + (0.18 + ambient * 0.10) + ')';
+      ctx.beginPath();
+      ctx.ellipse(screenX, cy, 26, halfH * 0.80, 0, 0, Math.PI * 2);
+      ctx.fill();
+      washIndex++;
+    }
+    ctx.restore();
+
+    // ---- 2. RIB-POCKET BACKLIT BLOOMS ---------------------------
+    // Sit BEHIND each rib position. Drawn AFTER the wash but BEFORE
+    // the ribs so each rib silhouettes cleanly against its bloom.
+    const ribStep = 42;
+    let ribIndex = 0;
     for (let bx = bodyStart + ribStep / 2; bx < bodyEnd - 4; bx += ribStep) {
       const screenX = bx - dailyScrollX;
-      if (screenX < -16 || screenX > W + 16) continue;
+      if (screenX < -20 || screenX > W + 20) { ribIndex++; continue; }
       const ceilingY = terrainHeightAt(bx) + TUNNEL_CEILING_OFFSET;
-      const phase = (Math.floor((bx - bodyStart) / ribStep) + seedI) % 4;
-      const isCyan = phase % 2 === 0;
-      ctx.shadowBlur = 10;
+      const cy = (ceilingY + fY - 4) / 2;
+      const halfH = (fY - ceilingY) * 0.42;
+      const phase = (ribIndex + seedI) % 2;
+      const isCyan = phase === 0;
+      ctx.shadowBlur = 16;
       ctx.shadowColor = isCyan
         ? 'rgba(120, 255, 200, 0.95)'
         : 'rgba(255, 100, 180, 0.95)';
       ctx.fillStyle = isCyan
-        ? 'rgba(140, 255, 220, ' + (0.35 + ambient * 0.18) + ')'
-        : 'rgba(255, 140, 200, ' + (0.35 + ambient * 0.18) + ')';
+        ? 'rgba(140, 255, 220, ' + (0.20 + ambient * 0.12) + ')'
+        : 'rgba(255, 140, 200, ' + (0.20 + ambient * 0.12) + ')';
       ctx.beginPath();
-      ctx.ellipse(screenX, (ceilingY + fY - 4) / 2,
-                  9, (fY - ceilingY) * 0.42,
-                  0, 0, Math.PI * 2);
+      ctx.ellipse(screenX, cy, 14, halfH * 0.85, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
+      ribIndex++;
     }
 
-    // ---- 2. RIBCAGE BONES — vertical bones running ceiling to floor
-    // at every ribStep world-units. Each rib has a slight curve, an
-    // inner shadow stripe, an outer highlight stripe, and joint
-    // nodules at top + bottom anchors.
+    // ---- 3. RIBCAGE BONES — fewer, bigger, dramatically arched --
     ctx.lineCap = 'round';
-    for (let bx = bodyStart + 6; bx < bodyEnd - 4; bx += ribStep) {
+    let ribDrawIdx = 0;
+    for (let bx = bodyStart + ribStep / 2; bx < bodyEnd - 4; bx += ribStep) {
       const screenX = bx - dailyScrollX;
-      if (screenX < -12 || screenX > W + 12) continue;
+      if (screenX < -20 || screenX > W + 20) { ribDrawIdx++; continue; }
       const ceilingY = terrainHeightAt(bx) + TUNNEL_CEILING_OFFSET;
-      const phase = (Math.floor((bx - bodyStart) / ribStep) + seedI) % 5;
+      const phase = (ribDrawIdx + seedI) % 4;
       const curveDir = (phase % 2 === 0) ? 1 : -1;
-      const ctrlX = screenX + curveDir * 2.0;
-      const ctrlY = (ceilingY + fY - 4) / 2;
-      const botY  = fY - 4;
-      // Bone body
-      ctx.lineWidth = 4.6;
+      const botY = fY - 4;
+      const cy = (ceilingY + botY) / 2;
+      const ribH = botY - ceilingY;
+      // Bow scales with rib height — bigger arch on taller corridor
+      // sections so the curve always feels deliberate.
+      const bowAmt = ribH * 0.18 * curveDir;
+      const ctrlX = screenX + bowAmt;
+      // Bone body — thicker for visual presence
+      ctx.lineWidth = 6;
       ctx.strokeStyle = 'rgba(238, 218, 204, 0.95)';
       ctx.beginPath();
       ctx.moveTo(screenX, ceilingY);
-      ctx.quadraticCurveTo(ctrlX, ctrlY, screenX, botY);
+      ctx.quadraticCurveTo(ctrlX, cy, screenX, botY);
       ctx.stroke();
-      // Inner shadow stripe (toward the curve direction)
-      ctx.lineWidth = 1.4;
+      // Inner shadow stripe (toward the curve)
+      ctx.lineWidth = 2;
       ctx.strokeStyle = 'rgba(70, 50, 38, 0.55)';
       ctx.beginPath();
-      ctx.moveTo(screenX + curveDir * 0.6, ceilingY);
-      ctx.quadraticCurveTo(ctrlX + curveDir * 0.3, ctrlY,
-                            screenX + curveDir * 0.6, botY);
+      ctx.moveTo(screenX + curveDir * 0.8, ceilingY);
+      ctx.quadraticCurveTo(ctrlX + curveDir * 0.4, cy,
+                            screenX + curveDir * 0.8, botY);
       ctx.stroke();
-      // Outer highlight stripe (away from curve direction)
-      ctx.lineWidth = 0.9;
+      // Outer highlight stripe (away from the curve)
+      ctx.lineWidth = 1.2;
       ctx.strokeStyle = 'rgba(255, 248, 232, 0.85)';
       ctx.beginPath();
-      ctx.moveTo(screenX - curveDir * 1.0, ceilingY);
-      ctx.quadraticCurveTo(ctrlX - curveDir * 0.6, ctrlY,
-                            screenX - curveDir * 1.0, botY);
+      ctx.moveTo(screenX - curveDir * 1.2, ceilingY);
+      ctx.quadraticCurveTo(ctrlX - curveDir * 0.7, cy,
+                            screenX - curveDir * 1.2, botY);
       ctx.stroke();
-      // Joint nodules — ceiling and floor anchor points
+      // Joint nodules at both anchors
       for (const ny of [ceilingY + 1, botY - 1]) {
         ctx.fillStyle = 'rgba(60, 30, 18, 0.45)';
-        ctx.beginPath(); ctx.arc(screenX + 0.7, ny + 0.7, 2.4, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(screenX + 0.8, ny + 0.8, 3.2, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = 'rgba(245, 226, 212, 0.95)';
-        ctx.beginPath(); ctx.arc(screenX, ny, 2.6, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(screenX, ny, 3.4, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = 'rgba(255, 250, 240, 0.85)';
-        ctx.beginPath(); ctx.arc(screenX - 0.8, ny - 0.8, 1.0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(screenX - 1, ny - 1, 1.2, 0, Math.PI * 2); ctx.fill();
       }
+      ribDrawIdx++;
     }
     ctx.lineCap = 'butt';
 
-    // ---- 3. BIOLUMINESCENT FLOOR STRIP — bright pulsing cyan-green
-    // band running the full length of the tunnel. Replaces the old
-    // dark wet-tissue strip + rocks.
-    ctx.shadowBlur = 8;
-    ctx.shadowColor = 'rgba(140, 255, 220, 0.95)';
-    ctx.fillStyle = 'rgba(140, 255, 220, ' + (0.50 + beat * 0.30) + ')';
-    ctx.fillRect(bodyStart - dailyScrollX, fY - 3,
-                 (bodyEnd - bodyStart), 3);
-    ctx.shadowBlur = 0;
-    // Bright core line on top of the strip — wet specular feel
-    ctx.fillStyle = 'rgba(220, 255, 240, ' + (0.85 + beat * 0.15) + ')';
-    ctx.fillRect(bodyStart - dailyScrollX, fY - 2.7,
-                 (bodyEnd - bodyStart), 0.9);
+    // ---- 4. SOFT FLOOR GLOW INTEGRATION -------------------------
+    // Vertical gradient that fades up into the cavity instead of a
+    // hard line. The bottom is brightest (cyan), the top is invisible
+    // — so the floor blends into the tissue wash above it cleanly.
+    const floorGrad = ctx.createLinearGradient(0, fY - 10, 0, fY);
+    floorGrad.addColorStop(0,    'rgba(140, 255, 220, 0)');
+    floorGrad.addColorStop(0.6,  'rgba(140, 255, 220, ' + (0.18 + beat * 0.10) + ')');
+    floorGrad.addColorStop(1,    'rgba(200, 255, 230, ' + (0.55 + beat * 0.18) + ')');
+    ctx.fillStyle = floorGrad;
+    ctx.fillRect(bodyStart - dailyScrollX, fY - 10,
+                 (bodyEnd - bodyStart), 10);
 
-    // ---- 4. ENTRANCE + EXIT GLOW RINGS — bright magenta vertical
-    // ovals at the openings, telegraphing where the corridor begins
-    // and ends. Pulse on the heartbeat.
+    // ---- 5. BLEEDING PORTAL HALOS at entrance + exit ------------
+    // Soft outer halo bleeds INTO the corridor (not just outlines the
+    // opening) plus a thin bright inner ring for the rim itself.
     for (const wxOpen of [bodyStart, bodyEnd]) {
       const screenX = wxOpen - dailyScrollX;
-      if (screenX < -30 || screenX > W + 30) continue;
+      if (screenX < -50 || screenX > W + 50) continue;
       const ceilingY = terrainHeightAt(wxOpen) + TUNNEL_CEILING_OFFSET;
       const cy = (ceilingY + fY - 4) / 2;
-      const ry = (fY - ceilingY) * 0.48;
-      ctx.shadowBlur = 14;
+      const ry = (fY - ceilingY) * 0.55;
+      // Soft diffuse halo
+      ctx.shadowBlur = 24;
       ctx.shadowColor = 'rgba(255, 130, 200, 0.95)';
-      ctx.strokeStyle = 'rgba(255, 130, 200, ' + (0.70 + beat * 0.25) + ')';
-      ctx.lineWidth = 2.4;
+      ctx.fillStyle = 'rgba(255, 130, 200, ' + (0.30 + beat * 0.18) + ')';
       ctx.beginPath();
-      ctx.ellipse(screenX, cy, 4, ry, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      // Inner brighter ring
-      ctx.lineWidth = 1.0;
-      ctx.strokeStyle = 'rgba(255, 220, 240, ' + (0.85 + beat * 0.15) + ')';
-      ctx.beginPath();
-      ctx.ellipse(screenX, cy, 2.5, ry * 0.95, 0, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.ellipse(screenX, cy, 9, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.shadowBlur = 0;
+      // Bright inner ring
+      ctx.strokeStyle = 'rgba(255, 200, 230, ' + (0.85 + beat * 0.15) + ')';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.ellipse(screenX, cy, 5, ry * 0.92, 0, 0, Math.PI * 2);
+      ctx.stroke();
     }
   }
 
