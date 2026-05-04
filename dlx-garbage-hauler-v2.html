@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v307';
+const DLX_BUILD = 'v308';
 
 (function() {
   // ---------- Device detection ----------
@@ -12333,7 +12333,7 @@ const DLX_BUILD = 'v307';
   // Hangar floor + interior align with where the rig sits at start.
   function drawLandmarkOrigin(x, y) {
     if (currentDeliveryLevel.obstacleTheme === 'organic') {
-      drawLandmarkOrganicArch(x, y);
+      drawLandmarkOrganicCoral(x, y);
       return;
     }
     ctx.save();
@@ -12521,174 +12521,258 @@ const DLX_BUILD = 'v307';
     ctx.restore();
   }
 
-  // Organic-theme dispatch landmark — the rig launches from under a
-  // BONE ARCHWAY rising from the cavity floor. Two curving rib bones
-  // arch up from a fleshy mound and meet at an apex joint, framing a
-  // backlit cyan-green glow that suggests light leaking in from outside
-  // the body. Reads as an anatomical doorway — clean silhouette, no
-  // creature face. Replaces the v305-v306 pod attempt which read as a
-  // creepy alien eye-creature.
-  function drawLandmarkOrganicArch(x, y) {
+  // Organic-theme dispatch landmark — the rig parks on a CORAL LANDING
+  // PAD. A fleshy circular pad on the cavity floor with branching coral
+  // arms reaching up around it (not enclosing) and a few small
+  // anemones at the perimeter. Reads as a biological docking bay — no
+  // creature face, no enclosing membrane, the rig has clear airspace
+  // forward to launch through.
+  function drawLandmarkOrganicCoral(x, y) {
     ctx.save();
-    const floorY    = PLAY_H / 2 + 28;
-    const apexX     = x;
-    const apexY     = floorY - 130;
-    const leftBase  = { x: x - 70, y: floorY };
-    const rightBase = { x: x + 60, y: floorY };
-    const boneW     = 14;
-    // Heartbeat sync — drives the backlit glow + anchor pulses.
+    const floorY = PLAY_H / 2 + 28;
+    const padCx  = x;
+    // Heartbeat sync — drives glow + tip pulses.
     const period = currentDeliveryLevel.pulsePeriodFrames || 210;
     const tBeat  = (frame % period) / period;
     const beat   = Math.max(
       0,
       Math.sin(Math.PI * Math.min(1, tBeat * 5.0)) * (1 - tBeat * 0.6)
     );
+    // Subtle current-sway phase shared across all coral so the cluster
+    // feels like it's all bending in the same biological flow.
+    const sway = frame * 0.02;
 
-    // ---- 1. BACKLIT CYAN GLOW filling the inside of the arch — the
-    // doorway opens onto "outside the body," so cyan-green light leaks
-    // through. Drawn first so the bones overlay only their narrow path.
-    ctx.shadowBlur = 26;
-    ctx.shadowColor = 'rgba(140, 255, 220, 0.95)';
-    ctx.fillStyle = 'rgba(140, 255, 220, ' + (0.32 + beat * 0.18) + ')';
+    // ---- 1. SOFT BACKGROUND GLOW behind the cluster — magenta halo
+    // pushing the coral forward visually.
+    ctx.shadowBlur = 22;
+    ctx.shadowColor = 'rgba(255, 100, 180, 0.85)';
+    ctx.fillStyle = 'rgba(255, 100, 180, ' + (0.18 + beat * 0.08) + ')';
     ctx.beginPath();
-    ctx.ellipse(apexX, floorY - 64, 56, 72, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    // Brighter inner core
-    ctx.shadowBlur = 14;
-    ctx.shadowColor = 'rgba(220, 255, 240, 0.95)';
-    ctx.fillStyle = 'rgba(220, 255, 240, ' + (0.45 + beat * 0.20) + ')';
-    ctx.beginPath();
-    ctx.ellipse(apexX, floorY - 54, 30, 46, 0, 0, Math.PI * 2);
+    ctx.ellipse(padCx, floorY - 30, 110, 56, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // ---- 2. FLESHY MOUND on the floor under the arch — pinkish
-    // platform the bones grow out of. Wide oval that the rig appears
-    // to sit in front of (rig is drawn separately at apex altitude).
-    const moundCx = x;
-    const moundY  = floorY + 4;
-    const moundGrad = ctx.createLinearGradient(0, floorY - 4, 0, floorY + 14);
-    moundGrad.addColorStop(0,   '#e8588c');
-    moundGrad.addColorStop(0.5, '#a82856');
-    moundGrad.addColorStop(1,   '#3a0e22');
-    ctx.fillStyle = moundGrad;
+    // ---- 2. BACK-ROW CORAL BRANCHES — drawn before the pad so the pad
+    // appears in front. Mix of palettes (magenta + bio-green tips) and
+    // sizes for variety. Heights and positions chosen so the rig has
+    // clear forward (right) airspace to launch.
+    drawCoralBranch(padCx - 78, floorY,     82, -0.22 + Math.sin(sway + 0.3) * 0.06, 'magenta', 1.41);
+    drawCoralBranch(padCx - 36, floorY - 4, 70, -0.06 + Math.sin(sway + 0.9) * 0.05, 'bio',     2.71);
+    drawCoralBranch(padCx + 26, floorY - 3, 64,  0.10 + Math.sin(sway + 1.5) * 0.05, 'magenta', 4.13);
+    drawCoralBranch(padCx + 72, floorY,     76,  0.20 + Math.sin(sway + 2.1) * 0.06, 'bio',     5.59);
+
+    // ---- 3. SMALL ANEMONES along the perimeter — wavy tendril clusters
+    // that animate every frame so the bay feels alive.
+    drawSmallAnemone(padCx - 100, floorY, sway, 0.31);
+    drawSmallAnemone(padCx + 102, floorY, sway, 1.73);
+
+    // ---- 4. THE PAD — fleshy circular landing platform the rig sits on.
+    const padY = floorY + 4;
+    const padGrad = ctx.createLinearGradient(0, floorY - 6, 0, floorY + 14);
+    padGrad.addColorStop(0,   '#e8588c');
+    padGrad.addColorStop(0.5, '#a82856');
+    padGrad.addColorStop(1,   '#3a0e22');
+    ctx.fillStyle = padGrad;
     ctx.beginPath();
-    ctx.ellipse(moundCx, moundY, 76, 10, 0, 0, Math.PI * 2);
+    ctx.ellipse(padCx, padY, 58, 10, 0, 0, Math.PI * 2);
     ctx.fill();
-    // Wet specular highlight along the top of the mound
+    // Wet specular highlight along the top
     ctx.fillStyle = 'rgba(255, 200, 220, 0.65)';
     ctx.beginPath();
-    ctx.ellipse(moundCx, moundY - 5, 56, 2.4, 0, 0, Math.PI * 2);
+    ctx.ellipse(padCx, padY - 5, 44, 2.4, 0, 0, Math.PI * 2);
     ctx.fill();
     // Dark fold line for depth
     ctx.strokeStyle = 'rgba(40, 8, 22, 0.55)';
     ctx.lineWidth = 1.0;
     ctx.beginPath();
-    ctx.moveTo(moundCx - 60, moundY + 1);
-    ctx.quadraticCurveTo(moundCx, moundY + 5, moundCx + 60, moundY + 1);
+    ctx.moveTo(padCx - 50, padY + 1);
+    ctx.quadraticCurveTo(padCx, padY + 5, padCx + 50, padY + 1);
     ctx.stroke();
-
-    // ---- 3. TWO BONE ARMS curving from the floor up to the apex.
-    // Each is a thick stroke with cool inner shadow, bright outer
-    // highlight, and three joint nodules along its length so it reads
-    // as anatomy.
-    drawArchBone(leftBase,  apexX, apexY, boneW, true);
-    drawArchBone(rightBase, apexX, apexY, boneW, false);
-
-    // ---- 4. APEX JOINT — pale bone ball where the two arms meet.
-    ctx.fillStyle = '#f0e0c8';
+    // Pulsing pink rim ring around the pad — reads as a docking
+    // landing-light circle on the heartbeat.
+    ctx.strokeStyle = 'rgba(255, 100, 160, ' + (0.55 + beat * 0.30) + ')';
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.arc(apexX, apexY, 10, 0, Math.PI * 2);
-    ctx.fill();
-    // Cool shadow on the lower-right of the joint for 3D
-    ctx.fillStyle = 'rgba(60, 30, 18, 0.45)';
-    ctx.beginPath();
-    ctx.arc(apexX + 3, apexY + 3, 7, 0, Math.PI * 2);
-    ctx.fill();
-    // Bright catchlight on the upper-left
-    ctx.fillStyle = 'rgba(255, 250, 240, 0.95)';
-    ctx.beginPath();
-    ctx.arc(apexX - 3, apexY - 3, 2.6, 0, Math.PI * 2);
-    ctx.fill();
-
-    // ---- 5. PULSING ANCHOR SEALS where each bone meets the floor —
-    // small red flesh patches that throb on the heartbeat, suggesting
-    // the bones are biologically rooted, not bolted in.
-    for (const base of [leftBase, rightBase]) {
-      ctx.shadowBlur = 6;
-      ctx.shadowColor = 'rgba(255, 80, 130, 0.85)';
-      ctx.fillStyle = 'rgba(220, 40, 90, ' + (0.55 + beat * 0.30) + ')';
-      ctx.beginPath();
-      ctx.ellipse(base.x, base.y, 14, 5, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      // Brighter wet highlight along the top
-      ctx.fillStyle = 'rgba(255, 180, 220, 0.65)';
-      ctx.beginPath();
-      ctx.ellipse(base.x, base.y - 1, 9, 1.6, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    ctx.ellipse(padCx, padY - 3, 55, 7, 0, 0, Math.PI * 2);
+    ctx.stroke();
 
     ctx.restore();
   }
 
-  // One curving rib running from a base point on the floor up to the
-  // arch apex. Drawn as a thick pale-bone stroke with a thin shadow on
-  // the inner edge, a thin highlight on the outer edge, and three
-  // joint nodules along its length so the silhouette reads as anatomy
-  // rather than just a curved line.
-  function drawArchBone(base, apexX, apexY, widthPx, isLeft) {
-    // Bezier control point bows the bone OUTWARD (away from the arch
-    // interior) for a natural rib curve.
-    const ctrlX = base.x + (isLeft ? -16 : 16);
-    const ctrlY = (base.y + apexY) * 0.5;
+  // One branching coral structure rising from a base point on the cavity
+  // floor. Trunk curves up + out (leanX), with three sub-branches
+  // sprouting at varied heights, each ending in a glowing bulbous tip.
+  // palette: 'magenta' (pink/red coral) or 'bio' (pink coral with cyan-
+  // green bioluminescent tips). Trunk + sub-branches are drawn as
+  // tapering segmented strokes so each piece thins toward its tip.
+  function drawCoralBranch(baseX, baseY, height, leanX, palette, seed) {
+    const period = currentDeliveryLevel.pulsePeriodFrames || 210;
+    const tBeat  = (frame % period) / period;
+    const beat   = Math.max(
+      0,
+      Math.sin(Math.PI * Math.min(1, tBeat * 5.0)) * (1 - tBeat * 0.6)
+    );
+    const colors = palette === 'bio' ? {
+      bodyMid:   'rgba(160,  60,  80, 0.95)',
+      bodyLight: 'rgba(220, 140, 160, 0.85)',
+      bodyShade: 'rgba(60,  10,  24, 0.85)',
+      tipBody:   'rgba(180, 255, 220, 0.95)',
+      tipGlow:   'rgba(120, 255, 200, 0.95)',
+    } : {
+      bodyMid:   'rgba(180,  50, 110, 0.95)',
+      bodyLight: 'rgba(240, 130, 190, 0.85)',
+      bodyShade: 'rgba(70,  16,  40, 0.85)',
+      tipBody:   'rgba(255, 180, 220, 0.95)',
+      tipGlow:   'rgba(255, 110, 180, 0.95)',
+    };
 
+    // Main trunk bezier control points
+    const apexX  = baseX + leanX * height * 0.6;
+    const apexY  = baseY - height;
+    const ctrlX  = baseX + leanX * height * 0.35;
+    const ctrlY  = baseY - height * 0.50;
     ctx.lineCap = 'round';
-    // Bone body
-    ctx.lineWidth = widthPx;
-    ctx.strokeStyle = 'rgba(238, 218, 204, 0.95)';
-    ctx.beginPath();
-    ctx.moveTo(base.x, base.y);
-    ctx.quadraticCurveTo(ctrlX, ctrlY, apexX, apexY);
-    ctx.stroke();
-    // Inner shadow stripe (toward the arch interior)
-    const innerOff = (isLeft ? widthPx * 0.32 : -widthPx * 0.32);
-    ctx.lineWidth = widthPx * 0.30;
-    ctx.strokeStyle = 'rgba(70, 50, 38, 0.55)';
-    ctx.beginPath();
-    ctx.moveTo(base.x + innerOff, base.y);
-    ctx.quadraticCurveTo(ctrlX + innerOff * 0.5, ctrlY, apexX + innerOff * 0.4, apexY);
-    ctx.stroke();
-    // Outer highlight stripe
-    const outerOff = -innerOff;
-    ctx.lineWidth = widthPx * 0.18;
-    ctx.strokeStyle = 'rgba(255, 248, 232, 0.85)';
-    ctx.beginPath();
-    ctx.moveTo(base.x + outerOff, base.y);
-    ctx.quadraticCurveTo(ctrlX + outerOff * 0.5, ctrlY, apexX + outerOff * 0.4, apexY);
-    ctx.stroke();
-    // Joint nodules at three points along the bezier — sample using
-    // the standard quadratic-bezier interpolation formula.
-    for (const tt of [0.30, 0.55, 0.78]) {
-      const u = 1 - tt;
-      const jx = u * u * base.x + 2 * u * tt * ctrlX + tt * tt * apexX;
-      const jy = u * u * base.y + 2 * u * tt * ctrlY + tt * tt * apexY;
-      // Shadow under the nodule
-      ctx.fillStyle = 'rgba(60, 30, 18, 0.40)';
+
+    // ---- TRUNK — drawn as tapering segments so it thins from base to tip
+    const TRUNK_SEGS = 9;
+    for (let s = 0; s < TRUNK_SEGS; s++) {
+      const t0 = s / TRUNK_SEGS, t1 = (s + 1) / TRUNK_SEGS;
+      const u0 = 1 - t0, u1 = 1 - t1;
+      const x0 = u0 * u0 * baseX + 2 * u0 * t0 * ctrlX + t0 * t0 * apexX;
+      const y0 = u0 * u0 * baseY + 2 * u0 * t0 * ctrlY + t0 * t0 * apexY;
+      const x1 = u1 * u1 * baseX + 2 * u1 * t1 * ctrlX + t1 * t1 * apexX;
+      const y1 = u1 * u1 * baseY + 2 * u1 * t1 * ctrlY + t1 * t1 * apexY;
+      const w = 10 * (1 - t0 * 0.78);   // 10 at base → ~2.2 at tip
+      // Body
+      ctx.lineWidth = w;
+      ctx.strokeStyle = colors.bodyMid;
       ctx.beginPath();
-      ctx.arc(jx + 1.4, jy + 1.4, widthPx * 0.40, 0, Math.PI * 2);
-      ctx.fill();
-      // Pale bone nodule body
-      ctx.fillStyle = 'rgba(245, 226, 212, 0.95)';
+      ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
+      ctx.stroke();
+      // Bright highlight stripe (offset to the LIT side — opposite of leanX)
+      const litOff = -Math.sign(leanX || 1) * w * 0.22;
+      ctx.lineWidth = w * 0.22;
+      ctx.strokeStyle = colors.bodyLight;
       ctx.beginPath();
-      ctx.arc(jx, jy, widthPx * 0.42, 0, Math.PI * 2);
-      ctx.fill();
-      // Tiny catchlight
-      ctx.fillStyle = 'rgba(255, 250, 240, 0.85)';
+      ctx.moveTo(x0 + litOff, y0); ctx.lineTo(x1 + litOff, y1);
+      ctx.stroke();
+      // Cool shadow on the opposite side
+      const shadeOff = -litOff;
+      ctx.lineWidth = w * 0.18;
+      ctx.strokeStyle = colors.bodyShade;
       ctx.beginPath();
-      ctx.arc(jx - widthPx * 0.15, jy - widthPx * 0.15, widthPx * 0.13, 0, Math.PI * 2);
+      ctx.moveTo(x0 + shadeOff, y0); ctx.lineTo(x1 + shadeOff, y1);
+      ctx.stroke();
+    }
+
+    // ---- SUB-BRANCHES — three smaller coral arms sprouting off the
+    // trunk at varied heights, alternating sides for natural variation.
+    const subs = [
+      { tt: 0.32, side: (leanX > 0 ? -1 : 1), len: height * 0.42, ang: 0.75 },
+      { tt: 0.55, side: (leanX > 0 ?  1 : -1), len: height * 0.36, ang: 0.62 },
+      { tt: 0.76, side: (leanX > 0 ? -0.5 : 0.5), len: height * 0.28, ang: 0.50 },
+    ];
+    for (let i = 0; i < subs.length; i++) {
+      const sub = subs[i];
+      const u = 1 - sub.tt;
+      const ox = u * u * baseX + 2 * u * sub.tt * ctrlX + sub.tt * sub.tt * apexX;
+      const oy = u * u * baseY + 2 * u * sub.tt * ctrlY + sub.tt * sub.tt * apexY;
+      const tipX = ox + Math.sin(sub.side * sub.ang) * sub.len;
+      const tipY = oy - Math.cos(sub.side * sub.ang) * sub.len;
+      const sCtrlX = ox + Math.sin(sub.side * sub.ang) * sub.len * 0.45;
+      const sCtrlY = oy - Math.cos(sub.side * sub.ang) * sub.len * 0.75;
+
+      const SUB_SEGS = 7;
+      const baseW = 5 * (1 - sub.tt * 0.5);   // thinner sub if higher up trunk
+      for (let s = 0; s < SUB_SEGS; s++) {
+        const t0 = s / SUB_SEGS, t1 = (s + 1) / SUB_SEGS;
+        const u0 = 1 - t0, u1 = 1 - t1;
+        const x0 = u0 * u0 * ox + 2 * u0 * t0 * sCtrlX + t0 * t0 * tipX;
+        const y0 = u0 * u0 * oy + 2 * u0 * t0 * sCtrlY + t0 * t0 * tipY;
+        const x1 = u1 * u1 * ox + 2 * u1 * t1 * sCtrlX + t1 * t1 * tipX;
+        const y1 = u1 * u1 * oy + 2 * u1 * t1 * sCtrlY + t1 * t1 * tipY;
+        const w = baseW * (1 - t0 * 0.70);
+        ctx.lineWidth = w;
+        ctx.strokeStyle = colors.bodyMid;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
+        ctx.stroke();
+        // Highlight on lit side
+        const litOff = -Math.sign(sub.side || 1) * w * 0.20;
+        ctx.lineWidth = w * 0.22;
+        ctx.strokeStyle = colors.bodyLight;
+        ctx.beginPath();
+        ctx.moveTo(x0 + litOff, y0); ctx.lineTo(x1 + litOff, y1);
+        ctx.stroke();
+      }
+      // Glowing tip nodule
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = colors.tipGlow;
+      ctx.fillStyle = colors.tipBody;
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, 3 + beat * 0.5, 0, Math.PI * 2);
       ctx.fill();
+      ctx.shadowBlur = 0;
+      // Bright core
+      ctx.fillStyle = 'rgba(255, 255, 250, 0.95)';
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, 1.0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ---- MAIN TRUNK TIP — biggest glowing bulb at the apex.
+    ctx.shadowBlur = 9;
+    ctx.shadowColor = colors.tipGlow;
+    ctx.fillStyle = colors.tipBody;
+    ctx.beginPath();
+    ctx.arc(apexX, apexY, 4.4 + beat * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Bright core
+    ctx.fillStyle = 'rgba(255, 255, 250, 0.95)';
+    ctx.beginPath();
+    ctx.arc(apexX, apexY, 1.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.lineCap = 'butt';
+  }
+
+  // Small fleshy mound with five wavy tendrils — ornament around the
+  // coral landing pad. Tendrils animate per-frame so the perimeter
+  // feels alive even when the trunks are stationary.
+  function drawSmallAnemone(baseX, baseY, sway, phaseOffset) {
+    // Mound base
+    ctx.fillStyle = 'rgba(140, 30, 60, 0.95)';
+    ctx.beginPath();
+    ctx.ellipse(baseX, baseY, 13, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(220, 100, 150, 0.75)';
+    ctx.beginPath();
+    ctx.ellipse(baseX, baseY - 1, 9, 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Wavy tendrils — five evenly-spaced arms reaching up + slightly out
+    ctx.strokeStyle = 'rgba(255, 100, 180, 0.88)';
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
+    for (let t = 0; t < 5; t++) {
+      const angle = -Math.PI / 2 + (t - 2) * 0.32;
+      const wob   = Math.sin(sway * 2 + phaseOffset + t * 1.1) * 2.5;
+      const tipX  = baseX + Math.sin(angle) * 22 + wob;
+      const tipY  = baseY - Math.cos(angle) * 22;
+      const ctrlX = baseX + Math.sin(angle) * 12 + wob * 0.6;
+      const ctrlY = baseY - Math.cos(angle) * 12;
+      ctx.beginPath();
+      ctx.moveTo(baseX + Math.sin(angle) * 4, baseY - 2);
+      ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+      ctx.stroke();
+      // Bioluminescent tip
+      ctx.fillStyle = 'rgba(180, 255, 220, 0.95)';
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(140, 255, 200, 0.95)';
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
     }
     ctx.lineCap = 'butt';
   }
