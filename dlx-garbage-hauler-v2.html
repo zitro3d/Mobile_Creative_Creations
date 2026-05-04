@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v298';
+const DLX_BUILD = 'v299';
 
 (function() {
   // ---------- Device detection ----------
@@ -10318,20 +10318,20 @@ const DLX_BUILD = 'v298';
   function drawDailySky() {
     if (!isDaily) return;
     if (!bgCache.dailySkyGrad) {
-      // Warm hazy desert sky — pale cream up top fading down through
-      // peach and dusty rose to a terracotta horizon.
+      // Sky stops sourced from the active delivery level so swapping
+      // levels swaps the gradient without touching the renderer.
       const g = ctx.createLinearGradient(0, 0, 0, PLAY_H);
-      g.addColorStop(0,    '#f6e0b4');
-      g.addColorStop(0.35, '#f4c890');
-      g.addColorStop(0.65, '#e8a868');
-      g.addColorStop(1,    '#c87040');
+      const stops = currentDeliveryLevel.skyPalette;
+      for (let i = 0; i < stops.length; i++) {
+        g.addColorStop(stops[i].stop, stops[i].color);
+      }
       bgCache.dailySkyGrad = g;
     }
     ctx.fillStyle = bgCache.dailySkyGrad;
     ctx.fillRect(0, 0, W, PLAY_H);
     // Continue the warm tone into the GROUND_H strip so we don't get a
     // dark band below the playfield on game-over and home overlays.
-    ctx.fillStyle = '#5a2e18';
+    ctx.fillStyle = currentDeliveryLevel.groundBand;
     ctx.fillRect(0, PLAY_H, W, H - PLAY_H);
 
     // ---- Twin pale moons in the upper sky ----
@@ -18810,6 +18810,13 @@ const DLX_BUILD = 'v298';
     isDaily = true;
     dailyWasNewBest = false;
     dailyDelivered = false;
+    // Point the renderers at the active delivery level. Today the daily is
+    // always the wasteland highway; future ships rotate this through the
+    // other DELIVERY_LEVELS entries. Invalidate the cached sky gradient so
+    // a level change actually repaints (createLinearGradient is locked to
+    // the colors it was built with).
+    currentDeliveryLevel = DELIVERY_LEVELS.sunsetWastes;
+    bgCache.dailySkyGrad = null;
     // Daily delivery course is always the wasteland highway — sunset palette
     // regardless of which day of the week it is, so the backdrop matches
     // the GDD road-trip fiction (DLX Dist. Center → Good Buddy Truck Stop).
@@ -19112,6 +19119,38 @@ const DLX_BUILD = 'v298';
   // pipe layouts, debris, and power-up drops are identical. Unlimited
   // attempts, best score saved. Streak counts consecutive days played.
   let isDaily = false;
+
+  // Data-driven delivery-level configs. Each entry holds the per-level
+  // visual + label state that drawDailySky / drawDailyHorizon /
+  // drawDailyTerrain (and friends) read from at render time. Adding a
+  // new level = adding a new entry here and pointing currentDeliveryLevel
+  // at it during launch. Future ships extend this with horizonStyle /
+  // terrainProfile / ambientField / obstacleWeights / cargoStyle.
+  const DELIVERY_LEVELS = {
+    sunsetWastes: {
+      label: 'SUNSET WASTES',
+      // Sky gradient stops, top to bottom. Format matches the sequence
+      // drawDailySky() previously hardcoded as 4 createLinearGradient
+      // addColorStop calls — same colors, same stops, just sourced from
+      // here so a new level can supply its own without touching renderer
+      // code.
+      skyPalette: [
+        { stop: 0,    color: '#f6e0b4' },
+        { stop: 0.35, color: '#f4c890' },
+        { stop: 0.65, color: '#e8a868' },
+        { stop: 1,    color: '#c87040' },
+      ],
+      // Solid color filled into the GROUND_H strip below PLAY_H so the
+      // overlay area doesn't show a dark band.
+      groundBand: '#5a2e18',
+      dispatchLabel: 'DLX DISPATCH CENTER',
+      dockLabel: 'GOOD BUDDY TRUCK STOP',
+    },
+  };
+  // The level currently driving the daily-mode renderers. Every daily
+  // launch sets this from DELIVERY_LEVELS; defaults to sunsetWastes so
+  // boot-time renders before first launch don't NPE.
+  let currentDeliveryLevel = DELIVERY_LEVELS.sunsetWastes;
   let dailyWasNewBest = false;     // set at finalize so over-screen can highlight
   let lastDailyRun = null;         // captured at finalize so Share can recall it
   let dailyTokenPayout = 0;        // tokens earned from the most recent daily (base + streak bonus)
