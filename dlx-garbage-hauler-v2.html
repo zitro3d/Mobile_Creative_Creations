@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v310';
+const DLX_BUILD = 'v311';
 
 (function() {
   // ---------- Device detection ----------
@@ -15888,6 +15888,10 @@ const DLX_BUILD = 'v310';
 
   function drawDailyCargo() {
     if (!isDaily || !cargo || cargo.lost) return;
+    if (currentDeliveryLevel.obstacleTheme === 'organic') {
+      drawDailyCargoBio();
+      return;
+    }
     ctx.save();
     ctx.translate(cargo.x, cargo.y);
     // Pitch the cargo to follow the rig — when the ship climbs, the
@@ -15970,6 +15974,166 @@ const DLX_BUILD = 'v310';
       ctx.fill();
       ctx.shadowBlur = 0;
     }
+    ctx.restore();
+  }
+
+  // Organic-theme cargo crate — DLX BIO containment box. Same shape +
+  // magnetic-bead receiver as the desert version so the gameplay reads
+  // identically, but corroded acid-eaten steel with greenish patina,
+  // a glowing bio-window in the middle showing pulsing cargo inside,
+  // a DLX/BIO yellow stamp at the bottom, and a wet drip running down
+  // one side. Reads as: DLX delivery box that's been swallowed.
+  function drawDailyCargoBio() {
+    ctx.save();
+    ctx.translate(cargo.x, cargo.y);
+    const tilt = cargo.attached
+      ? Math.max(-0.25, Math.min(0.25, (bird.y - cargo.y) * 0.03))
+      : 0;
+    ctx.rotate(tilt);
+    const w = 22, h = 18;
+    // Heartbeat sync — drives bio-window pulse.
+    const period = currentDeliveryLevel.pulsePeriodFrames || 210;
+    const tBeat  = (frame % period) / period;
+    const beat   = Math.max(
+      0,
+      Math.sin(Math.PI * Math.min(1, tBeat * 5.0)) * (1 - tBeat * 0.6)
+    );
+
+    // ---- BODY — corroded dark steel with greenish acid patina
+    const grad = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+    grad.addColorStop(0,   '#3a4538');
+    grad.addColorStop(0.5, '#1e2820');
+    grad.addColorStop(1,   '#0a120a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+    // Acid corrosion blotches (greenish) scattered on the surface
+    ctx.fillStyle = 'rgba(120, 200, 120, 0.22)';
+    ctx.beginPath(); ctx.arc(-w / 2 + 5, -h / 2 + 4, 2.0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( w / 2 - 4,  h / 2 - 5, 1.6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( w / 2 - 6, -h / 2 + 7, 1.0, 0, Math.PI * 2); ctx.fill();
+    // Hairline edge highlight at the top (greenish tint)
+    ctx.fillStyle = 'rgba(180, 220, 180, 0.45)';
+    ctx.fillRect(-w / 2 + 1, -h / 2 + 1, w - 2, 1);
+    // Heavy outline
+    ctx.strokeStyle = '#0a0c08';
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    // Vertical seam down the middle
+    ctx.strokeStyle = '#1a2418';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(0, -h / 2 + 1); ctx.lineTo(0, h / 2 - 1);
+    ctx.stroke();
+
+    // ---- CORNER PLATES — same shape, darker corroded steel
+    ctx.fillStyle = '#1a2418';
+    const cp = 4;
+    ctx.fillRect(-w / 2,     -h / 2,     cp, cp);
+    ctx.fillRect( w / 2 - cp, -h / 2,     cp, cp);
+    ctx.fillRect(-w / 2,      h / 2 - cp, cp, cp);
+    ctx.fillRect( w / 2 - cp, h / 2 - cp, cp, cp);
+    ctx.strokeStyle = '#0a0c08';
+    ctx.lineWidth = 0.6;
+    ctx.strokeRect(-w / 2,      -h / 2,      cp, cp);
+    ctx.strokeRect( w / 2 - cp, -h / 2,      cp, cp);
+    ctx.strokeRect(-w / 2,      h / 2 - cp,  cp, cp);
+    ctx.strokeRect( w / 2 - cp, h / 2 - cp,  cp, cp);
+    // Rivets
+    ctx.fillStyle = '#000402';
+    for (const [rx, ry] of [
+      [-w / 2 + 2, -h / 2 + 2], [ w / 2 - 2, -h / 2 + 2],
+      [-w / 2 + 2,  h / 2 - 2], [ w / 2 - 2,  h / 2 - 2],
+    ]) {
+      ctx.beginPath();
+      ctx.arc(rx, ry, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ---- TOP DLX HAZARD STRIPE — narrow yellow band with black slashes
+    // (kept above the bio-window so the brand reads first).
+    const stripeY = -h / 2 + cp + 0.3;
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(-w / 2 + cp + 1, stripeY, w - cp * 2 - 2, 2.4);
+    ctx.fillStyle = '#1a0a06';
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(-w / 2 + cp + 2 + i * 3.4, stripeY, 1.0, 2.4);
+    }
+
+    // ---- GLOWING BIO-WINDOW — central translucent window showing the
+    // pulsing bio-cargo inside. Heartbeat-synced. THIS is the visual
+    // hook that makes the box read as a containment unit, not just a
+    // crate.
+    const winX = -w / 2 + cp + 1;
+    const winY = -2;
+    const winW = w - cp * 2 - 2;
+    const winH = 6;
+    // Outer glow halo
+    ctx.shadowBlur = 7;
+    ctx.shadowColor = 'rgba(140, 255, 220, 0.95)';
+    ctx.fillStyle = 'rgba(140, 255, 220, ' + (0.30 + beat * 0.20) + ')';
+    ctx.fillRect(winX - 1, winY - 1, winW + 2, winH + 2);
+    ctx.shadowBlur = 0;
+    // Window dark backing (the inside of the box)
+    ctx.fillStyle = '#021412';
+    ctx.fillRect(winX, winY, winW, winH);
+    // Pulsing bio-luminescent cargo inside
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = 'rgba(180, 255, 220, 0.95)';
+    ctx.fillStyle = 'rgba(140, 255, 200, ' + (0.55 + beat * 0.40) + ')';
+    ctx.fillRect(winX + 1.5, winY + 1, winW - 3, winH - 2);
+    // Bright core spark — the actual sample inside
+    ctx.fillStyle = 'rgba(255, 255, 240, ' + (0.85 + beat * 0.15) + ')';
+    ctx.fillRect(winX + winW * 0.32, winY + winH * 0.30,
+                 winW * 0.36, winH * 0.40);
+    ctx.shadowBlur = 0;
+    // Window frame (thin metal border)
+    ctx.strokeStyle = '#0a120a';
+    ctx.lineWidth = 0.6;
+    ctx.strokeRect(winX, winY, winW, winH);
+
+    // ---- DLX / BIO STENCIL at the bottom — yellow brand
+    ctx.fillStyle = '#ffd83d';
+    ctx.font = 'bold 4px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DLX/BIO', 0, h / 2 - 3);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+
+    // ---- WET DRIP running down the right side — suggests the box has
+    // been carried through the gut.
+    ctx.fillStyle = 'rgba(180, 255, 200, 0.55)';
+    ctx.beginPath();
+    ctx.moveTo(w / 2 - 2.5, -h / 2 + 5);
+    ctx.lineTo(w / 2 - 1.5, -h / 2 + 5);
+    ctx.lineTo(w / 2 - 1.6, h / 2 - 4);
+    ctx.lineTo(w / 2 - 2.6, h / 2 - 4);
+    ctx.closePath();
+    ctx.fill();
+    // Drip globule about to fall
+    ctx.shadowBlur = 3;
+    ctx.shadowColor = 'rgba(140, 255, 200, 0.95)';
+    ctx.fillStyle = 'rgba(160, 255, 210, 0.85)';
+    ctx.beginPath();
+    ctx.arc(w / 2 - 2.1, h / 2 + 1.5, 1.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // ---- Magnetic-receiver bead on the front (rig-facing side)
+    if (cargo.attached) {
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = '#60d0ff';
+      ctx.fillStyle = '#a0f0ff';
+      ctx.beginPath();
+      ctx.arc(w / 2 + 1, 0, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(w / 2 + 0.6, -0.4, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
     ctx.restore();
   }
 
