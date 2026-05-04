@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v301';
+const DLX_BUILD = 'v302';
 
 (function() {
   // ---------- Device detection ----------
@@ -14397,6 +14397,10 @@ const DLX_BUILD = 'v301';
   // magnetic claw on a cable to snap the bond from above.
   function drawDailyThieves() {
     if (!isDaily || !dailyThieves.length) return;
+    if (currentDeliveryLevel.obstacleTheme === 'organic') {
+      drawDailyPhages();
+      return;
+    }
     for (const tf of dailyThieves) {
       ctx.save();
       ctx.translate(Math.round(tf.x), Math.round(tf.y));
@@ -14658,6 +14662,257 @@ const DLX_BUILD = 'v301';
       ctx.restore();
     }
   }
+
+  // Organic re-skin of the cargo-thief renderer for cavern/body levels.
+  // Same state machine + cable mechanics as the gunship: a creature
+  // descends from the cavity ceiling on a thread, lowers a sucker mouth
+  // toward the cargo, latches on, then retracts back up. Visually it's
+  // a translucent bioluminescent phage — bulbous gel sac with a multi-
+  // eye cluster, wriggling top tendrils, trailing tendrils where the
+  // gunship's engine flames are, and a glowing mucus thread instead of
+  // a steel cable + magnet plate.
+  function drawDailyPhages() {
+    for (const tf of dailyThieves) {
+      ctx.save();
+      ctx.translate(Math.round(tf.x), Math.round(tf.y));
+
+      // Subtle ground shadow so the rig still senses something hovers
+      // over it. Smaller than the gunship version since the phage is
+      // softer and translucent.
+      const shadowAlpha = (tf.state === 'lower') ? 0.34 : 0.18;
+      ctx.fillStyle = 'rgba(10, 4, 6, ' + shadowAlpha + ')';
+      const shY = (PLAY_H - 28) - tf.y;
+      ctx.beginPath();
+      ctx.ellipse(0, shY, 26, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // ---- Trailing tendrils where the gunship's engine flames go.
+      // Three thin curling tendrils sweep behind the body, animating
+      // each frame so the creature looks like it's swimming forward.
+      const flowPhase = frame * 0.18 + tf.x * 0.01;
+      ctx.strokeStyle = 'rgba(120, 220, 160, 0.85)';
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = 'round';
+      for (let t = 0; t < 3; t++) {
+        const yOff = -8 + t * 8;
+        ctx.beginPath();
+        ctx.moveTo(28, yOff);
+        for (let s = 1; s <= 8; s++) {
+          const tt = s / 8;
+          const px = 28 + tt * 22;
+          const py = yOff + Math.sin(flowPhase + t * 1.4 + tt * 2.5) * (3 + tt * 4);
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      // Glowing tip droplets at the trailing ends
+      ctx.fillStyle = 'rgba(180, 255, 200, 0.9)';
+      ctx.shadowBlur = 5;
+      ctx.shadowColor = 'rgba(120, 240, 180, 0.95)';
+      for (let t = 0; t < 3; t++) {
+        const yOff = -8 + t * 8 + Math.sin(flowPhase + t * 1.4 + 2.5) * 7;
+        ctx.beginPath();
+        ctx.arc(50, yOff, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+
+      // ---- Body — bulbous translucent gel sac with a slight breath
+      // pulse so it reads as alive. Wider than tall, faint outer halo.
+      const breath = 1 + 0.06 * Math.sin(frame * 0.09 + tf.x * 0.013);
+      const bw = 26 * breath;
+      const bh = 17 * breath;
+      // Outer membrane glow
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = 'rgba(120, 240, 180, 0.9)';
+      ctx.fillStyle = 'rgba(140, 220, 160, 0.28)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, bw * 1.25, bh * 1.30, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Body gel — radial gradient from a wet highlight to a deeper
+      // algae rim, partially translucent so the cavern colour bleeds
+      // through and the phage looks like jelly.
+      const bodyGrad = ctx.createRadialGradient(
+        -bw * 0.30, -bh * 0.35, bw * 0.08,
+        0,           0,          bw
+      );
+      bodyGrad.addColorStop(0,    'rgba(220, 255, 200, 0.95)');     // wet highlight
+      bodyGrad.addColorStop(0.30, 'rgba(160, 230, 170, 0.92)');     // gel body
+      bodyGrad.addColorStop(0.70, 'rgba(70,  170, 110, 0.88)');     // deeper green
+      bodyGrad.addColorStop(1,    'rgba(20,  70,  50,  0.80)');     // translucent rim
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = 'rgba(60, 140, 80, 0.6)';
+      ctx.fillStyle = bodyGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, bw, bh, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // ---- Multi-eye cluster on the front (left side). Five small
+      // dark spots arranged in an arc, with one larger central eye.
+      // Reads as alien insectoid biology, not a cockpit.
+      const eyeCx = -bw * 0.55, eyeCy = -bh * 0.05;
+      ctx.fillStyle = '#04200a';
+      const eyePositions = [
+        { x: -3,   y: -4, r: 1.0 },
+        { x:  0,   y: -5, r: 1.1 },
+        { x:  3,   y: -4, r: 1.0 },
+        { x: -2.5, y:  3, r: 0.9 },
+        { x:  2.5, y:  3, r: 0.9 },
+      ];
+      for (const e of eyePositions) {
+        ctx.beginPath();
+        ctx.arc(eyeCx + e.x, eyeCy + e.y, e.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Big central eye, glowing red — locks onto its target
+      const lockGlow = (tf.state === 'lower') ? 1 : 0.5;
+      ctx.shadowBlur = 6 * lockGlow;
+      ctx.shadowColor = 'rgba(255, 60, 80, 0.95)';
+      ctx.fillStyle = 'rgba(255, 80, 100, ' + (0.85 + lockGlow * 0.15) + ')';
+      ctx.beginPath();
+      ctx.arc(eyeCx, eyeCy, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#180408';
+      ctx.beginPath();
+      ctx.arc(eyeCx, eyeCy, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // ---- Top tendrils — 4 short curly tendrils on the upper body
+      // waving in the cavern current. Lend the body its alien-creature
+      // silhouette (no rigid hull, no spike rams).
+      ctx.strokeStyle = 'rgba(80, 180, 110, 0.9)';
+      ctx.lineWidth = 1.4;
+      for (let i = 0; i < 4; i++) {
+        const baseX = -bw * 0.5 + i * (bw * 0.33);
+        const phase = flowPhase * 0.7 + i * 0.9;
+        ctx.beginPath();
+        ctx.moveTo(baseX, -bh + 1);
+        for (let s = 1; s <= 6; s++) {
+          const tt = s / 6;
+          const len = 9;
+          const px = baseX + Math.sin(phase + tt * 2.6) * 3 * tt;
+          const py = -bh + 1 - tt * len;
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      // Tiny glowing nodules at the top-tendril tips
+      ctx.fillStyle = 'rgba(180, 255, 220, 0.95)';
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(140, 255, 200, 0.9)';
+      for (let i = 0; i < 4; i++) {
+        const baseX = -bw * 0.5 + i * (bw * 0.33);
+        const phase = flowPhase * 0.7 + i * 0.9;
+        const tipX = baseX + Math.sin(phase + 2.6) * 3;
+        const tipY = -bh + 1 - 9;
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, 1.0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+
+      // ---- Lock-on reticle when the phage is descending toward cargo,
+      // mirroring the gunship's lower-state lock pulse. A pulsing red
+      // ring on the cavern floor at the rig's column.
+      if (tf.state === 'lower' && tf.stateFrames < 12) {
+        const lockPulse = (tf.stateFrames % 6) / 6;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 80, 100, ' + (1 - lockPulse) + ')';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(0, PLAY_H - 60, 5 + lockPulse * 2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-7, PLAY_H - 60); ctx.lineTo(7, PLAY_H - 60);
+        ctx.moveTo(0, PLAY_H - 67); ctx.lineTo(0, PLAY_H - 53);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // ---- Mucus thread extends down by tf.cableLen — replaces the
+      // gunship's steel cable. Translucent green strand with a faint
+      // wobble so it reads as a wet biological tether.
+      const cableLen = tf.cableLen || 0;
+      if (cableLen > 0) {
+        ctx.strokeStyle = 'rgba(150, 230, 170, 0.85)';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(0, bh + 4);
+        for (let s = 1; s <= 10; s++) {
+          const tt = s / 10;
+          const py = bh + 4 + tt * cableLen;
+          const px = Math.sin(flowPhase * 0.6 + tt * 4.5) * 1.4 * tt;
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        // Brighter inner highlight strand
+        ctx.strokeStyle = 'rgba(220, 255, 220, 0.55)';
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(0, bh + 4);
+        for (let s = 1; s <= 10; s++) {
+          const tt = s / 10;
+          const py = bh + 4 + tt * cableLen;
+          const px = Math.sin(flowPhase * 0.6 + tt * 4.5) * 1.4 * tt;
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+
+      // ---- Sucker mouth at the end of the thread — replaces the
+      // gunship magnet plate. Round translucent suction cup with
+      // ringed lip and a pulsing pink absorption glow underneath
+      // when actively trying to grab.
+      const threadEndX = Math.sin(flowPhase * 0.6 + 4.5) * 1.4;
+      const suckerCy = bh + 10 + cableLen;
+      // Outer lip (darker rim)
+      ctx.fillStyle = 'rgba(40, 90, 60, 0.95)';
+      ctx.beginPath();
+      ctx.arc(threadEndX, suckerCy, 8, 0, Math.PI * 2);
+      ctx.fill();
+      // Mid ring
+      ctx.fillStyle = 'rgba(110, 200, 140, 0.95)';
+      ctx.beginPath();
+      ctx.arc(threadEndX, suckerCy, 6, 0, Math.PI * 2);
+      ctx.fill();
+      // Inner mouth (very dark, where it'd grab)
+      ctx.fillStyle = 'rgba(20, 40, 30, 0.98)';
+      ctx.beginPath();
+      ctx.arc(threadEndX, suckerCy, 3.6, 0, Math.PI * 2);
+      ctx.fill();
+      // Tiny radial teeth-rim around the mouth
+      ctx.strokeStyle = 'rgba(220, 255, 220, 0.7)';
+      ctx.lineWidth = 0.7;
+      for (let i = 0; i < 8; i++) {
+        const ang = i * Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(threadEndX + Math.cos(ang) * 4.0, suckerCy + Math.sin(ang) * 4.0);
+        ctx.lineTo(threadEndX + Math.cos(ang) * 5.4, suckerCy + Math.sin(ang) * 5.4);
+        ctx.stroke();
+      }
+      // Pulsing absorption glow underneath when active
+      const sGlow = (tf.state === 'lower' || tf.state === 'cruise')
+        ? 1 : Math.max(0, 1 - tf.stateFrames / 20);
+      if (sGlow > 0.05) {
+        ctx.shadowBlur = 12 * sGlow;
+        ctx.shadowColor = 'rgba(255, 100, 140, 0.95)';
+        ctx.fillStyle = 'rgba(255, 130, 170, ' + sGlow + ')';
+        ctx.beginPath();
+        ctx.arc(threadEndX, suckerCy + 6, 4.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 230, 240, ' + (sGlow * 0.85) + ')';
+        ctx.beginPath();
+        ctx.arc(threadEndX, suckerCy + 6, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      ctx.restore();
+    }
+  }
+
   function drawDailyCargo() {
     if (!isDaily || !cargo || cargo.lost) return;
     ctx.save();
@@ -19582,15 +19837,15 @@ const DLX_BUILD = 'v301';
       pulsePeriodFrames: 210,               // ~3.5s at 60fps
       dispatchLabel: 'PARASITOLOGY OUTPOST',
       dockLabel: 'CARDIAC CHAMBER',
-      // No machine-themed enemies inside a creature — drones/thieves/ground
-      // rigs are aircraft + tanks, they don't belong here. airWrecks are
-      // crashed scrap, also wrong setting. Lava balls + scrap towers stay
-      // because their RENDERERS dispatch on obstacleTheme below: lava
-      // balls draw as bile globs, scrap towers as bone spurs. Tentacles
-      // stay (re-skinned to deeper flesh). Tunnels stay (esophageal pipes
-      // — palette dispatch is a separate follow-up).
+      // No machine-themed enemies inside a creature — drones (anti-magnet
+      // aircraft) and groundOps (tank rigs) don't belong here. airWrecks
+      // are crashed scrap, wrong setting. Thieves STAY ON because their
+      // renderer dispatches to a parasitic-phage visual for organic
+      // levels (same grab-and-haul mechanic, alien creature instead of
+      // a gunship). Lava balls + scrap towers + tentacles + tunnels also
+      // stay; their renderers dispatch on obstacleTheme.
       obstacleSet: {
-        drones: false, thieves: false, groundOps: false,
+        drones: false, thieves: true, groundOps: false,
         lavaBalls: true, scrapTowers: true, airWrecks: false,
         tunnels: true, tentacles: true,
       },
