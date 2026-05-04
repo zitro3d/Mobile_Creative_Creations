@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v308';
+const DLX_BUILD = 'v309';
 
 (function() {
   // ---------- Device detection ----------
@@ -13724,194 +13724,139 @@ const DLX_BUILD = 'v308';
   }
 
   // Organic re-skin of the ground tentacles for cavern/body levels.
-  // Replaces the desert kraken-arm visual with an ALIEN MAW CREATURE
-  // emerging from the cavity floor: a bulbous bioluminescent head with
-  // two big alien eyes and a wide gaping mouth lined with teeth, plus
-  // three tentacle arms reaching upward (those still drive the cargo-
-  // grab mechanic so peakLen / sway pattern stays the same).
+  // Three OCTOPUS ARMS emerging from a small fleshy mound on the cavity
+  // floor — no head, no face, no eyes. Each arm tapers from thick at
+  // the base to skinny at the tip. Two-tone suction cups (pale flesh
+  // ring + dark center) run along each arm, sized to scale with the
+  // local arm thickness.
   function drawDailyMaws() {
     for (const t of dailyTentacles) {
       const sx = Math.round(t.worldX - dailyScrollX);
       if (sx < -100 || sx > W + 100) continue;
       const gy = Math.round(terrainHeightAt(sx + dailyScrollX));
-      // 0..1 reach factor matching the desert version's animation.
+      // 0..1 reach factor — animates the arms rising and retracting.
       let reach = 0;
       if (t.life < 60)            reach = t.life / 60;
       else if (t.life < t.maxLife - 60) reach = 1;
       else                         reach = (t.maxLife - t.life) / 60;
       const peakLen = 150 * Math.max(0, reach);
-      // The HEAD rises from below the ground to its peak so the creature
-      // EMERGES rather than appearing fully formed.
-      const headRise = 30 * Math.max(0, reach);
       ctx.save();
       ctx.translate(sx, gy);
 
-      // ---- TENTACLE ARMS — three flesh tendrils reaching up from the
-      // creature's shoulders. Drawn FIRST so the head sits in front of
-      // their bases.
+      // ---- THREE OCTOPUS ARMS — drawn first so the mound at the base
+      // overlaps and visually anchors them.
       const armCount = 3;
+      const BASE_W = 22;        // thick base
+      const TIP_W  = 2;         // skinny tip
       ctx.lineCap = 'round';
       for (let a = 0; a < armCount; a++) {
         const angOffset = (a - 1) * 0.45;
         const swayPhase = t.phase + a * 1.7;
-        // Outer flesh body
-        ctx.strokeStyle = '#3a0810';
-        ctx.lineWidth = 11;
-        ctx.beginPath();
-        ctx.moveTo(0, -headRise * 0.25);
-        for (let s = 1; s <= 12; s++) {
-          const tt = s / 12;
+
+        // Build the arm's path points so we can sample positions for
+        // both the segmented stroke and the suckers.
+        const SEGS = 14;
+        const pts = [];
+        for (let s = 0; s <= SEGS; s++) {
+          const tt = s / SEGS;
           const px = Math.sin(tt * 1.6 + swayPhase) * 16 * tt
                    + angOffset * peakLen * tt;
-          const py = -headRise * 0.25 - tt * peakLen;
-          ctx.lineTo(px, py);
+          const py = -tt * peakLen;
+          pts.push({ x: px, y: py });
         }
-        ctx.stroke();
-        // Brighter pulsing inner stripe
-        ctx.strokeStyle = '#d44a70';
-        ctx.lineWidth = 4.4;
-        ctx.beginPath();
-        ctx.moveTo(0, -headRise * 0.25);
-        for (let s = 1; s <= 12; s++) {
-          const tt = s / 12;
-          const px = Math.sin(tt * 1.6 + swayPhase) * 16 * tt
-                   + angOffset * peakLen * tt;
-          const py = -headRise * 0.25 - tt * peakLen;
-          ctx.lineTo(px, py);
-        }
-        ctx.stroke();
-        // Glowing bioluminescent suckers along the inner side
-        ctx.shadowBlur = 4;
-        ctx.shadowColor = 'rgba(160, 255, 200, 0.9)';
-        ctx.fillStyle = '#a8ffc8';
-        for (let s = 1; s <= 4; s++) {
-          const tt = s / 4;
-          const px = Math.sin(tt * 1.6 + swayPhase) * 16 * tt
-                   + angOffset * peakLen * tt;
-          const py = -headRise * 0.25 - tt * peakLen;
+
+        // ---- TAPERED ARM BODY — segmented strokes with linearly
+        // decreasing line width from BASE_W down to TIP_W. Drawing
+        // segment-by-segment is the only way canvas2D can taper a
+        // single stroke.
+        for (let s = 0; s < SEGS; s++) {
+          const tt0 = s / SEGS;
+          const tt1 = (s + 1) / SEGS;
+          const w0 = BASE_W + (TIP_W - BASE_W) * tt0;
+          const w1 = BASE_W + (TIP_W - BASE_W) * tt1;
+          const w  = (w0 + w1) * 0.5;
+          ctx.lineWidth = w;
+          ctx.strokeStyle = '#3a0810';
           ctx.beginPath();
-          ctx.arc(px, py, 1.4, 0, Math.PI * 2);
+          ctx.moveTo(pts[s].x,     pts[s].y);
+          ctx.lineTo(pts[s + 1].x, pts[s + 1].y);
+          ctx.stroke();
+        }
+        // Bright magenta inner highlight stripe along the arm — also
+        // tapered, slightly offset toward one side so it reads as the
+        // lit edge rather than a center stripe.
+        const litOff = -Math.sign(angOffset || 1) * 3;
+        for (let s = 0; s < SEGS; s++) {
+          const tt0 = s / SEGS;
+          const tt1 = (s + 1) / SEGS;
+          const w0 = BASE_W + (TIP_W - BASE_W) * tt0;
+          const w1 = BASE_W + (TIP_W - BASE_W) * tt1;
+          const w  = (w0 + w1) * 0.5 * 0.40;
+          ctx.lineWidth = Math.max(0.6, w);
+          ctx.strokeStyle = '#d44a70';
+          ctx.beginPath();
+          ctx.moveTo(pts[s].x + litOff,     pts[s].y);
+          ctx.lineTo(pts[s + 1].x + litOff, pts[s + 1].y);
+          ctx.stroke();
+        }
+
+        // ---- TWO-TONE SUCKERS along the arm — pale outer flesh ring
+        // with a dark inner center. Sized to scale with local arm
+        // thickness so suckers near the base are big and suckers near
+        // the tip shrink with the arm.
+        const SUCKER_COUNT = 8;
+        for (let su = 1; su <= SUCKER_COUNT; su++) {
+          const tt = su / (SUCKER_COUNT + 1);  // skip the very base
+          const localW = BASE_W + (TIP_W - BASE_W) * tt;
+          const sucR = localW * 0.34;
+          if (sucR < 1.0) continue;
+          // Sample the path at this fractional position
+          const idxF = tt * SEGS;
+          const idx  = Math.min(SEGS - 1, Math.floor(idxF));
+          const lerp = idxF - idx;
+          const sx_ = pts[idx].x + (pts[idx + 1].x - pts[idx].x) * lerp;
+          const sy_ = pts[idx].y + (pts[idx + 1].y - pts[idx].y) * lerp;
+          // Outer pale flesh ring
+          ctx.fillStyle = '#f4d8c0';
+          ctx.beginPath();
+          ctx.arc(sx_, sy_, sucR, 0, Math.PI * 2);
+          ctx.fill();
+          // Subtle outline around the ring for definition against the arm
+          ctx.strokeStyle = 'rgba(60, 12, 30, 0.55)';
+          ctx.lineWidth = 0.7;
+          ctx.beginPath();
+          ctx.arc(sx_, sy_, sucR, 0, Math.PI * 2);
+          ctx.stroke();
+          // Inner dark center (deep magenta-red — the actual suction pit)
+          ctx.fillStyle = '#a8284c';
+          ctx.beginPath();
+          ctx.arc(sx_, sy_, sucR * 0.50, 0, Math.PI * 2);
           ctx.fill();
         }
-        ctx.shadowBlur = 0;
       }
+      ctx.lineCap = 'butt';
 
-      // ---- HEAD — bulbous bioluminescent dome rising from the floor.
-      // Pulses subtly (heartbeat-ish) and is wider than tall.
-      const breath = 1 + 0.05 * Math.sin(t.phase * 0.4 + t.worldX * 0.013);
-      const headW = 36 * breath;
-      const headH = 26 * breath;
-      const headCy = -headRise;
-      // Outer glow halo
-      ctx.shadowBlur = 14;
-      ctx.shadowColor = 'rgba(255, 80, 160, 0.95)';
-      ctx.fillStyle = 'rgba(255, 100, 180, 0.30)';
-      ctx.beginPath();
-      ctx.ellipse(0, headCy, headW * 1.20, headH * 1.15, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      // Head body — magenta gel with a wet highlight up top
-      const headGrad = ctx.createRadialGradient(
-        -headW * 0.30, headCy - headH * 0.40, headW * 0.10,
-        0,             headCy,                headW
-      );
-      headGrad.addColorStop(0,    'rgba(255, 220, 240, 0.95)');
-      headGrad.addColorStop(0.30, 'rgba(255, 130, 200, 0.95)');
-      headGrad.addColorStop(0.70, 'rgba(180,  40, 100, 0.95)');
-      headGrad.addColorStop(1,    'rgba(60,   12, 30,  0.95)');
-      ctx.fillStyle = headGrad;
-      ctx.beginPath();
-      ctx.ellipse(0, headCy, headW, headH, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // Anatomical fold across the brow
-      ctx.strokeStyle = 'rgba(80, 12, 36, 0.7)';
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.moveTo(-headW * 0.7, headCy - headH * 0.30);
-      ctx.quadraticCurveTo(0, headCy - headH * 0.55, headW * 0.7, headCy - headH * 0.30);
-      ctx.stroke();
-
-      // ---- EYES — two big alien eyes facing forward (toward the rig
-      // which is to the LEFT of incoming tentacles). Light up brighter
-      // when fully extended so the creature reads as ALERT and HUNTING.
-      const eyeY = headCy - headH * 0.10;
-      const eyeXOff = headW * 0.42;
-      const wakeful = (reach > 0.6) ? 1 : Math.max(0, (reach - 0.2) / 0.4);
-      // Eye whites — pale yellow-green
-      ctx.fillStyle = 'rgba(220, 255, 220, 0.95)';
-      ctx.beginPath(); ctx.arc(-eyeXOff, eyeY, 5.4, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( eyeXOff, eyeY, 5.4, 0, Math.PI * 2); ctx.fill();
-      // Iris — saturated cyan with soft glow
-      ctx.shadowBlur = 5 * wakeful;
-      ctx.shadowColor = 'rgba(120, 255, 220, 0.95)';
-      ctx.fillStyle = 'rgba(80, 220, 200, ' + (0.85 + 0.15 * wakeful) + ')';
-      ctx.beginPath(); ctx.arc(-eyeXOff, eyeY, 3.4, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( eyeXOff, eyeY, 3.4, 0, Math.PI * 2); ctx.fill();
-      // Slit pupils tracking the rig (always look LEFT — that's where
-      // the player is; the world scrolls right, rig stays at fixed sx)
-      ctx.fillStyle = '#031818';
-      ctx.beginPath(); ctx.ellipse(-eyeXOff - 1.2, eyeY, 0.9, 2.6, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse( eyeXOff - 1.2, eyeY, 0.9, 2.6, 0, 0, Math.PI * 2); ctx.fill();
-      // Tiny white catchlight
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-      ctx.beginPath(); ctx.arc(-eyeXOff - 0.5, eyeY - 1.5, 0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( eyeXOff - 1.7, eyeY - 1.5, 0.7, 0, Math.PI * 2); ctx.fill();
-
-      // ---- MOUTH — wide gaping maw across the lower head. Opens in
-      // sync with the creature's reach (closed when retracting, wide
-      // open at full extension).
-      const mouthY  = headCy + headH * 0.30;
-      const mouthW  = headW * 0.78;
-      const mouthH  = 5 + 6 * Math.max(0, reach);
-      // Dark cavity
-      ctx.fillStyle = 'rgba(15, 4, 12, 0.95)';
-      ctx.beginPath();
-      ctx.ellipse(0, mouthY, mouthW * 0.5, mouthH, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // Inner red glow at the back of the throat
-      ctx.shadowBlur = 4;
-      ctx.shadowColor = 'rgba(255, 60, 100, 0.95)';
-      ctx.fillStyle = 'rgba(180, 30, 60, 0.85)';
-      ctx.beginPath();
-      ctx.ellipse(0, mouthY, mouthW * 0.35, mouthH * 0.65, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      // Teeth — pale spikes along top + bottom of the mouth
-      ctx.fillStyle = '#f0e0c8';
-      const TEETH_M = 6;
-      for (let i = 0; i < TEETH_M; i++) {
-        const tx = -mouthW * 0.4 + i * (mouthW * 0.8) / (TEETH_M - 1);
-        // Top tooth
-        ctx.beginPath();
-        ctx.moveTo(tx - 1.0, mouthY - mouthH * 0.85);
-        ctx.lineTo(tx + 1.0, mouthY - mouthH * 0.85);
-        ctx.lineTo(tx,        mouthY - mouthH * 0.10);
-        ctx.closePath();
-        ctx.fill();
-        // Bottom tooth
-        ctx.beginPath();
-        ctx.moveTo(tx - 1.0, mouthY + mouthH * 0.85);
-        ctx.lineTo(tx + 1.0, mouthY + mouthH * 0.85);
-        ctx.lineTo(tx,        mouthY + mouthH * 0.10);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // ---- BASE MOUND — fleshy collar where the head meets the floor.
-      // Replaces the desert version's dark ellipse with a wet living
-      // body emerging from the ground.
+      // ---- BASE MOUND — small fleshy collar where the arms emerge
+      // from the cavity floor. Drawn LAST so it overlaps the bottom of
+      // each arm, hiding the seam where they meet the ground. NO head,
+      // NO eyes, NO face — just a wet living patch.
       ctx.fillStyle = '#6a1834';
       ctx.beginPath();
-      ctx.ellipse(0, 0, headW * 0.85, 8, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 50, 12, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Wet specular highlight along the front of the collar
-      ctx.fillStyle = 'rgba(255, 140, 200, 0.55)';
+      // Wet specular highlight along the top of the mound
+      ctx.fillStyle = 'rgba(255, 140, 200, 0.65)';
       ctx.beginPath();
-      ctx.ellipse(0, -2, headW * 0.65, 2.4, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -3, 36, 2.6, 0, 0, Math.PI * 2);
       ctx.fill();
+      // Dark fold line for depth
+      ctx.strokeStyle = 'rgba(40, 8, 22, 0.55)';
+      ctx.lineWidth = 1.0;
+      ctx.beginPath();
+      ctx.moveTo(-44, 1);
+      ctx.quadraticCurveTo(0, 5, 44, 1);
+      ctx.stroke();
 
-      ctx.lineCap = 'butt';
       ctx.restore();
     }
   }
