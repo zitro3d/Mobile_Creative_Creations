@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v319';
+const DLX_BUILD = 'v320';
 
 (function() {
   // ---------- Device detection ----------
@@ -11529,7 +11529,7 @@ const DLX_BUILD = 'v319';
   // hangar at the start of the run for a clean visual bookend.
   function drawLandmarkTruckStop(x, y) {
     if (currentDeliveryLevel.obstacleTheme === 'organic') {
-      drawLandmarkOrganicEggs(x, y);
+      drawLandmarkOrganicCardiacDock(x, y);
       return;
     }
     ctx.save();
@@ -13001,220 +13001,371 @@ const DLX_BUILD = 'v319';
   // pink absorption glow waiting at the rim. Veins from each egg meet
   // at the base, all pulsing on the level heartbeat. Reads as "you're
   // feeding the creature's offspring."
-  function drawLandmarkOrganicEggs(x, y) {
+  // Organic-theme dock landmark — DLX CARDIAC CHAMBER drop site. Mirror
+  // of the bio-garage at the START: ribs frame the bay, metal docking
+  // platform with yellow hazard chevrons sits on the floor, DLX badge
+  // + DROP COMPLETE monitor on the back wall, hazard barricade tape
+  // overhead, lights flashing. The cargo gets fed into a glowing
+  // cardiac receptacle slot that pulses on the heartbeat. Reads as the
+  // OTHER end of the DLX field-ops route — same brand language, same
+  // industrial-into-flesh aesthetic.
+  function drawLandmarkOrganicCardiacDock(x, y) {
     ctx.save();
-    const cx = x;
-    const cy = PLAY_H / 2 + 18;
-    // Heartbeat sync — same period the sky pulse uses.
+    const floorY = PLAY_H / 2 + 28;
+    const ceilY  = PLAY_H / 2 - 80;
+    const bayLeft  = x - 60;
+    const bayRight = x + 90;        // wider on the right where the cardiac organ bulges in
+    const bayMid   = x + 15;
+    // Heartbeat sync — drives the cardiac organ pulse, monitor flicker,
+    // and receptacle slot brightness.
     const period = currentDeliveryLevel.pulsePeriodFrames || 210;
-    const t = (frame % period) / period;
-    const beat = Math.max(0, Math.sin(Math.PI * Math.min(1, t * 5.0)) * (1 - t * 0.6));
-    const breath = 1 + 0.04 * Math.sin(frame * 0.05);
+    const tBeat  = (frame % period) / period;
+    const beat   = Math.max(
+      0,
+      Math.sin(Math.PI * Math.min(1, tBeat * 5.0)) * (1 - tBeat * 0.6)
+    );
+    const lightPhase = Math.floor(frame / 18) % 2 === 0;
 
-    // ---- FLESHY MOUND BASE — wide flat dome the eggs sit on.
-    const moundW = 110;
-    const moundH = 22;
-    ctx.shadowBlur = 14;
-    ctx.shadowColor = 'rgba(255, 80, 130, 0.55)';
-    ctx.fillStyle = 'rgba(120, 30, 60, 0.30)';
+    // ---- 1. CARDIAC ORGAN backdrop — a pulsing veined heart bulging
+    // in from the right side of the bay. The dock is INSIDE the organ
+    // chamber, so the organ wall is the back wall. Drawn first.
+    const organCx = bayRight - 6;
+    const organCy = (ceilY + floorY) / 2;
+    const organR  = 70 * (1 + beat * 0.06);
+    // Outer halo
+    ctx.shadowBlur = 28;
+    ctx.shadowColor = 'rgba(255, 80, 130, 0.95)';
+    ctx.fillStyle = 'rgba(255, 100, 160, ' + (0.20 + beat * 0.18) + ')';
     ctx.beginPath();
-    ctx.ellipse(cx, cy + 8, moundW * 1.10, moundH * 1.30, 0, 0, Math.PI * 2);
+    ctx.ellipse(organCx, organCy, organR * 1.30, organR * 1.10, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
-    const moundGrad = ctx.createRadialGradient(
-      cx - moundW * 0.25, cy + 4, moundW * 0.10,
-      cx,                  cy + 8, moundW
+    // Organ body — radial gradient
+    const organGrad = ctx.createRadialGradient(
+      organCx - organR * 0.30, organCy - organR * 0.30, organR * 0.10,
+      organCx,                  organCy,                  organR
     );
-    moundGrad.addColorStop(0,    'rgba(255, 130, 180, 0.95)');
-    moundGrad.addColorStop(0.35, 'rgba(180,  50,  90, 0.95)');
-    moundGrad.addColorStop(0.85, 'rgba(80,   18,  44, 0.95)');
-    moundGrad.addColorStop(1,    'rgba(40,    8,  22, 0.95)');
-    ctx.fillStyle = moundGrad;
+    organGrad.addColorStop(0,    'rgba(255, 200, 230, 0.95)');
+    organGrad.addColorStop(0.30, 'rgba(255, 100, 160, 0.95)');
+    organGrad.addColorStop(0.70, 'rgba(180,  40,  90, 0.95)');
+    organGrad.addColorStop(1,    'rgba(80,   12,  40, 0.95)');
+    ctx.fillStyle = organGrad;
     ctx.beginPath();
-    ctx.ellipse(cx, cy + 8, moundW, moundH, 0, 0, Math.PI * 2);
+    ctx.ellipse(organCx, organCy, organR, organR * 0.92, 0, 0, Math.PI * 2);
     ctx.fill();
-    // Dark fold line across the mound for depth
-    ctx.strokeStyle = 'rgba(40, 8, 24, 0.55)';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.moveTo(cx - moundW * 0.7, cy + 12);
-    ctx.quadraticCurveTo(cx, cy + 18, cx + moundW * 0.7, cy + 12);
-    ctx.stroke();
-
-    // ---- EGGS — five translucent sacs of varying sizes nestled on the
-    // mound. Center one is the receptacle (open). Side eggs are sealed
-    // with embryos visible inside.
-    // Layout: large center (the open one), two medium flanking, two
-    // small at the back.
-    const eggs = [
-      // back-left small
-      { dx: -moundW * 0.62, dy:  -2, r: 18 * breath, isOpen: false, embryoAng: -0.5 },
-      // back-right small
-      { dx:  moundW * 0.62, dy:  -2, r: 18 * breath, isOpen: false, embryoAng:  0.4 },
-      // front-left medium
-      { dx: -moundW * 0.30, dy:   8, r: 22 * breath, isOpen: false, embryoAng:  0.2 },
-      // front-right medium
-      { dx:  moundW * 0.30, dy:   8, r: 22 * breath, isOpen: false, embryoAng: -0.3 },
-      // CENTER large (the open receptacle)
-      { dx: 0,              dy:  -6, r: 30 * breath, isOpen: true,  embryoAng: 0 },
+    // Vein network across the organ — branching dark lines
+    ctx.strokeStyle = 'rgba(60, 12, 30, 0.85)';
+    ctx.lineWidth = 1.4;
+    const veinPaths = [
+      [[-0.85, -0.20], [-0.55, -0.10], [-0.40, 0.30], [-0.20, 0.55]],
+      [[ 0.85, -0.10], [ 0.55,  0.05], [ 0.30, 0.30], [ 0.10, 0.55]],
+      [[-0.30, -0.85], [-0.10, -0.50], [ 0.10, -0.10]],
+      [[ 0.30, -0.85], [ 0.10, -0.50], [-0.10, -0.10]],
+      [[-0.65,  0.55], [-0.20,  0.65], [ 0.20, 0.55], [ 0.65, 0.40]],
     ];
-    // Sort back-to-front by dy so closer eggs overlap further ones.
-    eggs.sort((a, b) => a.dy - b.dy);
-
-    // Vein cords linking each egg to the mound — drawn underneath all
-    // egg bodies so they read as anchors.
-    ctx.strokeStyle = 'rgba(120, 30, 60, 0.85)';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    for (const e of eggs) {
-      const ex = cx + e.dx;
-      const ey = cy + e.dy;
+    for (const path of veinPaths) {
       ctx.beginPath();
-      ctx.moveTo(ex, ey + e.r * 0.7);
-      ctx.bezierCurveTo(
-        ex,           cy + 4,
-        cx + e.dx * 0.4, cy + 6,
-        cx + e.dx * 0.2, cy + 8
-      );
+      for (let p = 0; p < path.length; p++) {
+        const px = organCx + path[p][0] * organR;
+        const py = organCy + path[p][1] * organR;
+        if (p === 0) ctx.moveTo(px, py);
+        else         ctx.lineTo(px, py);
+      }
       ctx.stroke();
     }
-    // Brighter pulsing inner stripe through each cord
-    ctx.strokeStyle = 'rgba(255, 130, 200, ' + (0.50 + beat * 0.40) + ')';
-    ctx.lineWidth = 1.0;
-    for (const e of eggs) {
-      const ex = cx + e.dx;
-      const ey = cy + e.dy;
+    // Brighter pulsing vein cores
+    ctx.strokeStyle = 'rgba(255, 130, 200, ' + (0.60 + beat * 0.35) + ')';
+    ctx.lineWidth = 0.7;
+    for (const path of veinPaths) {
       ctx.beginPath();
-      ctx.moveTo(ex, ey + e.r * 0.7);
-      ctx.bezierCurveTo(
-        ex,           cy + 4,
-        cx + e.dx * 0.4, cy + 6,
-        cx + e.dx * 0.2, cy + 8
-      );
+      for (let p = 0; p < path.length; p++) {
+        const px = organCx + path[p][0] * organR;
+        const py = organCy + path[p][1] * organR;
+        if (p === 0) ctx.moveTo(px, py);
+        else         ctx.lineTo(px, py);
+      }
       ctx.stroke();
+    }
+
+    // ---- 2. RIB BONES framing the bay (left + arched top). The dock's
+    // bay opens to the LEFT (where the rig approaches), so we don't
+    // draw a right rib here — the cardiac organ acts as the back wall.
+    ctx.lineCap = 'round';
+    const ribW = 12;
+    ctx.lineWidth = ribW;
+    ctx.strokeStyle = 'rgba(238, 218, 204, 0.95)';
+    // Left rib — opens to the left where the rig approaches
+    ctx.beginPath();
+    ctx.moveTo(bayLeft, floorY);
+    ctx.quadraticCurveTo(bayLeft - 10, (floorY + ceilY) / 2, bayLeft + 10, ceilY);
+    ctx.stroke();
+    // Top rib arch — spans from left rib to where it meets the organ
+    ctx.lineWidth = ribW * 0.85;
+    ctx.beginPath();
+    ctx.moveTo(bayLeft + 10, ceilY);
+    ctx.quadraticCurveTo(bayMid, ceilY - 14, bayRight - 24, ceilY);
+    ctx.stroke();
+    // Inner shadow + outer highlight on left rib
+    ctx.lineWidth = ribW * 0.32;
+    ctx.strokeStyle = 'rgba(70, 50, 38, 0.55)';
+    ctx.beginPath();
+    ctx.moveTo(bayLeft + 4, floorY);
+    ctx.quadraticCurveTo(bayLeft - 6, (floorY + ceilY) / 2, bayLeft + 14, ceilY);
+    ctx.stroke();
+    ctx.lineWidth = ribW * 0.18;
+    ctx.strokeStyle = 'rgba(255, 248, 232, 0.85)';
+    ctx.beginPath();
+    ctx.moveTo(bayLeft - 4, floorY);
+    ctx.quadraticCurveTo(bayLeft - 14, (floorY + ceilY) / 2, bayLeft + 6, ceilY);
+    ctx.stroke();
+    // Joint nodules at left rib floor + ceiling + top arch right end
+    for (const j of [
+      { jx: bayLeft,      jy: floorY,  r: 6 },
+      { jx: bayLeft + 10, jy: ceilY,   r: 5 },
+      { jx: bayRight - 24, jy: ceilY,  r: 5 },
+    ]) {
+      ctx.fillStyle = 'rgba(70, 50, 38, 0.45)';
+      ctx.beginPath(); ctx.arc(j.jx + 1, j.jy + 1, j.r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(245, 226, 212, 0.95)';
+      ctx.beginPath(); ctx.arc(j.jx, j.jy, j.r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255, 250, 240, 0.85)';
+      ctx.beginPath(); ctx.arc(j.jx - j.r * 0.3, j.jy - j.r * 0.3, j.r * 0.30, 0, Math.PI * 2); ctx.fill();
     }
     ctx.lineCap = 'butt';
 
-    // ---- INDIVIDUAL EGGS ----
-    for (const e of eggs) {
-      const ex = cx + e.dx;
-      const ey = cy + e.dy;
-      const er = e.r;
-      // Faint outer halo per-egg
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = 'rgba(255, 120, 180, 0.85)';
-      ctx.fillStyle = 'rgba(255, 110, 180, 0.20)';
+    // ---- 3. DLX BADGE PLATE — kept on the LEFT back wall area where
+    // the cargo first arrives.
+    const badgeW = 38, badgeH = 20;
+    const badgeCx = bayLeft + 36;
+    const badgeCy = ceilY + 22;
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = 'rgba(255, 130, 60, 0.85)';
+    ctx.fillStyle = 'rgba(255, 100, 50, 0.32)';
+    ctx.fillRect(badgeCx - badgeW/2 - 4, badgeCy - badgeH/2 - 3,
+                 badgeW + 8, badgeH + 6);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#d83020';
+    ctx.fillRect(badgeCx - badgeW/2, badgeCy - badgeH/2, badgeW, badgeH);
+    ctx.fillStyle = 'rgba(80, 12, 8, 0.65)';
+    ctx.fillRect(badgeCx - badgeW/2, badgeCy + badgeH/2 - 2, badgeW, 2);
+    ctx.strokeStyle = 'rgba(255, 200, 80, 0.7)';
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(badgeCx - badgeW/2 + 2, badgeCy - badgeH/2 + 2,
+                    badgeW - 4, badgeH - 4);
+    ctx.fillStyle = '#ffd83d';
+    ctx.font = 'bold 13px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DLX', badgeCx, badgeCy + 1);
+
+    // ---- 4. DROP MONITOR — same dispatch screen as the bio-garage
+    // but reads "DELIVERY / CARDIAC CHAMBER" so the player sees they
+    // arrived at the destination.
+    const monW = 30, monH = 22;
+    const monCx = badgeCx + 36;
+    const monCy = badgeCy + 4;
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(monCx - monW/2, monCy - monH/2, monW, monH);
+    ctx.fillStyle = '#021820';
+    ctx.fillRect(monCx - monW/2 + 2, monCy - monH/2 + 2, monW - 4, monH - 4);
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = 'rgba(80, 220, 220, 0.95)';
+    ctx.fillStyle = 'rgba(120, 240, 220, 0.95)';
+    ctx.font = '5px monospace';
+    ctx.fillText('DELIVERY', monCx, monCy - 4);
+    ctx.fillStyle = 'rgba(180, 255, 230, 0.95)';
+    ctx.font = 'bold 5.5px monospace';
+    ctx.fillText('CARDIAC', monCx, monCy + 2);
+    ctx.fillText('CHAMBER', monCx, monCy + 8);
+    ctx.shadowBlur = 0;
+    if ((frame % 20) < 2) {
+      ctx.fillStyle = 'rgba(120, 240, 220, 0.20)';
+      const sline = monCy - monH/2 + 2 + (frame % (monH - 4));
+      ctx.fillRect(monCx - monW/2 + 2, sline, monW - 4, 1);
+    }
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+
+    // ---- 5. HAZARD BARRICADE TAPE strung along the top of the bay
+    const tapeY    = ceilY + 28;
+    const tapeYMid = tapeY + 5;
+    ctx.strokeStyle = '#ffd83d';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(bayLeft + 6, tapeY);
+    ctx.quadraticCurveTo(bayMid, tapeYMid, bayRight - 24, tapeY);
+    ctx.stroke();
+    ctx.strokeStyle = '#1a0408';
+    ctx.lineWidth = 4;
+    for (let s = 0; s < 12; s += 2) {
+      const tt = s / 11;
+      const u = 1 - tt;
+      const px = u * u * (bayLeft + 6) + 2 * u * tt * bayMid + tt * tt * (bayRight - 24);
+      const py = u * u * tapeY + 2 * u * tt * tapeYMid + tt * tt * tapeY;
       ctx.beginPath();
-      ctx.ellipse(ex, ey, er * 1.20, er * 1.30, 0, 0, Math.PI * 2);
+      ctx.moveTo(px - 2.5, py - 4);
+      ctx.lineTo(px + 2.5, py + 4);
+      ctx.stroke();
+    }
+
+    // ---- 6. METAL DOCKING PLATFORM — same yellow chevron stripe,
+    // same metal slab, same bolts, but extending all the way TO the
+    // cardiac receptacle (organCx).
+    const platLeft  = bayLeft + 6;
+    const platRight = organCx - 4;
+    const platY     = floorY;
+    const platH     = 9;
+    ctx.fillStyle = '#2a2a32';
+    ctx.fillRect(platLeft, platY, platRight - platLeft, platH);
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(platLeft, platY, platRight - platLeft, 4);
+    ctx.fillStyle = '#1a0408';
+    for (let s = 0; s < 14; s++) {
+      const sxStart = platLeft + 4 + s * 12;
+      if (sxStart + 6 > platRight - 4) break;
+      ctx.beginPath();
+      ctx.moveTo(sxStart, platY);
+      ctx.lineTo(sxStart + 4, platY);
+      ctx.lineTo(sxStart + 6, platY + 4);
+      ctx.lineTo(sxStart + 2, platY + 4);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(60, 60, 70, 0.85)';
+    ctx.lineWidth = 0.6;
+    for (let g = 0; g < 8; g++) {
+      const gx = platLeft + 6 + g * 22;
+      if (gx > platRight - 4) break;
+      ctx.beginPath();
+      ctx.moveTo(gx, platY + 4);
+      ctx.lineTo(gx, platY + platH);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#0a0a0e';
+    for (const bx of [platLeft + 3, platRight - 3]) {
+      ctx.beginPath();
+      ctx.arc(bx, platY + platH * 0.55, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ---- 6b. CARGO RECEPTACLE SLOT — dark inset where the platform
+    // meets the cardiac organ. This is where the cargo gets fed into
+    // the heart. Pulses brighter on each beat.
+    const slotCx = organCx - organR * 0.55;
+    const slotCy = (platY + ceilY + 22) / 2;
+    ctx.fillStyle = 'rgba(20, 4, 12, 0.95)';
+    ctx.beginPath();
+    ctx.ellipse(slotCx, slotCy, 8, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'rgba(255, 120, 200, 0.95)';
+    ctx.fillStyle = 'rgba(255, 140, 220, ' + (0.60 + beat * 0.35) + ')';
+    ctx.beginPath();
+    ctx.ellipse(slotCx, slotCy, 5, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255, 240, 250, ' + (0.90 + beat * 0.10) + ')';
+    ctx.beginPath();
+    ctx.arc(slotCx, slotCy, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    // Yellow caution bracket framing the slot — DLX safety branding
+    ctx.strokeStyle = '#ffd83d';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(slotCx - 11, slotCy - 16);
+    ctx.lineTo(slotCx - 11, slotCy + 16);
+    ctx.moveTo(slotCx + 11, slotCy - 16);
+    ctx.lineTo(slotCx + 11, slotCy + 16);
+    ctx.stroke();
+
+    // ---- 7. HAZARD LIGHT POLES flanking the platform
+    const poles = [
+      { px: platLeft + 6 },
+      { px: platRight - 14 },
+    ];
+    for (let p = 0; p < poles.length; p++) {
+      const pole = poles[p];
+      ctx.fillStyle = '#3a3a3e';
+      ctx.fillRect(pole.px - 0.8, platY - 14, 1.6, 14);
+      const yellowOn = (p + (lightPhase ? 0 : 1)) % 2 === 0;
+      const bulbColor = yellowOn ? '#ffd83d' : '#ff60a0';
+      const glowColor = yellowOn ? 'rgba(255, 220, 60, 0.95)' : 'rgba(255, 100, 200, 0.95)';
+      ctx.shadowBlur = 9;
+      ctx.shadowColor = glowColor;
+      ctx.fillStyle = bulbColor;
+      ctx.beginPath();
+      ctx.arc(pole.px, platY - 16, 2.4, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
-      // Egg shell — translucent magenta gradient
-      const shellGrad = ctx.createRadialGradient(
-        ex - er * 0.30, ey - er * 0.40, er * 0.10,
-        ex,             ey,             er
-      );
-      shellGrad.addColorStop(0,    'rgba(255, 220, 240, 0.95)');
-      shellGrad.addColorStop(0.30, 'rgba(255, 130, 200, 0.92)');
-      shellGrad.addColorStop(0.70, 'rgba(180,  50, 110, 0.90)');
-      shellGrad.addColorStop(1,    'rgba(70,   16,  40, 0.90)');
-      ctx.fillStyle = shellGrad;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
       ctx.beginPath();
-      ctx.ellipse(ex, ey, er * 0.95, er * 1.10, 0, 0, Math.PI * 2);
+      ctx.arc(pole.px - 0.6, platY - 16.4, 0.8, 0, Math.PI * 2);
       ctx.fill();
+    }
 
-      if (!e.isOpen) {
-        // Embryo silhouette — small dark curved shape inside the egg
-        ctx.fillStyle = 'rgba(40, 8, 24, 0.75)';
-        ctx.beginPath();
-        ctx.ellipse(ex, ey + er * 0.10,
-                    er * 0.55, er * 0.42, e.embryoAng,
-                    0, Math.PI * 2);
-        ctx.fill();
-        // Tiny embryo eye glow — pulses on heartbeat
-        ctx.shadowBlur = 4;
-        ctx.shadowColor = 'rgba(120, 255, 220, 0.95)';
-        ctx.fillStyle = 'rgba(140, 255, 220, ' + (0.55 + beat * 0.35) + ')';
-        ctx.beginPath();
-        ctx.arc(ex - er * 0.25, ey - er * 0.05, 1.4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        // Wet shell highlight crescent on upper-left
-        ctx.fillStyle = 'rgba(255, 230, 245, 0.55)';
-        ctx.beginPath();
-        ctx.ellipse(ex - er * 0.40, ey - er * 0.55,
-                    er * 0.30, er * 0.16, -0.4, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        // OPEN RECEPTACLE EGG — top torn open, dark cavity inside,
-        // pink absorption glow waiting for the cargo. Drawn as the
-        // egg with the upper third replaced by a torn rim + dark
-        // hollow interior.
-        // Wet shell highlight on the surviving lower body
-        ctx.fillStyle = 'rgba(255, 230, 245, 0.55)';
-        ctx.beginPath();
-        ctx.ellipse(ex - er * 0.40, ey + er * 0.10,
-                    er * 0.28, er * 0.16, -0.3, 0, Math.PI * 2);
-        ctx.fill();
-        // Dark inner cavity (oval, narrower than the egg)
-        ctx.fillStyle = 'rgba(20, 4, 12, 0.95)';
-        ctx.beginPath();
-        ctx.ellipse(ex, ey - er * 0.20,
-                    er * 0.65, er * 0.85, 0,
-                    Math.PI * 1.05, Math.PI * 1.95);
-        ctx.lineTo(ex - er * 0.65, ey + er * 0.05);
-        ctx.lineTo(ex - er * 0.55, ey + er * 0.30);
-        ctx.lineTo(ex + er * 0.55, ey + er * 0.30);
-        ctx.lineTo(ex + er * 0.65, ey + er * 0.05);
-        ctx.closePath();
-        ctx.fill();
-        // Pink absorption glow inside the cavity, brighter on each beat
-        ctx.shadowBlur = 12;
-        ctx.shadowColor = 'rgba(255, 120, 200, 0.95)';
-        ctx.fillStyle = 'rgba(255, 140, 220, ' + (0.55 + beat * 0.40) + ')';
-        ctx.beginPath();
-        ctx.ellipse(ex, ey - er * 0.05,
-                    er * 0.40, er * 0.55, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        // Bright core spark
-        ctx.fillStyle = 'rgba(255, 240, 250, ' + (0.85 + beat * 0.15) + ')';
-        ctx.beginPath();
-        ctx.arc(ex, ey - er * 0.10, 2.4, 0, Math.PI * 2);
-        ctx.fill();
-        // ---- TORN RIM — frayed shell edge around the opening. Draw
-        // a series of small jagged spikes pointing inward.
-        ctx.fillStyle = 'rgba(180, 50, 100, 0.95)';
-        const RIM_SPIKES = 9;
-        for (let s = 0; s < RIM_SPIKES; s++) {
-          const ang = Math.PI * 1.05 + s * (Math.PI * 0.9) / (RIM_SPIKES - 1);
-          const baseX = ex + Math.cos(ang) * er * 0.65;
-          const baseY = ey - er * 0.20 + Math.sin(ang) * er * 0.85;
-          const tipX  = ex + Math.cos(ang) * er * 0.45;
-          const tipY  = ey - er * 0.20 + Math.sin(ang) * er * 0.55;
-          const lW    = 4;
-          const lAng  = ang + Math.PI * 0.5;
-          ctx.beginPath();
-          ctx.moveTo(baseX + Math.cos(lAng) * lW * 0.5,
-                     baseY + Math.sin(lAng) * lW * 0.5);
-          ctx.lineTo(baseX - Math.cos(lAng) * lW * 0.5,
-                     baseY - Math.sin(lAng) * lW * 0.5);
-          ctx.lineTo(tipX, tipY);
-          ctx.closePath();
-          ctx.fill();
-        }
-        // Brighter inner edge highlight on the rim
-        ctx.strokeStyle = 'rgba(255, 180, 220, 0.75)';
-        ctx.lineWidth = 1.0;
-        ctx.beginPath();
-        for (let s = 0; s < RIM_SPIKES; s++) {
-          const ang = Math.PI * 1.05 + s * (Math.PI * 0.9) / (RIM_SPIKES - 1);
-          const tipX  = ex + Math.cos(ang) * er * 0.45;
-          const tipY  = ey - er * 0.20 + Math.sin(ang) * er * 0.55;
-          if (s === 0) ctx.moveTo(tipX, tipY);
-          else         ctx.lineTo(tipX, tipY);
-        }
-        ctx.stroke();
-      }
+    // ---- 8. PLATFORM SUPPORTS — same trapezoidal struts as the bio-
+    // garage so the dock reads as the same DLX field-ops install.
+    const supTopY = platY + platH;
+    const supBotY = PLAY_H - 2;
+    const supTopL = platLeft + 4;
+    const supTopR = platRight - 4;
+    const supBotL = platLeft + 28;
+    const supBotR = platRight - 28;
+    ctx.fillStyle = '#2a2a32';
+    ctx.beginPath();
+    ctx.moveTo(supTopL,     supTopY);
+    ctx.lineTo(supTopL + 6, supTopY);
+    ctx.lineTo(supBotL + 5, supBotY);
+    ctx.lineTo(supBotL,     supBotY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(supTopR - 6, supTopY);
+    ctx.lineTo(supTopR,     supTopY);
+    ctx.lineTo(supBotR,     supBotY);
+    ctx.lineTo(supBotR - 5, supBotY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(140, 140, 160, 0.55)';
+    ctx.beginPath();
+    ctx.moveTo(supTopL + 4, supTopY);
+    ctx.lineTo(supTopL + 6, supTopY);
+    ctx.lineTo(supBotL + 5, supBotY);
+    ctx.lineTo(supBotL + 3, supBotY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(supTopR - 6, supTopY);
+    ctx.lineTo(supTopR - 4, supTopY);
+    ctx.lineTo(supBotR - 3, supBotY);
+    ctx.lineTo(supBotR - 5, supBotY);
+    ctx.closePath();
+    ctx.fill();
+    // Cross-brace
+    ctx.strokeStyle = '#3a3a42';
+    ctx.lineWidth = 2;
+    const braceY = (supTopY + supBotY) * 0.55;
+    const lerpL = (braceY - supTopY) / (supBotY - supTopY);
+    const braceLx = supTopL + 8 + (supBotL + 4 - (supTopL + 8)) * lerpL;
+    const braceRx = supTopR - 8 + (supBotR - 4 - (supTopR - 8)) * lerpL;
+    ctx.beginPath();
+    ctx.moveTo(braceLx, braceY - 4);
+    ctx.lineTo(braceRx, braceY + 4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(braceLx, braceY + 4);
+    ctx.lineTo(braceRx, braceY - 4);
+    ctx.stroke();
+    // Foot slab
+    const footX = supBotL - 6;
+    const footW = (supBotR - supBotL) + 12;
+    ctx.fillStyle = '#1a1a22';
+    ctx.fillRect(footX, supBotY - 2, footW, 4);
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(footX + 2, supBotY - 1, footW - 4, 1);
+    ctx.fillStyle = '#1a0a06';
+    for (let i = 0; i < 6; i++) {
+      ctx.fillRect(footX + 4 + i * (footW / 6), supBotY - 1, 1.4, 1);
     }
 
     ctx.restore();
