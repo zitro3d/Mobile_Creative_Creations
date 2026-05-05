@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v339';
+const DLX_BUILD = 'v340';
 
 (function() {
   // ---------- Device detection ----------
@@ -7760,6 +7760,61 @@ const DLX_BUILD = 'v339';
           lb.life++;
           if (lb.x < -60 || lb.y > PLAY_H + 30) dailyLavaBalls.splice(i, 1);
         }
+
+        // ---- ACID DRIPS — heartbeat-synced hazard (Leviathan only).
+        // Each drip telegraphs for 60 frames as a swelling green
+        // droplet on the cavity ceiling, then releases exactly on the
+        // next heartbeat peak and falls vertically. Direct kill on
+        // contact (force-field bubble immune via the same passThrough
+        // gate as lava balls).
+        if (currentDeliveryLevel.obstacleSet
+            && currentDeliveryLevel.obstacleSet.acidDrips
+            && !dailyDelivered
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
+          const dripPeriod = currentDeliveryLevel.pulsePeriodFrames || 210;
+          const formingTotal = 60;
+          if (dailyNextAcidDripAt < 0) {
+            // Align: first spawn fires (period - formingTotal) before
+            // the next heartbeat peak so the drop releases on-beat.
+            const nextPeak = (Math.floor(frame / dripPeriod) + 1) * dripPeriod;
+            dailyNextAcidDripAt = nextPeak - formingTotal;
+          }
+          if (frame >= dailyNextAcidDripAt) {
+            // Spawn far enough ahead that scroll + fall time leave the
+            // drip in the rig's vertical play range when it lands.
+            const wx = bird.x + dailyScrollX + 220 + Math.random() * 160;
+            dailyAcidDrips.push({
+              worldX: wx,
+              yCeiling: 28,
+              y: 28,
+              vy: 0,
+              stage: 'forming',
+              formingFrames: 0,
+              formingTotal: formingTotal,
+              r: 0,
+              alive: true,
+            });
+            dailyNextAcidDripAt += dripPeriod;
+          }
+        }
+        for (let i = dailyAcidDrips.length - 1; i >= 0; i--) {
+          const d = dailyAcidDrips[i];
+          if (d.stage === 'forming') {
+            d.formingFrames++;
+            d.r = (d.formingFrames / d.formingTotal) * 6;
+            if (d.formingFrames >= d.formingTotal) {
+              d.stage = 'falling';
+              d.vy = 0.4;
+              d.r = 6;
+            }
+          } else {
+            d.vy += 0.40;
+            d.y += d.vy;
+            if (d.y > PLAY_H - 4) d.alive = false;
+          }
+          const sx = d.worldX - dailyScrollX;
+          if (sx < -40 || !d.alive) dailyAcidDrips.splice(i, 1);
+        }
         // (Conveyor-belt sand-patch spawn disabled per user — the
         // graphic was visual noise the game didn't need. Render +
         // cargo-drift logic stay in place but no patches ever spawn.)
@@ -8600,6 +8655,18 @@ const DLX_BUILD = 'v339';
               playSound('forceField');
               return false;
             }
+            return true;
+          }
+        }
+        // Acid drips — only the falling stage kills (the telegraph
+        // droplet on the ceiling is harmless until it releases).
+        for (const d of dailyAcidDrips) {
+          if (d.stage !== 'falling') continue;
+          const sx = d.worldX - dailyScrollX;
+          const dx = bird.x - sx;
+          const dy = bird.y - d.y;
+          const reach = r + d.r - 1;
+          if (dx * dx + dy * dy < reach * reach) {
             return true;
           }
         }
@@ -16089,6 +16156,89 @@ const DLX_BUILD = 'v339';
     ctx.restore();
   }
 
+  // Beat-synced acid drips (Leviathan only). Two stages:
+  //   - forming: glowing green droplet on the cavity ceiling, swelling
+  //     across ~60 frames into a heavy bead with a wet specular dot.
+  //     Pulses brighter as it nears release so the player can FEEL the
+  //     beat coming.
+  //   - falling: drop releases on the heartbeat peak and falls
+  //     vertically with a green/cyan motion trail behind it. Direct
+  //     kill on contact (collision in checkBaseFailure).
+  function drawDailyAcidDrips() {
+    if (!isDaily || !dailyAcidDrips.length) return;
+    for (const d of dailyAcidDrips) {
+      const sx = d.worldX - dailyScrollX;
+      if (sx < -50 || sx > W + 50) continue;
+      ctx.save();
+      if (d.stage === 'forming') {
+        const t = d.formingFrames / d.formingTotal;
+        const swell = 0.6 + 0.4 * Math.sin(t * Math.PI * 4);
+        ctx.translate(Math.round(sx), d.yCeiling);
+        // Outer halo — brightens as the beat approaches
+        const haloR = 9 + d.r * 1.6;
+        ctx.shadowBlur = 12 + t * 12;
+        ctx.shadowColor = 'rgba(180, 255, 100, 0.95)';
+        ctx.fillStyle = 'rgba(180, 255, 100, ' + (0.20 + t * 0.45) + ')';
+        ctx.beginPath();
+        ctx.arc(0, d.r * 0.5, haloR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // Stalactite stem reaching up to the ceiling
+        ctx.fillStyle = 'rgba(120, 200, 70, 0.95)';
+        ctx.fillRect(-1.2, -10, 2.4, 12 + d.r);
+        // Droplet body — teardrop with subtle pulse
+        const dropR = d.r * swell;
+        ctx.fillStyle = 'rgba(150, 235, 90, 0.95)';
+        ctx.beginPath();
+        ctx.arc(0, d.r, dropR, 0, Math.PI * 2);
+        ctx.fill();
+        // Wet white specular highlight upper-left
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.beginPath();
+        ctx.arc(-dropR * 0.35, d.r - dropR * 0.35,
+                Math.max(0.6, dropR * 0.25), 0, Math.PI * 2);
+        ctx.fill();
+        // Outline for definition
+        ctx.strokeStyle = 'rgba(40, 80, 20, 0.85)';
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.arc(0, d.r, dropR, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        // Falling — bright glowing drop with a tapered green trail
+        ctx.translate(Math.round(sx), Math.round(d.y));
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(180, 255, 100, 0.55)';
+        ctx.lineWidth = 4.0;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, -18);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(220, 255, 180, 0.85)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(0, -2);
+        ctx.lineTo(0, -16);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+        // Glowing teardrop body — vertically elongated
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = 'rgba(180, 255, 100, 0.95)';
+        ctx.fillStyle = 'rgba(180, 255, 100, 0.95)';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, d.r * 0.85, d.r * 1.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Bright core
+        ctx.fillStyle = 'rgba(230, 255, 200, 0.95)';
+        ctx.beginPath();
+        ctx.ellipse(0, -d.r * 0.15, d.r * 0.40, d.r * 0.85, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+      ctx.restore();
+    }
+  }
+
   // Organic re-skin of the lava-ball renderer for cavern/body levels.
   // v304 redesigned this as a FLYING JELLYFISH — translucent magenta
   // bell aimed along the velocity vector with 6 long tentacles
@@ -21374,6 +21524,7 @@ const DLX_BUILD = 'v339';
       drawDailyThieves();
       drawDailyDrones();
       drawDailyLavaBalls();
+      drawDailyAcidDrips();
       drawCargoBond();
       drawDailyCargo();
     }
@@ -21884,6 +22035,8 @@ const DLX_BUILD = 'v339';
     dailyAirObstacles = [];
     dailyLavaBalls = [];
     dailyNextLavaAt = frame + 180;       // first lava ball ~3 sec after launch
+    dailyAcidDrips = [];
+    dailyNextAcidDripAt = -1;            // aligned to first beat below
     // First air obstacle holds ~2 seconds past the warehouse takeoff
     // so tunnels can't spawn ON TOP of the launch sequence (no way to
     // dive into a tunnel while the rig is still climbing out of the
@@ -22280,6 +22433,7 @@ const DLX_BUILD = 'v339';
         drones: false, thieves: true, groundOps: false,
         lavaBalls: true, scrapTowers: true, airWrecks: false,
         tunnels: true, tentacles: true,
+        acidDrips: true,                  // beat-synced — Leviathan only
       },
       obstacleTheme: 'organic',
       // Buoyancy — the rig handles like it's submerged. Gravity, flap
@@ -22351,6 +22505,14 @@ const DLX_BUILD = 'v339';
   // (their motion is independent of dailyScrollX).
   let dailyLavaBalls = [];         // [{ x, y, vx, r, life, seed }]
   let dailyNextLavaAt = 0;
+  // Heartbeat-synced acid drips (Leviathan only). Each drip telegraphs
+  // for ~60 frames as a swelling droplet on the cavity ceiling, then
+  // releases on the next heartbeat peak and falls vertically. The
+  // forming droplet is positioned at fixed worldX so it scrolls left
+  // with the world during the telegraph, and continues drifting left
+  // in screen space as it falls.
+  let dailyAcidDrips = [];
+  let dailyNextAcidDripAt = -1;    // -1 = needs alignment to first beat
   // Pickups — flyable scrap cogs (points) and magnet boxes (cargo recall)
   let dailyPickups = [];           // [{ worldX, y, kind, alive, bobPhase }]
   let dailyNextPickupX = 0;
