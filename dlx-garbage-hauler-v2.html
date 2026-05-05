@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v331';
+const DLX_BUILD = 'v332';
 
 (function() {
   // ---------- Device detection ----------
@@ -10750,35 +10750,10 @@ const DLX_BUILD = 'v331';
         ctx.fill();
       }
 
-      // ---- FRONT PARALLAX LAYER: industrial smog streaks — thin
-      // horizontal translucent rectangles drifting fast (~70% scroll
-      // speed). Low alpha so they don't compete with obstacles, but
-      // dense enough to suggest particulate matter blowing past the
-      // rig as it moves forward through the cavity.
-      const frontScroll = dailyScrollX * 0.70;
-      ctx.fillStyle = 'rgba(180, 60, 120, 0.10)';
-      for (let i = 0; i < 14; i++) {
-        const slot = 180;
-        const baseX = i * slot + 30;
-        const baseY = PLAY_H * (0.15 + ((i * 0.29) % 1) * 0.45);
-        const x = ((baseX - frontScroll) % (W + slot) + (W + slot)) % (W + slot) - 80;
-        if (x < -160 || x > W + 20) continue;
-        const stripeW = 90 + ((i * 11) % 60);
-        const stripeH = 1.4 + ((i * 0.17) % 1) * 1.6;
-        ctx.fillRect(x, baseY, stripeW, stripeH);
-      }
-      // A second slightly faster pass with cyan tint for depth variation
-      ctx.fillStyle = 'rgba(80, 200, 180, 0.08)';
-      const frontScroll2 = dailyScrollX * 0.85;
-      for (let i = 0; i < 10; i++) {
-        const slot = 220;
-        const baseX = i * slot + 110;
-        const baseY = PLAY_H * (0.20 + ((i * 0.41) % 1) * 0.40);
-        const x = ((baseX - frontScroll2) % (W + slot) + (W + slot)) % (W + slot) - 80;
-        if (x < -160 || x > W + 20) continue;
-        const stripeW = 70 + ((i * 9) % 50);
-        ctx.fillRect(x, baseY, stripeW, 1.2);
-      }
+      // ---- (Front industrial-smog parallax cut in v332 — it was
+      // adding noise behind the obstacles without adding readable
+      // depth. The back stars + mid cosmic-dust layers carry the
+      // depth on their own.)
     }
 
     // ---- Far dunes — palette per level, soft low-frequency curves ----
@@ -20512,58 +20487,9 @@ const DLX_BUILD = 'v331';
       ctx.restore();
     }
 
-    // Pro-tier polish (v330): proximity alert ring around the rig that
-    // glows red when ANY hazard is within 40px. Currently checks live
-    // tentacles and lava-balls/jellyfish — the swooping things. Static
-    // pipes/towers/tunnels are excluded (they'd constantly trigger).
-    if (state === STATE_PLAY && isDaily && currentDeliveryLevel
-        && currentDeliveryLevel.obstacleTheme === 'organic') {
-      let nearestD = Infinity;
-      // Tentacles — measure to the closest reach point (worldX, gy)
-      if (dailyTentacles && dailyTentacles.length) {
-        for (const tt of dailyTentacles) {
-          const sx = tt.worldX - dailyScrollX;
-          const dx = sx - bird.x;
-          // Approximate vertical reach from terrainHeightAt — the tip
-          // can be anywhere along the arm, so use the floor altitude.
-          const gy = terrainHeightAt(tt.worldX);
-          const dy = gy - bird.y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < nearestD) nearestD = d;
-        }
-      }
-      // Flying hazards (lava balls / jellyfish)
-      if (typeof dailyLavaBalls !== 'undefined' && dailyLavaBalls.length) {
-        for (const lb of dailyLavaBalls) {
-          const dx = lb.x - bird.x;
-          const dy = lb.y - bird.y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < nearestD) nearestD = d;
-        }
-      }
-      // Phages (cargo thieves)
-      if (typeof dailyThieves !== 'undefined' && dailyThieves.length) {
-        for (const tf of dailyThieves) {
-          const dx = tf.x - bird.x;
-          const dy = tf.y - bird.y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < nearestD) nearestD = d;
-        }
-      }
-      if (nearestD < 40) {
-        const t01 = 1 - (nearestD / 40);                 // 0..1, 1 at contact
-        const ringPulse = 0.6 + 0.4 * Math.sin(frame * 0.4);
-        ctx.save();
-        ctx.shadowBlur = 6 + t01 * 8;
-        ctx.shadowColor = 'rgba(255, 60, 80, 0.95)';
-        ctx.strokeStyle = 'rgba(255, 80, 100, ' + (0.45 + t01 * 0.40) * ringPulse + ')';
-        ctx.lineWidth = 1.4 + t01 * 1.0;
-        ctx.beginPath();
-        ctx.arc(0, 0, BIRD_R * 1.45 + t01 * 4, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
+    // (Proximity alert ring cut in v332 — in Leviathan it triggered
+    // for tentacles/jellyfish/phages so often it became ambient
+    // decoration instead of an alert. Removed entirely.)
 
     ctx.restore();
   }
@@ -21168,13 +21094,13 @@ const DLX_BUILD = 'v331';
     const y = Math.max(40, H * 0.07);
     const pulseScale = 1 + scorePulse * 0.5;
 
-    // Pro-tier polish (v331): CRT-dashboard treatment for the score in
-    // organic-theme levels. Adds a subtle frame-by-frame flicker, a
-    // cyan outer glow, scan lines etched across the digits, and a
-    // brief brightness flash on each scoring tick.
+    // Pro-tier polish (v331, trimmed in v332): in organic-theme levels
+    // the score gets a cyan outer glow and a brief white flash on each
+    // scoring pulse. v332 cut the scan-line overlay (invisible at
+    // score-text size) and the per-frame alpha flicker (too subtle to
+    // register on a 3-digit display).
     const crt = isDaily && currentDeliveryLevel
                 && currentDeliveryLevel.obstacleTheme === 'organic';
-    const flicker = crt ? (0.92 + Math.random() * 0.08) : 1.0;
 
     ctx.save();
     ctx.translate(W / 2, y);
@@ -21182,36 +21108,21 @@ const DLX_BUILD = 'v331';
     ctx.font = 'bold ' + size + 'px "Courier New", "Lucida Console", monospace';
     ctx.textAlign = 'center';
     if (crt) {
-      // Cyan outer glow halo
       ctx.shadowBlur = 8;
       ctx.shadowColor = 'rgba(120, 240, 220, 0.95)';
     }
     ctx.lineWidth = 4;
     ctx.strokeStyle = crt ? '#04181a' : '#3a1a05';
-    ctx.globalAlpha = flicker;
     ctx.fillStyle = crt ? '#7ff8e0' : '#ffd280';
     ctx.strokeText(text, 0, 0);
     ctx.fillText(text, 0, 0);
     ctx.shadowBlur = 0;
-    ctx.globalAlpha = 1.0;
-    if (crt) {
-      // Scan-line overlay etched across the digits — thin horizontal
-      // lines clipped to the text width via measureText.
-      const w = Math.ceil(ctx.measureText(text).width);
-      const halfW = w / 2 + 6;
-      ctx.fillStyle = 'rgba(0, 30, 28, 0.45)';
-      const top = -size * 0.85;
-      const bot = size * 0.18;
-      for (let sy = top; sy < bot; sy += 3) {
-        ctx.fillRect(-halfW, sy, halfW * 2, 1);
-      }
-      // Bright brief flash overlay during the score-pulse
-      if (scorePulse > 0.4) {
-        ctx.globalAlpha = (scorePulse - 0.4) * 0.6;
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(text, 0, 0);
-        ctx.globalAlpha = 1.0;
-      }
+    if (crt && scorePulse > 0.4) {
+      // Bright white flash overlay during the score-pulse window
+      ctx.globalAlpha = (scorePulse - 0.4) * 0.6;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(text, 0, 0);
+      ctx.globalAlpha = 1.0;
     }
     ctx.restore();
 
