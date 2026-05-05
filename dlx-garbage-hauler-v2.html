@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v344';
+const DLX_BUILD = 'v345';
 
 (function() {
   // ---------- Device detection ----------
@@ -12947,313 +12947,506 @@ const DLX_BUILD = 'v344';
   // where metal meets flesh. Reads: industrial blue-collar courier
   // brand jammed into a wet biological pocket.
   function drawLandmarkOrganicBioGarage(x, y) {
+    // Deep-ocean alien outpost. Heavy industrial hangar resting on a
+    // pair of articulated hydraulic-piston legs that anchor into the
+    // sea floor. Cyan floor glow + ambient bubbles sell the liquid
+    // atmosphere. Robotic refueling arm hangs from the ceiling and
+    // retracts when the launch fires.
     ctx.save();
-    const floorY = PLAY_H / 2 + 28;
-    const ceilY  = PLAY_H / 2 - 80;
+    const floorY = PLAY_H / 2 + 28;       // platform top — rig sits here
+    const ceilY  = PLAY_H / 2 - 80;       // hangar interior ceiling
     const bayLeft  = x - 90;
     const bayRight = x + 60;
-    const bayMid   = x - 15;          // visual center; rig parks here
+    const bayMid   = x - 15;
+    const groundY  = PLAY_H - 2;          // sea floor
+    const bayW     = bayRight - bayLeft;
 
-    // Heartbeat sync — drives flesh-vein pulse + monitor flicker.
-    const period = currentDeliveryLevel.pulsePeriodFrames || 210;
-    const tBeat  = (frame % period) / period;
-    const beat   = Math.max(
-      0,
-      Math.sin(Math.PI * Math.min(1, tBeat * 5.0)) * (1 - tBeat * 0.6)
-    );
-    // Hazard light blink — alternating flash every 18 frames.
-    const lightPhase = Math.floor(frame / 18) % 2 === 0;
-
-    // ---- 1. WET FLESH POCKET — dark fleshy backdrop the garage is
-    // wedged into. Curves like a wound the metal has been bolted into.
-    const pocketGrad = ctx.createLinearGradient(0, ceilY, 0, floorY);
-    pocketGrad.addColorStop(0,   '#3a0820');
-    pocketGrad.addColorStop(0.5, '#5a1232');
-    pocketGrad.addColorStop(1,   '#80204a');
-    ctx.fillStyle = pocketGrad;
-    ctx.beginPath();
-    ctx.moveTo(bayLeft - 8, floorY);
-    ctx.bezierCurveTo(
-      bayLeft - 14, floorY - 60,
-      bayLeft - 10, ceilY,
-      bayLeft + 10, ceilY - 6
-    );
-    ctx.lineTo(bayRight - 10, ceilY - 6);
-    ctx.bezierCurveTo(
-      bayRight + 10, ceilY,
-      bayRight + 14, floorY - 60,
-      bayRight + 8, floorY
-    );
-    ctx.closePath();
-    ctx.fill();
-    // Pulsing veins on the back wall
-    const veinPaths = [
-      [[bayLeft + 25, floorY - 8],  [bayLeft + 18, floorY - 40], [bayLeft + 28, floorY - 75], [bayLeft + 22, ceilY + 8]],
-      [[bayMid,        floorY - 10], [bayMid + 8,    floorY - 50], [bayMid - 5,    floorY - 80], [bayMid + 4,    ceilY + 6]],
-      [[bayRight - 25, floorY - 8],  [bayRight - 18, floorY - 40], [bayRight - 28, floorY - 75], [bayRight - 22, ceilY + 8]],
-    ];
-    ctx.strokeStyle = 'rgba(40, 8, 22, 0.85)';
-    ctx.lineWidth = 1.4;
-    for (const path of veinPaths) {
-      ctx.beginPath();
-      ctx.moveTo(path[0][0], path[0][1]);
-      for (let p = 1; p < path.length; p++) ctx.lineTo(path[p][0], path[p][1]);
-      ctx.stroke();
-    }
-    ctx.strokeStyle = 'rgba(255, 100, 160, ' + (0.40 + beat * 0.30) + ')';
-    ctx.lineWidth = 0.7;
-    for (const path of veinPaths) {
-      ctx.beginPath();
-      ctx.moveTo(path[0][0], path[0][1]);
-      for (let p = 1; p < path.length; p++) ctx.lineTo(path[p][0], path[p][1]);
-      ctx.stroke();
+    // Launch progress 0..1 (0 = parked, 1 = halfway through intro).
+    // Used for refueling-arm retraction + steam vent bursts.
+    let launchT = 0;
+    if (!dailyAwaitingLaunch && dailyIntroFrames > 0) {
+      // dailyIntroFrames counts DOWN from ~75; launch starts at 75.
+      launchT = Math.min(1, (75 - dailyIntroFrames) / 30);
+    } else if (!dailyAwaitingLaunch) {
+      launchT = 1;
     }
 
-    // ---- 2. RIB BONES — left + arched top frame the bay; the right
-    // rib is a HINGED door that swings open during the launch intro
-    // so the rig can take off through the bay.
-    ctx.lineCap = 'round';
-    const ribW = 12;
+    // ---- 1. BACKGROUND DIM — slightly darker rectangle behind the
+    // station so it pops out of the cavern wash.
+    ctx.fillStyle = 'rgba(8, 14, 30, 0.55)';
+    ctx.fillRect(bayLeft - 28, ceilY - 18,
+                 bayW + 56, (groundY - ceilY) + 18);
 
-    // Compute the door angle from the launch state. Closed (0) when
-    // the rig is parked awaiting tap; ease-opens to 90deg over the
-    // first ~20 frames of the launch intro; stays fully open after.
-    let doorAngle = 0;
-    if (!dailyAwaitingLaunch) {
-      if (dailyIntroFrames > 55) {
-        const t01 = (75 - dailyIntroFrames) / 20;
-        const ease = 1 - (1 - t01) * (1 - t01);
-        doorAngle = ease * (Math.PI / 2);
-      } else {
-        doorAngle = Math.PI / 2;
+    // ---- 2. CYAN FLOOR GLOW — soft radial glow rising from where the
+    // legs plant into the ground, casting upward light onto the rig.
+    const glowGrad = ctx.createRadialGradient(
+      bayMid, groundY - 6, 4,
+      bayMid, groundY - 6, 130
+    );
+    glowGrad.addColorStop(0,   'rgba(100, 230, 255, 0.55)');
+    glowGrad.addColorStop(0.4, 'rgba(60,  180, 230, 0.30)');
+    glowGrad.addColorStop(1,   'rgba(60,  180, 230, 0)');
+    ctx.fillStyle = glowGrad;
+    ctx.fillRect(bayLeft - 80, ceilY - 10,
+                 bayW + 160, (groundY - ceilY) + 20);
+
+    // ---- 3. AMBIENT BUBBLES drifting up around the rig
+    for (let b = 0; b < 16; b++) {
+      const seed = b * 0.3173;
+      const colW = bayW + 80;
+      const xOff = (((b * 47) + frame * 0.05) % colW);
+      const bx   = bayLeft - 40 + xOff;
+      const cycle = 220;
+      const ph = (frame * 0.6 + b * 23) % cycle;
+      const by = groundY - 4 - (ph * 1.2);
+      if (by < ceilY - 30) continue;
+      const br = 1.2 + (b % 3) * 0.5;
+      const al = 0.30 + 0.30 * Math.sin(frame * 0.05 + seed * 9);
+      ctx.fillStyle = 'rgba(170, 230, 250, ' + al + ')';
+      ctx.beginPath();
+      ctx.arc(bx, by, br, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 255, 255, ' + (al * 1.1) + ')';
+      ctx.beginPath();
+      ctx.arc(bx - 0.4, by - 0.4, br * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ---- 4. HYDRAULIC PISTON LEGS — two articulated walker legs
+    // descending from the hangar bottom to the sea floor. Each leg has
+    // a thigh segment, a hydraulic cylinder running alongside, a knee
+    // bolt, and a vertical shin segment to a wide foot pad.
+    const drawLeg = (hipX, hipY, footX, fy, sideSign) => {
+      const kneeT = 0.45;
+      const kneeX = hipX + (footX - hipX) * 0.65 + sideSign * 4;
+      const kneeY = hipY + (fy - hipY) * kneeT;
+      // THIGH outer silhouette
+      ctx.fillStyle = '#1a1f2a';
+      ctx.beginPath();
+      ctx.moveTo(hipX - 6, hipY);
+      ctx.lineTo(hipX + 6, hipY);
+      ctx.lineTo(kneeX + 4, kneeY);
+      ctx.lineTo(kneeX - 4, kneeY);
+      ctx.closePath();
+      ctx.fill();
+      // THIGH metal mid
+      ctx.fillStyle = '#2c3445';
+      ctx.beginPath();
+      ctx.moveTo(hipX - 4, hipY);
+      ctx.lineTo(hipX + 4, hipY);
+      ctx.lineTo(kneeX + 2.5, kneeY);
+      ctx.lineTo(kneeX - 2.5, kneeY);
+      ctx.closePath();
+      ctx.fill();
+      // THIGH highlight strip
+      ctx.fillStyle = 'rgba(160, 175, 200, 0.65)';
+      ctx.beginPath();
+      ctx.moveTo(hipX - 1.8 - sideSign * 2, hipY);
+      ctx.lineTo(hipX - 0.6 - sideSign * 2, hipY);
+      ctx.lineTo(kneeX - 0.6 - sideSign, kneeY);
+      ctx.lineTo(kneeX - 1.8 - sideSign, kneeY);
+      ctx.closePath();
+      ctx.fill();
+      // HYDRAULIC CYLINDER alongside the thigh — bright chrome rod with
+      // a darker piston housing at the upper end.
+      const cylDx = sideSign * 4;
+      const cylTopX = hipX + cylDx;
+      const cylTopY = hipY + 3;
+      const cylBotX = kneeX + cylDx * 0.6;
+      const cylBotY = kneeY - 2;
+      ctx.strokeStyle = '#0e1118';
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cylTopX, cylTopY);
+      ctx.lineTo(cylBotX, cylBotY);
+      ctx.stroke();
+      ctx.strokeStyle = '#dde4ee';
+      ctx.lineWidth = 2.0;
+      ctx.beginPath();
+      ctx.moveTo(cylTopX + 0.5, cylTopY + 1);
+      ctx.lineTo(cylBotX + 0.5, cylBotY - 1);
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+      // Piston housing block at the hip
+      ctx.fillStyle = '#0a0d14';
+      ctx.fillRect(cylTopX - 2.5, cylTopY - 2.5, 5, 5);
+      ctx.fillStyle = '#3a4358';
+      ctx.fillRect(cylTopX - 2,   cylTopY - 2,   4, 4);
+      // KNEE bolt
+      ctx.fillStyle = '#0a0d14';
+      ctx.beginPath();
+      ctx.arc(kneeX + 1, kneeY + 1, 4.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#3a4358';
+      ctx.beginPath();
+      ctx.arc(kneeX, kneeY, 4, 0, Math.PI * 2);
+      ctx.fill();
+      // Hex bolt detail (six small wedges)
+      ctx.fillStyle = '#1a1f2a';
+      for (let h = 0; h < 6; h++) {
+        const ah = h * Math.PI / 3 + 0.3;
+        ctx.beginPath();
+        ctx.arc(kneeX + Math.cos(ah) * 2.4, kneeY + Math.sin(ah) * 2.4,
+                0.9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // SHIN — vertical/slanted from knee to foot
+      ctx.fillStyle = '#1a1f2a';
+      ctx.beginPath();
+      ctx.moveTo(kneeX - 4, kneeY);
+      ctx.lineTo(kneeX + 4, kneeY);
+      ctx.lineTo(footX + 5, fy);
+      ctx.lineTo(footX - 5, fy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#2c3445';
+      ctx.beginPath();
+      ctx.moveTo(kneeX - 2.5, kneeY);
+      ctx.lineTo(kneeX + 2.5, kneeY);
+      ctx.lineTo(footX + 3, fy);
+      ctx.lineTo(footX - 3, fy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = 'rgba(160, 175, 200, 0.55)';
+      ctx.beginPath();
+      ctx.moveTo(kneeX - 1.8 - sideSign, kneeY);
+      ctx.lineTo(kneeX - 0.6 - sideSign, kneeY);
+      ctx.lineTo(footX - 0.6 - sideSign * 0.5, fy);
+      ctx.lineTo(footX - 1.8 - sideSign * 0.5, fy);
+      ctx.closePath();
+      ctx.fill();
+    };
+    // Hip anchors at the hangar bottom; foot pads outside (legs splay
+    // outward like a walker).
+    drawLeg(bayLeft + 18,  floorY + 8, bayLeft + 8,   groundY - 4, -1);
+    drawLeg(bayRight - 18, floorY + 8, bayRight - 8,  groundY - 4,  1);
+
+    // ---- 5. DIRT MOUNDS + ANCHOR BOLTS at each foot
+    const drawAnchor = (fx) => {
+      // Dirt mound — small dark rocky hill below the foot
+      ctx.fillStyle = 'rgba(40, 18, 36, 0.95)';
+      ctx.beginPath();
+      ctx.ellipse(fx, groundY + 1, 16, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(70, 32, 60, 0.90)';
+      ctx.beginPath();
+      ctx.ellipse(fx, groundY - 1, 14, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Foot pad — wide flat slab anchored by bolts
+      ctx.fillStyle = '#0a0d14';
+      ctx.fillRect(fx - 9, groundY - 6, 18, 5);
+      ctx.fillStyle = '#2c3445';
+      ctx.fillRect(fx - 8, groundY - 6, 16, 3);
+      ctx.fillStyle = 'rgba(160, 175, 200, 0.55)';
+      ctx.fillRect(fx - 8, groundY - 6, 16, 0.8);
+      // Heavy mechanical bolts (hex nuts) on the slab
+      ctx.fillStyle = '#0a0d14';
+      for (const bx of [-6, -2, 2, 6]) {
+        ctx.beginPath();
+        ctx.arc(fx + bx, groundY - 4, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(180, 195, 220, 0.85)';
+      for (const bx of [-6, -2, 2, 6]) {
+        ctx.beginPath();
+        ctx.arc(fx + bx - 0.4, groundY - 4 - 0.4, 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Liquid ripple at the base — concentric arcs
+      const rippleT = (frame % 80) / 80;
+      ctx.strokeStyle = 'rgba(140, 220, 240, ' + (0.45 * (1 - rippleT)) + ')';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.ellipse(fx, groundY + 1, 8 + rippleT * 8, 2 + rippleT * 2,
+                  0, Math.PI, Math.PI * 2);
+      ctx.stroke();
+      const rippleT2 = ((frame + 40) % 80) / 80;
+      ctx.strokeStyle = 'rgba(140, 220, 240, ' + (0.30 * (1 - rippleT2)) + ')';
+      ctx.beginPath();
+      ctx.ellipse(fx, groundY + 1, 8 + rippleT2 * 8, 2 + rippleT2 * 2,
+                  0, Math.PI, Math.PI * 2);
+      ctx.stroke();
+    };
+    drawAnchor(bayLeft + 8);
+    drawAnchor(bayRight - 8);
+
+    // ---- 6. HANGAR SHELL — heavy industrial frame around the bay
+    const shellTop    = ceilY - 8;
+    const shellBot    = floorY + 12;
+    const shellLeft   = bayLeft - 8;
+    const shellRight  = bayRight + 8;
+    // Outer dark shell
+    ctx.fillStyle = '#0d1018';
+    ctx.fillRect(shellLeft, shellTop, shellRight - shellLeft,
+                 shellBot - shellTop);
+    // Rounded inner panel
+    ctx.fillStyle = '#1a2030';
+    ctx.fillRect(shellLeft + 4, shellTop + 4,
+                 (shellRight - shellLeft) - 8, (shellBot - shellTop) - 8);
+    // Top + bottom shell rim highlights
+    ctx.fillStyle = 'rgba(140, 165, 200, 0.45)';
+    ctx.fillRect(shellLeft + 2, shellTop + 2, shellRight - shellLeft - 4, 1);
+    ctx.fillRect(shellLeft + 2, shellBot - 3, shellRight - shellLeft - 4, 1);
+    // Corner bolts
+    ctx.fillStyle = '#0a0d14';
+    for (const bx of [shellLeft + 5, shellRight - 5]) {
+      for (const by of [shellTop + 5, shellBot - 5]) {
+        ctx.beginPath();
+        ctx.arc(bx, by, 1.6, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
 
-    ctx.lineWidth = ribW;
-    ctx.strokeStyle = 'rgba(238, 218, 204, 0.95)';
-    // Left rib (always drawn)
-    ctx.beginPath();
-    ctx.moveTo(bayLeft, floorY);
-    ctx.quadraticCurveTo(bayLeft - 10, (floorY + ceilY) / 2, bayLeft + 10, ceilY);
-    ctx.stroke();
-    // Top rib arch (always drawn — its right end is where the door
-    // detaches when it swings open)
-    ctx.lineWidth = ribW * 0.85;
-    ctx.beginPath();
-    ctx.moveTo(bayLeft + 10, ceilY);
-    ctx.quadraticCurveTo(bayMid, ceilY - 14, bayRight - 10, ceilY);
-    ctx.stroke();
-    // Inner shadow on left rib + top arch
-    ctx.lineWidth = ribW * 0.32;
-    ctx.strokeStyle = 'rgba(70, 50, 38, 0.55)';
-    ctx.beginPath();
-    ctx.moveTo(bayLeft + 4, floorY);
-    ctx.quadraticCurveTo(bayLeft - 6, (floorY + ceilY) / 2, bayLeft + 14, ceilY);
-    ctx.stroke();
-    // Outer highlight on left rib
-    ctx.lineWidth = ribW * 0.18;
-    ctx.strokeStyle = 'rgba(255, 248, 232, 0.85)';
-    ctx.beginPath();
-    ctx.moveTo(bayLeft - 4, floorY);
-    ctx.quadraticCurveTo(bayLeft - 14, (floorY + ceilY) / 2, bayLeft + 6, ceilY);
-    ctx.stroke();
-
-    // ---- HINGED RIGHT RIB ---- pivots around (bayRight, floorY).
-    // Drawn in local coords with the pivot at origin; rotated by
-    // doorAngle so when the launch intro fires the rib swings clockwise
-    // (down + outward) like a drawbridge.
-    ctx.save();
-    ctx.translate(bayRight, floorY);
-    ctx.rotate(doorAngle);
-    const localCeilY = ceilY - floorY;          // negative — rib points up
-    const localMidY  = localCeilY * 0.5;
-    // Bone body
-    ctx.lineWidth = ribW;
-    ctx.strokeStyle = 'rgba(238, 218, 204, 0.95)';
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.quadraticCurveTo(10, localMidY, -10, localCeilY);
-    ctx.stroke();
-    // Inner shadow
-    ctx.lineWidth = ribW * 0.32;
-    ctx.strokeStyle = 'rgba(70, 50, 38, 0.55)';
-    ctx.beginPath();
-    ctx.moveTo(-4, 0);
-    ctx.quadraticCurveTo(6, localMidY, -14, localCeilY);
-    ctx.stroke();
-    // Outer highlight
-    ctx.lineWidth = ribW * 0.18;
-    ctx.strokeStyle = 'rgba(255, 248, 232, 0.85)';
-    ctx.beginPath();
-    ctx.moveTo(4, 0);
-    ctx.quadraticCurveTo(14, localMidY, -6, localCeilY);
-    ctx.stroke();
-    // Top joint nodule that travels with the rib's tip
-    {
-      const jx = -10, jy = localCeilY, jr = 5;
-      ctx.fillStyle = 'rgba(70, 50, 38, 0.45)';
-      ctx.beginPath(); ctx.arc(jx + 1, jy + 1, jr, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(245, 226, 212, 0.95)';
-      ctx.beginPath(); ctx.arc(jx, jy, jr, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(255, 250, 240, 0.85)';
-      ctx.beginPath(); ctx.arc(jx - jr * 0.3, jy - jr * 0.3, jr * 0.30, 0, Math.PI * 2); ctx.fill();
+    // ---- 7. INTERIOR BACK WALL — dark with glowing tech panels
+    const wallLeft = bayLeft;
+    const wallRight = bayRight;
+    const wallTop = ceilY;
+    const wallBot = floorY;
+    ctx.fillStyle = '#0a1426';
+    ctx.fillRect(wallLeft, wallTop, wallRight - wallLeft, wallBot - wallTop);
+    // Subdivision panels
+    ctx.strokeStyle = 'rgba(50, 80, 110, 0.65)';
+    ctx.lineWidth = 0.6;
+    for (let pY = wallTop + 14; pY < wallBot; pY += 22) {
+      ctx.beginPath();
+      ctx.moveTo(wallLeft + 4, pY);
+      ctx.lineTo(wallRight - 4, pY);
+      ctx.stroke();
     }
-    ctx.restore();
-
-    // ---- Static joint nodules (do NOT rotate with the door) ----
-    // Floor anchors + top-arch endpoints. The (bayRight, floorY) joint
-    // is the door's pivot. The (bayRight - 10, ceilY) joint is the top
-    // arch's right end — when the door is closed, the right-rib's top
-    // joint coincides with this so they read as one. When the door
-    // opens, the rib's top travels with the rib while this static
-    // joint stays put as the arch's anchor.
-    for (const j of [
-      { jx: bayLeft,     jy: floorY,  r: 6 },
-      { jx: bayRight,    jy: floorY,  r: 6 },
-      { jx: bayLeft+10,  jy: ceilY,   r: 5 },
-      { jx: bayRight-10, jy: ceilY,   r: 5 },
-    ]) {
-      ctx.fillStyle = 'rgba(70, 50, 38, 0.45)';
-      ctx.beginPath(); ctx.arc(j.jx + 1, j.jy + 1, j.r, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(245, 226, 212, 0.95)';
-      ctx.beginPath(); ctx.arc(j.jx, j.jy, j.r, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(255, 250, 240, 0.85)';
-      ctx.beginPath(); ctx.arc(j.jx - j.r * 0.3, j.jy - j.r * 0.3, j.r * 0.30, 0, Math.PI * 2); ctx.fill();
+    for (let pX = wallLeft + 22; pX < wallRight - 8; pX += 26) {
+      ctx.beginPath();
+      ctx.moveTo(pX, wallTop + 6);
+      ctx.lineTo(pX, wallBot - 4);
+      ctx.stroke();
     }
-    ctx.lineCap = 'butt';
+    // Two glowing cyan tech tiles on the back wall
+    const techTiles = [
+      { tx: wallLeft + 16, ty: wallTop + 18, tw: 18, th: 12 },
+      { tx: wallRight - 38, ty: wallTop + 32, tw: 22, th: 10 },
+    ];
+    const techPulse = 0.7 + 0.3 * Math.sin(frame * 0.10);
+    for (const t of techTiles) {
+      ctx.fillStyle = 'rgba(0, 30, 50, 0.95)';
+      ctx.fillRect(t.tx, t.ty, t.tw, t.th);
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = 'rgba(80, 220, 255, 0.95)';
+      ctx.strokeStyle = 'rgba(120, 230, 255, ' + techPulse + ')';
+      ctx.lineWidth = 1.0;
+      ctx.strokeRect(t.tx + 0.5, t.ty + 0.5, t.tw - 1, t.th - 1);
+      ctx.shadowBlur = 0;
+      // Mini bars inside
+      ctx.fillStyle = 'rgba(120, 230, 255, ' + (0.65 + 0.30 * techPulse) + ')';
+      for (let bb = 0; bb < 3; bb++) {
+        const bw = 2 + (bb * 1.2) * techPulse;
+        ctx.fillRect(t.tx + 2 + bb * 4, t.ty + t.th - 3, bw, 1.5);
+      }
+    }
+    // Alien rune-style etch lines (subtle)
+    ctx.strokeStyle = 'rgba(60, 120, 160, 0.40)';
+    ctx.lineWidth = 0.5;
+    for (let r = 0; r < 5; r++) {
+      const ry = wallTop + 8 + r * 14;
+      ctx.beginPath();
+      ctx.moveTo(wallLeft + 6 + (r * 7) % 12, ry);
+      ctx.lineTo(wallLeft + 14 + (r * 7) % 12, ry);
+      ctx.stroke();
+    }
 
-    // ---- 3. DLX BADGE PLATE on the back wall — orange-red plate with
-    // bold yellow DLX letters. Lit from behind by an ambient orange glow.
-    const badgeW = 38, badgeH = 20;
-    const badgeCx = bayMid - 4;
-    const badgeCy = ceilY + 22;
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = 'rgba(255, 130, 60, 0.85)';
-    ctx.fillStyle = 'rgba(255, 100, 50, 0.32)';
-    ctx.fillRect(badgeCx - badgeW/2 - 4, badgeCy - badgeH/2 - 3,
-                 badgeW + 8, badgeH + 6);
-    ctx.shadowBlur = 0;
-    // Badge plate body
-    ctx.fillStyle = '#d83020';
-    ctx.fillRect(badgeCx - badgeW/2, badgeCy - badgeH/2, badgeW, badgeH);
-    // Bottom dark shadow band
-    ctx.fillStyle = 'rgba(80, 12, 8, 0.65)';
-    ctx.fillRect(badgeCx - badgeW/2, badgeCy + badgeH/2 - 2, badgeW, 2);
-    // Inner yellow border (the DLX logo style)
-    ctx.strokeStyle = 'rgba(255, 200, 80, 0.7)';
-    ctx.lineWidth = 0.8;
-    ctx.strokeRect(badgeCx - badgeW/2 + 2, badgeCy - badgeH/2 + 2,
-                    badgeW - 4, badgeH - 4);
-    // DLX letters
-    ctx.fillStyle = '#ffd83d';
-    ctx.font = 'bold 13px Impact, "Arial Black", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('DLX', badgeCx, badgeCy + 1);
-
-    // ---- 4. DISPATCH MONITOR — small dark screen mounted next to the
-    // badge, cyan text reading the destination + a flicker scanline.
-    const monW = 30, monH = 22;
-    const monCx = badgeCx + 36;
-    const monCy = badgeCy + 4;
-    // Frame
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(monCx - monW/2, monCy - monH/2, monW, monH);
-    // Screen
-    ctx.fillStyle = '#021820';
-    ctx.fillRect(monCx - monW/2 + 2, monCy - monH/2 + 2, monW - 4, monH - 4);
-    // Cyan text
+    // ---- 8. CEILING PIPES — horizontal conduits running across the bay
+    const pipeY1 = ceilY + 6;
+    const pipeY2 = ceilY + 13;
+    for (const py of [pipeY1, pipeY2]) {
+      ctx.fillStyle = '#0a0d14';
+      ctx.fillRect(wallLeft + 2, py - 1.6, wallRight - wallLeft - 4, 4);
+      ctx.fillStyle = '#3a4358';
+      ctx.fillRect(wallLeft + 2, py - 1.6, wallRight - wallLeft - 4, 1.4);
+      ctx.fillStyle = 'rgba(160, 175, 200, 0.65)';
+      ctx.fillRect(wallLeft + 2, py - 1.4, wallRight - wallLeft - 4, 0.5);
+      // Joints / clamps every 24 px
+      ctx.fillStyle = '#0a0d14';
+      for (let jx = wallLeft + 14; jx < wallRight - 6; jx += 24) {
+        ctx.fillRect(jx - 1.5, py - 2.2, 3, 5);
+      }
+    }
+    // Glowing indicator dot on the upper pipe
+    const dotPulse = 0.5 + 0.5 * Math.sin(frame * 0.18);
     ctx.shadowBlur = 4;
-    ctx.shadowColor = 'rgba(80, 220, 220, 0.95)';
-    ctx.fillStyle = 'rgba(120, 240, 220, 0.95)';
-    ctx.font = '5px monospace';
-    ctx.fillText('DROP SITE', monCx, monCy - 4);
-    ctx.fillStyle = 'rgba(180, 255, 230, 0.95)';
-    ctx.font = 'bold 5.5px monospace';
-    ctx.fillText('CARDIAC', monCx, monCy + 2);
-    ctx.fillText('CHAMBER', monCx, monCy + 8);
+    ctx.shadowColor = 'rgba(120, 240, 220, 0.95)';
+    ctx.fillStyle = 'rgba(140, 250, 220, ' + (0.6 + dotPulse * 0.4) + ')';
+    ctx.beginPath();
+    ctx.arc(wallLeft + 32, pipeY1 - 2.2, 0.9, 0, Math.PI * 2);
+    ctx.fill();
     ctx.shadowBlur = 0;
-    // Scanline flicker
-    if ((frame % 20) < 2) {
-      ctx.fillStyle = 'rgba(120, 240, 220, 0.20)';
-      const sline = monCy - monH/2 + 2 + (frame % (monH - 4));
-      ctx.fillRect(monCx - monW/2 + 2, sline, monW - 4, 1);
-    }
+
+    // ---- 9. CARGO CANISTERS flanking the rig — glowing cyan windows
+    const drawCanister = (cx, cy, label) => {
+      const w = 12, h = 22;
+      // Base shell
+      ctx.fillStyle = '#0d1218';
+      ctx.fillRect(cx - w/2 - 1, cy - h/2 - 1, w + 2, h + 2);
+      ctx.fillStyle = '#252e3e';
+      ctx.fillRect(cx - w/2, cy - h/2, w, h);
+      // Glow window in the middle — cyan liquid inside
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(80, 220, 255, 0.95)';
+      ctx.fillStyle = 'rgba(40, 200, 240, 0.95)';
+      ctx.fillRect(cx - w/2 + 2, cy - h/2 + 4, w - 4, h - 12);
+      ctx.shadowBlur = 0;
+      // Liquid wave highlight
+      ctx.fillStyle = 'rgba(180, 245, 255, 0.85)';
+      ctx.fillRect(cx - w/2 + 2, cy - h/2 + 5, w - 4, 1);
+      // Top + bottom dark caps
+      ctx.fillStyle = '#0d1218';
+      ctx.fillRect(cx - w/2, cy - h/2, w, 3);
+      ctx.fillRect(cx - w/2, cy + h/2 - 4, w, 4);
+      ctx.fillStyle = '#3a4358';
+      ctx.fillRect(cx - w/2, cy - h/2 + 3, w, 1);
+      // Yellow label strip with text
+      ctx.fillStyle = '#ffd83d';
+      ctx.fillRect(cx - w/2 + 1, cy + h/2 - 3, w - 2, 2.5);
+      ctx.fillStyle = '#1a0a06';
+      ctx.font = 'bold 2.5px Impact, "Arial Black", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, cx, cy + h/2 - 1.7);
+    };
+    // Left side stack — 2 canisters
+    drawCanister(bayLeft + 16, floorY - 14, 'DLX/BIO');
+    drawCanister(bayLeft + 16, floorY - 36, 'DLX/BIO');
+    // Right side stack — 2 canisters
+    drawCanister(bayRight - 14, floorY - 14, 'DLX/BIO');
+    drawCanister(bayRight - 14, floorY - 36, 'DLX/BIO');
     ctx.textAlign = 'start';
     ctx.textBaseline = 'alphabetic';
 
-    // ---- 5. HAZARD BARRICADE TAPE — yellow base with black diagonal
-    // slashes, sagging between the two ribs.
-    const tapeY    = ceilY + 28;
-    const tapeYMid = tapeY + 5;
-    ctx.strokeStyle = '#ffd83d';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(bayLeft + 6, tapeY);
-    ctx.quadraticCurveTo(bayMid, tapeYMid, bayRight - 6, tapeY);
-    ctx.stroke();
-    ctx.strokeStyle = '#1a0408';
-    ctx.lineWidth = 4;
-    for (let s = 0; s < 12; s += 2) {
-      const tt = s / 11;
-      const u = 1 - tt;
-      const px = u * u * (bayLeft + 6) + 2 * u * tt * bayMid + tt * tt * (bayRight - 6);
-      const py = u * u * tapeY + 2 * u * tt * tapeYMid + tt * tt * tapeY;
+    // ---- 10. ROBOTIC REFUELING ARM — segmented arm hanging from
+    // ceiling to the rig parking spot. Retracts upward when launch
+    // fires (dailyAwaitingLaunch becomes false → launchT ramps 0..1).
+    {
+      const baseX = bayMid + 6;
+      const baseY = ceilY + 14;            // mounted just below pipe
+      const reachY = floorY - 22;          // tip hovers above the rig
+      // Retract up to the ceiling over the launch ramp
+      const tipDownT = 1 - launchT;
+      const seg1EndX = baseX - 6;
+      const seg1EndY = baseY + (reachY - baseY) * 0.55 * tipDownT + 2;
+      const tipX    = baseX - 2;
+      const tipY    = baseY + (reachY - baseY) * tipDownT;
+      // Mount block on the ceiling
+      ctx.fillStyle = '#0a0d14';
+      ctx.fillRect(baseX - 5, baseY - 5, 10, 5);
+      ctx.fillStyle = '#3a4358';
+      ctx.fillRect(baseX - 4, baseY - 4, 8, 3);
+      // Seg 1 (shoulder→elbow)
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#0a0d14';
+      ctx.lineWidth = 5;
       ctx.beginPath();
-      ctx.moveTo(px - 2.5, py - 4);
-      ctx.lineTo(px + 2.5, py + 4);
+      ctx.moveTo(baseX, baseY);
+      ctx.lineTo(seg1EndX, seg1EndY);
       ctx.stroke();
-    }
-
-    // ---- 6. OXYGEN TUBES hanging from the ceiling rib down to the
-    // rig parking spot — DLX yellow hoses with black bands.
-    const tubeAnchorY = ceilY + 6;
-    const tubeEndY    = floorY - 22;
-    ctx.lineCap = 'round';
-    for (let t = 0; t < 3; t++) {
-      const tx = bayMid - 8 + t * 8;
-      // Hose body
-      ctx.strokeStyle = '#d8a020';
-      ctx.lineWidth = 3.4;
+      ctx.strokeStyle = '#3a4358';
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(tx, tubeAnchorY);
-      ctx.quadraticCurveTo(tx - 2, (tubeAnchorY + tubeEndY) / 2,
-                            tx, tubeEndY);
+      ctx.moveTo(baseX, baseY);
+      ctx.lineTo(seg1EndX, seg1EndY);
       ctx.stroke();
-      // Black bands along the hose
-      ctx.strokeStyle = '#1a0808';
-      ctx.lineWidth = 3.4;
-      for (let s = 0; s < 4; s++) {
-        const tt = (s + 0.5) / 4;
-        const u = 1 - tt;
-        const px = u * u * tx + 2 * u * tt * (tx - 2) + tt * tt * tx;
-        const py = u * u * tubeAnchorY
-                 + 2 * u * tt * ((tubeAnchorY + tubeEndY) / 2)
-                 + tt * tt * tubeEndY;
+      ctx.strokeStyle = 'rgba(160, 180, 210, 0.65)';
+      ctx.lineWidth = 1.0;
+      ctx.beginPath();
+      ctx.moveTo(baseX - 0.5, baseY);
+      ctx.lineTo(seg1EndX - 0.5, seg1EndY);
+      ctx.stroke();
+      // Elbow joint
+      ctx.fillStyle = '#0a0d14';
+      ctx.beginPath();
+      ctx.arc(seg1EndX, seg1EndY, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#3a4358';
+      ctx.beginPath();
+      ctx.arc(seg1EndX, seg1EndY, 2.0, 0, Math.PI * 2);
+      ctx.fill();
+      // Seg 2 (elbow→tip)
+      ctx.strokeStyle = '#0a0d14';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(seg1EndX, seg1EndY);
+      ctx.lineTo(tipX, tipY);
+      ctx.stroke();
+      ctx.strokeStyle = '#3a4358';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(seg1EndX, seg1EndY);
+      ctx.lineTo(tipX, tipY);
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+      // Claw tip — three small prongs
+      ctx.fillStyle = '#0a0d14';
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, 3.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#dde4ee';
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Glowing cyan power dot at the tip when extended
+      if (tipDownT > 0.2) {
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = 'rgba(120, 240, 255, 0.95)';
+        ctx.fillStyle = 'rgba(140, 250, 255, ' + (0.7 + 0.3 * dotPulse) + ')';
         ctx.beginPath();
-        ctx.moveTo(px - 1, py);
-        ctx.lineTo(px + 1, py);
-        ctx.stroke();
+        ctx.arc(tipX, tipY, 1.0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
       }
-      // Connector at the ceiling
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(tx - 3, tubeAnchorY - 3, 6, 4);
     }
-    ctx.lineCap = 'butt';
 
-    // ---- 7. METAL DOCKING PLATFORM — dark metal slab with a yellow
-    // top stripe carrying black DLX chevrons. The rig sits on this.
+    // ---- 11. READY indicator (cyan text + downward arrow) when parked
+    if (dailyAwaitingLaunch || launchT < 0.4) {
+      const flick = Math.floor(frame / 20) % 2 === 0 ? 0.95 : 0.55;
+      const rdyX = bayMid + 8;
+      const rdyY = ceilY + 38;
+      // Backdrop tile
+      ctx.fillStyle = 'rgba(0, 30, 50, 0.85)';
+      ctx.fillRect(rdyX - 18, rdyY - 6, 36, 11);
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(80, 240, 200, 0.95)';
+      ctx.strokeStyle = 'rgba(120, 240, 200, ' + flick + ')';
+      ctx.lineWidth = 0.7;
+      ctx.strokeRect(rdyX - 17.5, rdyY - 5.5, 35, 10);
+      // READY text
+      ctx.fillStyle = 'rgba(180, 255, 220, ' + flick + ')';
+      ctx.font = 'bold 7.5px Impact, "Arial Black", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('READY', rdyX, rdyY);
+      ctx.shadowBlur = 0;
+      // Downward arrow below the tile pointing at rig
+      ctx.fillStyle = 'rgba(120, 240, 200, ' + flick + ')';
+      ctx.beginPath();
+      ctx.moveTo(rdyX - 4, rdyY + 6);
+      ctx.lineTo(rdyX + 4, rdyY + 6);
+      ctx.lineTo(rdyX,     rdyY + 11);
+      ctx.closePath();
+      ctx.fill();
+      ctx.textAlign = 'start';
+      ctx.textBaseline = 'alphabetic';
+    }
+
+    // ---- 12. METAL DOCKING PLATFORM — yellow safety stripe on top
     const platLeft  = bayLeft + 6;
     const platRight = bayRight - 6;
     const platY     = floorY;
     const platH     = 9;
-    // Metal base
-    ctx.fillStyle = '#2a2a32';
+    ctx.fillStyle = '#0d1218';
+    ctx.fillRect(platLeft - 1, platY - 1, platRight - platLeft + 2, platH + 2);
+    ctx.fillStyle = '#252e3e';
     ctx.fillRect(platLeft, platY, platRight - platLeft, platH);
-    // Top yellow runway stripe
+    // Yellow safety stripe
     ctx.fillStyle = '#ffd83d';
-    ctx.fillRect(platLeft, platY, platRight - platLeft, 4);
-    // Black hazard chevrons on the yellow stripe
+    ctx.fillRect(platLeft, platY, platRight - platLeft, 3);
+    // Black hazard chevrons on the stripe
     ctx.fillStyle = '#1a0408';
     for (let s = 0; s < 12; s++) {
       const sxStart = platLeft + 4 + s * 12;
@@ -13261,141 +13454,41 @@ const DLX_BUILD = 'v344';
       ctx.beginPath();
       ctx.moveTo(sxStart, platY);
       ctx.lineTo(sxStart + 4, platY);
-      ctx.lineTo(sxStart + 6, platY + 4);
-      ctx.lineTo(sxStart + 2, platY + 4);
+      ctx.lineTo(sxStart + 6, platY + 3);
+      ctx.lineTo(sxStart + 2, platY + 3);
       ctx.closePath();
       ctx.fill();
     }
-    // Metal grating lines below the stripe
-    ctx.strokeStyle = 'rgba(60, 60, 70, 0.85)';
+    // Grating
+    ctx.strokeStyle = 'rgba(60, 70, 85, 0.85)';
     ctx.lineWidth = 0.6;
     for (let g = 0; g < 7; g++) {
       const gx = platLeft + 6 + g * 22;
       if (gx > platRight - 4) break;
       ctx.beginPath();
-      ctx.moveTo(gx, platY + 4);
+      ctx.moveTo(gx, platY + 3);
       ctx.lineTo(gx, platY + platH);
       ctx.stroke();
     }
-    // Bolts at corners
-    ctx.fillStyle = '#0a0a0e';
-    for (const bx of [platLeft + 3, platRight - 3]) {
-      ctx.beginPath();
-      ctx.arc(bx, platY + platH * 0.55, 1.4, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    // Lit highlight along top rim
+    ctx.fillStyle = 'rgba(160, 200, 220, 0.50)';
+    ctx.fillRect(platLeft, platY - 0.5, platRight - platLeft, 0.5);
 
-    // ---- 7b. PLATFORM SUPPORTS — tapering metal legs descending from
-    // the docking platform to the cavity floor so the bay reads as
-    // anchored, not floating. Two slanted leg trusses + a cross-brace
-    // + a flat foot slab with a yellow safety stripe.
-    const supTopY = platY + platH;
-    const supBotY = PLAY_H - 2;
-    const supTopL = platLeft + 4;
-    const supTopR = platRight - 4;
-    const supBotL = platLeft + 28;     // tapers inward toward the foot
-    const supBotR = platRight - 28;
-    // Leg outer edge — left
-    ctx.fillStyle = '#2a2a32';
-    ctx.beginPath();
-    ctx.moveTo(supTopL,     supTopY);
-    ctx.lineTo(supTopL + 6, supTopY);
-    ctx.lineTo(supBotL + 5, supBotY);
-    ctx.lineTo(supBotL,     supBotY);
-    ctx.closePath();
-    ctx.fill();
-    // Leg outer edge — right
-    ctx.beginPath();
-    ctx.moveTo(supTopR - 6, supTopY);
-    ctx.lineTo(supTopR,     supTopY);
-    ctx.lineTo(supBotR,     supBotY);
-    ctx.lineTo(supBotR - 5, supBotY);
-    ctx.closePath();
-    ctx.fill();
-    // Lit-edge highlight on each leg
-    ctx.fillStyle = 'rgba(140, 140, 160, 0.55)';
-    ctx.beginPath();
-    ctx.moveTo(supTopL + 4, supTopY);
-    ctx.lineTo(supTopL + 6, supTopY);
-    ctx.lineTo(supBotL + 5, supBotY);
-    ctx.lineTo(supBotL + 3, supBotY);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(supTopR - 6, supTopY);
-    ctx.lineTo(supTopR - 4, supTopY);
-    ctx.lineTo(supBotR - 3, supBotY);
-    ctx.lineTo(supBotR - 5, supBotY);
-    ctx.closePath();
-    ctx.fill();
-    // Cross-brace — diagonal between the two legs at mid-height
-    ctx.strokeStyle = '#3a3a42';
-    ctx.lineWidth = 2;
-    const braceY = (supTopY + supBotY) * 0.55;
-    const lerpL = (braceY - supTopY) / (supBotY - supTopY);
-    const braceLx = supTopL + 8 + (supBotL + 4 - (supTopL + 8)) * lerpL;
-    const braceRx = supTopR - 8 + (supBotR - 4 - (supTopR - 8)) * lerpL;
-    ctx.beginPath();
-    ctx.moveTo(braceLx, braceY - 4);
-    ctx.lineTo(braceRx, braceY + 4);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(braceLx, braceY + 4);
-    ctx.lineTo(braceRx, braceY - 4);
-    ctx.stroke();
-    // Foot — flat slab resting on the cavity floor with a yellow
-    // safety stripe so it reads as DLX-branded ground anchor.
-    const footX = supBotL - 6;
-    const footW = (supBotR - supBotL) + 12;
-    ctx.fillStyle = '#1a1a22';
-    ctx.fillRect(footX, supBotY - 2, footW, 4);
-    ctx.fillStyle = '#ffd83d';
-    ctx.fillRect(footX + 2, supBotY - 1, footW - 4, 1);
-    ctx.fillStyle = '#1a0a06';
-    for (let i = 0; i < 6; i++) {
-      ctx.fillRect(footX + 4 + i * (footW / 6), supBotY - 1, 1.4, 1);
-    }
-
-    // ---- 8. HAZARD LIGHT POLES — short metal poles flanking the
-    // platform, alternating yellow + magenta lights flashing.
-    const poles = [
-      { px: platLeft + 6  },
-      { px: platRight - 6 },
-    ];
-    for (let p = 0; p < poles.length; p++) {
-      const pole = poles[p];
-      // Pole shaft
-      ctx.fillStyle = '#3a3a3e';
-      ctx.fillRect(pole.px - 0.8, platY - 14, 1.6, 14);
-      // Bulb color alternates per pole + over time
-      const yellowOn = (p + (lightPhase ? 0 : 1)) % 2 === 0;
-      const bulbColor = yellowOn ? '#ffd83d' : '#ff60a0';
-      const glowColor = yellowOn ? 'rgba(255, 220, 60, 0.95)' : 'rgba(255, 100, 200, 0.95)';
-      ctx.shadowBlur = 9;
-      ctx.shadowColor = glowColor;
-      ctx.fillStyle = bulbColor;
-      ctx.beginPath();
-      ctx.arc(pole.px, platY - 16, 2.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      // Bright catchlight
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.beginPath();
-      ctx.arc(pole.px - 0.6, platY - 16.4, 0.8, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // ---- 9. STEAM VENT puffing where the metal meets flesh on the
-    // right side — three drifting puffs at offset phases.
-    const ventX = platRight - 2;
-    const ventY = platY + 1;
-    for (let p = 0; p < 3; p++) {
-      const t = (frame * 0.5 + p * 22) % 60;
-      const tt = t / 60;
-      const puffX = ventX + 4 + tt * 8;
-      const puffY = ventY - tt * 22;
-      const puffR = 1.5 + tt * 4;
-      const a = 0.5 * (1 - tt);
+    // ---- 13. PRESSURE-RELEASE STEAM VENT — front of the platform.
+    // Emits a strong burst during the launch ramp; idles small puffs
+    // while parked.
+    const ventX = platRight + 2;
+    const ventY = platY - 1;
+    const burstStrength = 1 + launchT * 4;       // bigger on launch
+    const puffCount = launchT > 0.05 ? 8 : 3;
+    for (let pp = 0; pp < puffCount; pp++) {
+      const cycle = launchT > 0.05 ? 22 : 60;
+      const t = (frame * 0.6 + pp * 7) % cycle;
+      const tt = t / cycle;
+      const puffX = ventX + 2 + tt * (8 + burstStrength * 4);
+      const puffY = ventY - tt * (16 + burstStrength * 4);
+      const puffR = (1.5 + tt * 4) * Math.min(1.8, burstStrength);
+      const a = 0.55 * (1 - tt) * Math.min(1, burstStrength * 0.6);
       ctx.fillStyle = 'rgba(220, 230, 240, ' + a + ')';
       ctx.beginPath();
       ctx.arc(puffX, puffY, puffR, 0, Math.PI * 2);
