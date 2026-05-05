@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v321';
+const DLX_BUILD = 'v322';
 
 (function() {
   // ---------- Device detection ----------
@@ -4478,7 +4478,12 @@ const DLX_BUILD = 'v321';
     return pickRandom(pool);
   }
   function todaysHaulText() {
-    return pickSeeded(DISPATCHER_QUOTES.cargo, dateSeed(todayStr()));
+    // Pull from the active level's flavor pool when one is set, so
+    // Leviathan runs show body-themed cargo and Sunset shows wasteland
+    // junk. Falls back to the global default pool.
+    const pool = (currentDeliveryLevel && currentDeliveryLevel.cargoFlavor)
+      || DISPATCHER_QUOTES.cargo;
+    return pickSeeded(pool, dateSeed(todayStr()));
   }
 
 
@@ -15309,6 +15314,10 @@ const DLX_BUILD = 'v321';
   // halo, color-coded to the lava balls so the "this absorbs heat"
   // read is intuitive.
   function drawFuelCell() {
+    if (currentDeliveryLevel.obstacleTheme === 'organic') {
+      drawDLXBioFuelCell();
+      return;
+    }
     const rot = frame * 0.03;
     const pulse = 0.5 + 0.5 * Math.sin(frame * 0.13);
     // Outer halo
@@ -15642,6 +15651,83 @@ const DLX_BUILD = 'v321';
     ctx.fillText('DLX/RIG', 0, 8.6);
     ctx.textAlign = 'start';
     ctx.textBaseline = 'alphabetic';
+  }
+
+  // Organic-theme replacement for the fuel cell pickup. A DLX BIO
+  // FUEL CELL — translucent magenta vial with a bright bioluminescent
+  // cyan core energy column inside, yellow DLX/FUEL brand stamp, and
+  // a soft outer glow halo. Reads as the third DLX currency type
+  // corroded by the gut.
+  function drawDLXBioFuelCell() {
+    const pulse = 0.5 + 0.5 * Math.sin(frame * 0.13);
+    // ---- Outer glow halo
+    ctx.shadowBlur = 14 + pulse * 6;
+    ctx.shadowColor = 'rgba(140, 255, 220, 0.95)';
+    ctx.fillStyle = 'rgba(140, 255, 220, ' + (0.25 + pulse * 0.18) + ')';
+    ctx.beginPath();
+    ctx.arc(0, 0, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // ---- Vial body — vertical capsule shape with translucent magenta
+    // shell + dark interior reading as a glass canister.
+    const vw = 7, vh = 13;
+    // Outer shell
+    ctx.fillStyle = 'rgba(60, 12, 30, 0.95)';
+    ctx.beginPath();
+    ctx.moveTo(-vw, -vh + 2);
+    ctx.quadraticCurveTo(-vw, -vh, -vw + 2, -vh);
+    ctx.lineTo(vw - 2, -vh);
+    ctx.quadraticCurveTo(vw, -vh, vw, -vh + 2);
+    ctx.lineTo(vw, vh - 2);
+    ctx.quadraticCurveTo(vw, vh, vw - 2, vh);
+    ctx.lineTo(-vw + 2, vh);
+    ctx.quadraticCurveTo(-vw, vh, -vw, vh - 2);
+    ctx.closePath();
+    ctx.fill();
+    // Wet specular highlight on the upper-left of the shell
+    ctx.fillStyle = 'rgba(255, 230, 245, 0.55)';
+    ctx.beginPath();
+    ctx.ellipse(-vw * 0.45, -vh * 0.35, vw * 0.30, vh * 0.20, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+    // ---- Bright bioluminescent CORE column inside the vial
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(180, 255, 220, 0.95)';
+    ctx.fillStyle = 'rgba(140, 255, 200, ' + (0.78 + pulse * 0.20) + ')';
+    ctx.fillRect(-vw * 0.55, -vh * 0.78, vw * 1.10, vh * 1.55);
+    // Brighter inner column
+    ctx.fillStyle = 'rgba(220, 255, 240, ' + (0.85 + pulse * 0.15) + ')';
+    ctx.fillRect(-vw * 0.30, -vh * 0.78, vw * 0.60, vh * 1.55);
+    ctx.shadowBlur = 0;
+    // ---- Cap at the top of the vial — small dark band
+    ctx.fillStyle = '#1a0808';
+    ctx.fillRect(-vw - 0.5, -vh - 1.5, vw * 2 + 1, 3);
+    ctx.fillStyle = '#3a2418';
+    ctx.fillRect(-vw - 0.5, -vh - 1, vw * 2 + 1, 0.7);
+    // ---- DLX/FUEL brand stamp on a small yellow plaque overlaid on
+    // the vial's middle.
+    ctx.fillStyle = 'rgba(255, 216, 60, 0.95)';
+    ctx.fillRect(-vw - 0.5, -1.4, vw * 2 + 1, 3.2);
+    ctx.fillStyle = '#1a0a06';
+    ctx.font = 'bold 3px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DLX/FUEL', 0, 0.2);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+    // Hairline outline for definition
+    ctx.strokeStyle = '#0a0408';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(-vw, -vh + 2);
+    ctx.quadraticCurveTo(-vw, -vh, -vw + 2, -vh);
+    ctx.lineTo(vw - 2, -vh);
+    ctx.quadraticCurveTo(vw, -vh, vw, -vh + 2);
+    ctx.lineTo(vw, vh - 2);
+    ctx.quadraticCurveTo(vw, vh, vw - 2, vh);
+    ctx.lineTo(-vw + 2, vh);
+    ctx.quadraticCurveTo(-vw, vh, -vw, vh - 2);
+    ctx.closePath();
+    ctx.stroke();
   }
 
   // Anti-magnet drones — small industrial hover-drones that lock onto
@@ -21718,6 +21804,9 @@ const DLX_BUILD = 'v321';
       pulsePeriodFrames: 0,
       dispatchLabel: 'DLX DISPATCH CENTER',
       dockLabel: 'GOOD BUDDY TRUCK STOP',
+      // "Today's haul" flavor — wasteland mundane delivery items. Daily
+      // chip pulls a seeded line from this list per date.
+      cargoFlavor: null,        // null = use the default DISPATCHER_QUOTES.cargo pool
       // Per-level whitelist of obstacle types that are allowed to spawn.
       // Things missing here get suppressed at their spawn point so a
       // level only sees obstacles that fit its setting. Renderers that
@@ -21770,6 +21859,26 @@ const DLX_BUILD = 'v321';
       pulsePeriodFrames: 210,               // ~3.5s at 60fps
       dispatchLabel: 'PARASITOLOGY OUTPOST',
       dockLabel: 'CARDIAC CHAMBER',
+      // Body-themed cargo flavor — replaces the wasteland junk list
+      // when running this level. Same Dumplord deadpan, different
+      // delivery items.
+      cargoFlavor: [
+        '1 sealed antitoxin · 3 phage cultures · a flask labeled DON\'T OPEN',
+        'Spleen biopsy · 12 lymph filters · one (1) screaming sample',
+        'Heart-stim cocktail · 80 vials of CSF · Dumplord\'s medical bracelet',
+        'Sealed parasite · 200 immune-cell capsules · half a sandwich (recovered)',
+        'Cardiac patch · 6 enzyme blocks · contraband bone marrow',
+        'Frozen embryos · 12 plasma packs · a flask of unknown origin',
+        '1 prosthetic gland · 50 nerve filaments · raw pituitary',
+        'Bag of teeth · 4 bone-stim cells · one (1) angry parasite',
+        '100 stem-cell tubes · 1 organ-donor coffin · radioactive marrow',
+        'Antibiotic shot · 9 surgical lasers · the host\'s lost wallet (digested)',
+        'Antique scalpel · 6 plasma packs · raw stomach lining',
+        '1 cardiac assist unit · 12 nerve filaments · live cell culture',
+        'Expired insulin · 9 epinephrine pens · several biopsy bags',
+        '10 cytokines · a defibrillator · radioactive immune cells',
+        '12 antibody vials · 1 enzyme reactor · a single white blood cell',
+      ],
       // No machine-themed enemies inside a creature — drones (anti-magnet
       // aircraft) and groundOps (tank rigs) don't belong here. airWrecks
       // are crashed scrap, wrong setting. Thieves STAY ON because their
@@ -22403,7 +22512,9 @@ const DLX_BUILD = 'v321';
     if (subEl) {
       let body;
       if (deliveredDaily) {
-        body = '<b>GOOD BUDDY TRUCK STOP</b> reached.<br>'
+        const dockLbl = (currentDeliveryLevel && currentDeliveryLevel.dockLabel)
+          || 'GOOD BUDDY TRUCK STOP';
+        body = '<b>' + dockLbl + '</b> reached.<br>'
              + (cargoIntactDaily
                   ? 'Cargo intact. Full pay\'s in your account.'
                   : 'Cargo gone. Reduced pay only.');
