@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v343';
+const DLX_BUILD = 'v344';
 
 (function() {
   // ---------- Device detection ----------
@@ -8264,101 +8264,122 @@ const DLX_BUILD = 'v343';
             if (tf.x < -60) dailyThieves.splice(i, 1);
           }
         }
-        // ---- MIRROR PARASITES (Leviathan only) ---------------------
-        // Set-piece cargo theft. A floor parasite + a ceiling parasite
-        // emerge at the same worldX, lunge toward each other, and grab
-        // the cargo BETWEEN them at the meeting frame. Meeting frame is
-        // anchored to a heartbeat peak so the rhythm is readable.
-        // Three player responses:
-        //   - AGGRESSIVE (phases telegraph/emerge/lunge): ram a head to
-        //     DISRUPT the rendezvous — cargo safe, +100 bonus.
-        //   - DEFENSIVE: dodge the cargo out of the danger column
-        //     before the meeting frame.
-        //   - REACTIVE (phase retract): ram a head during the retract
-        //     window to free the cargo from the pincer.
+        // ---- AMOEBA-INFECTED PILLARS (Leviathan only) -------------
+        // Cargo theft set-piece. A translucent gelatinous amoeba is
+        // wrapped around an existing bone-spur pillar (top or bottom
+        // piece). It stretches a horizontal pseudopod toward the
+        // cargo's locked altitude and tries to grab the crate.
+        //
+        // Three player responses (same as mirror parasites):
+        //   - AGGRESSIVE (telegraph/strike/meeting, no cargo held):
+        //     ram the pseudopod tip — DISRUPT, +100, pair ends.
+        //   - DEFENSIVE: change the cargo's altitude during telegraph
+        //     so the lock-on aim misses by strike time.
+        //   - REACTIVE (retract/consume, holds cargo): ram the tip to
+        //     break the adhesion and drop the cargo.
         if (currentDeliveryLevel.obstacleSet
             && currentDeliveryLevel.obstacleSet.mirrorParasites
             && !dailyDelivered
             && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
-            && dailyMirrorPairs.length === 0          // one pair at a time
-            && frame >= dailyNextMirrorPairAt) {
-          const period = currentDeliveryLevel.pulsePeriodFrames || 210;
-          // Schedule the meeting on the next heartbeat peak that's at
-          // least (telegraph + emerge + lunge = 110) frames out, so the
-          // full lifecycle has room to play before the meeting.
-          const earliestMeet = frame + 110;
-          const meetFrame = Math.ceil(earliestMeet / period) * period;
-          // Spawn worldX ahead of the rig so scroll + travel time put
-          // the meeting near the rig's vertical play range.
-          const wx = bird.x + dailyScrollX + 280 + Math.random() * 160;
-          dailyMirrorPairs.push({
-            worldX: wx,
-            phase: 'telegraph',
-            phaseFrame: 0,
-            spawnFrame: frame,
-            meetFrame: meetFrame,
-            meetY: 30 + Math.random() * (PLAY_H - 80),
-            holdsCargo: false,
-            disrupted: false,
-            consumeFrame: 0,
-            // Per-head live state — set during emerge/lunge
-            floorY: PLAY_H - 8,
-            ceilY:  28,
-            floorAnchor: PLAY_H - 8,
-            ceilAnchor:  28,
-          });
-          // Next pair: random 25-35 sec out (still gated to one-active).
-          dailyNextMirrorPairAt = frame + 1500 + Math.floor(Math.random() * 600);
+            && dailyMirrorPairs.length === 0          // one infected pillar at a time
+            && frame >= dailyNextMirrorPairAt
+            && cargo && cargo.attached && !cargo.lost) {
+          // Find a scrap-tower obstacle ahead of the rig that hasn't
+          // already been infected. "Ahead" = worldX is between the
+          // current rig screen + 200 and rig screen + 420 — close
+          // enough that the wrap is visible/upcoming, not so close that
+          // the strike lands instantly.
+          const minAhead = bird.x + dailyScrollX + 200;
+          const maxAhead = bird.x + dailyScrollX + 420;
+          let target = null;
+          for (const o of dailyAirObstacles) {
+            if (o.kind !== 'scrapTower') continue;
+            if (o.amoebaActive) continue;
+            if (o.worldX >= minAhead && o.worldX <= maxAhead) {
+              target = o;
+              break;
+            }
+          }
+          if (target) {
+            target.amoebaActive = true;
+            const side = Math.random() < 0.5 ? 'top' : 'bottom';
+            // Pillar centre X (tw=36, half=18 — matches drawScrapTower)
+            const pillarCenterWorldX = target.worldX + 18;
+            // Body anchor — middle of the wrapped pillar piece
+            const bodyY = (side === 'top')
+              ? target.top * 0.55                          // upper pillar
+              : target.top + target.gap +
+                (PLAY_H - target.top - target.gap) * 0.45; // lower pillar
+            // Lock onto cargo's CURRENT screen-Y at telegraph start.
+            // Lock doesn't track during telegraph — player has 60
+            // frames to move out of the locked altitude.
+            const lockY = cargo.y;
+            // Lock the strike's screen-X target near the cargo's
+            // current screen position (cargo trails the rig at bird.x
+            // - 32). Pseudopod will reach this screen-X by strike end.
+            const lockScreenX = cargo.x;
+            dailyMirrorPairs.push({
+              kind: 'amoeba',
+              worldX: pillarCenterWorldX,
+              pillarTop: target.top,
+              pillarGap: target.gap,
+              side: side,
+              bodyY: bodyY,
+              phase: 'telegraph',
+              phaseFrame: 0,
+              lockScreenX: lockScreenX,
+              lockY: lockY,
+              podT: 0,                     // 0..1 extension fraction
+              holdsCargo: false,
+              disrupted: false,
+              hostObstacle: target,
+              spawnFrame: frame,
+            });
+            dailyNextMirrorPairAt = frame + 1500 + Math.floor(Math.random() * 600);
+          } else {
+            // No suitable pillar in range — try again soon.
+            dailyNextMirrorPairAt = frame + 60;
+          }
         }
         for (let i = dailyMirrorPairs.length - 1; i >= 0; i--) {
           const p = dailyMirrorPairs[i];
           p.phaseFrame++;
           const screenX = p.worldX - dailyScrollX;
-          // Phase progression — frames are budgets within each phase
+          // Pseudopod base sits on the side of the wrap that faces the
+          // gap (away from the wall). For an amoeba the base is at the
+          // pillar centre at bodyY; the tip is at (lockScreenX, lockY).
+          const baseScreenX = screenX;
+          const baseScreenY = p.bodyY;
+          const tipScreenX = baseScreenX + (p.lockScreenX - baseScreenX) * p.podT;
+          const tipScreenY = baseScreenY + (p.lockY      - baseScreenY) * p.podT;
+
           if (p.phase === 'telegraph') {
-            // Wall bulges; nothing extends yet. 60-frame budget.
+            // Pseudopod swells out of the wrap from 0 → ~25 % length.
+            p.podT = (p.phaseFrame / 60) * 0.25;
             if (p.phaseFrame >= 60) {
-              p.phase = 'emerge';
+              p.phase = 'strike';
               p.phaseFrame = 0;
             }
-          } else if (p.phase === 'emerge') {
-            // Heads break out of the wall over 20 frames.
-            const t = Math.min(1, p.phaseFrame / 20);
-            p.floorY = p.floorAnchor - t * 14;
-            p.ceilY  = p.ceilAnchor  + t * 14;
-            if (p.phaseFrame >= 20) {
-              p.phase = 'lunge';
-              p.phaseFrame = 0;
-            }
-          } else if (p.phase === 'lunge') {
-            // Both heads extend toward meetY. Lunge ends ON the meeting
-            // frame (heartbeat-locked) so timing is rhythm-readable.
-            const framesToMeet = Math.max(1, p.meetFrame - frame);
-            const dyFloor = p.meetY - p.floorY;
-            const dyCeil  = p.meetY - p.ceilY;
-            // Move proportionally to remaining frames so they arrive
-            // exactly on meetFrame.
-            p.floorY += dyFloor / framesToMeet;
-            p.ceilY  += dyCeil  / framesToMeet;
-            if (frame >= p.meetFrame) {
+          } else if (p.phase === 'strike') {
+            // Pseudopod whips out the rest of the way over 30 frames.
+            p.podT = 0.25 + (p.phaseFrame / 30) * 0.75;
+            if (p.phaseFrame >= 30) {
               p.phase = 'meeting';
               p.phaseFrame = 0;
+              p.podT = 1.0;
             }
           } else if (p.phase === 'meeting') {
-            // 10-frame grab window. Snap heads exactly to meetY.
-            p.floorY = p.meetY + 4;
-            p.ceilY  = p.meetY - 4;
-            // On the FIRST meeting frame, check whether the cargo is
-            // in the danger column. If so, parasites grab it.
+            // 10-frame grab window. Tip is fully extended.
+            p.podT = 1.0;
             if (p.phaseFrame === 1 && cargo && cargo.attached && !cargo.lost) {
-              const colHalf = 14;
-              if (Math.abs(cargo.x - screenX) < colHalf
-                  && Math.abs(cargo.y - p.meetY) < 22) {
+              const grabHalf = 18;
+              if (Math.abs(cargo.x - tipScreenX) < grabHalf
+                  && Math.abs(cargo.y - tipScreenY) < 22) {
                 cargo.attached = false;
                 cargo.parasiteLocked = true;
                 cargo.parasitePair = p;
                 p.holdsCargo = true;
-                emitPickupSparks(cargo.x, cargo.y, '#ff5060', 12);
+                emitPickupSparks(cargo.x, cargo.y, '#ff60a0', 14);
                 playSound('boom');
               }
             }
@@ -8367,36 +8388,31 @@ const DLX_BUILD = 'v343';
               p.phaseFrame = 0;
             }
           } else if (p.phase === 'retract') {
-            // 40-frame recovery window. Heads retract back toward their
-            // wall anchors. If they hold cargo, cargo follows the
-            // midpoint. Player can ram a head during this window to
-            // free the cargo.
+            // Pod reels back to the wrap over 40 frames. If holding
+            // cargo, drag it along the pod's path back to the body.
             const t = Math.min(1, p.phaseFrame / 40);
-            p.floorY = p.meetY * (1 - t) + p.floorAnchor * t;
-            p.ceilY  = p.meetY * (1 - t) + p.ceilAnchor  * t;
+            p.podT = 1.0 - t;
             if (p.holdsCargo && cargo && cargo.parasiteLocked && !cargo.lost) {
-              cargo.x += (screenX - cargo.x) * 0.30;
-              cargo.y += (((p.floorY + p.ceilY) / 2) - cargo.y) * 0.30;
+              const cx = baseScreenX + (p.lockScreenX - baseScreenX) * p.podT;
+              const cy = baseScreenY + (p.lockY      - baseScreenY) * p.podT;
+              cargo.x += (cx - cargo.x) * 0.30;
+              cargo.y += (cy - cargo.y) * 0.30;
               cargo.vy = 0;
             }
             if (p.phaseFrame >= 40) {
               if (p.holdsCargo) {
                 p.phase = 'consume';
                 p.phaseFrame = 0;
-                p.consumeFrame = frame;
               } else {
                 p.phase = 'done';
               }
             }
           } else if (p.phase === 'consume') {
-            // 30-frame consume animation — cargo fully eaten at end.
-            // Heads stay at anchor; cargo sinks into whichever wall is
-            // closer to meetY (top or bottom).
-            const intoFloor = (p.meetY > PLAY_H * 0.5);
-            const targetY = intoFloor ? p.floorAnchor + 8 : p.ceilAnchor - 8;
+            // 30-frame engulf — cargo dissolves into the wrap.
+            p.podT = 0;
             if (cargo && cargo.parasiteLocked && !cargo.lost) {
-              cargo.x += (screenX - cargo.x) * 0.25;
-              cargo.y += (targetY - cargo.y) * 0.18;
+              cargo.x += (baseScreenX - cargo.x) * 0.25;
+              cargo.y += (baseScreenY - cargo.y) * 0.20;
             }
             if (p.phaseFrame >= 30) {
               if (cargo && cargo.parasiteLocked) {
@@ -8407,34 +8423,24 @@ const DLX_BUILD = 'v343';
               p.phase = 'done';
             }
           }
+
           // ---- RAM DETECTION ----
-          // Rig vs either parasite head. Outcome depends on phase:
-          //   - aggressive (telegraph/emerge/lunge/meeting, no cargo
-          //     held): DISRUPT, +100 bonus, pair ends.
-          //   - reactive (retract/consume, holds cargo): FREE cargo,
-          //     pair ends.
-          if (p.phase !== 'done') {
-            const headHalf = 13;
+          // Rig vs the pseudopod TIP only — the wrapped body shares the
+          // pillar's lethal collision and shouldn't be a ram target.
+          // Outcome depends on phase + holdsCargo (same logic as v342).
+          if (p.phase !== 'done' && p.podT > 0.10) {
+            const tipR = 11;
             const rigR = BIRD_R;
-            const heads = [
-              { x: screenX, y: p.floorY },
-              { x: screenX, y: p.ceilY  },
-            ];
-            let rammed = false;
-            for (const h of heads) {
-              if (Math.abs(bird.x - h.x) < rigR + headHalf
-                  && Math.abs(bird.y - h.y) < rigR + headHalf) {
-                rammed = true;
-                break;
-              }
-            }
-            if (rammed) {
+            const tipNowX = baseScreenX + (p.lockScreenX - baseScreenX) * p.podT;
+            const tipNowY = baseScreenY + (p.lockY      - baseScreenY) * p.podT;
+            if (Math.abs(bird.x - tipNowX) < rigR + tipR
+                && Math.abs(bird.y - tipNowY) < rigR + tipR) {
               if (!p.holdsCargo
-                  && (p.phase === 'telegraph' || p.phase === 'emerge'
-                      || p.phase === 'lunge'    || p.phase === 'meeting')) {
+                  && (p.phase === 'telegraph' || p.phase === 'strike'
+                      || p.phase === 'meeting')) {
                 p.disrupted = true;
                 grantScore(100);
-                emitPickupSparks(screenX, p.meetY, '#ffd83d', 18);
+                emitPickupSparks(tipNowX, tipNowY, '#ffd83d', 18);
                 playSound('boom');
                 p.phase = 'done';
               } else if (p.holdsCargo
@@ -8453,11 +8459,14 @@ const DLX_BUILD = 'v343';
           }
 
           if (p.phase === 'done' || screenX < -80) {
-            // Defensive: release any cargo lock if pair despawns mid-flow
+            // Release any cargo lock + clear the host's infected flag
+            // so the slot is reusable in long runs (mostly defensive —
+            // the obstacle usually scrolls past anyway).
             if (cargo && cargo.parasitePair === p) {
               cargo.parasiteLocked = false;
               cargo.parasitePair = null;
             }
+            if (p.hostObstacle) p.hostObstacle.amoebaActive = false;
             dailyMirrorPairs.splice(i, 1);
           }
         }
@@ -17082,179 +17091,167 @@ const DLX_BUILD = 'v343';
     }
   }
 
-  // Mirror parasites — Leviathan-only cargo-theft set piece. Two
-  // giant kraken arms emerge from the cavity walls (one from the
-  // floor, one from the ceiling), undulate through the water/fluid
-  // toward each other, and grasp the cargo BETWEEN them with rows of
-  // suckers at the meeting frame. Cohesive with the existing octopus
-  // tentacles in the level — same creature family, larger scale.
-  //
-  // Each arm is rendered as a multi-segment polyline running from the
-  // wall anchor to the tip. A traveling sine wave perpendicular to the
-  // anchor→tip line gives the swimming undulation; amplitude scales
-  // with t (peaks at the free tip) so the base stays attached to the
-  // wall and the tip whips through the water like a real tentacle.
-  // Suckers march along the inside edge (toward the meeting line) at
-  // alternating sizes; a glowing nodule at the very tip pulses brighter
-  // as the meeting frame approaches and snaps to white when it grasps
-  // the cargo.
+  // Amoeba-infected pillars (Leviathan only). A translucent gelatinous
+  // mass is wrapped around one of the bone-spur pillars (top piece OR
+  // bottom piece, random). The pillar's silhouette stays visible
+  // through the jelly so the rig's collision rules are unchanged. From
+  // the side of the wrap that faces the gap, the amoeba grows a sticky
+  // pseudopod that stretches horizontally toward the cargo's locked
+  // altitude, then retracts (with cargo, if it grabbed).
   function drawDailyMirrorPairs() {
     if (!isDaily || !dailyMirrorPairs.length) return;
     for (const p of dailyMirrorPairs) {
       const screenX = p.worldX - dailyScrollX;
       if (screenX < -60 || screenX > W + 60) continue;
       const sxR = Math.round(screenX);
-      const beatPulse = 0.5 + 0.5 * Math.sin(frame * 0.22);
+      const wobble = Math.sin(frame * 0.07 + screenX * 0.05);
 
-      // Telegraph "swell" t — 0..1 over the 60-frame buildup.
-      const telegT = (p.phase === 'telegraph')
-        ? Math.min(1, p.phaseFrame / 60)
-        : 1.0;
+      // ---- WRAP — translucent jelly clinging to the pillar piece.
+      // Drawn as a fat capsule following the pillar's vertical span on
+      // the chosen side. Slightly bulges outward + irregular wavy edge.
+      const pieceTop = (p.side === 'top') ? 0 : (p.pillarTop + p.pillarGap);
+      const pieceBot = (p.side === 'top') ? p.pillarTop : PLAY_H;
+      const pieceCx  = sxR;
+      // Reduce wrap height slightly so it doesn't poke into the gap
+      // frame, and give it a bit of vertical breathing.
+      const wrapTopY = pieceTop + (p.side === 'top' ? 4 : -2);
+      const wrapBotY = pieceBot - (p.side === 'top' ? -2 : 4);
+      const wrapH    = Math.max(20, wrapBotY - wrapTopY);
+      const wrapHalfW = 22;     // jelly extends 4px past the 36-wide pillar each side
 
-      // Wall-anchor swell: a fleshy bulge at each wall opening before
-      // and during the arm's emergence. Reads as the cavity wall
-      // pushing out before something comes through.
-      for (const anchor of [{ y: p.floorAnchor, dir: -1 }, { y: p.ceilAnchor, dir: 1 }]) {
-        ctx.save();
-        ctx.translate(sxR, anchor.y);
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = 'rgba(40, 8, 20, 0.9)';
-        ctx.fillStyle = 'rgba(80, 16, 36, 0.95)';
+      ctx.save();
+      // 1) Outer dark gelatin halo (silhouette punch)
+      ctx.fillStyle = 'rgba(40, 8, 22, 0.55)';
+      ctx.beginPath();
+      ctx.ellipse(pieceCx, (wrapTopY + wrapBotY) / 2,
+                  wrapHalfW + 1.5 + wobble * 0.6,
+                  wrapH / 2 + 1.0, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // 2) Translucent magenta jelly body
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'rgba(255, 120, 180, 0.55)';
+      ctx.fillStyle = 'rgba(220, 80, 140, 0.55)';
+      ctx.beginPath();
+      ctx.ellipse(pieceCx, (wrapTopY + wrapBotY) / 2,
+                  wrapHalfW + wobble * 0.5,
+                  wrapH / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // 3) Inner cytoplasm — drifting vacuoles + nucleus
+      const cy0 = (wrapTopY + wrapBotY) / 2;
+      // Nucleus — darker oval, slowly drifts
+      const nucX = pieceCx + Math.sin(frame * 0.03) * 3;
+      const nucY = cy0 + Math.sin(frame * 0.04) * 4;
+      ctx.fillStyle = 'rgba(120, 20, 60, 0.85)';
+      ctx.beginPath();
+      ctx.ellipse(nucX, nucY, 5, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(60, 8, 30, 0.85)';
+      ctx.beginPath();
+      ctx.arc(nucX - 1, nucY - 0.5, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Vacuoles — small lighter spots
+      for (let v = 0; v < 4; v++) {
+        const ph = frame * 0.05 + v * 1.7;
+        const vx = pieceCx + Math.sin(ph) * (wrapHalfW * 0.55);
+        const vy = cy0 + Math.cos(ph * 0.7) * (wrapH * 0.30);
+        const vr = 1.6 + (v % 2);
+        ctx.fillStyle = 'rgba(255, 200, 230, 0.55)';
         ctx.beginPath();
-        ctx.ellipse(0, anchor.dir * 4 * telegT,
-                    14 + telegT * 4, 7 + telegT * 3, 0, 0, Math.PI * 2);
+        ctx.arc(vx, vy, vr, 0, Math.PI * 2);
         ctx.fill();
-        ctx.shadowBlur = 0;
-        // Soft pink wet rim around the opening
-        ctx.strokeStyle = 'rgba(255, 130, 180, ' + (0.30 + telegT * 0.45) + ')';
-        ctx.lineWidth = 1.0;
+        ctx.fillStyle = 'rgba(255, 240, 250, 0.85)';
         ctx.beginPath();
-        ctx.ellipse(0, anchor.dir * 4 * telegT,
-                    14 + telegT * 4, 7 + telegT * 3, 0, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
+        ctx.arc(vx - 0.5, vy - 0.5, vr * 0.4, 0, Math.PI * 2);
+        ctx.fill();
       }
+      // 4) Glistening membrane outline + wet rim
+      ctx.strokeStyle = 'rgba(255, 180, 220, 0.85)';
+      ctx.lineWidth = 1.0;
+      ctx.beginPath();
+      ctx.ellipse(pieceCx, cy0, wrapHalfW, wrapH / 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
 
-      // Don't draw the arms themselves until they emerge.
-      if (p.phase === 'telegraph' && p.phaseFrame < 35) continue;
-
-      const drawArm = (tipY, anchorY, fromFloor) => {
-        // tip points toward meetY, anchor sits at the wall.
-        const N = 14;
-        const span = tipY - anchorY;
-        // Wave amplitude grows toward the tip (free end) and tapers near
-        // the wall (fixed end). Direction reverses each pair so the two
-        // arms curve in opposite S-shapes — looks like they're reaching
-        // around something rather than at it.
-        const ampSign = fromFloor ? 1 : -1;
-        const wavePhase = frame * 0.10 + (fromFloor ? 0 : Math.PI * 0.6);
-        // Pre-compute the polyline so we can stroke + sucker it.
-        const pts = [];
-        for (let i = 0; i <= N; i++) {
-          const t = i / N;
-          const baseY = anchorY + span * t;
-          // Perpendicular offset (horizontal — anchor→tip line is vertical).
-          const amp = 8 * t;
-          const wave = ampSign * amp * Math.sin(wavePhase + t * Math.PI * 1.6);
-          pts.push({ x: sxR + wave, y: baseY, t: t });
-        }
-
-        // Helper to stroke through pts with a given line width + style.
-        const stroke = (lineW, style) => {
-          ctx.lineWidth = lineW;
-          ctx.strokeStyle = style;
-          ctx.beginPath();
-          ctx.moveTo(pts[0].x, pts[0].y);
-          for (let i = 1; i < pts.length - 1; i++) {
-            const xc = (pts[i].x + pts[i + 1].x) / 2;
-            const yc = (pts[i].y + pts[i + 1].y) / 2;
-            ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
-          }
-          ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-          ctx.stroke();
-        };
+      // ---- PSEUDOPOD — horizontal stretching arm from the wrap edge
+      // toward the locked cargo position. Skip when fully retracted.
+      if (p.podT > 0.01) {
+        const baseX = sxR;
+        const baseY = p.bodyY;
+        const tipX  = baseX + (p.lockScreenX - baseX) * p.podT;
+        const tipY  = baseY + (p.lockY      - baseY) * p.podT;
+        // Subtle organic curve: control point offset perpendicular to
+        // the base→tip line by a wobble that breathes with frame.
+        const dx = tipX - baseX, dy = tipY - baseY;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len, ny = dx / len;
+        const ctrlOff = 4 * Math.sin(frame * 0.10) * p.podT;
+        const ctrlX = (baseX + tipX) / 2 + nx * ctrlOff;
+        const ctrlY = (baseY + tipY) / 2 + ny * ctrlOff;
 
         ctx.save();
         ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        // 1) Outer dark silhouette — gives the arm weight against the wash
-        stroke(11, 'rgba(40, 8, 22, 0.95)');
-        // 2) Body — saturated magenta-pink
-        stroke(8, 'rgba(180, 50, 100, 0.96)');
-        // 3) Belly highlight — slightly lighter, drawn with a subtle
-        //    horizontal offset toward the meeting line so it reads as
-        //    a wet sheen on the inside of the arm.
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = 'rgba(255, 130, 170, 0.65)';
+        // Tapered stroke: draw thicker outer, thinner inner, simulate
+        // pseudopod taper from base to tip.
+        // Outer dark
+        ctx.lineWidth = 9;
+        ctx.strokeStyle = 'rgba(40, 8, 22, 0.85)';
         ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length - 1; i++) {
-          const xc = (pts[i].x + pts[i + 1].x) / 2;
-          const yc = (pts[i].y + pts[i + 1].y) / 2 - ampSign * 1.4;
-          ctx.quadraticCurveTo(pts[i].x, pts[i].y - ampSign * 1.4, xc, yc);
-        }
-        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y - ampSign * 1.4);
+        ctx.moveTo(baseX, baseY);
+        ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+        ctx.stroke();
+        // Body magenta
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = 'rgba(220, 70, 130, 0.92)';
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+        ctx.stroke();
+        // Inner highlight
+        ctx.lineWidth = 2.4;
+        ctx.strokeStyle = 'rgba(255, 180, 220, 0.85)';
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
         ctx.stroke();
 
-        // 4) Suckers — small light-pink discs along the underside (inner
-        //    edge facing the meeting line). Alternate radii for variety.
-        for (let i = 1; i < pts.length - 1; i += 2) {
-          const cur = pts[i];
-          const prev = pts[i - 1];
-          const next = pts[i + 1];
-          // Tangent vector along the arm
-          const tx = next.x - prev.x;
-          const ty = next.y - prev.y;
-          const tl = Math.hypot(tx, ty) || 1;
-          // Inner-edge perpendicular (toward meetY = away from anchor)
-          // For a vertical arm, perpendicular is mostly horizontal —
-          // pick the side that leans toward the rendezvous.
-          const nx = -ty / tl, ny = tx / tl;
-          // Both arms put suckers on the side that faces the OTHER arm
-          const innerSign = fromFloor ? 1 : -1;
-          // Distance from the spine — slight outward offset so suckers
-          // sit on the "belly" of the arm.
-          const off = 3.4;
-          const sxs = cur.x + nx * off * innerSign;
-          const sys = cur.y + ny * off * innerSign;
-          const sr = (i % 4 === 0) ? 1.7 : 2.3;
-          // Disc — pale pink rim, dark center for a real sucker look
-          ctx.fillStyle = 'rgba(255, 200, 220, 0.95)';
-          ctx.beginPath();
-          ctx.arc(sxs, sys, sr, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = 'rgba(80, 18, 40, 0.95)';
-          ctx.beginPath();
-          ctx.arc(sxs, sys, sr * 0.55, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        // 5) Tip nodule — glowing pink/white bulb at the very end.
-        //    Pulses faster + brighter as the meeting approaches; flashes
-        //    pure white during the meeting frame; stays bright while
-        //    holding cargo to read as "grip locked."
-        const tip = pts[pts.length - 1];
+        // Sticky tip blob — bigger when fully extended, glows brighter
+        // during the grab window or while holding cargo.
         const isMeeting = (p.phase === 'meeting');
         const isHolding = (p.phase === 'retract' || p.phase === 'consume') && p.holdsCargo;
-        const tipGlow = isMeeting || isHolding ? 1.0 : (0.55 + beatPulse * 0.35);
-        ctx.shadowBlur = 8 + tipGlow * 8;
-        ctx.shadowColor = 'rgba(255, 200, 230, 0.95)';
-        ctx.fillStyle = 'rgba(255, 200, 230, ' + (0.85 + tipGlow * 0.15) + ')';
+        const tipGlow = isMeeting || isHolding ? 1.0 : (0.4 + 0.4 * p.podT);
+        ctx.shadowBlur = 6 + tipGlow * 8;
+        ctx.shadowColor = 'rgba(255, 160, 210, 0.95)';
+        ctx.fillStyle = 'rgba(40, 8, 22, 0.85)';
         ctx.beginPath();
-        ctx.arc(tip.x, tip.y, 4 + tipGlow * 1.6, 0, Math.PI * 2);
+        ctx.arc(tipX, tipY, 6.5 + tipGlow * 1.0, 0, Math.PI * 2);
         ctx.fill();
-        // White inner core
-        ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.7 + tipGlow * 0.30) + ')';
+        ctx.fillStyle = 'rgba(220, 70, 130, 0.95)';
         ctx.beginPath();
-        ctx.arc(tip.x, tip.y, 1.6 + tipGlow * 0.5, 0, Math.PI * 2);
+        ctx.arc(tipX, tipY, 5.5 + tipGlow * 1.0, 0, Math.PI * 2);
+        ctx.fill();
+        // Sticky inner core
+        ctx.fillStyle = 'rgba(255, 220, 240, ' + (0.7 + tipGlow * 0.30) + ')';
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, 2.2 + tipGlow * 0.6, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
 
+        // Goo droplet trailing the tip while extending — small dots
+        // along the curve to sell "this is liquid, not rigid."
+        if (p.podT < 1.0 || isMeeting) {
+          for (let s = 1; s < 3; s++) {
+            const t01 = 0.3 + s * 0.25;
+            const px = (1 - t01) * (1 - t01) * baseX + 2 * (1 - t01) * t01 * ctrlX + t01 * t01 * tipX;
+            const py = (1 - t01) * (1 - t01) * baseY + 2 * (1 - t01) * t01 * ctrlY + t01 * t01 * tipY;
+            ctx.fillStyle = 'rgba(255, 200, 230, 0.55)';
+            ctx.beginPath();
+            ctx.arc(px, py, 1.0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
         ctx.restore();
-      };
-
-      drawArm(p.floorY, p.floorAnchor, true);
-      drawArm(p.ceilY,  p.ceilAnchor, false);
+      }
     }
   }
 
