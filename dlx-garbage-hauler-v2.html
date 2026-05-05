@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v330';
+const DLX_BUILD = 'v331';
 
 (function() {
   // ---------- Device detection ----------
@@ -8391,22 +8391,53 @@ const DLX_BUILD = 'v330';
   }
 
   function emitDeathShards(cx, cy) {
-    for (let i = 0; i < 15; i++) {
+    // Pro-tier polish (v331): organic-theme deaths spawn 20 mechanical
+    // shards — a mix of metal scraps (DLX yellow + dark grey) and
+    // bright cyan bio-sparks — reading as the rig's hull cracking
+    // open and the bio-shielded systems shorting out.
+    const organic = isDaily && currentDeliveryLevel
+                    && currentDeliveryLevel.obstacleTheme === 'organic';
+    const count = organic ? 20 : 15;
+    for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = 2.2 + Math.random() * 3;
+      let color, glow, shape, size;
+      if (organic) {
+        // Three sub-categories: metal scrap (yellow), darker chunk
+        // (grey-black), and bio spark (cyan-white).
+        const roll = Math.random();
+        if (roll < 0.40) {
+          color = '#ffd83d'; glow = '#a06808';        // yellow scrap
+          shape = 'tri';
+          size = 5 + Math.random() * 5;
+        } else if (roll < 0.75) {
+          color = '#3a3a42'; glow = '#1a0a06';        // dark metal chunk
+          shape = 'rect';
+          size = 4 + Math.random() * 4;
+        } else {
+          color = '#a8ffe0'; glow = '#40c0a0';        // bio spark
+          shape = 'tri';
+          size = 3 + Math.random() * 3;
+        }
+      } else {
+        color = '#cf9bff';
+        glow = '#bc13fe';
+        shape = 'tri';
+        size = 7 + Math.random() * 5;
+      }
       sparks.push({
         x: cx,
         y: cy,
         vx: Math.cos(a) * sp,
         vy: Math.sin(a) * sp - 1.5,
-        size: 7 + Math.random() * 5,
+        size: size,
         rot: Math.random() * Math.PI * 2,
         vr: (Math.random() - 0.5) * 0.35,
         life: 1,
         decay: 0.012,
-        shape: 'tri',
-        color: '#cf9bff',
-        glow: '#bc13fe',
+        shape: shape,
+        color: color,
+        glow: glow,
         drag: 0.99,
         gravity: 0.28,
       });
@@ -21137,18 +21168,51 @@ const DLX_BUILD = 'v330';
     const y = Math.max(40, H * 0.07);
     const pulseScale = 1 + scorePulse * 0.5;
 
+    // Pro-tier polish (v331): CRT-dashboard treatment for the score in
+    // organic-theme levels. Adds a subtle frame-by-frame flicker, a
+    // cyan outer glow, scan lines etched across the digits, and a
+    // brief brightness flash on each scoring tick.
+    const crt = isDaily && currentDeliveryLevel
+                && currentDeliveryLevel.obstacleTheme === 'organic';
+    const flicker = crt ? (0.92 + Math.random() * 0.08) : 1.0;
+
     ctx.save();
     ctx.translate(W / 2, y);
     ctx.scale(pulseScale, pulseScale);
     ctx.font = 'bold ' + size + 'px "Courier New", "Lucida Console", monospace';
     ctx.textAlign = 'center';
-    // No shadowBlur — the previous amber glow scaled with pulseScale and
-    // bloomed across the whole upper screen each score increment.
+    if (crt) {
+      // Cyan outer glow halo
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'rgba(120, 240, 220, 0.95)';
+    }
     ctx.lineWidth = 4;
-    ctx.strokeStyle = '#3a1a05';
-    ctx.fillStyle = '#ffd280';
+    ctx.strokeStyle = crt ? '#04181a' : '#3a1a05';
+    ctx.globalAlpha = flicker;
+    ctx.fillStyle = crt ? '#7ff8e0' : '#ffd280';
     ctx.strokeText(text, 0, 0);
     ctx.fillText(text, 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1.0;
+    if (crt) {
+      // Scan-line overlay etched across the digits — thin horizontal
+      // lines clipped to the text width via measureText.
+      const w = Math.ceil(ctx.measureText(text).width);
+      const halfW = w / 2 + 6;
+      ctx.fillStyle = 'rgba(0, 30, 28, 0.45)';
+      const top = -size * 0.85;
+      const bot = size * 0.18;
+      for (let sy = top; sy < bot; sy += 3) {
+        ctx.fillRect(-halfW, sy, halfW * 2, 1);
+      }
+      // Bright brief flash overlay during the score-pulse
+      if (scorePulse > 0.4) {
+        ctx.globalAlpha = (scorePulse - 0.4) * 0.6;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(text, 0, 0);
+        ctx.globalAlpha = 1.0;
+      }
+    }
     ctx.restore();
 
     // Trash Tokens chip — shows this run's earnings just under the score.
