@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v336';
+const DLX_BUILD = 'v337';
 
 (function() {
   // ---------- Device detection ----------
@@ -14621,6 +14621,10 @@ const DLX_BUILD = 'v336';
   // glow trim that frames the openings; portal halos bleed both ways
   // so the corridor exhales light into the surrounding cavity.
   function drawTunnelOrgan(t, sx) {
+    // Esophageal / gut tunnel. Replaces the old stacked-disk + bone-rib
+    // look with a continuous fleshy wash, peristaltic muscle rings that
+    // contract along a slow wave, capillary veins, and sphincter-style
+    // portal halos. Reads as "you are flying through a throat."
     const len = t.length;
     const wxStart = t.worldX;
     const wxEnd   = t.worldX + len;
@@ -14629,210 +14633,221 @@ const DLX_BUILD = 'v336';
     const fY = t.floorY != null ? t.floorY : (PLAY_H - 8);
     const seedI = Math.floor(t.seed || 0);
 
-    // Heartbeat pulse drives the floor wash + rim halos.
     const period = currentDeliveryLevel.pulsePeriodFrames || 210;
     const heartT = (frame % period) / period;
     const beat   = Math.max(
       0,
       Math.sin(Math.PI * Math.min(1, heartT * 5)) * (1 - heartT * 0.6)
     );
-    // Slow ambient breath for the tissue wash.
-    const ambient = 0.5 + 0.3 * Math.sin(frame * 0.04);
+    // Peristaltic wave traveling down the tunnel — drives ring squeeze.
+    const wavePhase = frame * 0.05;
 
-    // ---- 1. CONTINUOUS TISSUE WASH ------------------------------
-    // Spans the FULL tunnel including ramps. Each oval samples its
-    // local ceiling/floor via tunnelLayoutAt so it follows the ramp
-    // slope. Body ovals are full opacity, ramp ovals fade to soften
-    // the transition into the surrounding cavity.
+    // One global fleshy gradient sized to typical tunnel height. Rect
+    // fills sample whichever slice overlaps the strip's actual height,
+    // so a single createLinearGradient handles every strip.
+    const fleshGrad = ctx.createLinearGradient(0, fY - 110, 0, fY);
+    fleshGrad.addColorStop(0,    'rgba(180, 60, 90, 0.55)');
+    fleshGrad.addColorStop(0.45, 'rgba(70,  12, 30, 0.78)');
+    fleshGrad.addColorStop(0.55, 'rgba(70,  12, 30, 0.78)');
+    fleshGrad.addColorStop(1,    'rgba(180, 60, 90, 0.55)');
+
+    // ---- 1. CONTINUOUS FLESH WASH (vertical strips) ------------
+    // 8-px strips follow the ramp slope via tunnelLayoutAt; each strip
+    // fills ceiling..floor, sampling its slice of the global gradient.
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    const washStep = 22;
-    let washIndex = 0;
-    for (let bx = wxStart + 2; bx < wxEnd - 2; bx += washStep) {
+    ctx.fillStyle = fleshGrad;
+    const washStep = 8;
+    for (let bx = wxStart + 1; bx < wxEnd - 1; bx += washStep) {
       const screenX = bx - dailyScrollX;
-      if (screenX < -30 || screenX > W + 30) { washIndex++; continue; }
+      if (screenX < -20 || screenX > W + 20) continue;
       const L = tunnelLayoutAt(bx);
-      if (!L) { washIndex++; continue; }
-      const ceilingY = L.ceiling;
-      const floorYL  = L.floor;
-      if (floorYL <= ceilingY) { washIndex++; continue; }
-      const cy = (ceilingY + floorYL) / 2;
-      const halfH = (floorYL - ceilingY) * 0.50;   // fills cross-section
-      // Body samples are full opacity; ramp samples fade to the edges.
+      if (!L) continue;
+      if (L.floor <= L.ceiling) continue;
       const inBody = (bx >= bodyStart && bx <= bodyEnd);
-      let opacityScale = 1.0;
       if (!inBody) {
-        // Distance into the ramp as 0..1 where 0 = ramp outer edge
-        // and 1 = body edge. Squared so the fade is gentler near the
-        // body and sharper near the outer mouth.
         const t01 = (bx < bodyStart)
           ? (bx - wxStart) / TUNNEL_ENTRANCE_RAMP
           : (wxEnd - bx) / TUNNEL_EXIT_RAMP;
-        opacityScale = Math.max(0.15, t01 * t01);
+        ctx.globalAlpha = Math.max(0.2, t01 * t01);
+      } else {
+        ctx.globalAlpha = 1.0;
       }
-      const phase = (washIndex + seedI) % 3;
-      let r, g, b;
-      if (phase === 0)      { r = 60;  g = 180; b = 130; }   // cyan-green
-      else if (phase === 1) { r = 180; g = 70;  b = 130; }   // magenta
-      else                  { r = 100; g = 110; b = 170; }   // violet bridge
-      ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' +
-                      ((0.18 + ambient * 0.10) * opacityScale) + ')';
+      ctx.fillRect(screenX - washStep / 2, L.ceiling,
+                   washStep + 1, L.floor - L.ceiling);
+    }
+    ctx.globalAlpha = 1.0;
+    ctx.restore();
+
+    // ---- 2. CAPILLARY VEINS along the membrane -----------------
+    ctx.save();
+    ctx.strokeStyle = 'rgba(220, 60, 90, 0.7)';
+    ctx.lineWidth = 0.7;
+    const veinStep = 16;
+    let vIdx = 0;
+    for (let bx = bodyStart + 4; bx < bodyEnd - 4; bx += veinStep) {
+      const screenX = bx - dailyScrollX;
+      if (screenX < -10 || screenX > W + 10) { vIdx++; continue; }
+      const L = tunnelLayoutAt(bx);
+      if (!L) { vIdx++; continue; }
+      const onTop = ((vIdx + seedI) % 2 === 0);
+      const yAnchor = onTop ? L.ceiling : L.floor;
+      const dir = onTop ? 1 : -1;
       ctx.beginPath();
-      ctx.ellipse(screenX, cy, 26, halfH * 0.92, 0, 0, Math.PI * 2);
-      ctx.fill();
-      washIndex++;
+      ctx.moveTo(screenX, yAnchor);
+      ctx.quadraticCurveTo(screenX + 5, yAnchor + dir * 3,
+                            screenX + 11, yAnchor + dir * 1);
+      ctx.moveTo(screenX + 5, yAnchor + dir * 3);
+      ctx.lineTo(screenX + 8, yAnchor + dir * 7);
+      ctx.stroke();
+      vIdx++;
     }
     ctx.restore();
 
-    // ---- 2. RIB-POCKET BACKLIT BLOOMS (body only) --------------
-    const ribStep = 42;
-    let ribIndex = 0;
-    for (let bx = bodyStart + ribStep / 2; bx < bodyEnd - 4; bx += ribStep) {
-      const screenX = bx - dailyScrollX;
-      if (screenX < -20 || screenX > W + 20) { ribIndex++; continue; }
-      const ceilingY = terrainHeightAt(bx) + TUNNEL_CEILING_OFFSET;
-      const cy = (ceilingY + fY - 4) / 2;
-      const halfH = (fY - ceilingY) * 0.42;
-      const phase = (ribIndex + seedI) % 2;
-      const isCyan = phase === 0;
-      ctx.shadowBlur = 16;
-      ctx.shadowColor = isCyan
-        ? 'rgba(120, 255, 200, 0.95)'
-        : 'rgba(255, 100, 180, 0.95)';
-      ctx.fillStyle = isCyan
-        ? 'rgba(140, 255, 220, ' + (0.20 + ambient * 0.12) + ')'
-        : 'rgba(255, 140, 200, ' + (0.20 + ambient * 0.12) + ')';
-      ctx.beginPath();
-      ctx.ellipse(screenX, cy, 14, halfH * 0.85, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ribIndex++;
-    }
-
-    // ---- 3. RIBCAGE BONES (body only) --------------------------
+    // ---- 3. PERISTALTIC MUSCLE RINGS (body only) ---------------
+    // Fleshy bands arching ceiling-to-floor. A wave traveling left-to-
+    // right modulates each ring's thickness + brightness, so the whole
+    // tunnel reads as gulping. Three-pass shading: dark crease behind,
+    // mid-pink body, bright wet highlight on the leading edge.
+    ctx.save();
     ctx.lineCap = 'round';
-    let ribDrawIdx = 0;
-    for (let bx = bodyStart + ribStep / 2; bx < bodyEnd - 4; bx += ribStep) {
+    const ringStep = 38;
+    let ringIdx = 0;
+    for (let bx = bodyStart + ringStep / 2; bx < bodyEnd - 4; bx += ringStep) {
       const screenX = bx - dailyScrollX;
-      if (screenX < -20 || screenX > W + 20) { ribDrawIdx++; continue; }
-      const ceilingY = terrainHeightAt(bx) + TUNNEL_CEILING_OFFSET;
-      const phase = (ribDrawIdx + seedI) % 4;
-      const curveDir = (phase % 2 === 0) ? 1 : -1;
-      const botY = fY - 4;
-      const cy = (ceilingY + botY) / 2;
-      const ribH = botY - ceilingY;
-      const bowAmt = ribH * 0.18 * curveDir;
-      const ctrlX = screenX + bowAmt;
-      ctx.lineWidth = 6;
-      ctx.strokeStyle = 'rgba(238, 218, 204, 0.95)';
+      if (screenX < -24 || screenX > W + 24) { ringIdx++; continue; }
+      const L = tunnelLayoutAt(bx);
+      if (!L) { ringIdx++; continue; }
+      const ceilingY = L.ceiling;
+      const botY     = L.floor;
+      const cy       = (ceilingY + botY) / 2;
+      const ringH    = botY - ceilingY;
+      const localPhase = (bx * 0.012) - wavePhase;
+      const squeeze    = 0.5 + 0.5 * Math.sin(localPhase);
+      const lineW      = 4 + squeeze * 3;
+      const curveDir = ((ringIdx + seedI) % 2 === 0) ? 1 : -1;
+      const bowAmt   = ringH * 0.10 * curveDir;
+      const ctrlX    = screenX + bowAmt;
+
+      ctx.lineWidth   = lineW + 1.2;
+      ctx.strokeStyle = 'rgba(40, 8, 18, 0.85)';
+      ctx.beginPath();
+      ctx.moveTo(screenX + 1.0, ceilingY);
+      ctx.quadraticCurveTo(ctrlX + 0.6, cy, screenX + 1.0, botY);
+      ctx.stroke();
+
+      ctx.lineWidth   = lineW;
+      ctx.strokeStyle = 'rgba(190, 60, 90, ' + (0.85 + squeeze * 0.10) + ')';
       ctx.beginPath();
       ctx.moveTo(screenX, ceilingY);
       ctx.quadraticCurveTo(ctrlX, cy, screenX, botY);
       ctx.stroke();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(70, 50, 38, 0.55)';
+
+      ctx.lineWidth   = Math.max(1.0, lineW * 0.35);
+      ctx.strokeStyle = 'rgba(255, 200, 220, ' + (0.55 + squeeze * 0.30) + ')';
       ctx.beginPath();
-      ctx.moveTo(screenX + curveDir * 0.8, ceilingY);
-      ctx.quadraticCurveTo(ctrlX + curveDir * 0.4, cy,
-                            screenX + curveDir * 0.8, botY);
+      ctx.moveTo(screenX - 1.4, ceilingY);
+      ctx.quadraticCurveTo(ctrlX - 1.0, cy, screenX - 1.4, botY);
       ctx.stroke();
-      ctx.lineWidth = 1.2;
-      ctx.strokeStyle = 'rgba(255, 248, 232, 0.85)';
-      ctx.beginPath();
-      ctx.moveTo(screenX - curveDir * 1.2, ceilingY);
-      ctx.quadraticCurveTo(ctrlX - curveDir * 0.7, cy,
-                            screenX - curveDir * 1.2, botY);
-      ctx.stroke();
-      for (const ny of [ceilingY + 1, botY - 1]) {
-        ctx.fillStyle = 'rgba(60, 30, 18, 0.45)';
-        ctx.beginPath(); ctx.arc(screenX + 0.8, ny + 0.8, 3.2, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = 'rgba(245, 226, 212, 0.95)';
-        ctx.beginPath(); ctx.arc(screenX, ny, 3.4, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = 'rgba(255, 250, 240, 0.85)';
-        ctx.beginPath(); ctx.arc(screenX - 1, ny - 1, 1.2, 0, Math.PI * 2); ctx.fill();
-      }
-      ribDrawIdx++;
+
+      ringIdx++;
     }
     ctx.lineCap = 'butt';
+    ctx.restore();
 
-    // ---- 4. RAMP GLOW TRIM ------------------------------------
-    // Magenta glow line follows the ramp ceiling; cyan glow line
-    // follows the ramp floor. Frames the corridor opening like
-    // landing-strip lights stitching the ramps to the body.
+    // ---- 4. CEILING MUCOUS DRIPS (occasional, body only) -------
+    ctx.save();
+    const dripStep = 70;
+    let dIdx = 0;
+    for (let bx = bodyStart + 18; bx < bodyEnd - 4; bx += dripStep) {
+      const screenX = bx - dailyScrollX;
+      if (screenX < -10 || screenX > W + 10) { dIdx++; continue; }
+      const L = tunnelLayoutAt(bx);
+      if (!L) { dIdx++; continue; }
+      const sway = Math.sin(frame * 0.05 + dIdx) * 0.6;
+      const dropY = L.ceiling + 5 + Math.sin(frame * 0.08 + dIdx * 1.7) * 0.6;
+      ctx.fillStyle = 'rgba(220, 140, 170, 0.85)';
+      ctx.beginPath();
+      ctx.moveTo(screenX + sway, L.ceiling);
+      ctx.lineTo(screenX + sway - 1.3, dropY - 1.3);
+      ctx.lineTo(screenX + sway + 1.3, dropY - 1.3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(screenX + sway, dropY, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 230, 240, 0.85)';
+      ctx.beginPath();
+      ctx.arc(screenX + sway - 0.5, dropY - 0.5, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      dIdx++;
+    }
+    ctx.restore();
+
+    // ---- 5. RAMP GLOW TRIM (kept for level cohesion) ----------
     const drawRampTrim = (wxFrom, wxTo) => {
       const samples = [];
       const sampleStep = 4;
       for (let bx = wxFrom; bx <= wxTo; bx += sampleStep) {
         const L = tunnelLayoutAt(bx);
         if (!L) continue;
-        samples.push({
-          sx: bx - dailyScrollX,
-          ceiling: L.ceiling,
-          floor: L.floor,
-        });
+        samples.push({ sx: bx - dailyScrollX, ceiling: L.ceiling, floor: L.floor });
       }
       if (samples.length < 2) return;
-      // Ceiling trim — magenta
       ctx.shadowBlur = 8;
       ctx.shadowColor = 'rgba(255, 130, 200, 0.95)';
       ctx.strokeStyle = 'rgba(255, 180, 220, ' + (0.70 + beat * 0.20) + ')';
       ctx.lineWidth = 2.0;
       ctx.beginPath();
       ctx.moveTo(samples[0].sx, samples[0].ceiling);
-      for (let i = 1; i < samples.length; i++) {
-        ctx.lineTo(samples[i].sx, samples[i].ceiling);
-      }
+      for (let i = 1; i < samples.length; i++) ctx.lineTo(samples[i].sx, samples[i].ceiling);
       ctx.stroke();
-      // Floor trim — cyan-green
       ctx.shadowColor = 'rgba(140, 255, 220, 0.95)';
       ctx.strokeStyle = 'rgba(180, 255, 220, ' + (0.70 + beat * 0.20) + ')';
       ctx.beginPath();
       ctx.moveTo(samples[0].sx, samples[0].floor);
-      for (let i = 1; i < samples.length; i++) {
-        ctx.lineTo(samples[i].sx, samples[i].floor);
-      }
+      for (let i = 1; i < samples.length; i++) ctx.lineTo(samples[i].sx, samples[i].floor);
       ctx.stroke();
       ctx.shadowBlur = 0;
     };
     drawRampTrim(wxStart, bodyStart);
     drawRampTrim(bodyEnd, wxEnd);
 
-    // ---- 5. SOFT FLOOR GLOW ------------------------------------
-    // Gradient fading up into the cavity, body only — the ramps get
-    // their glow from the cyan ramp-trim line so this strip doesn't
-    // need to extend through them.
+    // ---- 6. SOFT FLOOR GLOW (recolored pink to match the wash) -
     const floorGrad = ctx.createLinearGradient(0, fY - 10, 0, fY);
-    floorGrad.addColorStop(0,    'rgba(140, 255, 220, 0)');
-    floorGrad.addColorStop(0.6,  'rgba(140, 255, 220, ' + (0.18 + beat * 0.10) + ')');
-    floorGrad.addColorStop(1,    'rgba(200, 255, 230, ' + (0.55 + beat * 0.18) + ')');
+    floorGrad.addColorStop(0,   'rgba(255, 140, 180, 0)');
+    floorGrad.addColorStop(0.6, 'rgba(255, 140, 180, ' + (0.18 + beat * 0.10) + ')');
+    floorGrad.addColorStop(1,   'rgba(255, 200, 220, ' + (0.55 + beat * 0.18) + ')');
     ctx.fillStyle = floorGrad;
     ctx.fillRect(bodyStart - dailyScrollX, fY - 10,
                  (bodyEnd - bodyStart), 10);
 
-    // ---- 6. BLEEDING PORTAL HALOS ------------------------------
-    // Bigger soft halo that bleeds BOTH ways from the body openings —
-    // into the corridor AND outward into the surrounding cavity, so
-    // the tunnel doesn't read as a sealed pocket.
+    // ---- 7. SPHINCTER PORTAL HALOS at body openings ------------
+    // Concentric muscle rings around each entrance read as the ring of
+    // muscle around an aperture, replacing the old single bright ring.
     for (const wxOpen of [bodyStart, bodyEnd]) {
       const screenX = wxOpen - dailyScrollX;
       if (screenX < -60 || screenX > W + 60) continue;
-      const ceilingY = terrainHeightAt(wxOpen) + TUNNEL_CEILING_OFFSET;
-      const cy = (ceilingY + fY - 4) / 2;
-      const ry = (fY - ceilingY) * 0.60;
-      // Outer wide diffuse halo
-      ctx.shadowBlur = 28;
-      ctx.shadowColor = 'rgba(255, 130, 200, 0.95)';
-      ctx.fillStyle = 'rgba(255, 130, 200, ' + (0.32 + beat * 0.18) + ')';
+      const L = tunnelLayoutAt(wxOpen);
+      if (!L) continue;
+      const cy = (L.ceiling + L.floor) / 2;
+      const ry = (L.floor - L.ceiling) * 0.55;
+      ctx.shadowBlur = 24;
+      ctx.shadowColor = 'rgba(255, 100, 160, 0.95)';
+      ctx.fillStyle = 'rgba(255, 100, 160, ' + (0.32 + beat * 0.18) + ')';
       ctx.beginPath();
-      ctx.ellipse(screenX, cy, 14, ry, 0, 0, Math.PI * 2);
+      ctx.ellipse(screenX, cy, 12, ry, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
-      // Bright inner ring at the rim
-      ctx.strokeStyle = 'rgba(255, 200, 230, ' + (0.85 + beat * 0.15) + ')';
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.ellipse(screenX, cy, 5, ry * 0.92, 0, 0, Math.PI * 2);
-      ctx.stroke();
+      for (let k = 0; k < 3; k++) {
+        const kr = ry * (0.95 - k * 0.25);
+        const alpha = 0.55 + k * 0.15 + beat * 0.10;
+        ctx.strokeStyle = 'rgba(255, ' + (140 + k * 30) + ', ' +
+                          (190 + k * 20) + ', ' + alpha + ')';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.ellipse(screenX, cy, 4 + k * 1.2, kr, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
   }
 
