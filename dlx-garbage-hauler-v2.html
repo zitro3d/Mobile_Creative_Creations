@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v322';
+const DLX_BUILD = 'v323';
 
 (function() {
   // ---------- Device detection ----------
@@ -6876,6 +6876,53 @@ const DLX_BUILD = 'v322';
     ctx.restore();
   }
 
+  // Code Black mission-frame overlay — drawn on top of the entire
+  // playfield at the start of an organic-theme run for ~3 seconds.
+  // Three lines: DLX FIELD OPS / // CODE BLACK // / DELIVERING TO THE
+  // HEART. Fade in (~0.5s) → hold (~2s) → fade out (~0.5s). Decrements
+  // codeBlackOverlayFrames each call so it self-terminates.
+  function drawCodeBlackOverlay() {
+    if (codeBlackOverlayFrames <= 0) return;
+    const total = 180;
+    const t = codeBlackOverlayFrames / total;            // 1 → 0
+    let alpha;
+    if (t > 0.85)      alpha = (1 - t) / 0.15;            // fade in
+    else if (t > 0.15) alpha = 1.0;                       // hold
+    else               alpha = t / 0.15;                  // fade out
+    alpha = Math.max(0, Math.min(1, alpha));
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    // Soft dark scrim across the playfield to lift the type forward
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.40)';
+    ctx.fillRect(0, 0, W, PLAY_H);
+    // ---- Line 1: DLX FIELD OPS (yellow, big, hot)
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'rgba(255, 80, 40, 0.95)';
+    ctx.fillStyle = '#ffd83d';
+    ctx.font = 'bold 22px Impact, "Arial Black", sans-serif';
+    ctx.fillText('DLX FIELD OPS', W / 2, PLAY_H / 2 - 26);
+    // ---- Line 2: // CODE BLACK //  (red, mid)
+    ctx.shadowColor = 'rgba(255, 60, 60, 0.95)';
+    ctx.fillStyle = '#ff4060';
+    ctx.font = 'bold 14px Impact, sans-serif';
+    ctx.fillText('// CODE BLACK //', W / 2, PLAY_H / 2 + 2);
+    // ---- Line 3: DELIVERING TO THE HEART (cyan, small)
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = 'rgba(140, 255, 220, 0.95)';
+    ctx.fillStyle = 'rgba(180, 255, 230, 0.95)';
+    ctx.font = 'bold 11px Impact, sans-serif';
+    ctx.fillText('DELIVERING TO THE HEART', W / 2, PLAY_H / 2 + 24);
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+    ctx.restore();
+
+    codeBlackOverlayFrames--;
+  }
+
   // Static nebula cloud in the far background
   function initNebula() {
     nebula = {
@@ -7235,13 +7282,19 @@ const DLX_BUILD = 'v322';
       // GHOST perk: Lift Assist scales gravity (0.85× = 15 % less drag
       // per frame, makes the rig feel lighter / easier to keep aloft).
       const liftMult = rigPerk('liftAssist') || 1.0;
-      bird.vy = Math.min(bird.vy + GRAVITY * liftMult, MAX_FALL);
+      // Per-level buoyancy — Leviathan's cavity is partially buoyant
+      // (gravityMultiplier 0.65) so the rig drifts up between flaps.
+      // Sunset uses 1.0 = no change.
+      const buoyMult = (isDaily && currentDeliveryLevel
+                          && currentDeliveryLevel.gravityMultiplier)
+                       ? currentDeliveryLevel.gravityMultiplier
+                       : 1.0;
+      bird.vy = Math.min(bird.vy + GRAVITY * liftMult * buoyMult, MAX_FALL);
 
       // Leviathan heartbeat ambient field — when the active level has
-      // ambientField === 'pulse', the body's heartbeat gives a subtle
-      // upward nudge at each beat peak. Visual pulse already plays in
-      // drawDailySky; this hook lets the player FEEL the body breathing
-      // under them. Same beat envelope as the visual pulse.
+      // ambientField === 'pulse', the body's heartbeat gives an upward
+      // shove at each beat peak. v323 bumped from -0.20 to -0.50 so
+      // the player actually FEELS the body breathing under them.
       if (isDaily && currentDeliveryLevel
           && currentDeliveryLevel.ambientField === 'pulse') {
         const _hbP = currentDeliveryLevel.pulsePeriodFrames || 210;
@@ -7250,7 +7303,7 @@ const DLX_BUILD = 'v322';
           0,
           Math.sin(Math.PI * Math.min(1, _hbT * 5.0)) * (1 - _hbT * 0.6)
         );
-        bird.vy -= _hbBeat * 0.20;
+        bird.vy -= _hbBeat * 0.50;
       }
 
       // ---- DAILY TUNNEL AUTO-STABILIZE ----
@@ -21013,6 +21066,10 @@ const DLX_BUILD = 'v322';
     drawModifierHud();
     drawLevelBanner();
     drawFlash();
+    // Code Black mission overlay (top of stack — drawn over everything
+    // including the level banner). Self-decrements; fires only at the
+    // start of organic-theme runs.
+    if (isDaily) drawCodeBlackOverlay();
     ctx.restore();
   }
   function drawFog() {
@@ -21444,6 +21501,11 @@ const DLX_BUILD = 'v322';
     currentDeliveryLevel = (lvlParam && DELIVERY_LEVELS[lvlParam]) || DELIVERY_LEVELS.sunsetWastes;
     bgCache.dailySkyGrad = null;
     bgCache.dailyEarthGrad = null;
+    // Mission-frame overlay for organic-theme levels — shows for ~3s
+    // at the start so the player understands the fiction. Sunset
+    // launches without an overlay (the world frame already tells the
+    // wasteland story).
+    codeBlackOverlayFrames = (currentDeliveryLevel.obstacleTheme === 'organic') ? 180 : 0;
     initDailyDust();           // fresh atmospheric dust each daily run
     // Daily delivery course is always the wasteland highway — sunset palette
     // regardless of which day of the week it is, so the backdrop matches
@@ -21802,6 +21864,10 @@ const DLX_BUILD = 'v322';
       pulseTintColor: null,
       pulseTintAmp: 0,
       pulsePeriodFrames: 0,
+      // Per-frame gravity multiplier — 1.0 = normal flap-and-fall.
+      // Lower values give the rig a buoyant drift (the cavity feels
+      // alive and lifts you slightly between flaps).
+      gravityMultiplier: 1.0,
       dispatchLabel: 'DLX DISPATCH CENTER',
       dockLabel: 'GOOD BUDDY TRUCK STOP',
       // "Today's haul" flavor — wasteland mundane delivery items. Daily
@@ -21857,6 +21923,11 @@ const DLX_BUILD = 'v322';
       pulseTintColor: 'rgba(255, 70, 150, 0.22)',
       pulseTintAmp: 1.0,
       pulsePeriodFrames: 210,               // ~3.5s at 60fps
+      // Buoyant cavity — the rig drifts a bit between flaps because
+      // the body around it is acting as a partial-gravity environment.
+      // The signature mechanical hook that makes Leviathan feel
+      // different from Sunset.
+      gravityMultiplier: 0.65,
       dispatchLabel: 'PARASITOLOGY OUTPOST',
       dockLabel: 'CARDIAC CHAMBER',
       // Body-themed cargo flavor — replaces the wasteland junk list
@@ -21963,6 +22034,10 @@ const DLX_BUILD = 'v322';
   // begins to scroll.
   let dailyAwaitingLaunch = false; // true = parked, waiting for tap
   let dailyIntroFrames = 0;        // counts down during the launch animation
+  // Code Black mission overlay — shown briefly at the start of the run
+  // for organic-theme levels to frame the fiction. Counts down each
+  // frame; drawn on top of everything until it hits 0.
+  let codeBlackOverlayFrames = 0;
   let dailyIntroStartX = 0;
   let dailyIntroTargetX = 0;
   let dailyIntroStartY = 0;        // runway altitude (where the rig starts)
