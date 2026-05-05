@@ -59,9 +59,9 @@
     <canvas id="c"></canvas>
     <div id="hud">
       <div id="title">CARGO DRIFT — CANYON ANCHOR</div>
-      <div id="info">Ship 2 · pickup &amp; deliver</div>
+      <div id="info">Ship 3 · bandit &amp; EMP</div>
     </div>
-    <div id="help">Tap to fly. Collect 3 BLUE CELLS, drop them at the ANCHOR.</div>
+    <div id="help">Bandit hijacks cells. Grab the PURPLE GEM to stun &amp; recover.</div>
   </div>
 
 <script>
@@ -160,6 +160,41 @@
     // Delivery zone (looser than the body so docking isn't pixel-perfect)
     zone: { x: 268, y: H - 36 - 70 - 60, w: 64, h: 60 },
   };
+
+  // ---- BANDIT — flying skull-bat that hijacks cells off the rig.
+  // Cruises across the top of the chamber once the player has cargo;
+  // dives when the rig's x lines up; on contact it steals one cell and
+  // returns to its base. Picking up the purple Retrieval Gem fires an
+  // EMP that stuns the bandit and drops the stolen cell at its base
+  // for the player to recover.
+  const BANDIT_BASE_X     = 180;          // top-middle, between pillars
+  const BANDIT_BASE_Y     = 60;
+  const BANDIT_CRUISE_VX  = 1.6;
+  const BANDIT_DIVE_SPD   = 4.5;
+  const HIJACK_R          = 18;            // collision radius for hijack
+  const STUN_FRAMES       = 180;           // 3 sec stun on EMP
+  const bandit = {
+    x: BANDIT_BASE_X, y: BANDIT_BASE_Y,
+    vx: BANDIT_CRUISE_VX, vy: 0,
+    state: 'idle',   // idle | cruise | dive | celebrate | retreat | stunned
+    stateFrames: 0,
+    stolen: 0,        // cells the bandit currently holds
+    spinAngle: 0,     // for the celebration spin
+    active: false,    // true once the player has held a cell
+  };
+
+  // Purple Retrieval Gem — spawns ONCE per hijack at a fixed reachable
+  // spot (chosen so the player's natural rising arc passes near it).
+  // Pickup fires the EMP; the gem then despawns until the next hijack.
+  const PURPLE_GEM_SPOT = { x: 110, y: 200 };
+  let purpleGem = null;     // { x, y, bobPhase } when present, else null
+
+  // Cells dropped at the bandit's base after an EMP. Player picks
+  // these up to restore held-cell count.
+  const droppedCells = [];  // { x, y, bobPhase }
+
+  // ---- EMP visual — a brief expanding ring on stun
+  let empPulseAt = -999;
 
   // ---- Ship state
   const startX = 60;
@@ -281,6 +316,146 @@
           stabilized = true;
           stabilizedAt = frame;
         }
+      }
+    }
+
+    // ---- BANDIT AI -------------------------------------------------
+    // Activate the bandit the first time the player picks up a cell.
+    if (!bandit.active && heldCells > 0) {
+      bandit.active = true;
+      bandit.state = 'cruise';
+      bandit.stateFrames = 0;
+      bandit.x = BANDIT_BASE_X;
+      bandit.y = BANDIT_BASE_Y;
+      bandit.vx = BANDIT_CRUISE_VX;
+    }
+
+    if (bandit.active) {
+      bandit.stateFrames++;
+
+      if (bandit.state === 'cruise') {
+        // Sweep horizontally between the two pillars at altitude ~60.
+        bandit.x += bandit.vx;
+        // Patrol band: x from 150 (just right of floor pillar) to 210
+        // (just left of hanging pillar). Stays in the open-top corridor.
+        if (bandit.x < 150 || bandit.x > 210) {
+          bandit.vx *= -1;
+          bandit.x += bandit.vx;
+        }
+        bandit.y = BANDIT_BASE_Y + Math.sin(frame * 0.06) * 6;
+        // Dive trigger: player has cells AND is below the bandit AND
+        // their x is roughly aligned. Re-arm dive 60 frames after any
+        // state change to give the player breathing room.
+        if (heldCells > 0
+            && bandit.stateFrames > 60
+            && ship.y > bandit.y + 80
+            && Math.abs(ship.x - bandit.x) < 60) {
+          bandit.state = 'dive';
+          bandit.stateFrames = 0;
+        }
+
+      } else if (bandit.state === 'dive') {
+        // Track the player's CURRENT position each frame — making it
+        // a real threat the player has to dodge by changing altitude
+        // mid-tap.
+        const dx = ship.x - bandit.x;
+        const dy = ship.y - bandit.y;
+        const len = Math.hypot(dx, dy) || 1;
+        bandit.vx = (dx / len) * BANDIT_DIVE_SPD;
+        bandit.vy = (dy / len) * BANDIT_DIVE_SPD;
+        bandit.x += bandit.vx;
+        bandit.y += bandit.vy;
+
+        // Hijack on contact — but only steal if the player has cells
+        // AND no purple gem is currently spawned (so multiple hijacks
+        // don't pile up on each other while a gem is active).
+        if (heldCells > 0 && purpleGem === null
+            && Math.abs(ship.x - bandit.x) < HIJACK_R
+            && Math.abs(ship.y - bandit.y) < HIJACK_R) {
+          heldCells--;
+          bandit.stolen++;
+          bandit.state = 'celebrate';
+          bandit.stateFrames = 0;
+          bandit.spinAngle = 0;
+          // Spawn the retrieval gem at its fixed spot
+          purpleGem = { x: PURPLE_GEM_SPOT.x, y: PURPLE_GEM_SPOT.y,
+                        bobPhase: 0 };
+        }
+        // Bandit ran off the bottom — abort, retreat
+        if (bandit.y > H - 60 || bandit.stateFrames > 90) {
+          bandit.state = 'retreat';
+          bandit.stateFrames = 0;
+        }
+
+      } else if (bandit.state === 'celebrate') {
+        // Spin in place + drift back toward base
+        bandit.spinAngle += 0.30;
+        bandit.x += (BANDIT_BASE_X - bandit.x) * 0.06;
+        bandit.y += (BANDIT_BASE_Y - bandit.y) * 0.06;
+        if (bandit.stateFrames > 40) {
+          bandit.state = 'cruise';
+          bandit.stateFrames = 0;
+          bandit.vx = BANDIT_CRUISE_VX;
+          bandit.spinAngle = 0;
+        }
+
+      } else if (bandit.state === 'retreat') {
+        bandit.x += (BANDIT_BASE_X - bandit.x) * 0.08;
+        bandit.y += (BANDIT_BASE_Y - bandit.y) * 0.08;
+        if (bandit.stateFrames > 30) {
+          bandit.state = 'cruise';
+          bandit.stateFrames = 0;
+          bandit.vx = BANDIT_CRUISE_VX;
+        }
+
+      } else if (bandit.state === 'stunned') {
+        // Drift toward base while grayed out. On the FIRST stunned
+        // frame, drop every stolen cell at the base for the player
+        // to recover.
+        if (bandit.stateFrames === 1 && bandit.stolen > 0) {
+          for (let i = 0; i < bandit.stolen; i++) {
+            droppedCells.push({
+              x: BANDIT_BASE_X + (i - 0.5) * 14,
+              y: BANDIT_BASE_Y + 18 + i * 3,
+              bobPhase: i * 1.7,
+            });
+          }
+          bandit.stolen = 0;
+        }
+        // Slow gentle drift toward base
+        bandit.x += (BANDIT_BASE_X - bandit.x) * 0.03;
+        bandit.y += (BANDIT_BASE_Y - bandit.y) * 0.03;
+        if (bandit.stateFrames > STUN_FRAMES) {
+          bandit.state = 'cruise';
+          bandit.stateFrames = 0;
+          bandit.vx = BANDIT_CRUISE_VX;
+        }
+      }
+    }
+
+    // ---- Purple gem pickup → EMP fires
+    if (purpleGem) {
+      const dx = ship.x - purpleGem.x;
+      const dy = ship.y - purpleGem.y;
+      const r  = CELL_PICK_R + SHIP_W * 0.4;
+      if (dx * dx + dy * dy < r * r) {
+        purpleGem = null;
+        empPulseAt = frame;
+        // Stun the bandit (overrides whatever it was doing)
+        bandit.state = 'stunned';
+        bandit.stateFrames = 0;
+      }
+    }
+
+    // ---- Dropped-cell pickup
+    for (let i = droppedCells.length - 1; i >= 0; i--) {
+      const dc = droppedCells[i];
+      const dx = ship.x - dc.x;
+      const dy = ship.y - dc.y;
+      const r  = CELL_PICK_R + SHIP_W * 0.4;
+      if (dx * dx + dy * dy < r * r) {
+        heldCells++;
+        droppedCells.splice(i, 1);
       }
     }
   }
@@ -444,6 +619,184 @@
     ctx.fillRect(o.x - 4, o.y + o.h - 4, o.w + 8, 4);
   }
 
+  function drawBandit() {
+    if (!bandit.active) return;
+    ctx.save();
+    ctx.translate(Math.round(bandit.x), Math.round(bandit.y));
+    if (bandit.state === 'celebrate') ctx.rotate(bandit.spinAngle);
+    const stunned = bandit.state === 'stunned';
+    const carryingPurple = bandit.state === 'celebrate';
+    // Wings — angular bat wings flapping each frame
+    const flap = Math.sin(frame * 0.30) * 0.4;
+    const wingTipY = -2 + flap * 6;
+    const wingColor = stunned ? '#5a5a64' : '#1a1014';
+    ctx.fillStyle = wingColor;
+    // Left wing
+    ctx.beginPath();
+    ctx.moveTo(-4, -2);
+    ctx.lineTo(-14, wingTipY - 2);
+    ctx.lineTo(-12, wingTipY + 4);
+    ctx.lineTo(-8, 0);
+    ctx.closePath();
+    ctx.fill();
+    // Right wing (mirror)
+    ctx.beginPath();
+    ctx.moveTo(4, -2);
+    ctx.lineTo(14, wingTipY - 2);
+    ctx.lineTo(12, wingTipY + 4);
+    ctx.lineTo(8, 0);
+    ctx.closePath();
+    ctx.fill();
+    // Skull body — rounded oval
+    ctx.fillStyle = stunned ? '#7a7a86' : (carryingPurple ? '#6a3088' : '#e8e4d8');
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 10, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Skull shadow / underside
+    ctx.fillStyle = stunned ? '#4a4a54' : (carryingPurple ? '#3a1850' : '#a89c84');
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 8, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Eye sockets — glowing red normally; gray when stunned
+    const eyeColor = stunned ? '#3a3a44' : '#ff3030';
+    const eyeGlow  = stunned ? 'rgba(80, 80, 90, 0.5)' : 'rgba(255, 60, 40, 0.95)';
+    ctx.shadowBlur = stunned ? 0 : 5;
+    ctx.shadowColor = eyeGlow;
+    ctx.fillStyle = eyeColor;
+    ctx.beginPath();
+    ctx.arc(-3.4, -1.8, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc( 3.4, -1.8, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Tooth row — small white squares along the lower jaw
+    ctx.fillStyle = stunned ? '#9a9aa4' : '#f4ecd8';
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(-3.6 + i * 2, 4.5, 1.4, 1.6);
+    }
+    // Stunned electric arcs — random crackles
+    if (stunned) {
+      ctx.strokeStyle = 'rgba(180, 220, 255, 0.85)';
+      ctx.lineWidth = 0.8;
+      for (let i = 0; i < 3; i++) {
+        const a = (frame * 0.3 + i * 2.0) % (Math.PI * 2);
+        const r1 = 11 + Math.sin(frame * 0.4 + i) * 2;
+        const r2 = r1 + 4;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+        ctx.lineTo(Math.cos(a + 0.4) * r2, Math.sin(a + 0.4) * r2);
+        ctx.stroke();
+      }
+    }
+    // Carrying-cell indicator — tiny blue dot orbiting bandit's head
+    if (bandit.stolen > 0 && !stunned) {
+      const ang = frame * 0.15;
+      const ox = Math.cos(ang) * 12;
+      const oy = Math.sin(ang) * 6 - 6;
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(80, 200, 255, 0.95)';
+      ctx.fillStyle = '#3ad0ff';
+      ctx.beginPath();
+      ctx.arc(ox, oy, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+  }
+
+  function drawPurpleGem() {
+    if (!purpleGem) return;
+    const bobY = Math.sin(frame * 0.10) * 3;
+    const cx = Math.round(purpleGem.x);
+    const cy = Math.round(purpleGem.y + bobY);
+    const pulse = 0.5 + 0.5 * Math.sin(frame * 0.18);
+    // Electric halo
+    ctx.shadowBlur = 12 + pulse * 6;
+    ctx.shadowColor = 'rgba(200, 100, 255, 0.95)';
+    ctx.fillStyle = 'rgba(200, 100, 255, ' + (0.45 + pulse * 0.20) + ')';
+    ctx.beginPath();
+    ctx.arc(cx, cy, CELL_R + 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Diamond body — violet
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = '#1a0830';
+    ctx.fillRect(-CELL_R - 1, -CELL_R - 1, (CELL_R + 1) * 2, (CELL_R + 1) * 2);
+    ctx.fillStyle = '#b040ff';
+    ctx.fillRect(-CELL_R, -CELL_R, CELL_R * 2, CELL_R * 2);
+    ctx.fillStyle = 'rgba(255, 200, 255, 0.85)';
+    ctx.fillRect(-CELL_R, -CELL_R, CELL_R * 2, 2);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(-2, -2, 2, 2);
+    ctx.restore();
+    // Crackling electric arcs around the gem
+    ctx.strokeStyle = 'rgba(220, 180, 255, ' + (0.6 + pulse * 0.4) + ')';
+    ctx.lineWidth = 0.7;
+    for (let i = 0; i < 3; i++) {
+      const a0 = frame * 0.10 + i * (Math.PI * 2 / 3);
+      const a1 = a0 + 0.6;
+      const r0 = CELL_R + 3;
+      const r1 = CELL_R + 7 + Math.sin(frame * 0.2 + i) * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a0) * r0, cy + Math.sin(a0) * r0);
+      ctx.lineTo(cx + Math.cos(a1) * r1, cy + Math.sin(a1) * r1);
+      ctx.stroke();
+    }
+  }
+
+  function drawDroppedCells() {
+    for (const dc of droppedCells) {
+      const bobY = Math.sin(frame * 0.08 + dc.bobPhase) * 1.5;
+      const cx = Math.round(dc.x);
+      const cy = Math.round(dc.y + bobY);
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.14 + dc.bobPhase);
+      // "Dropped" halo — slightly orange-ish to read as "loose loot"
+      ctx.shadowBlur = 7 + pulse * 3;
+      ctx.shadowColor = 'rgba(255, 200, 100, 0.95)';
+      ctx.fillStyle = 'rgba(255, 200, 100, ' + (0.30 + pulse * 0.15) + ')';
+      ctx.beginPath();
+      ctx.arc(cx, cy, CELL_R + 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Cell itself — same blue diamond as the regular cells
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = '#001830';
+      ctx.fillRect(-CELL_R - 1, -CELL_R - 1, (CELL_R + 1) * 2, (CELL_R + 1) * 2);
+      ctx.fillStyle = '#3ad0ff';
+      ctx.fillRect(-CELL_R, -CELL_R, CELL_R * 2, CELL_R * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.fillRect(-CELL_R, -CELL_R, CELL_R * 2, 2);
+      ctx.restore();
+    }
+  }
+
+  function drawEmpPulse() {
+    const elapsed = frame - empPulseAt;
+    if (elapsed < 0 || elapsed > 30) return;
+    const t = elapsed / 30;
+    const r = 30 + t * 220;
+    const a = (1 - t) * 0.85;
+    ctx.strokeStyle = 'rgba(180, 220, 255, ' + a + ')';
+    ctx.lineWidth = 3 - t * 2;
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = 'rgba(120, 200, 255, 0.95)';
+    ctx.beginPath();
+    ctx.arc(ship.x, ship.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Inner softer ring
+    ctx.strokeStyle = 'rgba(255, 255, 255, ' + (a * 0.7) + ')';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(ship.x, ship.y, r * 0.8, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
   function drawHeldCells() {
     // Held cells orbit the ship as small blue dots — also gives a
     // visual cue that you have cargo.
@@ -587,7 +940,11 @@
     for (const w of walls) drawWall(w);
     drawOutpost();
     for (const c of cells) drawCell(c);
+    drawDroppedCells();
+    drawPurpleGem();
+    drawBandit();
     drawShip();
+    drawEmpPulse();
     drawHeldCells();
     drawHUD();
     drawStabilizedBanner();
