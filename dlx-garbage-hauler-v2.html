@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v342';
+const DLX_BUILD = 'v343';
 
 (function() {
   // ---------- Device detection ----------
@@ -7760,61 +7760,6 @@ const DLX_BUILD = 'v342';
           lb.life++;
           if (lb.x < -60 || lb.y > PLAY_H + 30) dailyLavaBalls.splice(i, 1);
         }
-
-        // ---- ACID DRIPS — heartbeat-synced hazard (Leviathan only).
-        // Each drip telegraphs for 60 frames as a swelling green
-        // droplet on the cavity ceiling, then releases exactly on the
-        // next heartbeat peak and falls vertically. Direct kill on
-        // contact (force-field bubble immune via the same passThrough
-        // gate as lava balls).
-        if (currentDeliveryLevel.obstacleSet
-            && currentDeliveryLevel.obstacleSet.acidDrips
-            && !dailyDelivered
-            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
-          const dripPeriod = currentDeliveryLevel.pulsePeriodFrames || 210;
-          const formingTotal = 60;
-          if (dailyNextAcidDripAt < 0) {
-            // Align: first spawn fires (period - formingTotal) before
-            // the next heartbeat peak so the drop releases on-beat.
-            const nextPeak = (Math.floor(frame / dripPeriod) + 1) * dripPeriod;
-            dailyNextAcidDripAt = nextPeak - formingTotal;
-          }
-          if (frame >= dailyNextAcidDripAt) {
-            // Spawn far enough ahead that scroll + fall time leave the
-            // drip in the rig's vertical play range when it lands.
-            const wx = bird.x + dailyScrollX + 220 + Math.random() * 160;
-            dailyAcidDrips.push({
-              worldX: wx,
-              yCeiling: 28,
-              y: 28,
-              vy: 0,
-              stage: 'forming',
-              formingFrames: 0,
-              formingTotal: formingTotal,
-              r: 0,
-              alive: true,
-            });
-            dailyNextAcidDripAt += dripPeriod;
-          }
-        }
-        for (let i = dailyAcidDrips.length - 1; i >= 0; i--) {
-          const d = dailyAcidDrips[i];
-          if (d.stage === 'forming') {
-            d.formingFrames++;
-            d.r = (d.formingFrames / d.formingTotal) * 6;
-            if (d.formingFrames >= d.formingTotal) {
-              d.stage = 'falling';
-              d.vy = 0.4;
-              d.r = 6;
-            }
-          } else {
-            d.vy += 0.40;
-            d.y += d.vy;
-            if (d.y > PLAY_H - 4) d.alive = false;
-          }
-          const sx = d.worldX - dailyScrollX;
-          if (sx < -40 || !d.alive) dailyAcidDrips.splice(i, 1);
-        }
         // (Conveyor-belt sand-patch spawn disabled per user — the
         // graphic was visual noise the game didn't need. Render +
         // cargo-drift logic stay in place but no patches ever spawn.)
@@ -8857,18 +8802,6 @@ const DLX_BUILD = 'v342';
               playSound('forceField');
               return false;
             }
-            return true;
-          }
-        }
-        // Acid drips — only the falling stage kills (the telegraph
-        // droplet on the ceiling is harmless until it releases).
-        for (const d of dailyAcidDrips) {
-          if (d.stage !== 'falling') continue;
-          const sx = d.worldX - dailyScrollX;
-          const dx = bird.x - sx;
-          const dy = bird.y - d.y;
-          const reach = r + d.r - 1;
-          if (dx * dx + dy * dy < reach * reach) {
             return true;
           }
         }
@@ -16358,165 +16291,6 @@ const DLX_BUILD = 'v342';
     ctx.restore();
   }
 
-  // Beat-synced acid drips (Leviathan only).
-  //   - forming: toxic yellow droplet hangs from the cavity ceiling,
-  //     swelling for ~60 frames. A pulsing red impact-zone reticle on
-  //     the floor + a translucent red danger-column running floor-to-
-  //     ceiling at the drop's worldX tell the player exactly where it
-  //     will fall. Reads as "incoming AOE — get out of this column."
-  //   - falling: drop releases on the heartbeat peak and falls
-  //     vertically. Toxic-yellow body with a dark red sizzling core
-  //     and black bubble particles. Direct kill on contact.
-  function drawDailyAcidDrips() {
-    if (!isDaily || !dailyAcidDrips.length) return;
-    const groundY = PLAY_H - 8;
-    for (const d of dailyAcidDrips) {
-      const sx = d.worldX - dailyScrollX;
-      if (sx < -50 || sx > W + 50) continue;
-      const sxR = Math.round(sx);
-      const t = Math.min(1, d.formingFrames / d.formingTotal);
-      const beatPulse = 0.5 + 0.5 * Math.sin(frame * 0.22);
-      // ---- DANGER COLUMN — translucent red stripe from ceiling to
-      // floor, brightening as the beat approaches. Visible during BOTH
-      // stages so the path stays readable while the drop falls.
-      const colAlpha = (d.stage === 'forming')
-        ? (0.10 + t * 0.32)
-        : 0.32;
-      ctx.fillStyle = 'rgba(255, 60, 50, ' + colAlpha + ')';
-      ctx.fillRect(sxR - 2, d.yCeiling, 4, groundY - d.yCeiling);
-      // Brighter inner hairline
-      ctx.fillStyle = 'rgba(255, 200, 80, ' + (colAlpha + 0.15) + ')';
-      ctx.fillRect(sxR - 0.5, d.yCeiling, 1, groundY - d.yCeiling);
-      // ---- IMPACT-ZONE RETICLE on the floor — pulsing red bullseye
-      // shows where the drop lands. AOE-telegraph language.
-      ctx.save();
-      ctx.translate(sxR, groundY);
-      ctx.shadowBlur = 8 + beatPulse * 6;
-      ctx.shadowColor = 'rgba(255, 60, 50, 0.95)';
-      ctx.strokeStyle = 'rgba(255, 80, 60, ' + (0.75 + beatPulse * 0.25) + ')';
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 8, 3, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(255, 220, 80, ' + (0.6 + beatPulse * 0.3) + ')';
-      ctx.lineWidth = 1.0;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 4, 1.4, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      // Crosshair
-      ctx.strokeStyle = 'rgba(255, 240, 100, ' + (0.7 + beatPulse * 0.3) + ')';
-      ctx.lineWidth = 0.8;
-      ctx.beginPath();
-      ctx.moveTo(-9, 0); ctx.lineTo(-3, 0);
-      ctx.moveTo( 3, 0); ctx.lineTo( 9, 0);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      ctx.restore();
-
-      // ---- THE DRIP ITSELF
-      ctx.save();
-      if (d.stage === 'forming') {
-        const swell = 0.6 + 0.4 * Math.sin(t * Math.PI * 4);
-        ctx.translate(sxR, d.yCeiling);
-        // Toxic yellow-green halo
-        const haloR = 9 + d.r * 1.6;
-        ctx.shadowBlur = 12 + t * 12;
-        ctx.shadowColor = 'rgba(220, 220, 50, 0.95)';
-        ctx.fillStyle = 'rgba(220, 220, 50, ' + (0.22 + t * 0.40) + ')';
-        ctx.beginPath();
-        ctx.arc(0, d.r * 0.5, haloR, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        // Stalactite stem
-        ctx.fillStyle = 'rgba(150, 130, 30, 0.95)';
-        ctx.fillRect(-1.2, -10, 2.4, 12 + d.r);
-        // Droplet body — sickly yellow
-        const dropR = d.r * swell;
-        ctx.fillStyle = 'rgba(220, 210, 60, 0.95)';
-        ctx.beginPath();
-        ctx.arc(0, d.r, dropR, 0, Math.PI * 2);
-        ctx.fill();
-        // Dark oxblood corrosive core
-        ctx.fillStyle = 'rgba(120, 25, 15, 0.92)';
-        ctx.beginPath();
-        ctx.arc(0, d.r, dropR * 0.55, 0, Math.PI * 2);
-        ctx.fill();
-        // Pale yellow specular dot
-        ctx.fillStyle = 'rgba(255, 250, 180, 0.85)';
-        ctx.beginPath();
-        ctx.arc(-dropR * 0.35, d.r - dropR * 0.35,
-                Math.max(0.6, dropR * 0.22), 0, Math.PI * 2);
-        ctx.fill();
-        // Outline
-        ctx.strokeStyle = 'rgba(40, 30, 8, 0.95)';
-        ctx.lineWidth = 0.7;
-        ctx.beginPath();
-        ctx.arc(0, d.r, dropR, 0, Math.PI * 2);
-        ctx.stroke();
-        // Sizzle bubbles popping around the drop
-        for (let b = 0; b < 3; b++) {
-          const ph = (frame * 0.12 + b * 1.7 + d.formingFrames * 0.05) % 1;
-          if (ph < 0.6) {
-            const ang = b * 2.1 + d.formingFrames * 0.03;
-            const rr = dropR + 2 + ph * 4;
-            const bx = Math.cos(ang) * rr;
-            const by = d.r + Math.sin(ang) * rr * 0.6;
-            ctx.fillStyle = 'rgba(20, 8, 4, ' + (0.6 - ph * 0.6) + ')';
-            ctx.beginPath();
-            ctx.arc(bx, by, 0.9, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      } else {
-        ctx.translate(sxR, Math.round(d.y));
-        // Tapered yellow trail
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = 'rgba(220, 200, 50, 0.55)';
-        ctx.lineWidth = 4.0;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(0, -18);
-        ctx.stroke();
-        ctx.strokeStyle = 'rgba(255, 240, 130, 0.85)';
-        ctx.lineWidth = 1.6;
-        ctx.beginPath();
-        ctx.moveTo(0, -2);
-        ctx.lineTo(0, -16);
-        ctx.stroke();
-        ctx.lineCap = 'butt';
-        // Toxic yellow teardrop body
-        ctx.shadowBlur = 12;
-        ctx.shadowColor = 'rgba(220, 220, 50, 0.95)';
-        ctx.fillStyle = 'rgba(220, 210, 60, 0.95)';
-        ctx.beginPath();
-        ctx.ellipse(0, 0, d.r * 0.85, d.r * 1.35, 0, 0, Math.PI * 2);
-        ctx.fill();
-        // Dark corrosive core
-        ctx.fillStyle = 'rgba(120, 25, 15, 0.92)';
-        ctx.beginPath();
-        ctx.ellipse(0, -d.r * 0.10, d.r * 0.45, d.r * 0.95, 0, 0, Math.PI * 2);
-        ctx.fill();
-        // Hot center streak
-        ctx.fillStyle = 'rgba(255, 230, 140, 0.85)';
-        ctx.beginPath();
-        ctx.ellipse(0, -d.r * 0.20, d.r * 0.18, d.r * 0.55, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        // Black sizzle bubbles trailing the drop
-        for (let b = 0; b < 4; b++) {
-          const ph = (frame * 0.14 + b * 1.3) % 1;
-          const bx = Math.sin(frame * 0.25 + b) * 2.5;
-          const by = -d.r * 1.2 - ph * 14;
-          ctx.fillStyle = 'rgba(20, 8, 4, ' + (0.7 - ph * 0.7) + ')';
-          ctx.beginPath();
-          ctx.arc(bx, by, 1.0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      ctx.restore();
-    }
-  }
-
   // Organic re-skin of the lava-ball renderer for cavern/body levels.
   // v304 redesigned this as a FLYING JELLYFISH — translucent magenta
   // bell aimed along the velocity vector with 6 long tentacles
@@ -17309,190 +17083,178 @@ const DLX_BUILD = 'v342';
   }
 
   // Mirror parasites — Leviathan-only cargo-theft set piece. Two
-  // fleshy heads (one from the floor, one from the ceiling) emerge
-  // simultaneously and lunge toward each other on a rendezvous line.
-  // Visual cues per phase:
-  //   - telegraph: faint vertical danger column with a pulsing red
-  //     bullseye at the meeting point. Wall-anchor bulges.
-  //   - emerge:    heads break out, jaws closed, glowing red eye.
-  //   - lunge:     heads extend along stretchy magenta tendrils that
-  //                trail back to the wall.
-  //   - meeting:   heads collide at the rendezvous, jaws snap.
-  //   - retract:   heads pull back with cargo locked between them
-  //                (or empty if they missed / were disrupted).
-  //   - consume:   cargo sinks into whichever wall is closer.
+  // giant kraken arms emerge from the cavity walls (one from the
+  // floor, one from the ceiling), undulate through the water/fluid
+  // toward each other, and grasp the cargo BETWEEN them with rows of
+  // suckers at the meeting frame. Cohesive with the existing octopus
+  // tentacles in the level — same creature family, larger scale.
+  //
+  // Each arm is rendered as a multi-segment polyline running from the
+  // wall anchor to the tip. A traveling sine wave perpendicular to the
+  // anchor→tip line gives the swimming undulation; amplitude scales
+  // with t (peaks at the free tip) so the base stays attached to the
+  // wall and the tip whips through the water like a real tentacle.
+  // Suckers march along the inside edge (toward the meeting line) at
+  // alternating sizes; a glowing nodule at the very tip pulses brighter
+  // as the meeting frame approaches and snaps to white when it grasps
+  // the cargo.
   function drawDailyMirrorPairs() {
     if (!isDaily || !dailyMirrorPairs.length) return;
-    const groundY = PLAY_H - 8;
     for (const p of dailyMirrorPairs) {
       const screenX = p.worldX - dailyScrollX;
-      if (screenX < -50 || screenX > W + 50) continue;
+      if (screenX < -60 || screenX > W + 60) continue;
       const sxR = Math.round(screenX);
-      const myR = Math.round(p.meetY);
       const beatPulse = 0.5 + 0.5 * Math.sin(frame * 0.22);
 
-      // ---- Danger column + meeting bullseye (phases telegraph→meeting)
-      if (p.phase === 'telegraph' || p.phase === 'emerge'
-          || p.phase === 'lunge' || p.phase === 'meeting') {
-        const tWindow = (p.phase === 'telegraph')
-          ? Math.min(1, p.phaseFrame / 60)
-          : 1.0;
-        // Vertical danger stripe
-        ctx.fillStyle = 'rgba(255, 60, 50, ' + (0.10 + tWindow * 0.30) + ')';
-        ctx.fillRect(sxR - 2, 28, 4, groundY - 28);
-        ctx.fillStyle = 'rgba(255, 200, 80, ' + (0.20 + tWindow * 0.30) + ')';
-        ctx.fillRect(sxR - 0.5, 28, 1, groundY - 28);
-        // Meeting-point bullseye — pulses with the heartbeat clock
-        ctx.save();
-        ctx.translate(sxR, myR);
-        ctx.shadowBlur = 10 + beatPulse * 8;
-        ctx.shadowColor = 'rgba(255, 60, 50, 0.95)';
-        ctx.strokeStyle = 'rgba(255, 80, 60, ' + (0.75 + beatPulse * 0.25) + ')';
-        ctx.lineWidth = 1.6;
-        ctx.beginPath();
-        ctx.arc(0, 0, 9, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.strokeStyle = 'rgba(255, 220, 80, ' + (0.6 + beatPulse * 0.3) + ')';
-        ctx.lineWidth = 1.0;
-        ctx.beginPath();
-        ctx.arc(0, 0, 4, 0, Math.PI * 2);
-        ctx.stroke();
-        // Crosshair ticks
-        ctx.strokeStyle = 'rgba(255, 240, 100, ' + (0.7 + beatPulse * 0.3) + ')';
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(-12, 0); ctx.lineTo(-6, 0);
-        ctx.moveTo( 6, 0); ctx.lineTo(12, 0);
-        ctx.moveTo(0, -12); ctx.lineTo(0, -6);
-        ctx.moveTo(0,  6);  ctx.lineTo(0, 12);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-        ctx.restore();
-      }
-
-      // ---- Wall-anchor bulges (visible during all active phases)
-      const bulge = (p.phase === 'telegraph')
+      // Telegraph "swell" t — 0..1 over the 60-frame buildup.
+      const telegT = (p.phase === 'telegraph')
         ? Math.min(1, p.phaseFrame / 60)
         : 1.0;
+
+      // Wall-anchor swell: a fleshy bulge at each wall opening before
+      // and during the arm's emergence. Reads as the cavity wall
+      // pushing out before something comes through.
       for (const anchor of [{ y: p.floorAnchor, dir: -1 }, { y: p.ceilAnchor, dir: 1 }]) {
         ctx.save();
         ctx.translate(sxR, anchor.y);
         ctx.shadowBlur = 10;
-        ctx.shadowColor = 'rgba(60, 8, 20, 0.9)';
-        ctx.fillStyle = 'rgba(80, 14, 30, 0.95)';
+        ctx.shadowColor = 'rgba(40, 8, 20, 0.9)';
+        ctx.fillStyle = 'rgba(80, 16, 36, 0.95)';
         ctx.beginPath();
-        ctx.ellipse(0, anchor.dir * 5 * bulge,
-                    14 + bulge * 4, 8 + bulge * 3, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, anchor.dir * 4 * telegT,
+                    14 + telegT * 4, 7 + telegT * 3, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
-        // Glowing crack
-        ctx.strokeStyle = 'rgba(255, 80, 60, ' + (0.4 + bulge * 0.5) + ')';
-        ctx.lineWidth = 1.2;
+        // Soft pink wet rim around the opening
+        ctx.strokeStyle = 'rgba(255, 130, 180, ' + (0.30 + telegT * 0.45) + ')';
+        ctx.lineWidth = 1.0;
         ctx.beginPath();
-        ctx.moveTo(-10 - bulge * 2, anchor.dir * 2);
-        ctx.lineTo( 10 + bulge * 2, anchor.dir * 2);
+        ctx.ellipse(0, anchor.dir * 4 * telegT,
+                    14 + telegT * 4, 7 + telegT * 3, 0, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       }
 
-      // Skip head rendering during the very start of telegraph (still
-      // burrowing; nothing to see yet).
+      // Don't draw the arms themselves until they emerge.
       if (p.phase === 'telegraph' && p.phaseFrame < 35) continue;
 
-      // ---- Stretchy tendrils — connect each head back to its wall
-      const drawTendril = (headY, anchorY) => {
+      const drawArm = (tipY, anchorY, fromFloor) => {
+        // tip points toward meetY, anchor sits at the wall.
+        const N = 14;
+        const span = tipY - anchorY;
+        // Wave amplitude grows toward the tip (free end) and tapers near
+        // the wall (fixed end). Direction reverses each pair so the two
+        // arms curve in opposite S-shapes — looks like they're reaching
+        // around something rather than at it.
+        const ampSign = fromFloor ? 1 : -1;
+        const wavePhase = frame * 0.10 + (fromFloor ? 0 : Math.PI * 0.6);
+        // Pre-compute the polyline so we can stroke + sucker it.
+        const pts = [];
+        for (let i = 0; i <= N; i++) {
+          const t = i / N;
+          const baseY = anchorY + span * t;
+          // Perpendicular offset (horizontal — anchor→tip line is vertical).
+          const amp = 8 * t;
+          const wave = ampSign * amp * Math.sin(wavePhase + t * Math.PI * 1.6);
+          pts.push({ x: sxR + wave, y: baseY, t: t });
+        }
+
+        // Helper to stroke through pts with a given line width + style.
+        const stroke = (lineW, style) => {
+          ctx.lineWidth = lineW;
+          ctx.strokeStyle = style;
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length - 1; i++) {
+            const xc = (pts[i].x + pts[i + 1].x) / 2;
+            const yc = (pts[i].y + pts[i + 1].y) / 2;
+            ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+          }
+          ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+          ctx.stroke();
+        };
+
         ctx.save();
         ctx.lineCap = 'round';
-        ctx.lineWidth = 5.5;
-        ctx.strokeStyle = 'rgba(60, 12, 30, 0.95)';
+        ctx.lineJoin = 'round';
+        // 1) Outer dark silhouette — gives the arm weight against the wash
+        stroke(11, 'rgba(40, 8, 22, 0.95)');
+        // 2) Body — saturated magenta-pink
+        stroke(8, 'rgba(180, 50, 100, 0.96)');
+        // 3) Belly highlight — slightly lighter, drawn with a subtle
+        //    horizontal offset toward the meeting line so it reads as
+        //    a wet sheen on the inside of the arm.
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(255, 130, 170, 0.65)';
         ctx.beginPath();
-        ctx.moveTo(sxR, anchorY);
-        const ctrlX = sxR + Math.sin(frame * 0.08 + headY * 0.05) * 2;
-        ctx.quadraticCurveTo(ctrlX, (headY + anchorY) / 2, sxR, headY);
-        ctx.stroke();
-        ctx.lineWidth = 3.5;
-        ctx.strokeStyle = 'rgba(160, 36, 80, 0.95)';
-        ctx.beginPath();
-        ctx.moveTo(sxR, anchorY);
-        ctx.quadraticCurveTo(ctrlX, (headY + anchorY) / 2, sxR, headY);
-        ctx.stroke();
-        // Spinal bone-ridge dots running along the tendril
-        const segs = 5;
-        for (let s = 1; s < segs; s++) {
-          const tt = s / segs;
-          const py = anchorY + (headY - anchorY) * tt;
-          const px = sxR + (ctrlX - sxR) * (1 - Math.abs(tt - 0.5) * 2);
-          ctx.fillStyle = 'rgba(240, 220, 200, 0.85)';
-          ctx.beginPath();
-          ctx.arc(px, py, 1.3, 0, Math.PI * 2);
-          ctx.fill();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length - 1; i++) {
+          const xc = (pts[i].x + pts[i + 1].x) / 2;
+          const yc = (pts[i].y + pts[i + 1].y) / 2 - ampSign * 1.4;
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y - ampSign * 1.4, xc, yc);
         }
-        ctx.restore();
-      };
-      drawTendril(p.floorY, p.floorAnchor);
-      drawTendril(p.ceilY,  p.ceilAnchor);
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y - ampSign * 1.4);
+        ctx.stroke();
 
-      // ---- Parasite heads
-      const drawHead = (hy, fromTop) => {
-        ctx.save();
-        ctx.translate(sxR, hy);
-        if (!fromTop) ctx.scale(1, -1);   // mirror so both heads "look up at meet"
-        // Halo
-        ctx.shadowBlur = 8;
-        ctx.shadowColor = 'rgba(255, 60, 90, 0.85)';
-        // Body — fleshy magenta with a darker base
-        ctx.fillStyle = 'rgba(180, 50, 90, 0.95)';
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 12, 10, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        // Bone ridge plates along the back/top
-        ctx.fillStyle = 'rgba(240, 220, 200, 0.92)';
-        for (const rx of [-7, -3, 1, 5]) {
+        // 4) Suckers — small light-pink discs along the underside (inner
+        //    edge facing the meeting line). Alternate radii for variety.
+        for (let i = 1; i < pts.length - 1; i += 2) {
+          const cur = pts[i];
+          const prev = pts[i - 1];
+          const next = pts[i + 1];
+          // Tangent vector along the arm
+          const tx = next.x - prev.x;
+          const ty = next.y - prev.y;
+          const tl = Math.hypot(tx, ty) || 1;
+          // Inner-edge perpendicular (toward meetY = away from anchor)
+          // For a vertical arm, perpendicular is mostly horizontal —
+          // pick the side that leans toward the rendezvous.
+          const nx = -ty / tl, ny = tx / tl;
+          // Both arms put suckers on the side that faces the OTHER arm
+          const innerSign = fromFloor ? 1 : -1;
+          // Distance from the spine — slight outward offset so suckers
+          // sit on the "belly" of the arm.
+          const off = 3.4;
+          const sxs = cur.x + nx * off * innerSign;
+          const sys = cur.y + ny * off * innerSign;
+          const sr = (i % 4 === 0) ? 1.7 : 2.3;
+          // Disc — pale pink rim, dark center for a real sucker look
+          ctx.fillStyle = 'rgba(255, 200, 220, 0.95)';
           ctx.beginPath();
-          ctx.moveTo(rx, -7);
-          ctx.lineTo(rx + 1.5, -10);
-          ctx.lineTo(rx + 3, -7);
-          ctx.closePath();
+          ctx.arc(sxs, sys, sr, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(80, 18, 40, 0.95)';
+          ctx.beginPath();
+          ctx.arc(sxs, sys, sr * 0.55, 0, Math.PI * 2);
           ctx.fill();
         }
-        // Lower-jaw split (open toward the meet) — wedge mouth
-        const jawOpen = (p.phase === 'lunge' || p.phase === 'meeting'
-                         || (p.phase === 'retract' && !p.holdsCargo)) ? 1 : 0.4;
-        ctx.fillStyle = 'rgba(20, 4, 8, 0.95)';
+
+        // 5) Tip nodule — glowing pink/white bulb at the very end.
+        //    Pulses faster + brighter as the meeting approaches; flashes
+        //    pure white during the meeting frame; stays bright while
+        //    holding cargo to read as "grip locked."
+        const tip = pts[pts.length - 1];
+        const isMeeting = (p.phase === 'meeting');
+        const isHolding = (p.phase === 'retract' || p.phase === 'consume') && p.holdsCargo;
+        const tipGlow = isMeeting || isHolding ? 1.0 : (0.55 + beatPulse * 0.35);
+        ctx.shadowBlur = 8 + tipGlow * 8;
+        ctx.shadowColor = 'rgba(255, 200, 230, 0.95)';
+        ctx.fillStyle = 'rgba(255, 200, 230, ' + (0.85 + tipGlow * 0.15) + ')';
         ctx.beginPath();
-        ctx.moveTo(-7, 4);
-        ctx.lineTo( 7, 4);
-        ctx.lineTo( 5, 4 + 6 * jawOpen);
-        ctx.lineTo(-5, 4 + 6 * jawOpen);
-        ctx.closePath();
+        ctx.arc(tip.x, tip.y, 4 + tipGlow * 1.6, 0, Math.PI * 2);
         ctx.fill();
-        // Tooth points
-        ctx.fillStyle = 'rgba(245, 230, 210, 0.95)';
-        for (const tx of [-5, -2, 1, 4]) {
-          ctx.beginPath();
-          ctx.moveTo(tx, 4);
-          ctx.lineTo(tx + 1, 4 + 2.5);
-          ctx.lineTo(tx + 2, 4);
-          ctx.closePath();
-          ctx.fill();
-        }
-        // Glowing red eye on the front
-        ctx.shadowBlur = 6;
-        ctx.shadowColor = 'rgba(255, 80, 60, 0.95)';
-        ctx.fillStyle = 'rgba(255, 70, 50, 0.95)';
+        // White inner core
+        ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.7 + tipGlow * 0.30) + ')';
         ctx.beginPath();
-        ctx.arc(0, -2, 2.0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255, 220, 200, 0.95)';
-        ctx.beginPath();
-        ctx.arc(-0.5, -2.5, 0.7, 0, Math.PI * 2);
+        ctx.arc(tip.x, tip.y, 1.6 + tipGlow * 0.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
+
         ctx.restore();
       };
-      drawHead(p.floorY, false);
-      drawHead(p.ceilY,  true);
+
+      drawArm(p.floorY, p.floorAnchor, true);
+      drawArm(p.ceilY,  p.ceilAnchor, false);
     }
   }
 
@@ -21991,7 +21753,6 @@ const DLX_BUILD = 'v342';
       drawDailyMirrorPairs();
       drawDailyDrones();
       drawDailyLavaBalls();
-      drawDailyAcidDrips();
       drawCargoBond();
       drawDailyCargo();
     }
@@ -22504,8 +22265,6 @@ const DLX_BUILD = 'v342';
     dailyAirObstacles = [];
     dailyLavaBalls = [];
     dailyNextLavaAt = frame + 180;       // first lava ball ~3 sec after launch
-    dailyAcidDrips = [];
-    dailyNextAcidDripAt = -1;            // aligned to first beat below
     // First air obstacle holds ~2 seconds past the warehouse takeoff
     // so tunnels can't spawn ON TOP of the launch sequence (no way to
     // dive into a tunnel while the rig is still climbing out of the
@@ -22902,7 +22661,6 @@ const DLX_BUILD = 'v342';
         drones: false, thieves: false, groundOps: false,
         lavaBalls: true, scrapTowers: true, airWrecks: false,
         tunnels: true, tentacles: true,
-        acidDrips: true,                  // beat-synced — Leviathan only
         mirrorParasites: true,            // replaces thieves in Leviathan
       },
       obstacleTheme: 'organic',
@@ -22984,14 +22742,6 @@ const DLX_BUILD = 'v342';
   // (their motion is independent of dailyScrollX).
   let dailyLavaBalls = [];         // [{ x, y, vx, r, life, seed }]
   let dailyNextLavaAt = 0;
-  // Heartbeat-synced acid drips (Leviathan only). Each drip telegraphs
-  // for ~60 frames as a swelling droplet on the cavity ceiling, then
-  // releases on the next heartbeat peak and falls vertically. The
-  // forming droplet is positioned at fixed worldX so it scrolls left
-  // with the world during the telegraph, and continues drifting left
-  // in screen space as it falls.
-  let dailyAcidDrips = [];
-  let dailyNextAcidDripAt = -1;    // -1 = needs alignment to first beat
   // Pickups — flyable scrap cogs (points) and magnet boxes (cargo recall)
   let dailyPickups = [];           // [{ worldX, y, kind, alive, bobPhase }]
   let dailyNextPickupX = 0;
