@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v351';
+const DLX_BUILD = 'v352';
 
 (function() {
   // ---------- Device detection ----------
@@ -7940,7 +7940,19 @@ const DLX_BUILD = 'v351';
             // Length needs to fit entrance gap (4 tiles) + body +
             // exit ramp (5 tiles) plus some breathing room.
             o.length = 560 + Math.floor(Math.random() * 100);  // 560-660 px (12-tile ramps + 176-276 body)
-            o.floorY = PLAY_H - 8;                             // tunnel floor near bottom
+            // ---- ORGANIC PIPE vs. DESERT GROUND TUNNEL ----
+            // Leviathan and other organic levels render tunnels as
+            // floating PIPES at random altitude (no ground ramps,
+            // constant-width corridor across the full length, sliced
+            // open ends). Desert levels keep the original ground-
+            // level tunnel with sloped entrance + exit ramps.
+            if (currentDeliveryLevel.obstacleTheme === 'organic') {
+              o.isPipe  = true;
+              const margin = PIPE_HALF_H + 30;
+              o.centerY = margin + Math.random() * (PLAY_H - 2 * margin);
+            } else {
+              o.floorY = PLAY_H - 8;                           // tunnel floor near bottom
+            }
             // ---- PER-TUNNEL VARIATION ----
             // Same seed drives palette, cap thickness, and bone spacing
             // so the same tunnel always looks identical (deterministic
@@ -7948,15 +7960,18 @@ const DLX_BUILD = 'v351';
             o.paletteIdx = o.seed % TUNNEL_PALETTES.length;          // 0..3 cavern palette
             o.capThick   = 10 + Math.floor(o.seed / 11) % 9;         // 10..18 px snout height
             o.boneStep   = 24 + Math.floor(o.seed / 17) % 12;        // 24..35 px bone spacing
-            // Spawn GOLD cogs in the BODY corridor (mid-tunnel
-            // space) — between the entrance gap and the exit ramp.
-            const bodyStart = TUNNEL_ENTRANCE_RAMP + 8;
-            const bodyEnd   = o.length - TUNNEL_EXIT_RAMP - 8;
+            // Spawn GOLD cogs in the BODY corridor. For ground tunnels
+            // the body is between entrance + exit ramps; for pipes the
+            // body is the full length (no ramps).
+            const bodyStart = o.isPipe ? 8 : (TUNNEL_ENTRANCE_RAMP + 8);
+            const bodyEnd   = o.isPipe ? (o.length - 8) : (o.length - TUNNEL_EXIT_RAMP - 8);
             const cogStep   = 36;
             const bodyMid   = (bodyStart + bodyEnd) * 0.5;
             for (let cx = bodyStart; cx < bodyEnd; cx += cogStep) {
               const wx = dailyNextAirObstacleX + cx;
-              const cy = (terrainHeightAt(wx) + TUNNEL_CEILING_OFFSET + o.floorY) / 2;
+              const cy = o.isPipe
+                ? o.centerY
+                : (terrainHeightAt(wx) + TUNNEL_CEILING_OFFSET + o.floorY) / 2;
               // Center slot of the cog row gets a DLX FUEL CELL —
               // an amber crystal that grants 6 seconds of force-field
               // invulnerability when collected. Replaces the gold
@@ -8739,8 +8754,13 @@ const DLX_BUILD = 'v351';
       //   - The tunnel corridor itself is still the catch-all safe
       //     zone (no surface threats reach the rig there).
       const groundY = terrainHeightAt(wxRig);
-      const inTunnelZone = (L.state !== 'outside' && bird.y > L.snoutTop)
-                        || (bird.y - r > groundY);
+      // Inside a floating pipe's interior counts as inTunnelZone too —
+      // pillar collisions are suppressed and the corridor auto-
+      // stabilize behaviour kicks in.
+      const insidePipe = pipeInteriorAt(wxRig, bird.y) !== null;
+      const inTunnelZone = insidePipe
+        || (L.state !== 'outside' && bird.y > L.snoutTop)
+        || (bird.y - r > groundY);
       const forceFieldActive = forceFieldFrames > 0;
       const passThrough = inTunnelZone || forceFieldActive;
       // Surface hazards (cacti / spikes / rocks) — pass through with
@@ -8764,6 +8784,24 @@ const DLX_BUILD = 'v351';
       //   * AIR WRECKS = floating debris — pass through with field.
       for (const o of dailyAirObstacles) {
         const sx = o.worldX - dailyScrollX;
+        if (o.kind === 'tunnel' && o.isPipe) {
+          // Pipe outer walls are SOLID. The interior between them is
+          // the safe pass-through (inTunnelZone above). If the rig is
+          // in the pipe's x-range AND in the wall band (above the
+          // interior or below it within a 6-px wall thickness), die.
+          // Force field bubble passes through (passThrough handles).
+          if (passThrough) continue;
+          if (bird.x + r > sx && bird.x - r < sx + o.length) {
+            const innerTop = o.centerY - PIPE_HALF_H;
+            const innerBot = o.centerY + PIPE_HALF_H;
+            const wallT = 7;
+            // Top wall band
+            if (bird.y - r < innerTop && bird.y + r > innerTop - wallT) return true;
+            // Bottom wall band
+            if (bird.y + r > innerBot && bird.y - r < innerBot + wallT) return true;
+          }
+          continue;
+        }
         if (o.kind === 'scrapTower') {
           if (inTunnelZone) continue;            // only tunnel skips towers
           const tw = 36;
@@ -11336,6 +11374,9 @@ const DLX_BUILD = 'v351';
     for (let i = 0; i < dailyAirObstacles.length; i++) {
       const o = dailyAirObstacles[i];
       if (o.kind !== 'tunnel') continue;
+      // Pipes are floating in mid-air and self-render their own
+      // interior in drawTunnelOrgan — don't carve the dune for them.
+      if (o.isPipe) continue;
       const sxStart = o.worldX - dailyScrollX;
       const sxEnd   = sxStart + o.length;
       if (sxEnd < -step || sxStart > W + step) continue;
@@ -14751,17 +14792,22 @@ const DLX_BUILD = 'v351';
   // 'tunnel' is a horizontal precision channel between two walls.
   function drawDailyAirObstacles() {
     if (!isDaily || !dailyAirObstacles.length) return;
+    // Two-pass render so PIPES (organic tunnels) draw ON TOP of any
+    // bone-spur pillar they intersect. Desert ground tunnels also
+    // benefit (tunnels don't typically overlap pillars but it's
+    // harmless). Pass 1: pillars + air wrecks. Pass 2: tunnels.
     for (const o of dailyAirObstacles) {
       const sx = o.worldX - dailyScrollX;
-      if (o.kind === 'tunnel') {
-        // Tunnel spans 220-300px so the visible-cull range is wider
-        if (sx + o.length < -40 || sx > W + 40) continue;
-        drawTunnel(o, sx);
-      } else {
-        if (sx < -120 || sx > W + 60) continue;
-        if (o.kind === 'scrapTower') drawScrapTower(sx, o.top, o.gap, o.seed);
-        else if (o.kind === 'airWreck') drawAirWreck(sx, o.alt, o.seed);
-      }
+      if (o.kind === 'tunnel') continue;
+      if (sx < -120 || sx > W + 60) continue;
+      if (o.kind === 'scrapTower') drawScrapTower(sx, o.top, o.gap, o.seed);
+      else if (o.kind === 'airWreck') drawAirWreck(sx, o.alt, o.seed);
+    }
+    for (const o of dailyAirObstacles) {
+      if (o.kind !== 'tunnel') continue;
+      const sx = o.worldX - dailyScrollX;
+      if (sx + o.length < -40 || sx > W + 40) continue;
+      drawTunnel(o, sx);
     }
   }
 
@@ -14867,233 +14913,134 @@ const DLX_BUILD = 'v351';
   // glow trim that frames the openings; portal halos bleed both ways
   // so the corridor exhales light into the surrounding cavity.
   function drawTunnelOrgan(t, sx) {
-    // Esophageal / gut tunnel. Replaces the old stacked-disk + bone-rib
-    // look with a continuous fleshy wash, peristaltic muscle rings that
-    // contract along a slow wave, capillary veins, and sphincter-style
-    // portal halos. Reads as "you are flying through a throat."
-    const len = t.length;
+    // Floating PIPE through the body cavity. Sliced cross-section
+    // visible at both ends, dark metal outer walls top + bottom with
+    // rivets, magenta-pink inner wash, bracket clamps wrapping the
+    // pipe at intervals.
     const wxStart = t.worldX;
-    const wxEnd   = t.worldX + len;
-    const bodyStart = wxStart + TUNNEL_ENTRANCE_RAMP;
-    const bodyEnd   = wxEnd   - TUNNEL_EXIT_RAMP;
-    const fY = t.floorY != null ? t.floorY : (PLAY_H - 8);
-    const seedI = Math.floor(t.seed || 0);
+    const wxEnd   = t.worldX + t.length;
+    const cy      = t.centerY;
+    const innerTop = cy - PIPE_HALF_H;
+    const innerBot = cy + PIPE_HALF_H;
+    const wallThick = 7;
+    const outerTop = innerTop - wallThick;
+    const outerBot = innerBot + wallThick;
 
-    const period = currentDeliveryLevel.pulsePeriodFrames || 210;
-    const heartT = (frame % period) / period;
-    const beat   = Math.max(
-      0,
-      Math.sin(Math.PI * Math.min(1, heartT * 5)) * (1 - heartT * 0.6)
-    );
-    // Peristaltic wave traveling down the tunnel — drives ring squeeze.
-    const wavePhase = frame * 0.05;
+    const screenStart = wxStart - dailyScrollX;
+    const screenEnd   = wxEnd   - dailyScrollX;
+    const visStart = Math.max(screenStart, -10);
+    const visEnd   = Math.min(screenEnd,   W + 10);
+    if (visEnd <= visStart) return;
+    const visW = visEnd - visStart;
 
-    // One global fleshy gradient sized to typical tunnel height. Rect
-    // fills sample whichever slice overlaps the strip's actual height,
-    // so a single createLinearGradient handles every strip.
-    const fleshGrad = ctx.createLinearGradient(0, fY - 110, 0, fY);
-    fleshGrad.addColorStop(0,    'rgba(180, 60, 90, 0.55)');
-    fleshGrad.addColorStop(0.45, 'rgba(70,  12, 30, 0.78)');
-    fleshGrad.addColorStop(0.55, 'rgba(70,  12, 30, 0.78)');
-    fleshGrad.addColorStop(1,    'rgba(180, 60, 90, 0.55)');
+    // ---- 1. INNER WASH — magenta-pink cavity gradient visible
+    // through the slice. Vertical gradient: darker at top + bottom,
+    // brighter at the center axis.
+    const innerGrad = ctx.createLinearGradient(0, innerTop, 0, innerBot);
+    innerGrad.addColorStop(0,   'rgba(70,  12, 30, 0.95)');
+    innerGrad.addColorStop(0.5, 'rgba(140, 36, 72, 0.85)');
+    innerGrad.addColorStop(1,   'rgba(70,  12, 30, 0.95)');
+    ctx.fillStyle = innerGrad;
+    ctx.fillRect(visStart, innerTop, visW, innerBot - innerTop);
 
-    // ---- 1. CONTINUOUS FLESH WASH (vertical strips) ------------
-    // 8-px strips follow the ramp slope via tunnelLayoutAt; each strip
-    // fills ceiling..floor, sampling its slice of the global gradient.
-    ctx.save();
-    ctx.fillStyle = fleshGrad;
-    const washStep = 8;
-    for (let bx = wxStart + 1; bx < wxEnd - 1; bx += washStep) {
-      const screenX = bx - dailyScrollX;
-      if (screenX < -20 || screenX > W + 20) continue;
-      const L = tunnelLayoutAt(bx);
-      if (!L) continue;
-      if (L.floor <= L.ceiling) continue;
-      const inBody = (bx >= bodyStart && bx <= bodyEnd);
-      if (!inBody) {
-        const t01 = (bx < bodyStart)
-          ? (bx - wxStart) / TUNNEL_ENTRANCE_RAMP
-          : (wxEnd - bx) / TUNNEL_EXIT_RAMP;
-        ctx.globalAlpha = Math.max(0.2, t01 * t01);
-      } else {
-        ctx.globalAlpha = 1.0;
-      }
-      ctx.fillRect(screenX - washStep / 2, L.ceiling,
-                   washStep + 1, L.floor - L.ceiling);
+    // Subtle horizontal capillary stripes inside the wash for texture
+    ctx.fillStyle = 'rgba(255, 130, 170, 0.18)';
+    for (let yy = innerTop + 12; yy < innerBot - 4; yy += 14) {
+      ctx.fillRect(visStart, yy, visW, 1);
     }
-    ctx.globalAlpha = 1.0;
-    ctx.restore();
+    ctx.fillStyle = 'rgba(255, 200, 220, 0.45)';
+    ctx.fillRect(visStart, cy - 0.5, visW, 1);   // bright center axis line
 
-    // ---- 2. CAPILLARY VEINS along the membrane -----------------
-    ctx.save();
-    ctx.strokeStyle = 'rgba(220, 60, 90, 0.7)';
-    ctx.lineWidth = 0.7;
-    const veinStep = 16;
-    let vIdx = 0;
-    for (let bx = bodyStart + 4; bx < bodyEnd - 4; bx += veinStep) {
-      const screenX = bx - dailyScrollX;
-      if (screenX < -10 || screenX > W + 10) { vIdx++; continue; }
-      const L = tunnelLayoutAt(bx);
-      if (!L) { vIdx++; continue; }
-      const onTop = ((vIdx + seedI) % 2 === 0);
-      const yAnchor = onTop ? L.ceiling : L.floor;
-      const dir = onTop ? 1 : -1;
-      ctx.beginPath();
-      ctx.moveTo(screenX, yAnchor);
-      ctx.quadraticCurveTo(screenX + 5, yAnchor + dir * 3,
-                            screenX + 11, yAnchor + dir * 1);
-      ctx.moveTo(screenX + 5, yAnchor + dir * 3);
-      ctx.lineTo(screenX + 8, yAnchor + dir * 7);
-      ctx.stroke();
-      vIdx++;
+    // ---- 2. OUTER PIPE WALLS — top + bottom dark metal bands
+    // Top wall
+    ctx.fillStyle = '#1a0a14';
+    ctx.fillRect(visStart, outerTop, visW, wallThick);
+    ctx.fillStyle = '#3a1a30';
+    ctx.fillRect(visStart, outerTop + 1, visW, wallThick - 2);
+    ctx.fillStyle = 'rgba(160, 90, 130, 0.55)';
+    ctx.fillRect(visStart, outerTop + 1, visW, 1);   // top lit edge
+    ctx.fillStyle = 'rgba(20, 4, 12, 0.85)';
+    ctx.fillRect(visStart, innerTop - 1, visW, 1);   // inner shadow edge
+    // Bottom wall (mirror)
+    ctx.fillStyle = '#1a0a14';
+    ctx.fillRect(visStart, innerBot, visW, wallThick);
+    ctx.fillStyle = '#3a1a30';
+    ctx.fillRect(visStart, innerBot + 1, visW, wallThick - 2);
+    ctx.fillStyle = 'rgba(20, 4, 12, 0.85)';
+    ctx.fillRect(visStart, innerBot, visW, 1);
+    ctx.fillStyle = 'rgba(160, 90, 130, 0.55)';
+    ctx.fillRect(visStart, outerBot - 1, visW, 1);   // bottom lit edge
+
+    // ---- 3. RIVETS along the outer walls — small dark dots
+    const rivetStep = 14;
+    ctx.fillStyle = '#0a0408';
+    const firstRivet = wxStart + (rivetStep - ((wxStart) % rivetStep));
+    for (let bx = firstRivet; bx <= wxEnd; bx += rivetStep) {
+      const rx = bx - dailyScrollX;
+      if (rx < visStart - 4 || rx > visEnd + 4) continue;
+      ctx.fillRect(Math.round(rx), outerTop + 2, 1.4, 1.4);
+      ctx.fillRect(Math.round(rx), outerBot + wallThick - 4, 1.4, 1.4);
     }
-    ctx.restore();
 
-    // ---- 3. PERISTALTIC MUSCLE RINGS (body only) ---------------
-    // Fleshy bands arching ceiling-to-floor. A wave traveling left-to-
-    // right modulates each ring's thickness + brightness, so the whole
-    // tunnel reads as gulping. Three-pass shading: dark crease behind,
-    // mid-pink body, bright wet highlight on the leading edge.
-    ctx.save();
-    ctx.lineCap = 'round';
-    const ringStep = 38;
-    let ringIdx = 0;
-    for (let bx = bodyStart + ringStep / 2; bx < bodyEnd - 4; bx += ringStep) {
-      const screenX = bx - dailyScrollX;
-      if (screenX < -24 || screenX > W + 24) { ringIdx++; continue; }
-      const L = tunnelLayoutAt(bx);
-      if (!L) { ringIdx++; continue; }
-      const ceilingY = L.ceiling;
-      const botY     = L.floor;
-      const cy       = (ceilingY + botY) / 2;
-      const ringH    = botY - ceilingY;
-      const localPhase = (bx * 0.012) - wavePhase;
-      const squeeze    = 0.5 + 0.5 * Math.sin(localPhase);
-      const lineW      = 4 + squeeze * 3;
-      const curveDir = ((ringIdx + seedI) % 2 === 0) ? 1 : -1;
-      const bowAmt   = ringH * 0.10 * curveDir;
-      const ctrlX    = screenX + bowAmt;
-
-      ctx.lineWidth   = lineW + 1.2;
-      ctx.strokeStyle = 'rgba(40, 8, 18, 0.85)';
-      ctx.beginPath();
-      ctx.moveTo(screenX + 1.0, ceilingY);
-      ctx.quadraticCurveTo(ctrlX + 0.6, cy, screenX + 1.0, botY);
-      ctx.stroke();
-
-      ctx.lineWidth   = lineW;
-      ctx.strokeStyle = 'rgba(190, 60, 90, ' + (0.85 + squeeze * 0.10) + ')';
-      ctx.beginPath();
-      ctx.moveTo(screenX, ceilingY);
-      ctx.quadraticCurveTo(ctrlX, cy, screenX, botY);
-      ctx.stroke();
-
-      ctx.lineWidth   = Math.max(1.0, lineW * 0.35);
-      ctx.strokeStyle = 'rgba(255, 200, 220, ' + (0.55 + squeeze * 0.30) + ')';
-      ctx.beginPath();
-      ctx.moveTo(screenX - 1.4, ceilingY);
-      ctx.quadraticCurveTo(ctrlX - 1.0, cy, screenX - 1.4, botY);
-      ctx.stroke();
-
-      ringIdx++;
+    // ---- 4. BRACKET CLAMPS — wider darker bands wrapping the pipe
+    // every ~64 px. Each bracket extends slightly above + below the
+    // outer wall (pinching the pipe), with bolts at the four corners.
+    const bracketStep = 64;
+    const bracketW = 9;
+    const firstBracket = wxStart + bracketStep / 2;
+    for (let bx = firstBracket; bx < wxEnd; bx += bracketStep) {
+      const rx = Math.round(bx - dailyScrollX);
+      if (rx < visStart - bracketW || rx > visEnd + bracketW) continue;
+      const bracketX = rx - bracketW / 2;
+      // Dark backing
+      ctx.fillStyle = '#0a0408';
+      ctx.fillRect(bracketX - 1, outerTop - 4, bracketW + 2, (outerBot - outerTop) + 8);
+      // Lit metal face
+      ctx.fillStyle = '#5a2c44';
+      ctx.fillRect(bracketX, outerTop - 3, bracketW, (outerBot - outerTop) + 6);
+      ctx.fillStyle = 'rgba(180, 120, 150, 0.65)';
+      ctx.fillRect(bracketX, outerTop - 3, bracketW, 0.8);
+      // Center groove (the actual clamp seam)
+      ctx.fillStyle = '#2a0e1a';
+      ctx.fillRect(bracketX + bracketW / 2 - 0.5, outerTop - 3, 1, (outerBot - outerTop) + 6);
+      // Four corner bolts
+      ctx.fillStyle = '#0a0408';
+      ctx.fillRect(bracketX + 1,           outerTop - 2.5, 1.4, 1.4);
+      ctx.fillRect(bracketX + bracketW - 2, outerTop - 2.5, 1.4, 1.4);
+      ctx.fillRect(bracketX + 1,           outerBot + wallThick - 1.5, 1.4, 1.4);
+      ctx.fillRect(bracketX + bracketW - 2, outerBot + wallThick - 1.5, 1.4, 1.4);
+      ctx.fillStyle = 'rgba(200, 160, 180, 0.85)';
+      ctx.fillRect(bracketX + 1.2,           outerTop - 2.3, 0.5, 0.5);
+      ctx.fillRect(bracketX + bracketW - 1.8, outerTop - 2.3, 0.5, 0.5);
     }
-    ctx.lineCap = 'butt';
-    ctx.restore();
 
-    // ---- 4. CEILING MUCOUS DRIPS (occasional, body only) -------
-    ctx.save();
-    const dripStep = 70;
-    let dIdx = 0;
-    for (let bx = bodyStart + 18; bx < bodyEnd - 4; bx += dripStep) {
-      const screenX = bx - dailyScrollX;
-      if (screenX < -10 || screenX > W + 10) { dIdx++; continue; }
-      const L = tunnelLayoutAt(bx);
-      if (!L) { dIdx++; continue; }
-      const sway = Math.sin(frame * 0.05 + dIdx) * 0.6;
-      const dropY = L.ceiling + 5 + Math.sin(frame * 0.08 + dIdx * 1.7) * 0.6;
-      ctx.fillStyle = 'rgba(220, 140, 170, 0.85)';
-      ctx.beginPath();
-      ctx.moveTo(screenX + sway, L.ceiling);
-      ctx.lineTo(screenX + sway - 1.3, dropY - 1.3);
-      ctx.lineTo(screenX + sway + 1.3, dropY - 1.3);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(screenX + sway, dropY, 1.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255, 230, 240, 0.85)';
-      ctx.beginPath();
-      ctx.arc(screenX + sway - 0.5, dropY - 0.5, 0.5, 0, Math.PI * 2);
-      ctx.fill();
-      dIdx++;
-    }
-    ctx.restore();
-
-    // ---- 5. RAMP GLOW TRIM (kept for level cohesion) ----------
-    const drawRampTrim = (wxFrom, wxTo) => {
-      const samples = [];
-      const sampleStep = 4;
-      for (let bx = wxFrom; bx <= wxTo; bx += sampleStep) {
-        const L = tunnelLayoutAt(bx);
-        if (!L) continue;
-        samples.push({ sx: bx - dailyScrollX, ceiling: L.ceiling, floor: L.floor });
-      }
-      if (samples.length < 2) return;
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = 'rgba(255, 130, 200, 0.95)';
-      ctx.strokeStyle = 'rgba(255, 180, 220, ' + (0.70 + beat * 0.20) + ')';
-      ctx.lineWidth = 2.0;
-      ctx.beginPath();
-      ctx.moveTo(samples[0].sx, samples[0].ceiling);
-      for (let i = 1; i < samples.length; i++) ctx.lineTo(samples[i].sx, samples[i].ceiling);
-      ctx.stroke();
-      ctx.shadowColor = 'rgba(140, 255, 220, 0.95)';
-      ctx.strokeStyle = 'rgba(180, 255, 220, ' + (0.70 + beat * 0.20) + ')';
-      ctx.beginPath();
-      ctx.moveTo(samples[0].sx, samples[0].floor);
-      for (let i = 1; i < samples.length; i++) ctx.lineTo(samples[i].sx, samples[i].floor);
-      ctx.stroke();
+    // ---- 5. SLICED OPEN ENDS — show interior depth at each end
+    // Left end (only when visible)
+    if (screenStart > -10) {
+      // Outer rim of the slice
+      ctx.fillStyle = '#0a0408';
+      ctx.fillRect(screenStart - 1, outerTop, 3, outerBot - outerTop + wallThick);
+      // Inner darkness — a thin shadow showing the pipe extends back
+      ctx.fillStyle = 'rgba(8, 2, 6, 0.92)';
+      ctx.fillRect(screenStart, innerTop, 4, innerBot - innerTop);
+      // Pink rim glow
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = 'rgba(255, 100, 160, 0.85)';
+      ctx.fillStyle = 'rgba(255, 130, 180, 0.65)';
+      ctx.fillRect(screenStart - 0.5, innerTop, 1, innerBot - innerTop);
       ctx.shadowBlur = 0;
-    };
-    drawRampTrim(wxStart, bodyStart);
-    drawRampTrim(bodyEnd, wxEnd);
-
-    // ---- 6. SOFT FLOOR GLOW (recolored pink to match the wash) -
-    const floorGrad = ctx.createLinearGradient(0, fY - 10, 0, fY);
-    floorGrad.addColorStop(0,   'rgba(255, 140, 180, 0)');
-    floorGrad.addColorStop(0.6, 'rgba(255, 140, 180, ' + (0.18 + beat * 0.10) + ')');
-    floorGrad.addColorStop(1,   'rgba(255, 200, 220, ' + (0.55 + beat * 0.18) + ')');
-    ctx.fillStyle = floorGrad;
-    ctx.fillRect(bodyStart - dailyScrollX, fY - 10,
-                 (bodyEnd - bodyStart), 10);
-
-    // ---- 7. SPHINCTER PORTAL HALOS at body openings ------------
-    // Concentric muscle rings around each entrance read as the ring of
-    // muscle around an aperture, replacing the old single bright ring.
-    for (const wxOpen of [bodyStart, bodyEnd]) {
-      const screenX = wxOpen - dailyScrollX;
-      if (screenX < -60 || screenX > W + 60) continue;
-      const L = tunnelLayoutAt(wxOpen);
-      if (!L) continue;
-      const cy = (L.ceiling + L.floor) / 2;
-      const ry = (L.floor - L.ceiling) * 0.55;
-      ctx.shadowBlur = 24;
-      ctx.shadowColor = 'rgba(255, 100, 160, 0.95)';
-      ctx.fillStyle = 'rgba(255, 100, 160, ' + (0.32 + beat * 0.18) + ')';
-      ctx.beginPath();
-      ctx.ellipse(screenX, cy, 12, ry, 0, 0, Math.PI * 2);
-      ctx.fill();
+    }
+    // Right end (only when visible)
+    if (screenEnd < W + 10) {
+      ctx.fillStyle = '#0a0408';
+      ctx.fillRect(screenEnd - 2, outerTop, 3, outerBot - outerTop + wallThick);
+      ctx.fillStyle = 'rgba(8, 2, 6, 0.92)';
+      ctx.fillRect(screenEnd - 4, innerTop, 4, innerBot - innerTop);
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = 'rgba(255, 100, 160, 0.85)';
+      ctx.fillStyle = 'rgba(255, 130, 180, 0.65)';
+      ctx.fillRect(screenEnd - 0.5, innerTop, 1, innerBot - innerTop);
       ctx.shadowBlur = 0;
-      for (let k = 0; k < 3; k++) {
-        const kr = ry * (0.95 - k * 0.25);
-        const alpha = 0.55 + k * 0.15 + beat * 0.10;
-        ctx.strokeStyle = 'rgba(255, ' + (140 + k * 30) + ', ' +
-                          (190 + k * 20) + ', ' + alpha + ')';
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.ellipse(screenX, cy, 4 + k * 1.2, kr, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      }
     }
   }
 
@@ -22935,6 +22882,10 @@ const DLX_BUILD = 'v351';
   // corridor = TunnelFloor - (MainGround + 24) ≈ 100 px. Wider so
   // the rig has 34 px buffer top + bottom while in flight.
   const TUNNEL_CEILING_OFFSET = 1.5 * TUNNEL_TILE;
+  // Organic-theme pipe interior half-height. Pipe corridor total height
+  // = 2 * PIPE_HALF_H. Matches the desert tunnel mouth corridor (96 px)
+  // so cog spawns + rig clearance carry over without retuning.
+  const PIPE_HALF_H = 48;
   // ---- Mouth structure (the "snout" sticking up out of the dune) ----
   // The corridor's FLOOR enters the mouth at the dune surface so the
   // rig can fly straight in at sky level — no climbing up to a raised
@@ -22998,6 +22949,10 @@ const DLX_BUILD = 'v351';
     for (let i = 0; i < dailyAirObstacles.length; i++) {
       const o = dailyAirObstacles[i];
       if (o.kind !== 'tunnel') continue;
+      // Floating PIPES (organic theme) don't affect the dune surface
+      // or trigger ramp logic — they're handled by pipeInteriorAt
+      // for collision + auto-stabilize.
+      if (o.isPipe) continue;
       const localX = worldX - o.worldX;
       if (localX < 0 || localX > o.length) continue;
       const fY = tunnelFloorY(o);
@@ -23049,6 +23004,24 @@ const DLX_BUILD = 'v351';
     }
     return { state: 'outside', mainGround: mainGround,
              ceiling: 0, floor: mainGround, snoutTop: mainGround };
+  }
+  // True if (worldX, birdY) is inside any floating pipe's interior.
+  // Used to mark the rig as "in tunnel zone" while inside a pipe so
+  // pillar collisions are suppressed and the auto-stabilize gravity-
+  // cancel kicks in.
+  function pipeInteriorAt(worldX, birdY) {
+    if (!isDaily || !dailyAirObstacles || !dailyAirObstacles.length) return null;
+    for (let i = 0; i < dailyAirObstacles.length; i++) {
+      const o = dailyAirObstacles[i];
+      if (o.kind !== 'tunnel' || !o.isPipe) continue;
+      if (worldX < o.worldX || worldX > o.worldX + o.length) continue;
+      const innerTop = o.centerY - PIPE_HALF_H;
+      const innerBot = o.centerY + PIPE_HALF_H;
+      if (birdY > innerTop && birdY < innerBot) {
+        return { ceiling: innerTop, floor: innerBot, centerY: o.centerY };
+      }
+    }
+    return null;
   }
   // Back-compat shim: surfaceAt now resolves to the layout floor at
   // that X (so callers get the surface the rig stands on, including
