@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v334';
+const DLX_BUILD = 'v335';
 
 (function() {
   // ---------- Device detection ----------
@@ -15762,71 +15762,157 @@ const DLX_BUILD = 'v334';
     ctx.textBaseline = 'alphabetic';
   }
 
-  // Organic-theme replacement for the pink magnet-recall box. An
-  // ORGANELLE NODE — pulsing translucent membrane sphere with a
-  // bioluminescent cyan core, anatomical fold, and a small DLX/RIG
-  // brand stamp so it still reads as "this brings your rig back."
+  // Organic-theme replacement for the pink magnet-recall box. v335
+  // redesign: HOMING-BEACON ORGANELLE — animated pulsing organelle
+  // with bobbing motion, slow membrane rotation, wiggling antenna
+  // feelers, a heartbeat-pulsed core, and periodic radial pulse rings
+  // emitting outward like a sonar ping. Reads as "an alive thing
+  // calling your rig back" rather than a static crate.
   function drawOrganelleNode() {
     const pulse = 0.5 + 0.5 * Math.sin(frame * 0.18);
-    // ---- Outer wide bio-green halo (matches the magnet-recall energy)
-    ctx.shadowBlur = 22 + pulse * 14;
-    ctx.shadowColor = 'rgba(140, 255, 200, 0.95)';
-    ctx.fillStyle = 'rgba(140, 255, 200, ' + (0.55 + pulse * 0.4) + ')';
+    const breath = 1 + 0.06 * Math.sin(frame * 0.07);
+    const rotation = frame * 0.012;
+    const bobY = Math.sin(frame * 0.08) * 1.6;
+
+    ctx.save();
+    ctx.translate(0, bobY);
+
+    // ---- RADIAL PULSE RINGS — periodic homing-beacon waves emitting
+    // outward. Two overlapping rings phase-offset for continuous emission.
+    const pulsePeriod = 90;
+    for (let r = 0; r < 2; r++) {
+      const t01 = ((frame + r * pulsePeriod * 0.5) % pulsePeriod) / pulsePeriod;
+      const ringR = 14 + t01 * 16;
+      const ringAlpha = (1 - t01) * 0.45;
+      ctx.strokeStyle = 'rgba(255, 130, 200, ' + ringAlpha + ')';
+      ctx.lineWidth = 1.2 + (1 - t01) * 0.6;
+      ctx.beginPath();
+      ctx.arc(0, 0, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // ---- MEMBRANE LAYER (rotates) — drawn under save() so we can
+    // counter-rotate the core back to upright.
+    ctx.save();
+    ctx.rotate(rotation);
+
+    // Outer wide magenta halo (constant, not rotated visually)
+    ctx.shadowBlur = 18 + pulse * 10;
+    ctx.shadowColor = 'rgba(255, 100, 180, 0.95)';
+    ctx.fillStyle = 'rgba(255, 100, 180, ' + (0.40 + pulse * 0.25) + ')';
     ctx.beginPath();
-    ctx.arc(0, 0, 26, 0, Math.PI * 2);
+    ctx.arc(0, 0, 22, 0, Math.PI * 2);
     ctx.fill();
-    // ---- Translucent membrane body — magenta gel sphere
+
+    // Magenta gel sphere body
+    const r = 11 * breath;
     ctx.shadowBlur = 12;
     ctx.shadowColor = 'rgba(255, 100, 180, 0.85)';
-    const bodyGrad = ctx.createRadialGradient(-5, -5, 2, 0, 0, 16);
+    const bodyGrad = ctx.createRadialGradient(-3, -4, 1, 0, 0, r);
     bodyGrad.addColorStop(0,    'rgba(255, 220, 240, 0.95)');
     bodyGrad.addColorStop(0.30, 'rgba(255, 130, 200, 0.92)');
     bodyGrad.addColorStop(0.70, 'rgba(180,  50, 110, 0.92)');
     bodyGrad.addColorStop(1,    'rgba(70,   16,  40, 0.92)');
     ctx.fillStyle = bodyGrad;
     ctx.beginPath();
-    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
-    // Wet specular highlight
+
+    // Wet specular highlight (rotates with the membrane)
     ctx.fillStyle = 'rgba(255, 230, 245, 0.55)';
     ctx.beginPath();
-    ctx.ellipse(-4, -5, 4, 2, -0.4, 0, Math.PI * 2);
+    ctx.ellipse(-3, -4, 2.8, 1.4, -0.4, 0, Math.PI * 2);
     ctx.fill();
-    // Anatomical fold line for organic depth
-    ctx.strokeStyle = 'rgba(80, 16, 36, 0.55)';
-    ctx.lineWidth = 1.0;
-    ctx.beginPath();
-    ctx.moveTo(-10, 2);
-    ctx.quadraticCurveTo(0, 6, 10, 2);
-    ctx.stroke();
-    // Outer membrane outline
+
+    // Branching vein network with subtle frame-by-frame wiggle
+    ctx.strokeStyle = 'rgba(80, 16, 36, 0.7)';
+    ctx.lineWidth = 0.7;
+    for (let v = 0; v < 4; v++) {
+      const a = v * Math.PI / 2 + 0.4;
+      const wig = Math.sin(frame * 0.05 + v * 1.7) * 0.5;
+      const x0 = Math.cos(a) * 2.5;
+      const y0 = Math.sin(a) * 2.5;
+      const x1 = Math.cos(a) * (r * 0.85);
+      const y1 = Math.sin(a) * (r * 0.85);
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.bezierCurveTo(
+        x0 * 1.4, y0 * 1.4 + wig,
+        x1 * 0.8, y1 * 0.8 - wig,
+        x1, y1
+      );
+      ctx.stroke();
+    }
+
+    // Membrane outline
     ctx.strokeStyle = 'rgba(60, 12, 30, 0.85)';
     ctx.lineWidth = 0.8;
     ctx.beginPath();
-    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.stroke();
-    // ---- Bioluminescent CORE — bright pulsing cyan-white center
+    ctx.restore();   // pop membrane rotation
+
+    // ---- WIGGLING ANTENNA FEELERS — four small tendrils on the upper
+    // hemisphere that wave per-frame, giving the pickup organic life.
+    ctx.strokeStyle = 'rgba(255, 140, 200, 0.9)';
+    ctx.lineWidth = 0.9;
+    ctx.lineCap = 'round';
+    for (let a = 0; a < 4; a++) {
+      const baseAng = -Math.PI / 2 + (a - 1.5) * 0.42;
+      const wig = Math.sin(frame * 0.08 + a * 1.3) * 0.35;
+      const baseR = r * 0.85;
+      const tipR = baseR + 4.5;
+      const tipAng = baseAng + wig;
+      const ax0 = Math.cos(baseAng) * baseR;
+      const ay0 = Math.sin(baseAng) * baseR;
+      const ax1 = Math.cos(tipAng) * tipR;
+      const ay1 = Math.sin(tipAng) * tipR;
+      ctx.beginPath();
+      ctx.moveTo(ax0, ay0);
+      ctx.quadraticCurveTo(
+        Math.cos(baseAng) * (baseR + 2),
+        Math.sin(baseAng) * (baseR + 2),
+        ax1, ay1
+      );
+      ctx.stroke();
+      // Small bright tip dot at the end of each feeler
+      ctx.shadowBlur = 3;
+      ctx.shadowColor = 'rgba(255, 200, 230, 0.95)';
+      ctx.fillStyle = 'rgba(255, 220, 240, 0.95)';
+      ctx.beginPath();
+      ctx.arc(ax1, ay1, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    ctx.lineCap = 'butt';
+
+    // ---- BRIGHT PULSING CORE — the homing-beacon heart, drawn last
+    // and unrotated so it always reads as the same upright spark.
     ctx.shadowBlur = 8;
-    ctx.shadowColor = 'rgba(180, 255, 220, 0.95)';
-    ctx.fillStyle = 'rgba(180, 255, 230, ' + (0.85 + pulse * 0.15) + ')';
+    ctx.shadowColor = 'rgba(255, 140, 220, 0.95)';
+    ctx.fillStyle = 'rgba(255, 180, 230, ' + (0.85 + pulse * 0.15) + ')';
     ctx.beginPath();
     ctx.arc(0, 0, 4 + pulse * 1.0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.85 + pulse * 0.15) + ')';
+    ctx.fillStyle = 'rgba(255, 250, 250, 0.95)';
     ctx.beginPath();
-    ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
+    ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
+
+    ctx.restore();   // pop bob translate
+
     // ---- DLX/RIG brand stamp on a small yellow plaque — kept so the
-    // pickup reads as DLX currency, not a generic blob.
+    // pickup reads as DLX currency, not a generic blob. Drawn outside
+    // the bob so the label stays readable while the body floats.
     ctx.fillStyle = 'rgba(255, 216, 60, 0.95)';
-    ctx.fillRect(-7, 6.5, 14, 4);
+    ctx.fillRect(-7, 8.5, 14, 4);
     ctx.fillStyle = '#1a0a06';
     ctx.font = 'bold 3.5px Impact, "Arial Black", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('DLX/RIG', 0, 8.6);
+    ctx.fillText('DLX/RIG', 0, 10.6);
     ctx.textAlign = 'start';
     ctx.textBaseline = 'alphabetic';
   }
@@ -16618,41 +16704,10 @@ const DLX_BUILD = 'v334';
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // ---- DLX-PIRATE COURIER VEST — knock-off DLX hazard band wraps
-      // diagonally across the body. Yellow base with black slashes,
-      // clipped to the body ellipse so it reads as a stripe stuck onto
-      // the membrane. Tiny "DLX" stencil scratched in the centre.
-      ctx.save();
-      ctx.beginPath();
-      ctx.ellipse(0, 0, bw, bh, 0, 0, Math.PI * 2);
-      ctx.clip();
-      // Diagonal yellow band
-      ctx.save();
-      ctx.rotate(-0.35);
-      ctx.fillStyle = 'rgba(255, 216, 60, 0.92)';
-      ctx.fillRect(-bw * 1.5, -3.2, bw * 3, 6.4);
-      // Black diagonal slashes on the band
-      ctx.fillStyle = 'rgba(20, 8, 6, 0.95)';
-      for (let s = 0; s < 10; s++) {
-        const sx = -bw * 1.4 + s * 6;
-        ctx.beginPath();
-        ctx.moveTo(sx,     -3.2);
-        ctx.lineTo(sx + 2, -3.2);
-        ctx.lineTo(sx + 4,  3.2);
-        ctx.lineTo(sx + 2,  3.2);
-        ctx.closePath();
-        ctx.fill();
-      }
-      // Faded DLX text scratched into the band
-      ctx.fillStyle = 'rgba(20, 8, 6, 0.85)';
-      ctx.font = 'bold 4px Impact, "Arial Black", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('DLX', 0, 0.5);
-      ctx.textAlign = 'start';
-      ctx.textBaseline = 'alphabetic';
-      ctx.restore();
-      ctx.restore();
+      // ---- (DLX-pirate hazard stripe removed in v335 per user
+      // feedback — at gameplay scale the band added clutter without
+      // reading as branding. The phage now reads cleanly as an alien
+      // creature without any DLX text on it.)
 
       // ---- Multi-eye cluster on the front (left side). Five small
       // dark spots arranged in an arc, with one larger central eye.
@@ -20983,40 +21038,99 @@ const DLX_BUILD = 'v334';
   // hotter than the cool blue shield, fades the last second so the
   // player can see it's expiring.
   function drawForceFieldBubble() {
+    // Iridescent soap-bubble force field. The rim is a rotating spectrum
+    // (hue cycles around the circle and drifts over time); a counter-
+    // rotating inner band adds depth, and a clipped specular crescent +
+    // pinpoint highlight sell the "thin film" look.
     ctx.save();
-    const fade = Math.min(1, forceFieldFrames / 60);    // last 1 sec eases out
+    const fade = Math.min(1, forceFieldFrames / 60);
     const r = BIRD_R + 14 + Math.sin(frame * 0.22) * 2.0;
     const px = Math.round(bird.x), py = Math.round(bird.y);
-    // Outer amber glow
-    ctx.shadowBlur = 22; ctx.shadowColor = '#ffaa30';
-    ctx.fillStyle = 'rgba(255, 154, 48, ' + (0.18 * fade) + ')';
+    const rotPhase = frame * 1.4;          // degrees of hue rotation around the rim
+    const drift    = frame * 0.6;          // slow overall hue drift
+
+    // Outer pearlescent halo
+    ctx.shadowBlur = 18; ctx.shadowColor = 'rgba(220, 200, 255, 0.9)';
+    ctx.fillStyle = 'rgba(255, 245, 255, ' + (0.12 * fade) + ')';
     ctx.beginPath();
-    ctx.arc(px, py, r + 4, 0, Math.PI * 2);
+    ctx.arc(px, py, r + 5, 0, Math.PI * 2);
     ctx.fill();
-    // Inner bubble
-    ctx.fillStyle = 'rgba(255, 200, 80, ' + (0.10 * fade) + ')';
+    ctx.shadowBlur = 0;
+
+    // Refractive inner wash — off-center radial gradient, very transparent
+    const grad = ctx.createRadialGradient(px - r * 0.35, py - r * 0.35, 1, px, py, r);
+    grad.addColorStop(0,    'rgba(255, 230, 255, ' + (0.18 * fade) + ')');
+    grad.addColorStop(0.55, 'rgba(180, 220, 255, ' + (0.08 * fade) + ')');
+    grad.addColorStop(1,    'rgba(220, 180, 255, ' + (0.05 * fade) + ')');
+    ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.arc(px, py, r, 0, Math.PI * 2);
     ctx.fill();
-    // Crackling ring outline
-    ctx.shadowBlur = 14; ctx.shadowColor = '#ffe080';
-    ctx.strokeStyle = 'rgba(255, 224, 128, ' + (0.85 * fade) + ')';
-    ctx.lineWidth = 1.6;
+
+    // Outer iridescent rim — short hue-shifted arc segments
+    const segs = 36;
+    ctx.lineWidth = 2.2;
+    for (let i = 0; i < segs; i++) {
+      const a0 = (i / segs) * Math.PI * 2;
+      const a1 = ((i + 1.05) / segs) * Math.PI * 2;
+      const hue = (i * (360 / segs) + rotPhase + drift) % 360;
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'hsl(' + hue + ', 100%, 70%)';
+      ctx.strokeStyle = 'hsla(' + hue + ', 100%, 70%, ' + (0.85 * fade) + ')';
+      ctx.beginPath();
+      ctx.arc(px, py, r, a0, a1);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // Counter-rotating inner band offset 180° in hue — gives the bubble depth
+    const innerR = r - 3;
+    const segs2 = 28;
+    ctx.lineWidth = 1.0;
+    for (let i = 0; i < segs2; i++) {
+      const a0 = (i / segs2) * Math.PI * 2;
+      const a1 = ((i + 1.05) / segs2) * Math.PI * 2;
+      const hue = ((i * (360 / segs2)) - rotPhase * 0.6 + 180 + 360) % 360;
+      ctx.strokeStyle = 'hsla(' + hue + ', 90%, 75%, ' + (0.45 * fade) + ')';
+      ctx.beginPath();
+      ctx.arc(px, py, innerR, a0, a1);
+      ctx.stroke();
+    }
+
+    // Specular crescent (clipped to the bubble interior)
+    ctx.save();
     ctx.beginPath();
-    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.arc(px, py, r - 0.5, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255, 255, 255, ' + (0.65 * fade) + ')';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(px + r * 0.20, py + r * 0.20, r - 1.5, Math.PI * 0.85, Math.PI * 1.35);
     ctx.stroke();
-    // Six tick-mark sparks rotating around the ring
+    ctx.restore();
+
+    // Bright pinpoint highlight upper-left
+    ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.9 * fade) + ')';
+    ctx.beginPath();
+    ctx.arc(px - r * 0.45, py - r * 0.45, 1.7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Six rainbow sparks rotating around the rim (each its own hue)
     const tickCt = 6;
     const tickAng = frame * 0.08;
-    ctx.fillStyle = 'rgba(255, 240, 160, ' + fade + ')';
     for (let i = 0; i < tickCt; i++) {
       const a = tickAng + (i / tickCt) * Math.PI * 2;
+      const hue = (i * 60 + drift * 2) % 360;
       const tx = px + Math.cos(a) * r;
       const ty = py + Math.sin(a) * r;
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = 'hsl(' + hue + ', 100%, 70%)';
+      ctx.fillStyle = 'hsla(' + hue + ', 100%, 80%, ' + fade + ')';
       ctx.beginPath();
       ctx.arc(tx, ty, 1.6, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
