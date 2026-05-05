@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v320';
+const DLX_BUILD = 'v321';
 
 (function() {
   // ---------- Device detection ----------
@@ -7231,6 +7231,22 @@ const DLX_BUILD = 'v320';
       // per frame, makes the rig feel lighter / easier to keep aloft).
       const liftMult = rigPerk('liftAssist') || 1.0;
       bird.vy = Math.min(bird.vy + GRAVITY * liftMult, MAX_FALL);
+
+      // Leviathan heartbeat ambient field — when the active level has
+      // ambientField === 'pulse', the body's heartbeat gives a subtle
+      // upward nudge at each beat peak. Visual pulse already plays in
+      // drawDailySky; this hook lets the player FEEL the body breathing
+      // under them. Same beat envelope as the visual pulse.
+      if (isDaily && currentDeliveryLevel
+          && currentDeliveryLevel.ambientField === 'pulse') {
+        const _hbP = currentDeliveryLevel.pulsePeriodFrames || 210;
+        const _hbT = (frame % _hbP) / _hbP;
+        const _hbBeat = Math.max(
+          0,
+          Math.sin(Math.PI * Math.min(1, _hbT * 5.0)) * (1 - _hbT * 0.6)
+        );
+        bird.vy -= _hbBeat * 0.20;
+      }
 
       // ---- DAILY TUNNEL AUTO-STABILIZE ----
       // Gravity + flap dynamics make the corridor unflyable without
@@ -16306,6 +16322,42 @@ const DLX_BUILD = 'v320';
       ctx.ellipse(0, 0, bw, bh, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
+
+      // ---- DLX-PIRATE COURIER VEST — knock-off DLX hazard band wraps
+      // diagonally across the body. Yellow base with black slashes,
+      // clipped to the body ellipse so it reads as a stripe stuck onto
+      // the membrane. Tiny "DLX" stencil scratched in the centre.
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(0, 0, bw, bh, 0, 0, Math.PI * 2);
+      ctx.clip();
+      // Diagonal yellow band
+      ctx.save();
+      ctx.rotate(-0.35);
+      ctx.fillStyle = 'rgba(255, 216, 60, 0.92)';
+      ctx.fillRect(-bw * 1.5, -3.2, bw * 3, 6.4);
+      // Black diagonal slashes on the band
+      ctx.fillStyle = 'rgba(20, 8, 6, 0.95)';
+      for (let s = 0; s < 10; s++) {
+        const sx = -bw * 1.4 + s * 6;
+        ctx.beginPath();
+        ctx.moveTo(sx,     -3.2);
+        ctx.lineTo(sx + 2, -3.2);
+        ctx.lineTo(sx + 4,  3.2);
+        ctx.lineTo(sx + 2,  3.2);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Faded DLX text scratched into the band
+      ctx.fillStyle = 'rgba(20, 8, 6, 0.85)';
+      ctx.font = 'bold 4px Impact, "Arial Black", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('DLX', 0, 0.5);
+      ctx.textAlign = 'start';
+      ctx.textBaseline = 'alphabetic';
+      ctx.restore();
+      ctx.restore();
 
       // ---- Multi-eye cluster on the front (left side). Five small
       // dark spots arranged in an arc, with one larger central eye.
