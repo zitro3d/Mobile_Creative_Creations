@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v338';
+const DLX_BUILD = 'v339';
 
 (function() {
   // ---------- Device detection ----------
@@ -7140,7 +7140,12 @@ const DLX_BUILD = 'v338';
       // skin so the default starter ships stay simple.
       const sinceLast = frame - lastFlapFrame;
       const doubleFlap = selectedSkin === 'hotrod' && lastFlapFrame > 0 && sinceLast > 0 && sinceLast < 22;
-      bird.vy = doubleFlap ? FLAP * 1.35 : FLAP;
+      // Buoyancy flap multiplier matches the gravity multiplier so the
+      // flap arc height stays the same shape but slower in absolute
+      // terms — same dodge windows, swimmy feel.
+      const buoyFlap = (isDaily && currentDeliveryLevel
+        && currentDeliveryLevel.flapMultiplier) || 1.0;
+      bird.vy = (doubleFlap ? FLAP * 1.35 : FLAP) * buoyFlap;
       lastFlapFrame = frame;
       thrusterFrames = doubleFlap ? 8 : 5;
       flapCount++;
@@ -7275,7 +7280,14 @@ const DLX_BUILD = 'v338';
       // GHOST perk: Lift Assist scales gravity (0.85× = 15 % less drag
       // per frame, makes the rig feel lighter / easier to keep aloft).
       const liftMult = rigPerk('liftAssist') || 1.0;
-      bird.vy = Math.min(bird.vy + GRAVITY * liftMult, MAX_FALL);
+      // Per-level buoyancy multipliers (Leviathan = 0.75 across the
+      // board for a swimming-through-fluid feel; Sunset = 1.0).
+      const buoyGrav = (isDaily && currentDeliveryLevel
+        && currentDeliveryLevel.gravityMultiplier) || 1.0;
+      const buoyFall = (isDaily && currentDeliveryLevel
+        && currentDeliveryLevel.maxFallMultiplier) || 1.0;
+      bird.vy = Math.min(bird.vy + GRAVITY * liftMult * buoyGrav,
+                         MAX_FALL * buoyFall);
 
       // Leviathan heartbeat ambient field — when the active level has
       // ambientField === 'pulse', the body's heartbeat gives a subtle
@@ -7337,7 +7349,12 @@ const DLX_BUILD = 'v338';
           }
           const center = (L.ceiling + L.floor) / 2;
           const pastExit = bird.x > exitX;
-          bird.vy -= GRAVITY * amt;                      // partial gravity cancel
+          // Cancel matches the gravity actually applied this frame, so
+          // a level with reduced buoyancy gravity also gets a reduced
+          // tunnel cancel (otherwise it would over-cancel and float up).
+          const _buoyG = (isDaily && currentDeliveryLevel
+            && currentDeliveryLevel.gravityMultiplier) || 1.0;
+          bird.vy -= GRAVITY * _buoyG * amt;              // partial gravity cancel
           // SPRING — only pull toward midline if rig is BELOW it past exit.
           // Otherwise the spring would fight the lift impulse by pulling
           // the rig back DOWN to corridor altitude after it rises.
@@ -22265,6 +22282,13 @@ const DLX_BUILD = 'v338';
         tunnels: true, tentacles: true,
       },
       obstacleTheme: 'organic',
+      // Buoyancy — the rig handles like it's submerged. Gravity, flap
+      // impulse, and terminal velocity all scaled by the same factor so
+      // the flap arc height stays unchanged but every motion is ~25 %
+      // slower. Net feel: heavier-AND-lighter at once = swimming.
+      gravityMultiplier: 0.75,
+      flapMultiplier:    0.75,
+      maxFallMultiplier: 0.75,
     },
   };
   // The level currently driving the daily-mode renderers. Every daily
