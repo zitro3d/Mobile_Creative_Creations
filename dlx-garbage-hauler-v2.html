@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v341';
+const DLX_BUILD = 'v342';
 
 (function() {
   // ---------- Device detection ----------
@@ -8319,6 +8319,203 @@ const DLX_BUILD = 'v341';
             if (tf.x < -60) dailyThieves.splice(i, 1);
           }
         }
+        // ---- MIRROR PARASITES (Leviathan only) ---------------------
+        // Set-piece cargo theft. A floor parasite + a ceiling parasite
+        // emerge at the same worldX, lunge toward each other, and grab
+        // the cargo BETWEEN them at the meeting frame. Meeting frame is
+        // anchored to a heartbeat peak so the rhythm is readable.
+        // Three player responses:
+        //   - AGGRESSIVE (phases telegraph/emerge/lunge): ram a head to
+        //     DISRUPT the rendezvous — cargo safe, +100 bonus.
+        //   - DEFENSIVE: dodge the cargo out of the danger column
+        //     before the meeting frame.
+        //   - REACTIVE (phase retract): ram a head during the retract
+        //     window to free the cargo from the pincer.
+        if (currentDeliveryLevel.obstacleSet
+            && currentDeliveryLevel.obstacleSet.mirrorParasites
+            && !dailyDelivered
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
+            && dailyMirrorPairs.length === 0          // one pair at a time
+            && frame >= dailyNextMirrorPairAt) {
+          const period = currentDeliveryLevel.pulsePeriodFrames || 210;
+          // Schedule the meeting on the next heartbeat peak that's at
+          // least (telegraph + emerge + lunge = 110) frames out, so the
+          // full lifecycle has room to play before the meeting.
+          const earliestMeet = frame + 110;
+          const meetFrame = Math.ceil(earliestMeet / period) * period;
+          // Spawn worldX ahead of the rig so scroll + travel time put
+          // the meeting near the rig's vertical play range.
+          const wx = bird.x + dailyScrollX + 280 + Math.random() * 160;
+          dailyMirrorPairs.push({
+            worldX: wx,
+            phase: 'telegraph',
+            phaseFrame: 0,
+            spawnFrame: frame,
+            meetFrame: meetFrame,
+            meetY: 30 + Math.random() * (PLAY_H - 80),
+            holdsCargo: false,
+            disrupted: false,
+            consumeFrame: 0,
+            // Per-head live state — set during emerge/lunge
+            floorY: PLAY_H - 8,
+            ceilY:  28,
+            floorAnchor: PLAY_H - 8,
+            ceilAnchor:  28,
+          });
+          // Next pair: random 25-35 sec out (still gated to one-active).
+          dailyNextMirrorPairAt = frame + 1500 + Math.floor(Math.random() * 600);
+        }
+        for (let i = dailyMirrorPairs.length - 1; i >= 0; i--) {
+          const p = dailyMirrorPairs[i];
+          p.phaseFrame++;
+          const screenX = p.worldX - dailyScrollX;
+          // Phase progression — frames are budgets within each phase
+          if (p.phase === 'telegraph') {
+            // Wall bulges; nothing extends yet. 60-frame budget.
+            if (p.phaseFrame >= 60) {
+              p.phase = 'emerge';
+              p.phaseFrame = 0;
+            }
+          } else if (p.phase === 'emerge') {
+            // Heads break out of the wall over 20 frames.
+            const t = Math.min(1, p.phaseFrame / 20);
+            p.floorY = p.floorAnchor - t * 14;
+            p.ceilY  = p.ceilAnchor  + t * 14;
+            if (p.phaseFrame >= 20) {
+              p.phase = 'lunge';
+              p.phaseFrame = 0;
+            }
+          } else if (p.phase === 'lunge') {
+            // Both heads extend toward meetY. Lunge ends ON the meeting
+            // frame (heartbeat-locked) so timing is rhythm-readable.
+            const framesToMeet = Math.max(1, p.meetFrame - frame);
+            const dyFloor = p.meetY - p.floorY;
+            const dyCeil  = p.meetY - p.ceilY;
+            // Move proportionally to remaining frames so they arrive
+            // exactly on meetFrame.
+            p.floorY += dyFloor / framesToMeet;
+            p.ceilY  += dyCeil  / framesToMeet;
+            if (frame >= p.meetFrame) {
+              p.phase = 'meeting';
+              p.phaseFrame = 0;
+            }
+          } else if (p.phase === 'meeting') {
+            // 10-frame grab window. Snap heads exactly to meetY.
+            p.floorY = p.meetY + 4;
+            p.ceilY  = p.meetY - 4;
+            // On the FIRST meeting frame, check whether the cargo is
+            // in the danger column. If so, parasites grab it.
+            if (p.phaseFrame === 1 && cargo && cargo.attached && !cargo.lost) {
+              const colHalf = 14;
+              if (Math.abs(cargo.x - screenX) < colHalf
+                  && Math.abs(cargo.y - p.meetY) < 22) {
+                cargo.attached = false;
+                cargo.parasiteLocked = true;
+                cargo.parasitePair = p;
+                p.holdsCargo = true;
+                emitPickupSparks(cargo.x, cargo.y, '#ff5060', 12);
+                playSound('boom');
+              }
+            }
+            if (p.phaseFrame >= 10) {
+              p.phase = 'retract';
+              p.phaseFrame = 0;
+            }
+          } else if (p.phase === 'retract') {
+            // 40-frame recovery window. Heads retract back toward their
+            // wall anchors. If they hold cargo, cargo follows the
+            // midpoint. Player can ram a head during this window to
+            // free the cargo.
+            const t = Math.min(1, p.phaseFrame / 40);
+            p.floorY = p.meetY * (1 - t) + p.floorAnchor * t;
+            p.ceilY  = p.meetY * (1 - t) + p.ceilAnchor  * t;
+            if (p.holdsCargo && cargo && cargo.parasiteLocked && !cargo.lost) {
+              cargo.x += (screenX - cargo.x) * 0.30;
+              cargo.y += (((p.floorY + p.ceilY) / 2) - cargo.y) * 0.30;
+              cargo.vy = 0;
+            }
+            if (p.phaseFrame >= 40) {
+              if (p.holdsCargo) {
+                p.phase = 'consume';
+                p.phaseFrame = 0;
+                p.consumeFrame = frame;
+              } else {
+                p.phase = 'done';
+              }
+            }
+          } else if (p.phase === 'consume') {
+            // 30-frame consume animation — cargo fully eaten at end.
+            // Heads stay at anchor; cargo sinks into whichever wall is
+            // closer to meetY (top or bottom).
+            const intoFloor = (p.meetY > PLAY_H * 0.5);
+            const targetY = intoFloor ? p.floorAnchor + 8 : p.ceilAnchor - 8;
+            if (cargo && cargo.parasiteLocked && !cargo.lost) {
+              cargo.x += (screenX - cargo.x) * 0.25;
+              cargo.y += (targetY - cargo.y) * 0.18;
+            }
+            if (p.phaseFrame >= 30) {
+              if (cargo && cargo.parasiteLocked) {
+                cargo.parasiteLocked = false;
+                cargo.parasitePair = null;
+                cargo.lost = true;
+              }
+              p.phase = 'done';
+            }
+          }
+          // ---- RAM DETECTION ----
+          // Rig vs either parasite head. Outcome depends on phase:
+          //   - aggressive (telegraph/emerge/lunge/meeting, no cargo
+          //     held): DISRUPT, +100 bonus, pair ends.
+          //   - reactive (retract/consume, holds cargo): FREE cargo,
+          //     pair ends.
+          if (p.phase !== 'done') {
+            const headHalf = 13;
+            const rigR = BIRD_R;
+            const heads = [
+              { x: screenX, y: p.floorY },
+              { x: screenX, y: p.ceilY  },
+            ];
+            let rammed = false;
+            for (const h of heads) {
+              if (Math.abs(bird.x - h.x) < rigR + headHalf
+                  && Math.abs(bird.y - h.y) < rigR + headHalf) {
+                rammed = true;
+                break;
+              }
+            }
+            if (rammed) {
+              if (!p.holdsCargo
+                  && (p.phase === 'telegraph' || p.phase === 'emerge'
+                      || p.phase === 'lunge'    || p.phase === 'meeting')) {
+                p.disrupted = true;
+                grantScore(100);
+                emitPickupSparks(screenX, p.meetY, '#ffd83d', 18);
+                playSound('boom');
+                p.phase = 'done';
+              } else if (p.holdsCargo
+                  && (p.phase === 'retract' || p.phase === 'consume')) {
+                if (cargo && cargo.parasiteLocked) {
+                  cargo.parasiteLocked = false;
+                  cargo.parasitePair = null;
+                  cargo.vy = 0.5;
+                  emitPickupSparks(cargo.x, cargo.y, '#a0f0ff', 14);
+                  playSound('forceField');
+                }
+                p.holdsCargo = false;
+                p.phase = 'done';
+              }
+            }
+          }
+
+          if (p.phase === 'done' || screenX < -80) {
+            // Defensive: release any cargo lock if pair despawns mid-flow
+            if (cargo && cargo.parasitePair === p) {
+              cargo.parasiteLocked = false;
+              cargo.parasitePair = null;
+            }
+            dailyMirrorPairs.splice(i, 1);
+          }
+        }
         // Cargo physics
         if (cargo) {
           if (cargo.attached && !cargo.lost) {
@@ -8329,6 +8526,11 @@ const DLX_BUILD = 'v341';
             const ty = bird.y - 4 + Math.sin(frame * 0.18) * 1.2;
             cargo.x += (tx - cargo.x) * 0.20;
             cargo.y += (ty - cargo.y) * 0.20;
+            cargo.vy = 0;
+          } else if (cargo.parasiteLocked && !cargo.lost) {
+            // Position is dictated by the holding parasite pair (set in
+            // the pair update above). No falling, no re-magnetize while
+            // locked. Released by ramming a head.
             cargo.vy = 0;
           } else if (!cargo.lost) {
             cargo.vy = Math.min(cargo.vy + 0.5, 9);
@@ -17106,6 +17308,194 @@ const DLX_BUILD = 'v341';
     }
   }
 
+  // Mirror parasites — Leviathan-only cargo-theft set piece. Two
+  // fleshy heads (one from the floor, one from the ceiling) emerge
+  // simultaneously and lunge toward each other on a rendezvous line.
+  // Visual cues per phase:
+  //   - telegraph: faint vertical danger column with a pulsing red
+  //     bullseye at the meeting point. Wall-anchor bulges.
+  //   - emerge:    heads break out, jaws closed, glowing red eye.
+  //   - lunge:     heads extend along stretchy magenta tendrils that
+  //                trail back to the wall.
+  //   - meeting:   heads collide at the rendezvous, jaws snap.
+  //   - retract:   heads pull back with cargo locked between them
+  //                (or empty if they missed / were disrupted).
+  //   - consume:   cargo sinks into whichever wall is closer.
+  function drawDailyMirrorPairs() {
+    if (!isDaily || !dailyMirrorPairs.length) return;
+    const groundY = PLAY_H - 8;
+    for (const p of dailyMirrorPairs) {
+      const screenX = p.worldX - dailyScrollX;
+      if (screenX < -50 || screenX > W + 50) continue;
+      const sxR = Math.round(screenX);
+      const myR = Math.round(p.meetY);
+      const beatPulse = 0.5 + 0.5 * Math.sin(frame * 0.22);
+
+      // ---- Danger column + meeting bullseye (phases telegraph→meeting)
+      if (p.phase === 'telegraph' || p.phase === 'emerge'
+          || p.phase === 'lunge' || p.phase === 'meeting') {
+        const tWindow = (p.phase === 'telegraph')
+          ? Math.min(1, p.phaseFrame / 60)
+          : 1.0;
+        // Vertical danger stripe
+        ctx.fillStyle = 'rgba(255, 60, 50, ' + (0.10 + tWindow * 0.30) + ')';
+        ctx.fillRect(sxR - 2, 28, 4, groundY - 28);
+        ctx.fillStyle = 'rgba(255, 200, 80, ' + (0.20 + tWindow * 0.30) + ')';
+        ctx.fillRect(sxR - 0.5, 28, 1, groundY - 28);
+        // Meeting-point bullseye — pulses with the heartbeat clock
+        ctx.save();
+        ctx.translate(sxR, myR);
+        ctx.shadowBlur = 10 + beatPulse * 8;
+        ctx.shadowColor = 'rgba(255, 60, 50, 0.95)';
+        ctx.strokeStyle = 'rgba(255, 80, 60, ' + (0.75 + beatPulse * 0.25) + ')';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(0, 0, 9, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(255, 220, 80, ' + (0.6 + beatPulse * 0.3) + ')';
+        ctx.lineWidth = 1.0;
+        ctx.beginPath();
+        ctx.arc(0, 0, 4, 0, Math.PI * 2);
+        ctx.stroke();
+        // Crosshair ticks
+        ctx.strokeStyle = 'rgba(255, 240, 100, ' + (0.7 + beatPulse * 0.3) + ')';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(-12, 0); ctx.lineTo(-6, 0);
+        ctx.moveTo( 6, 0); ctx.lineTo(12, 0);
+        ctx.moveTo(0, -12); ctx.lineTo(0, -6);
+        ctx.moveTo(0,  6);  ctx.lineTo(0, 12);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
+
+      // ---- Wall-anchor bulges (visible during all active phases)
+      const bulge = (p.phase === 'telegraph')
+        ? Math.min(1, p.phaseFrame / 60)
+        : 1.0;
+      for (const anchor of [{ y: p.floorAnchor, dir: -1 }, { y: p.ceilAnchor, dir: 1 }]) {
+        ctx.save();
+        ctx.translate(sxR, anchor.y);
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = 'rgba(60, 8, 20, 0.9)';
+        ctx.fillStyle = 'rgba(80, 14, 30, 0.95)';
+        ctx.beginPath();
+        ctx.ellipse(0, anchor.dir * 5 * bulge,
+                    14 + bulge * 4, 8 + bulge * 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // Glowing crack
+        ctx.strokeStyle = 'rgba(255, 80, 60, ' + (0.4 + bulge * 0.5) + ')';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(-10 - bulge * 2, anchor.dir * 2);
+        ctx.lineTo( 10 + bulge * 2, anchor.dir * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Skip head rendering during the very start of telegraph (still
+      // burrowing; nothing to see yet).
+      if (p.phase === 'telegraph' && p.phaseFrame < 35) continue;
+
+      // ---- Stretchy tendrils — connect each head back to its wall
+      const drawTendril = (headY, anchorY) => {
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineWidth = 5.5;
+        ctx.strokeStyle = 'rgba(60, 12, 30, 0.95)';
+        ctx.beginPath();
+        ctx.moveTo(sxR, anchorY);
+        const ctrlX = sxR + Math.sin(frame * 0.08 + headY * 0.05) * 2;
+        ctx.quadraticCurveTo(ctrlX, (headY + anchorY) / 2, sxR, headY);
+        ctx.stroke();
+        ctx.lineWidth = 3.5;
+        ctx.strokeStyle = 'rgba(160, 36, 80, 0.95)';
+        ctx.beginPath();
+        ctx.moveTo(sxR, anchorY);
+        ctx.quadraticCurveTo(ctrlX, (headY + anchorY) / 2, sxR, headY);
+        ctx.stroke();
+        // Spinal bone-ridge dots running along the tendril
+        const segs = 5;
+        for (let s = 1; s < segs; s++) {
+          const tt = s / segs;
+          const py = anchorY + (headY - anchorY) * tt;
+          const px = sxR + (ctrlX - sxR) * (1 - Math.abs(tt - 0.5) * 2);
+          ctx.fillStyle = 'rgba(240, 220, 200, 0.85)';
+          ctx.beginPath();
+          ctx.arc(px, py, 1.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      };
+      drawTendril(p.floorY, p.floorAnchor);
+      drawTendril(p.ceilY,  p.ceilAnchor);
+
+      // ---- Parasite heads
+      const drawHead = (hy, fromTop) => {
+        ctx.save();
+        ctx.translate(sxR, hy);
+        if (!fromTop) ctx.scale(1, -1);   // mirror so both heads "look up at meet"
+        // Halo
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(255, 60, 90, 0.85)';
+        // Body — fleshy magenta with a darker base
+        ctx.fillStyle = 'rgba(180, 50, 90, 0.95)';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 12, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // Bone ridge plates along the back/top
+        ctx.fillStyle = 'rgba(240, 220, 200, 0.92)';
+        for (const rx of [-7, -3, 1, 5]) {
+          ctx.beginPath();
+          ctx.moveTo(rx, -7);
+          ctx.lineTo(rx + 1.5, -10);
+          ctx.lineTo(rx + 3, -7);
+          ctx.closePath();
+          ctx.fill();
+        }
+        // Lower-jaw split (open toward the meet) — wedge mouth
+        const jawOpen = (p.phase === 'lunge' || p.phase === 'meeting'
+                         || (p.phase === 'retract' && !p.holdsCargo)) ? 1 : 0.4;
+        ctx.fillStyle = 'rgba(20, 4, 8, 0.95)';
+        ctx.beginPath();
+        ctx.moveTo(-7, 4);
+        ctx.lineTo( 7, 4);
+        ctx.lineTo( 5, 4 + 6 * jawOpen);
+        ctx.lineTo(-5, 4 + 6 * jawOpen);
+        ctx.closePath();
+        ctx.fill();
+        // Tooth points
+        ctx.fillStyle = 'rgba(245, 230, 210, 0.95)';
+        for (const tx of [-5, -2, 1, 4]) {
+          ctx.beginPath();
+          ctx.moveTo(tx, 4);
+          ctx.lineTo(tx + 1, 4 + 2.5);
+          ctx.lineTo(tx + 2, 4);
+          ctx.closePath();
+          ctx.fill();
+        }
+        // Glowing red eye on the front
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = 'rgba(255, 80, 60, 0.95)';
+        ctx.fillStyle = 'rgba(255, 70, 50, 0.95)';
+        ctx.beginPath();
+        ctx.arc(0, -2, 2.0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 220, 200, 0.95)';
+        ctx.beginPath();
+        ctx.arc(-0.5, -2.5, 0.7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      };
+      drawHead(p.floorY, false);
+      drawHead(p.ceilY,  true);
+    }
+  }
+
   function drawDailyCargo() {
     if (!isDaily || !cargo || cargo.lost) return;
     if (currentDeliveryLevel.obstacleTheme === 'organic') {
@@ -21598,6 +21988,7 @@ const DLX_BUILD = 'v341';
       drawDailyPickups();
       drawDailyTentacles();
       drawDailyThieves();
+      drawDailyMirrorPairs();
       drawDailyDrones();
       drawDailyLavaBalls();
       drawDailyAcidDrips();
@@ -22081,6 +22472,8 @@ const DLX_BUILD = 'v341';
     };
     dailyThieves = [];
     dailyNextThiefAt = frame + 300;      // first thief swoops in ~5s after launch
+    dailyMirrorPairs = [];
+    dailyNextMirrorPairAt = frame + 720; // first mirror parasite pair ~12s in
     dailyDrones = [];
     dailyNextDroneAt = frame + 1800;     // first drone enters during stage 2
     dailyCurrentStage = 0;
@@ -22506,10 +22899,11 @@ const DLX_BUILD = 'v341';
       // a gunship). Lava balls + scrap towers + tentacles + tunnels also
       // stay; their renderers dispatch on obstacleTheme.
       obstacleSet: {
-        drones: false, thieves: true, groundOps: false,
+        drones: false, thieves: false, groundOps: false,
         lavaBalls: true, scrapTowers: true, airWrecks: false,
         tunnels: true, tentacles: true,
         acidDrips: true,                  // beat-synced — Leviathan only
+        mirrorParasites: true,            // replaces thieves in Leviathan
       },
       obstacleTheme: 'organic',
       // Buoyancy — the rig handles like it's submerged. Gravity, flap
@@ -22541,6 +22935,15 @@ const DLX_BUILD = 'v341';
   let dailyDistanceForScore = 0;   // tracker so grantScore fires once per chunk
   let cargo = null;                // { x, y, vy, attached, lost } — magnetically tethered crate
   let dailyThieves = [];           // [{ x, y, vx, vy, state, stateFrames }] — flying cargo thieves
+  // Mirror parasites (Leviathan only). Each entry is a PAIR: a floor
+  // parasite + a ceiling parasite that emerge at the same worldX,
+  // lunge toward each other through the air, and grab the cargo
+  // BETWEEN them at the meeting frame (which is locked to a heartbeat
+  // peak). Player counter-play: ram a head before they meet to
+  // DISRUPT (+100 bonus); or, if they grab, ram a head during the
+  // retract window to free the cargo.
+  let dailyMirrorPairs = [];
+  let dailyNextMirrorPairAt = 0;
   let dailyNextThiefAt = 0;        // frame index when next flying thief enters
   let dailyDrones = [];            // [{ x, y, vx, state, stateFrames, beam }] — anti-magnet drones (Phase A3)
   let dailyNextDroneAt = 0;        // frame index when next drone enters
