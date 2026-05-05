@@ -59,9 +59,9 @@
     <canvas id="c"></canvas>
     <div id="hud">
       <div id="title">CARGO DRIFT — CANYON ANCHOR</div>
-      <div id="info">Ship 1 · movement test</div>
+      <div id="info">Ship 2 · pickup &amp; deliver</div>
     </div>
-    <div id="help">TAP anywhere — burst UP + RIGHT. Release: gravity.</div>
+    <div id="help">Tap to fly. Collect 3 BLUE CELLS, drop them at the ANCHOR.</div>
   </div>
 
 <script>
@@ -129,7 +129,35 @@
     { x: W - 110-36, y: 28,         w: 36,  h: 140,        rocky: true  }, // hanging pillar R
     // Mid-air ledge — a simple bridge to fly under or over
     { x: 140,        y: H * 0.45,   w: 100, h: 18,         rocky: true  },
+    // Anchor outpost solid body — bottom-right, treated as a wall so
+    // the ship can't fly through it. The DELIVERY ZONE sits ABOVE
+    // this body (handled separately), so the player has to fly OVER
+    // the dock, not into it.
+    { x: 280,        y: H - 36 - 70, w: 40, h: 70,         outpost: true },
   ];
+
+  // ---- Stabilization Cells — three blue gems scattered along the
+  // natural rightward-rising arc the controls produce. Player has to
+  // pick all three up and drop them at the anchor outpost.
+  const CELL_R       = 7;
+  const CELL_PICK_R  = 16;     // pickup distance (ship → cell)
+  const cells = [
+    { x: 140, y: 420, collected: false, bobPhase: 0.0 },
+    { x: 220, y: 320, collected: false, bobPhase: 1.5 },
+    { x: 300, y: 100, collected: false, bobPhase: 3.0 },
+  ];
+  let heldCells       = 0;     // cells the rig is carrying right now
+  let deliveredCells  = 0;     // cells dropped at the anchor (max 3)
+  let stabilized      = false; // win flag
+  let stabilizedAt    = 0;     // frame when stabilized fired
+
+  // Anchor outpost — its solid body is in `walls` above; this object
+  // also defines the (non-colliding) DELIVERY ZONE that sits above it.
+  const outpost = {
+    x: 280, y: H - 36 - 70, w: 40, h: 70,
+    // Delivery zone (looser than the body so docking isn't pixel-perfect)
+    zone: { x: 268, y: H - 36 - 70 - 60, w: 64, h: 60 },
+  };
 
   // ---- Ship state
   const startX = 60;
@@ -217,6 +245,32 @@
 
     // Hard bounds (defensive — the chamber walls should already catch this)
     if (ship.x < -20 || ship.x > W + 20 || ship.y > H + 60) respawn();
+
+    // ---- Cell pickup: ship overlap with each remaining cell.
+    for (const c of cells) {
+      if (c.collected) continue;
+      const dx = ship.x - c.x;
+      const dy = ship.y - c.y;
+      const r  = CELL_PICK_R + SHIP_W * 0.4;
+      if (dx * dx + dy * dy < r * r) {
+        c.collected = true;
+        heldCells++;
+      }
+    }
+
+    // ---- Delivery: ship in the outpost's delivery zone.
+    if (heldCells > 0 && !stabilized) {
+      const z = outpost.zone;
+      if (ship.x > z.x && ship.x < z.x + z.w
+          && ship.y > z.y && ship.y < z.y + z.h) {
+        deliveredCells += heldCells;
+        heldCells = 0;
+        if (deliveredCells >= 3) {
+          stabilized = true;
+          stabilizedAt = frame;
+        }
+      }
+    }
   }
 
   // ---- Rendering
@@ -236,6 +290,8 @@
   }
 
   function drawWall(w) {
+    // Outpost gets its own renderer (industrial metal, not rock).
+    if (w.outpost) return;
     // Rocky rust-orange canyon block. Three layers: dark backing,
     // mid base fill, lighter highlight strip along the top edge.
     ctx.fillStyle = WALL_COLOR_DARK;
@@ -259,6 +315,172 @@
       const py = w.y + 2 + (seed * 5) % Math.max(1, w.h - 4);
       ctx.fillRect(px, py, 1, 1);
     }
+  }
+
+  function drawCell(c) {
+    if (c.collected) return;
+    const bobY = Math.sin(frame * 0.08 + c.bobPhase) * 2.5;
+    const cx = Math.round(c.x);
+    const cy = Math.round(c.y + bobY);
+    const pulse = 0.5 + 0.5 * Math.sin(frame * 0.12 + c.bobPhase);
+    // Halo
+    ctx.shadowBlur = 9 + pulse * 4;
+    ctx.shadowColor = 'rgba(80, 200, 255, 0.95)';
+    ctx.fillStyle = 'rgba(80, 200, 255, ' + (0.40 + pulse * 0.15) + ')';
+    ctx.beginPath();
+    ctx.arc(cx, cy, CELL_R + 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Diamond gem (rotated square)
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(Math.PI / 4);
+    // Dark backing
+    ctx.fillStyle = '#001830';
+    ctx.fillRect(-CELL_R - 1, -CELL_R - 1, (CELL_R + 1) * 2, (CELL_R + 1) * 2);
+    // Body
+    ctx.fillStyle = '#3ad0ff';
+    ctx.fillRect(-CELL_R, -CELL_R, CELL_R * 2, CELL_R * 2);
+    // Top facet highlight
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fillRect(-CELL_R, -CELL_R, CELL_R * 2, 2);
+    // Bright catchlight
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(-2, -2, 2, 2);
+    ctx.restore();
+  }
+
+  function drawOutpost() {
+    const o = outpost;
+    // Body shadow
+    ctx.fillStyle = '#0a0810';
+    ctx.fillRect(o.x - 2, o.y - 2, o.w + 4, o.h + 4);
+    // Metal column base
+    ctx.fillStyle = '#2a2c38';
+    ctx.fillRect(o.x, o.y, o.w, o.h);
+    // Lighter front face (the "dock face")
+    ctx.fillStyle = '#4a4d5e';
+    ctx.fillRect(o.x + 4, o.y, o.w - 8, o.h);
+    // Vertical edge highlights
+    ctx.fillStyle = 'rgba(160, 175, 200, 0.55)';
+    ctx.fillRect(o.x + 4, o.y, 1, o.h);
+    // Rivets running up both sides
+    ctx.fillStyle = '#0a0810';
+    for (let yy = o.y + 8; yy < o.y + o.h - 4; yy += 12) {
+      ctx.fillRect(o.x + 2, yy, 2, 2);
+      ctx.fillRect(o.x + o.w - 4, yy, 2, 2);
+    }
+    // Recessed socket cup at the very top — glowing receptacle for cells
+    const cupX = o.x + 6;
+    const cupY = o.y;
+    const cupW = o.w - 12;
+    const cupH = 14;
+    ctx.fillStyle = '#070a14';
+    ctx.fillRect(cupX, cupY, cupW, cupH);
+    const glowPulse = stabilized
+      ? 1.0
+      : 0.55 + 0.45 * Math.sin(frame * 0.10);
+    ctx.shadowBlur = stabilized ? 14 : (6 + glowPulse * 4);
+    ctx.shadowColor = stabilized
+      ? 'rgba(140, 255, 220, 0.95)'
+      : 'rgba(80, 200, 255, 0.95)';
+    ctx.fillStyle = stabilized
+      ? 'rgba(140, 255, 220, ' + glowPulse + ')'
+      : 'rgba(100, 220, 255, ' + glowPulse + ')';
+    ctx.fillRect(cupX + 2, cupY + 2, cupW - 4, cupH - 4);
+    ctx.shadowBlur = 0;
+    // Three indicator dots showing how many cells have been delivered
+    for (let i = 0; i < 3; i++) {
+      const ix = o.x + 8 + i * 8;
+      const iy = o.y + 24;
+      if (i < deliveredCells) {
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = 'rgba(120, 240, 255, 0.95)';
+        ctx.fillStyle = '#3ad0ff';
+        ctx.beginPath();
+        ctx.arc(ix, iy, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.beginPath();
+        ctx.arc(ix - 0.7, iy - 0.7, 0.7, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = '#0a0810';
+        ctx.beginPath();
+        ctx.arc(ix, iy, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#3a3c48';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.arc(ix, iy, 2.5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    // Yellow ANCHOR label plate
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(o.x + 4, o.y + 34, o.w - 8, 7);
+    ctx.fillStyle = '#1a0a06';
+    ctx.font = 'bold 5.5px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('ANCHOR', o.x + o.w / 2, o.y + 37.5);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+    // Foot anchor — tucks the dock into the floor
+    ctx.fillStyle = '#1a1a22';
+    ctx.fillRect(o.x - 4, o.y + o.h - 4, o.w + 8, 4);
+  }
+
+  function drawHeldCells() {
+    // Held cells orbit the ship as small blue dots — also gives a
+    // visual cue that you have cargo.
+    if (heldCells === 0) return;
+    for (let i = 0; i < heldCells; i++) {
+      const ang = frame * 0.10 + i * (Math.PI * 2 / 3);
+      const r = 18;
+      const x = ship.x + Math.cos(ang) * r;
+      const y = ship.y + Math.sin(ang) * r * 0.55 - 4;
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(80, 200, 255, 0.95)';
+      ctx.fillStyle = '#3ad0ff';
+      ctx.beginPath();
+      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.beginPath();
+      ctx.arc(x - 0.7, y - 0.7, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawStabilizedBanner() {
+    if (!stabilized) return;
+    const elapsed = frame - stabilizedAt;
+    const fade = Math.min(1, elapsed / 30);
+    // Slight darken so the banner pops
+    ctx.fillStyle = 'rgba(8, 14, 24, ' + (0.55 * fade) + ')';
+    ctx.fillRect(0, 0, W, H);
+    const bannerY = H * 0.42;
+    ctx.fillStyle = 'rgba(0, 30, 50, ' + (0.90 * fade) + ')';
+    ctx.fillRect(20, bannerY - 32, W - 40, 64);
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'rgba(120, 240, 255, 0.95)';
+    ctx.strokeStyle = 'rgba(140, 250, 255, ' + fade + ')';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(20.5, bannerY - 31.5, W - 41, 63);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(180, 255, 230, ' + fade + ')';
+    ctx.font = 'bold 28px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('STABILIZED', W / 2, bannerY - 6);
+    ctx.fillStyle = 'rgba(244, 216, 160, ' + fade + ')';
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText('All 3 cells delivered to the anchor', W / 2, bannerY + 18);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
   }
 
   function drawShip() {
@@ -336,18 +558,27 @@
     ctx.font = '8px -apple-system, sans-serif';
     ctx.fillText('vx', barX + barW + 6, barY + 4);
     ctx.fillText('vy', barX + barW + 6, barY + barH + 6);
-    // Death counter
+    // Cell counter — held cells (carrying) + delivered (lit)
     ctx.fillStyle = 'rgba(244, 216, 160, 0.85)';
     ctx.font = 'bold 11px -apple-system, sans-serif';
-    ctx.fillText('CRASHES: ' + ship.deaths, 14, H - 36);
+    ctx.fillText('HELD: ' + heldCells + '   DELIVERED: ' + deliveredCells + '/3',
+                 14, H - 36);
+    // Death counter — smaller, off to the side
+    ctx.fillStyle = 'rgba(244, 216, 160, 0.55)';
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.fillText('crashes ' + ship.deaths, W - 60, H - 36);
   }
 
   function render() {
     ctx.clearRect(0, 0, W, H);
     drawSky();
     for (const w of walls) drawWall(w);
+    drawOutpost();
+    for (const c of cells) drawCell(c);
     drawShip();
+    drawHeldCells();
     drawHUD();
+    drawStabilizedBanner();
   }
 
   function loop() {
