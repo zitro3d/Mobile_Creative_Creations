@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v328';
+const DLX_BUILD = 'v329';
 
 (function() {
   // ---------- Device detection ----------
@@ -3972,6 +3972,15 @@ const DLX_BUILD = 'v328';
   try { muted = localStorage.getItem('dlx_muted_v2') === '1'; } catch (e) {}
 
   let bird, pipes, sparks, exhaust, score, best, frame, flashAlpha, burstFrames, shakeFrames, scorePulse, thrusterFrames, flapCount, pipeSpawnCount;
+  // Pro-tier ship feedback (v329):
+  //   kickbackFrames: small 2px camera shake fired by the Freighter on
+  //     each flap, ~100ms (6 frames at 60fps). Independent of the bigger
+  //     shakeFrames system used for explosions.
+  //   tiltDisplay:    smoothed rotation actually applied to the rig
+  //     sprite — LERPs toward a target each frame so the rotation never
+  //     snaps. Used by drawBird in organic-theme levels.
+  let kickbackFrames = 0;
+  let tiltDisplay = 0;
   // SCRAP — meta-currency earned during play, banked at run end.
   // runTokens accumulates this run; tokensTotal is the persistent balance.
   let runTokens = 0;
@@ -7130,6 +7139,11 @@ const DLX_BUILD = 'v328';
       lastFlapFrame = frame;
       thrusterFrames = doubleFlap ? 8 : 5;
       flapCount++;
+      // Engine kickback — only the heavy Freighter class kicks the
+      // camera 2px on thrust. ~6 frames at 60fps = ~100ms.
+      if (selectedShip === 'freighter') {
+        kickbackFrames = 6;
+      }
       // Every 5th or 6th tap the engine backfires: extra smoke puff
       const isBackfire = flapCount > 0 && (flapCount % 5 === 0 || flapCount % 6 === 0);
       emitExhaustBurst(isBackfire ? 12 : 5, isBackfire);
@@ -7139,7 +7153,14 @@ const DLX_BUILD = 'v328';
   }
 
   function emitExhaustBurst(n, big) {
-    for (let i = 0; i < n; i++) {
+    // Pro-tier polish (v329): in organic-theme levels every thrust
+    // emits a fatter burst of sooty particles instead of the lean
+    // stock 5. Cap kept at 50 elsewhere so the array doesn't grow
+    // unbounded during long runs.
+    const organic = isDaily && currentDeliveryLevel
+                    && currentDeliveryLevel.obstacleTheme === 'organic';
+    const count = organic ? Math.max(n, 10) : n;
+    for (let i = 0; i < count; i++) {
       const angle = Math.PI + (Math.random() - 0.5) * 0.9;
       const speed = 0.4 + Math.random() * (big ? 1.8 : 0.8);
       exhaust.push({
@@ -7149,7 +7170,11 @@ const DLX_BUILD = 'v328';
         vy: Math.sin(angle) * speed + (Math.random() - 0.5) * 0.4,
         r: (big ? 4 : 2.5) + Math.random() * 2,
         a: big ? 0.75 : 0.55,
-        dirty: big || Math.random() < 0.35,   // darker greasy puffs
+        dirty: organic ? true : (big || Math.random() < 0.35),
+        // Organic-theme particles get a sooty grey/dark-orange tint
+        // and drift left a bit faster so they read as engine kickback
+        // smoke rather than the original wasteland trail.
+        sooty: organic,
       });
     }
   }
@@ -7201,7 +7226,9 @@ const DLX_BUILD = 'v328';
         a: 0.45,
         dirty: Math.random() < 0.4,
       });
-      if (exhaust.length > 80) exhaust.shift();
+      // Pro-tier cap (was 80) — keeps the particle array bounded so
+      // long runs don't accumulate ghost particles into a memory leak.
+      while (exhaust.length > 50) exhaust.shift();
     }
     for (let i = exhaust.length - 1; i >= 0; i--) {
       const p = exhaust[i];
@@ -20273,11 +20300,21 @@ const DLX_BUILD = 'v328';
   function drawExhaust() {
     if (exhaust.length === 0) return;
     const pal = trailPalette();
+    // Pro-tier polish (v329): sooty exhaust palette for organic-theme
+    // levels. Greasy charcoal core with a dark-orange ember rim.
+    const sootyStops = [
+      [0,    'rgba(50, 50, 56, 0.95)'],
+      [0.45, 'rgba(80, 60, 40, 0.55)'],
+      [0.85, 'rgba(140, 70, 30, 0.20)'],
+      [1,    'rgba(0, 0, 0, 0)'],
+    ];
     ctx.save();
     for (const p of exhaust) {
       ctx.globalAlpha = Math.max(0, p.a);
       const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
-      const stops = p.dirty ? pal.dirtyStops : pal.smokeStops;
+      const stops = p.sooty
+        ? sootyStops
+        : (p.dirty ? pal.dirtyStops : pal.smokeStops);
       for (const s of stops) g.addColorStop(s[0], s[1]);
       ctx.fillStyle = g;
       ctx.beginPath();
@@ -20340,7 +20377,22 @@ const DLX_BUILD = 'v328';
     ctx.translate(Math.round(bird.x + wobbleX), Math.round(bird.y + wobbleY));
 
     // Base tilt from velocity, clamped to ±20°
-    const tilt = Math.max(-0.349, Math.min(0.349, bird.vy * 0.1));
+    // Base tilt from velocity (Sunset behavior).
+    let tilt = Math.max(-0.349, Math.min(0.349, bird.vy * 0.1));
+    // Pro-tier polish (v329): in organic-theme levels the rig also
+    // visually KICKS UP -15° on thrust and tilts +15° down on coast.
+    // The displayed tilt LERPs toward the target each frame so the
+    // rotation never snaps. Reaches ~75% of target in 5 frames at the
+    // 0.25 lerp factor, matching the spec.
+    if (isDaily && currentDeliveryLevel
+        && currentDeliveryLevel.obstacleTheme === 'organic'
+        && state === STATE_PLAY) {
+      const target = (thrusterFrames > 0) ? -0.262 : 0.262;
+      tiltDisplay += (target - tiltDisplay) * 0.25;
+      tilt = tilt * 0.35 + tiltDisplay * 0.65;       // blend with vy tilt
+    } else {
+      tiltDisplay = tilt;                            // keep in sync for clean transitions
+    }
 
     // Front of the ship uses the base tilt
     ctx.save();
@@ -21050,6 +21102,13 @@ const DLX_BUILD = 'v328';
       const oy = (Math.random() * 2 - 1) * 5;
       ctx.translate(ox, oy);
       shakeFrames--;
+    } else if (kickbackFrames > 0) {
+      // Pro-tier polish (v329): tiny 2px Freighter kickback shake when
+      // no bigger shake is already running. ~6 frames = ~100ms at 60fps.
+      const ox = (Math.random() * 2 - 1) * 2;
+      const oy = (Math.random() * 2 - 1) * 2;
+      ctx.translate(ox, oy);
+      kickbackFrames--;
     }
     if (isDaily) drawDailySky();
     else drawBackground();
