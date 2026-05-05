@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v346';
+const DLX_BUILD = 'v347';
 
 (function() {
   // ---------- Device detection ----------
@@ -2397,6 +2397,11 @@ const DLX_BUILD = 'v346';
   // debugging / free-play. Public visitors see only the ship picker and
   // experience each biome as a surprise on reaching its score threshold.
   const IS_DEV_MODE = /(?:^|[?&])dev=1(?:&|$)/.test(window.location.search);
+  // ?bg=canyon swaps the daily Sunset Wastes horizon for a canyon-mesa
+  // hybrid: citadel pushed deep + tiny + hazy, mesa/spire silhouettes
+  // in front of it, boulders replacing the outposts near foreground.
+  // No flag = original citadel skyline.
+  const USE_CANYON_BG = /(?:^|[?&])bg=canyon(?:&|$)/.test(window.location.search);
   if (!IS_DEV_MODE) {
     // Remove the theme picker from the DOM entirely in public mode so it
     // can never be reached, and wipe any dev-mode leftover so the next
@@ -10836,7 +10841,88 @@ const DLX_BUILD = 'v346';
     if (!isDaily) return;
     ctx.save();
 
-    if (currentDeliveryLevel.horizonStyle === 'citadel') {
+    if (currentDeliveryLevel.horizonStyle === 'citadel' && USE_CANYON_BG) {
+      // ---- HYBRID CANYON BACKDROP (?bg=canyon flag) ----
+      // Citadel still in there but pushed DEEP and small — we layer a
+      // mid-distance band of stratified mesas + spires in front of it
+      // and swap the closer outpost ruins for chunks of canyon
+      // boulders. Reads as "the rig is running a route through canyon
+      // country toward a distant industrial city."
+
+      // 1) Distant citadel layer — same call as the original but with
+      //    a SMALLER footprint Y, slower parallax, and a heavier haze
+      //    pass on top so it reads as "many miles away."
+      const citY = PLAY_H * 0.52;            // higher (further) than 0.62
+      const citScroll = dailyScrollX * 0.04; // slower parallax
+      const citPattern = 260;
+      const startB = Math.floor((citScroll - 60) / citPattern) - 1;
+      const endB   = Math.floor((citScroll + W + 60) / citPattern) + 1;
+      ctx.save();
+      ctx.globalAlpha = 0.55;                // tiny + hazy
+      for (let b = startB; b <= endB; b++) {
+        const baseSeed = b * 0.5739 + 3.11;
+        const groupX = b * citPattern - citScroll;
+        if (srand(baseSeed) < 0.50) continue; // sparser
+        // No "hero" citadel in canyon mode — keep the city feeling tiny
+        drawCitadelGroup(groupX, citY, baseSeed, false);
+      }
+      ctx.restore();
+
+      // 2) Heavy haze veil over the citadel — pushes it WAY back
+      ctx.fillStyle = 'rgba(248, 200, 144, 0.50)';
+      ctx.fillRect(0, 0, W, citY + 12);
+
+      // 3) MID layer — canyon mesas + spires silhouetted against the
+      //    sky. Generated procedurally per slot from a seed so the same
+      //    world position always renders the same shape.
+      const mesaY = PLAY_H * 0.66;
+      const mesaScroll = dailyScrollX * 0.12;
+      const mesaPattern = 150;
+      const startM = Math.floor((mesaScroll - 80) / mesaPattern) - 1;
+      const endM   = Math.floor((mesaScroll + W + 80) / mesaPattern) + 1;
+      for (let m = startM; m <= endM; m++) {
+        const seed = m * 0.7193 + 1.77;
+        const mx = m * mesaPattern - mesaScroll;
+        if (srand(seed) < 0.18) continue;     // gaps so it's not a wall
+        drawCanyonMesa(mx, mesaY, seed);
+      }
+
+      // Slightly cooler haze stripe across the mesa layer to layer
+      // depth between mesas and the closer foreground.
+      ctx.fillStyle = 'rgba(220, 150, 100, 0.20)';
+      ctx.fillRect(0, mesaY - 30, W, 50);
+
+      // 4) Flying specks (kept — fits canyon "carrion bird" vibe)
+      ctx.fillStyle = 'rgba(40, 18, 8, 0.7)';
+      for (let i = 0; i < 10; i++) {
+        const baseX = (i * 91 + 31) - mesaScroll;
+        const sx = ((baseX % (W + 80)) + (W + 80)) % (W + 80) - 40;
+        const sy = PLAY_H * (0.22 + (i % 5) * 0.05)
+                + Math.sin((dailyScrollX * 0.02 + i * 0.7)) * 4;
+        ctx.beginPath();
+        ctx.moveTo(sx - 2, sy);
+        ctx.lineTo(sx,     sy - 1);
+        ctx.lineTo(sx + 2, sy);
+        ctx.lineTo(sx,     sy + 0.4);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // 5) NEAR layer — boulder clusters where the outposts used to
+      //    sit. Reads as foreground rocks the rig is flying over.
+      const boulderY = PLAY_H * 0.79;
+      const bScroll = dailyScrollX * 0.20;
+      const bPattern = 200;
+      const startBo = Math.floor((bScroll - 40) / bPattern) - 1;
+      const endBo   = Math.floor((bScroll + W + 40) / bPattern) + 1;
+      for (let b = startBo; b <= endBo; b++) {
+        const seed = b * 0.4173 + 7.91;
+        if (srand(seed) < 0.55) continue;
+        const bx = b * bPattern - bScroll + Math.floor(srand(seed + 0.3) * 60);
+        drawCanyonBoulderCluster(bx, boulderY, seed);
+      }
+
+    } else if (currentDeliveryLevel.horizonStyle === 'citadel') {
       // ---- Citadel silhouette layer (deepest, slowest parallax) ----
       // Repeating chunks of tall sandstone industrial blocks across the
       // horizon, with smoke columns and oxidized-copper roof bands. Most
@@ -11273,6 +11359,114 @@ const DLX_BUILD = 'v346';
       ctx.fillRect(b.x + b.w - 1, baseY - b.h, 1, b.h);
       ctx.fillStyle = 'rgba(60, 24, 12, 0.4)';
       ctx.fillRect(b.x, baseY - b.h, 1, b.h);
+    }
+  }
+
+  // Canyon backdrop helpers (?bg=canyon flag).
+  // A "mesa" is a flat-topped sandstone block; a "spire" is a tall
+  // narrow column. Each call renders ONE silhouette positioned with
+  // its base on baseY, colored to fit the warm sunset palette and
+  // lit from the upper-left so it reads as catching the late sun.
+  function drawCanyonMesa(gx, baseY, seed) {
+    // Random shape choice from the seed: 0 = wide stratified mesa,
+    // 1 = tall thin spire, 2 = stepped multi-tier butte.
+    const shape = Math.floor(srand(seed + 1.13) * 3);
+    const w = shape === 0 ? 60 + Math.floor(srand(seed + 0.21) * 30)
+            : shape === 1 ? 18 + Math.floor(srand(seed + 0.21) * 14)
+            :               45 + Math.floor(srand(seed + 0.21) * 22);
+    const h = shape === 0 ? 50 + Math.floor(srand(seed + 0.39) * 24)
+            : shape === 1 ? 80 + Math.floor(srand(seed + 0.39) * 30)
+            :               60 + Math.floor(srand(seed + 0.39) * 20);
+    const left = gx - w / 2;
+    const top  = baseY - h;
+    // Silhouette body — rust-orange with tone darker than nearer rock
+    ctx.fillStyle = '#7a3018';
+    ctx.fillRect(left, top, w, h);
+    // Light side strip (upper-left edge catches the sun)
+    ctx.fillStyle = '#a85020';
+    ctx.fillRect(left, top, Math.max(2, Math.floor(w * 0.18)), h);
+    // Cap on top — slightly lighter, only on shape 0/2
+    if (shape !== 1) {
+      ctx.fillStyle = '#c87038';
+      ctx.fillRect(left, top, w, 3);
+    } else {
+      // Spire pointed cap — small triangle
+      ctx.fillStyle = '#a85020';
+      ctx.beginPath();
+      ctx.moveTo(left,         top + 3);
+      ctx.lineTo(left + w / 2, top - 6);
+      ctx.lineTo(left + w,     top + 3);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Strata bands — horizontal sandstone layers
+    ctx.fillStyle = 'rgba(40, 14, 8, 0.55)';
+    const stratStep = shape === 1 ? 18 : 14;
+    for (let yy = top + stratStep; yy < top + h; yy += stratStep) {
+      ctx.fillRect(left, yy, w, 1);
+    }
+    // Shadow side strip (right edge)
+    ctx.fillStyle = 'rgba(20, 6, 4, 0.45)';
+    ctx.fillRect(left + w - Math.max(2, Math.floor(w * 0.10)), top,
+                 Math.max(2, Math.floor(w * 0.10)), h);
+    // Stepped butte: a smaller second tier on top of shape 2
+    if (shape === 2) {
+      const tierW = Math.floor(w * 0.55);
+      const tierH = 18 + Math.floor(srand(seed + 0.51) * 8);
+      const tierX = left + Math.floor(w * 0.20);
+      ctx.fillStyle = '#7a3018';
+      ctx.fillRect(tierX, top - tierH, tierW, tierH);
+      ctx.fillStyle = '#a85020';
+      ctx.fillRect(tierX, top - tierH,
+                   Math.max(2, Math.floor(tierW * 0.18)), tierH);
+      ctx.fillStyle = '#c87038';
+      ctx.fillRect(tierX, top - tierH, tierW, 2);
+    }
+    // A few pebble specks scattered on the face for texture
+    ctx.fillStyle = 'rgba(255, 200, 130, 0.35)';
+    for (let i = 0; i < 4; i++) {
+      const px = left + 2 + Math.floor(srand(seed + i * 0.13) * (w - 4));
+      const py = top  + 2 + Math.floor(srand(seed + i * 0.17) * (h - 4));
+      ctx.fillRect(px, py, 1, 1);
+    }
+  }
+
+  // A small cluster of foreground boulders — replaces the citadel
+  // outposts in canyon mode. Three or four overlapping rounded rocks
+  // with a shared shadow underneath.
+  function drawCanyonBoulderCluster(gx, baseY, seed) {
+    const count = 2 + Math.floor(srand(seed + 0.07) * 3);  // 2-4
+    // Shared shadow under the cluster
+    ctx.fillStyle = 'rgba(20, 6, 4, 0.45)';
+    ctx.beginPath();
+    ctx.ellipse(gx, baseY + 2, 22 + count * 4, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    for (let i = 0; i < count; i++) {
+      const ox = Math.floor((i - (count - 1) / 2) * 14
+                            + (srand(seed + i * 0.31) - 0.5) * 6);
+      const r  = 6 + Math.floor(srand(seed + i * 0.41) * 5);
+      const cx = gx + ox;
+      const cy = baseY - r * 0.85;
+      // Outline / dark backing
+      ctx.fillStyle = '#3a1408';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 0.6, 0, Math.PI * 2);
+      ctx.fill();
+      // Body — rust orange
+      ctx.fillStyle = '#7a3014';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      // Lit side (upper-left)
+      ctx.fillStyle = '#a85020';
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.30, cy - r * 0.35, r * 0.65, 0, Math.PI * 2);
+      ctx.fill();
+      // Specular dot
+      ctx.fillStyle = 'rgba(255, 200, 130, 0.65)';
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.45, cy - r * 0.45, r * 0.18, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
