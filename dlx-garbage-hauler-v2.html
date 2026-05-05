@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v332';
+const DLX_BUILD = 'v333';
 
 (function() {
   // ---------- Device detection ----------
@@ -16007,41 +16007,72 @@ const DLX_BUILD = 'v332';
       ctx.rotate(ang);
 
       // ---- TENTACLES — six long flowing tentacles streaming behind
-      // the bell. Each tentacle is a wavy stroke from the bell's back
-      // edge, drawn first so the bell sits on top of them.
+      // the bell. v333 applied the same 4-pass lighting language used
+      // on the ground octopus arms so the jellyfish reads in the same
+      // bioluminescent vocabulary: outer magenta glow halo + tapered
+      // body + heartbeat-pulsing inner stripe + glowing cyan tip
+      // nodule per tentacle.
       const TENT_COUNT = 6;
       const TENT_LEN   = bellR * 4.8;
-      ctx.strokeStyle = 'rgba(255, 120, 200, 0.85)';
-      ctx.lineWidth = 1.4;
+      // Heartbeat sync — matches the octopus-arm pulse envelope so the
+      // jellyfish trail throbs in time with the rest of the cavity.
+      const _hbP = (currentDeliveryLevel && currentDeliveryLevel.pulsePeriodFrames) || 210;
+      const _hbT = (frame % _hbP) / _hbP;
+      const tBeat = Math.max(
+        0,
+        Math.sin(Math.PI * Math.min(1, _hbT * 5.0)) * (1 - _hbT * 0.6)
+      );
       ctx.lineCap = 'round';
       for (let t = 0; t < TENT_COUNT; t++) {
         const yOff = -bellR * 0.55 + t * (bellR * 1.1 / (TENT_COUNT - 1));
         const phase = lb.life * 0.35 + t * 1.1 + lb.seed;
-        ctx.beginPath();
-        ctx.moveTo(-bellR * 0.85, yOff);
+        // Build the path once so the four passes can iterate it.
+        const pts = [];
+        pts.push({ x: -bellR * 0.85, y: yOff });
         for (let s = 1; s <= 10; s++) {
           const tt = s / 10;
           const px = -bellR * 0.85 - tt * TENT_LEN;
           const py = yOff + Math.sin(phase + tt * 3.0) * (1.2 + tt * 4.0);
-          ctx.lineTo(px, py);
+          pts.push({ x: px, y: py });
         }
-        ctx.stroke();
-      }
-      // Brighter inner highlight strand running through each tentacle
-      ctx.strokeStyle = 'rgba(255, 220, 240, 0.6)';
-      ctx.lineWidth = 0.5;
-      for (let t = 0; t < TENT_COUNT; t++) {
-        const yOff = -bellR * 0.55 + t * (bellR * 1.1 / (TENT_COUNT - 1));
-        const phase = lb.life * 0.35 + t * 1.1 + lb.seed;
+        // PASS 1: outer magenta glow halo — single thick translucent
+        // stroke with shadowBlur so the tentacle silhouette pops.
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(255, 100, 180, 0.95)';
+        ctx.strokeStyle = 'rgba(255, 110, 180, 0.40)';
+        ctx.lineWidth = 3.2;
         ctx.beginPath();
-        ctx.moveTo(-bellR * 0.85, yOff);
-        for (let s = 1; s <= 10; s++) {
-          const tt = s / 10;
-          const px = -bellR * 0.85 - tt * TENT_LEN;
-          const py = yOff + Math.sin(phase + tt * 3.0) * (1.2 + tt * 4.0);
-          ctx.lineTo(px, py);
-        }
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let s = 1; s < pts.length; s++) ctx.lineTo(pts[s].x, pts[s].y);
         ctx.stroke();
+        ctx.shadowBlur = 0;
+        // PASS 2: tapered body — saturated magenta
+        ctx.strokeStyle = '#c8326a';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let s = 1; s < pts.length; s++) ctx.lineTo(pts[s].x, pts[s].y);
+        ctx.stroke();
+        // PASS 3: heartbeat-pulsing inner stripe (brighter pink)
+        ctx.strokeStyle = 'rgba(255, 180, 220, ' + (0.78 + tBeat * 0.20) + ')';
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let s = 1; s < pts.length; s++) ctx.lineTo(pts[s].x, pts[s].y);
+        ctx.stroke();
+        // PASS 4: glowing cyan tip nodule at the end of the tentacle
+        const tipP = pts[pts.length - 1];
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = 'rgba(140, 255, 200, 0.95)';
+        ctx.fillStyle = 'rgba(180, 255, 220, 0.95)';
+        ctx.beginPath();
+        ctx.arc(tipP.x, tipP.y, 1.4 + tBeat * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 255, 250, 0.95)';
+        ctx.beginPath();
+        ctx.arc(tipP.x, tipP.y, 0.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
       }
 
       // ---- OUTER GLOW HALO — soft magenta light around the bell.
