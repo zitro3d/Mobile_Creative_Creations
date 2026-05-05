@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1a0808">
+  <title>Cargo Drift — Canyon Anchor (Ship 1)</title>
+  <style>
+    html, body {
+      margin: 0; padding: 0; overflow: hidden;
+      background: #0a0408; color: #f4d8a0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none; -webkit-user-select: none;
+      width: 100%; height: 100%;
+    }
+    body {
+      display: flex; align-items: center; justify-content: center;
+      width: 100vw; height: 100vh; height: 100dvh;
+    }
+    #wrap {
+      position: relative;
+      width: 100%; height: 100%;
+    }
+    #c {
+      display: block;
+      position: absolute; left: 0; top: 0;
+      width: 100%; height: 100%;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+    #hud {
+      position: absolute; left: 0; right: 0; top: 0;
+      padding: max(12px, env(safe-area-inset-top)) 14px 0 14px;
+      display: flex; justify-content: space-between; align-items: center;
+      pointer-events: none;
+      font-size: 12px; letter-spacing: 0.06em;
+      color: #ffd83d;
+      text-shadow: 0 1px 2px #000, 0 0 6px #1a0408;
+    }
+    #title { font-weight: 800; }
+    #info  { opacity: 0.85; }
+    #help {
+      position: absolute; left: 0; right: 0;
+      bottom: max(18px, env(safe-area-inset-bottom));
+      text-align: center;
+      pointer-events: none;
+      font-size: 12px; opacity: 0.8;
+      color: #f4d8a0;
+      text-shadow: 0 1px 2px #000;
+    }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="c"></canvas>
+    <div id="hud">
+      <div id="title">CARGO DRIFT — CANYON ANCHOR</div>
+      <div id="info">Ship 1 · movement test</div>
+    </div>
+    <div id="help">TAP anywhere — burst UP + RIGHT. Release: gravity.</div>
+  </div>
+
+<script>
+(function () {
+  // ---- Logical canvas size (portrait). The CSS scales the canvas to
+  // fit the viewport while we render to a fixed pixel grid so the look
+  // stays consistent on every device.
+  const W = 360;
+  const H = 640;
+
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  canvas.width = W;
+  canvas.height = H;
+
+  function fitCanvas() {
+    // Fit the canvas to the viewport while preserving the W:H aspect.
+    const wrap = document.getElementById('wrap');
+    const ww = wrap.clientWidth;
+    const wh = wrap.clientHeight;
+    const scale = Math.min(ww / W, wh / H);
+    const dispW = Math.round(W * scale);
+    const dispH = Math.round(H * scale);
+    canvas.style.width  = dispW + 'px';
+    canvas.style.height = dispH + 'px';
+    canvas.style.left   = Math.round((ww - dispW) / 2) + 'px';
+    canvas.style.top    = Math.round((wh - dispH) / 2) + 'px';
+  }
+  window.addEventListener('resize', fitCanvas);
+  fitCanvas();
+
+  // ---- Physics constants (tunable; the whole point of Ship 1 is to
+  // dial these in until the tap-flap-thrust feel is right).
+  const GRAVITY     = 0.42;        // per-frame downward pull on vy
+  const MAX_FALL    = 9.0;         // terminal vy
+  const LIFT        = -6.5;        // vy on tap (upward burst)
+  const FORWARD     = 4.5;         // vx set on tap (rightward push)
+  const VX_DECAY    = 0.965;       // per-frame horizontal drag
+  const MAX_VX      = 6.5;
+  const SHIP_W      = 18;
+  const SHIP_H      = 14;
+
+  // ---- Level geometry — Ship 1 is a single chamber. Walls are solid
+  // rocky pillars + the floor, ceiling, and side-walls of the chamber.
+  // No bandits, no collectibles, no scroll yet — just a space to fly
+  // around in to feel the controls out.
+  const WALL_COLOR_BASE  = '#7a3014';
+  const WALL_COLOR_LIGHT = '#a85020';
+  const WALL_COLOR_DARK  = '#3a1408';
+  const SKY_TOP          = '#3a1422';
+  const SKY_MID          = '#7a3a26';
+  const SKY_BOT          = '#c87038';
+
+  // Each wall is an axis-aligned rectangle {x, y, w, h}. Ship 1 keeps
+  // collision simple — AABB only. Ship 2+ can move to polygon walls
+  // for the 45° ramps.
+  const walls = [
+    // Outer chamber bounds — left, right, top, bottom
+    { x: 0,          y: 0,          w: 24,  h: H,          rocky: true  }, // left wall
+    { x: W - 24,     y: 0,          w: 24,  h: H,          rocky: true  }, // right wall
+    { x: 0,          y: 0,          w: W,   h: 28,         rocky: true  }, // ceiling
+    { x: 0,          y: H - 36,     w: W,   h: 36,         rocky: true  }, // floor
+    // Two interior pillars for navigation feel
+    { x: 110,        y: H - 36 - 120, w: 36, h: 120,       rocky: true  }, // ground pillar L
+    { x: W - 110-36, y: 28,         w: 36,  h: 140,        rocky: true  }, // hanging pillar R
+    // Mid-air ledge — a simple bridge to fly under or over
+    { x: 140,        y: H * 0.45,   w: 100, h: 18,         rocky: true  },
+  ];
+
+  // ---- Ship state
+  const startX = 60;
+  const startY = H - 36 - 80;
+  const ship = {
+    x: startX, y: startY,
+    vx: 0, vy: 0,
+    rot: 0,
+    thruster: 0,             // counts down after each tap (for flame render)
+    deaths: 0,
+    invuln: 0,               // post-respawn i-frames
+  };
+
+  // ---- Input — single tap anywhere on the screen
+  function flap() {
+    ship.vy = LIFT;
+    // Tap sets vx (doesn't add) — keeps top speed predictable + lets
+    // the ship coast then re-thrust cleanly.
+    ship.vx = Math.max(ship.vx, FORWARD);
+    ship.thruster = 8;
+  }
+  function onPointer(e) {
+    if (e.cancelable) e.preventDefault();
+    flap();
+  }
+  canvas.addEventListener('pointerdown', onPointer, { passive: false });
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      flap();
+    }
+  });
+
+  function respawn() {
+    ship.x = startX;
+    ship.y = startY;
+    ship.vx = 0;
+    ship.vy = 0;
+    ship.rot = 0;
+    ship.thruster = 0;
+    ship.deaths++;
+    ship.invuln = 60;
+  }
+
+  // ---- Collision: ship AABB vs wall AABB
+  function shipHits(wall) {
+    return (
+      ship.x - SHIP_W / 2 < wall.x + wall.w &&
+      ship.x + SHIP_W / 2 > wall.x &&
+      ship.y - SHIP_H / 2 < wall.y + wall.h &&
+      ship.y + SHIP_H / 2 > wall.y
+    );
+  }
+
+  // ---- Game loop
+  let frame = 0;
+  function update() {
+    frame++;
+    // Physics
+    ship.vy += GRAVITY;
+    if (ship.vy > MAX_FALL) ship.vy = MAX_FALL;
+    ship.vx *= VX_DECAY;
+    if (Math.abs(ship.vx) < 0.02) ship.vx = 0;
+    if (ship.vx > MAX_VX) ship.vx = MAX_VX;
+    ship.x += ship.vx;
+    ship.y += ship.vy;
+
+    // Rotation drives off vy (nose up on rise, nose down on fall).
+    const targetRot = Math.max(-0.6, Math.min(1.0, ship.vy * 0.10));
+    ship.rot += (targetRot - ship.rot) * 0.18;
+
+    if (ship.thruster > 0) ship.thruster--;
+    if (ship.invuln > 0)   ship.invuln--;
+
+    // Wall collisions — Ship 1 just respawns. Ship 2+ can swap to
+    // proper resolve-and-slide.
+    if (ship.invuln === 0) {
+      for (const w of walls) {
+        if (shipHits(w)) {
+          respawn();
+          break;
+        }
+      }
+    }
+
+    // Hard bounds (defensive — the chamber walls should already catch this)
+    if (ship.x < -20 || ship.x > W + 20 || ship.y > H + 60) respawn();
+  }
+
+  // ---- Rendering
+  function drawSky() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0,    SKY_TOP);
+    g.addColorStop(0.55, SKY_MID);
+    g.addColorStop(1,    SKY_BOT);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    // Distant haze stripes for atmosphere
+    ctx.fillStyle = 'rgba(200, 130, 80, 0.10)';
+    for (let i = 0; i < 6; i++) {
+      const y = H * 0.20 + i * 16 + (frame * 0.15) % 16;
+      ctx.fillRect(0, y, W, 1);
+    }
+  }
+
+  function drawWall(w) {
+    // Rocky rust-orange canyon block. Three layers: dark backing,
+    // mid base fill, lighter highlight strip along the top edge.
+    ctx.fillStyle = WALL_COLOR_DARK;
+    ctx.fillRect(w.x - 1, w.y - 1, w.w + 2, w.h + 2);
+    ctx.fillStyle = WALL_COLOR_BASE;
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    // Top highlight (lighter rust band)
+    ctx.fillStyle = WALL_COLOR_LIGHT;
+    ctx.fillRect(w.x, w.y, w.w, 3);
+    // Subtle horizontal strata lines every 14 px so the rock has
+    // bedded layers like sandstone.
+    ctx.fillStyle = 'rgba(40, 14, 8, 0.45)';
+    for (let yy = w.y + 14; yy < w.y + w.h; yy += 14) {
+      ctx.fillRect(w.x, yy, w.w, 1);
+    }
+    // Tiny pebble dots scattered on the face (deterministic per wall)
+    ctx.fillStyle = 'rgba(255, 200, 130, 0.30)';
+    for (let i = 0; i < Math.max(3, Math.floor((w.w * w.h) / 800)); i++) {
+      const seed = (w.x * 7 + w.y * 13 + i * 31) % 997;
+      const px = w.x + 2 + (seed * 3) % Math.max(1, w.w - 4);
+      const py = w.y + 2 + (seed * 5) % Math.max(1, w.h - 4);
+      ctx.fillRect(px, py, 1, 1);
+    }
+  }
+
+  function drawShip() {
+    ctx.save();
+    ctx.translate(Math.round(ship.x), Math.round(ship.y));
+    ctx.rotate(ship.rot);
+
+    // i-frame flicker
+    if (ship.invuln > 0 && Math.floor(frame / 4) % 2 === 0) {
+      ctx.globalAlpha = 0.55;
+    }
+
+    // Thruster plume — short flame behind the ship when freshly tapped
+    if (ship.thruster > 0) {
+      const t = ship.thruster / 8;
+      const len = 4 + t * 10;
+      ctx.fillStyle = 'rgba(255, 200, 60, 0.85)';
+      ctx.beginPath();
+      ctx.moveTo(-SHIP_W / 2,             0);
+      ctx.lineTo(-SHIP_W / 2 - len,       -2 * t);
+      ctx.lineTo(-SHIP_W / 2 - len * 0.6, 0);
+      ctx.lineTo(-SHIP_W / 2 - len,       2 * t);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 240, 180, 0.95)';
+      ctx.beginPath();
+      ctx.moveTo(-SHIP_W / 2,             0);
+      ctx.lineTo(-SHIP_W / 2 - len * 0.55, -1.2 * t);
+      ctx.lineTo(-SHIP_W / 2 - len * 0.4, 0);
+      ctx.lineTo(-SHIP_W / 2 - len * 0.55, 1.2 * t);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Hull — boxy cargo drone, dark red with a yellow nose stripe
+    ctx.fillStyle = '#1a0408';
+    ctx.fillRect(-SHIP_W / 2 - 1, -SHIP_H / 2 - 1, SHIP_W + 2, SHIP_H + 2);
+    ctx.fillStyle = '#a02818';
+    ctx.fillRect(-SHIP_W / 2, -SHIP_H / 2, SHIP_W, SHIP_H);
+    // Nose stripe (right side — the forward direction)
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(SHIP_W / 2 - 4, -SHIP_H / 2, 4, SHIP_H);
+    ctx.fillStyle = '#1a0408';
+    ctx.fillRect(SHIP_W / 2 - 4, -SHIP_H / 2, 4, 1);
+    ctx.fillRect(SHIP_W / 2 - 4,  SHIP_H / 2 - 1, 4, 1);
+    // Cyan cockpit window
+    ctx.fillStyle = '#3ad0ff';
+    ctx.fillRect(SHIP_W / 2 - 9, -SHIP_H / 2 + 2, 4, 4);
+    // Bolt detail
+    ctx.fillStyle = '#1a0408';
+    ctx.fillRect(-SHIP_W / 2 + 1, -SHIP_H / 2 + 1, 1, 1);
+    ctx.fillRect(-SHIP_W / 2 + 1,  SHIP_H / 2 - 2, 1, 1);
+
+    ctx.restore();
+  }
+
+  function drawHUD() {
+    // Velocity bar — visual readout to help dial in physics. Shows vx
+    // (right cyan) and vy (down red).
+    const barX = 14, barY = 60, barW = 100, barH = 4;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.fillRect(barX - 1, barY - 1, barW + 2, barH * 2 + 4);
+    // vx
+    const vxFrac = Math.max(-1, Math.min(1, ship.vx / MAX_VX));
+    ctx.fillStyle = '#3ad0ff';
+    ctx.fillRect(barX + barW / 2, barY,
+                 Math.round((barW / 2) * vxFrac), barH);
+    // vy
+    const vyFrac = Math.max(-1, Math.min(1, ship.vy / MAX_FALL));
+    ctx.fillStyle = vyFrac > 0 ? '#ff6040' : '#ffd83d';
+    ctx.fillRect(barX + barW / 2, barY + barH + 2,
+                 Math.round((barW / 2) * vyFrac), barH);
+    // Bar labels
+    ctx.fillStyle = 'rgba(244, 216, 160, 0.75)';
+    ctx.font = '8px -apple-system, sans-serif';
+    ctx.fillText('vx', barX + barW + 6, barY + 4);
+    ctx.fillText('vy', barX + barW + 6, barY + barH + 6);
+    // Death counter
+    ctx.fillStyle = 'rgba(244, 216, 160, 0.85)';
+    ctx.font = 'bold 11px -apple-system, sans-serif';
+    ctx.fillText('CRASHES: ' + ship.deaths, 14, H - 36);
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    drawSky();
+    for (const w of walls) drawWall(w);
+    drawShip();
+    drawHUD();
+  }
+
+  function loop() {
+    update();
+    render();
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+</script>
+</body>
+</html>
