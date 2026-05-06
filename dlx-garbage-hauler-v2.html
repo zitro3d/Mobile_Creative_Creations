@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v362';
+const DLX_BUILD = 'v363';
 
 (function() {
   // ---------- Device detection ----------
@@ -9265,9 +9265,12 @@ const DLX_BUILD = 'v362';
               lb.x = -10000;        // remove this jellyfish
               frozenFrames = Math.max(frozenFrames, 120);   // 2 sec
               invulnFrames = Math.max(invulnFrames, 150);
-              // No white flash on freeze — the electric arcs on the
-              // rig are enough feedback (per user playtest).
               shakeFrames = Math.max(shakeFrames, 14);
+              // Knock the rig BACK in the world a little — a small
+              // setback penalty per playtest, not a forward boost.
+              if (typeof dailyScrollX !== 'undefined') {
+                dailyScrollX = Math.max(0, dailyScrollX - 80);
+              }
               playSound('forceField');
               return false;
             }
@@ -13927,6 +13930,155 @@ const DLX_BUILD = 'v362';
   // OTHER end of the DLX field-ops route — same brand language, same
   // industrial-into-flesh aesthetic.
   function drawLandmarkOrganicCardiacDock(x, y) {
+    // CARDIAC APERTURE — replaces the old metal-bay-with-pulsing-heart
+    // design. The destination is now an organic flesh aperture/iris
+    // embedded in the cavity wall. Concentric pulsing petals around a
+    // glowing cyan delivery socket; radiating veins, bone-ridge rim,
+    // and CYAN BEAMS pulling the rig in. No metal frame, no platform,
+    // no DLX badge — pure organ. Reads as nothing like the dispatch.
+    ctx.save();
+    // Heartbeat sync — drives the petal expansion + core glow.
+    const period = currentDeliveryLevel.pulsePeriodFrames || 210;
+    const tBeat  = (frame % period) / period;
+    const beat   = Math.max(
+      0,
+      Math.sin(Math.PI * Math.min(1, tBeat * 5.0)) * (1 - tBeat * 0.6)
+    );
+    // Aperture centered on the rig's docking position so the rig
+    // "lands" at the bright cyan socket (matches dailyDockingTargetX
+    // = dockScreenX - 70 and dailyDockingTargetY = PLAY_H/2 + 14).
+    const cx   = x - 70;
+    const cy   = PLAY_H / 2 + 14;
+    const baseR = 64;
+    const r    = baseR * (1 + beat * 0.06);
+
+    // ---- 1. OUTER FLESH HALO — bleeds into the surrounding cavity
+    ctx.shadowBlur = 36;
+    ctx.shadowColor = 'rgba(255, 80, 140, 0.95)';
+    ctx.fillStyle = 'rgba(255, 100, 160, ' + (0.22 + beat * 0.18) + ')';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // ---- 2. RADIAL VEINS — branching pink lines from aperture out
+    // into the cavity wall. Wave a tiny bit each frame.
+    ctx.strokeStyle = 'rgba(180, 30, 70, 0.85)';
+    ctx.lineWidth = 1.6;
+    for (let v = 0; v < 12; v++) {
+      const ang = v * (Math.PI / 6) + Math.sin(frame * 0.02 + v) * 0.06;
+      const x0 = cx + Math.cos(ang) * (r + 4);
+      const y0 = cy + Math.sin(ang) * (r + 4);
+      const x1 = cx + Math.cos(ang) * (r + 56 + Math.sin(frame * 0.04 + v) * 4);
+      const y1 = cy + Math.sin(ang) * (r + 56 + Math.cos(frame * 0.04 + v) * 4);
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+      // Capillary branch off each vein
+      const bx = x0 + (x1 - x0) * 0.55;
+      const by = y0 + (y1 - y0) * 0.55;
+      const angB = ang + 0.4;
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + Math.cos(angB) * 14, by + Math.sin(angB) * 14);
+      ctx.stroke();
+      ctx.lineWidth = 1.6;
+    }
+
+    // ---- 3. BONE-RIDGE RIM — pale segments around the aperture edge,
+    // looks like a sphincter / iris socket frame
+    ctx.fillStyle = 'rgba(80, 16, 36, 0.95)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 8, 0, Math.PI * 2);
+    ctx.fill();
+    for (let s = 0; s < 20; s++) {
+      const ang = s * (Math.PI / 10);
+      const px = cx + Math.cos(ang) * (r + 6);
+      const py = cy + Math.sin(ang) * (r + 6);
+      ctx.fillStyle = 'rgba(245, 226, 212, 0.85)';
+      ctx.beginPath();
+      ctx.arc(px, py, 2.0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 250, 240, 0.95)';
+      ctx.beginPath();
+      ctx.arc(px - 0.4, py - 0.4, 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ---- 4. CONCENTRIC FLESH PETAL RINGS — pulse outward on the beat
+    // Five rings, alternating tones from outer crimson → mid pink →
+    // inner magenta. Each scales subtly with the heartbeat.
+    const ringPalette = [
+      'rgba(120, 20, 50, 0.95)',
+      'rgba(170, 40, 80, 0.92)',
+      'rgba(210, 60, 110, 0.88)',
+      'rgba(240, 90, 140, 0.85)',
+      'rgba(255, 130, 170, 0.80)',
+    ];
+    for (let p = 0; p < ringPalette.length; p++) {
+      const ringR = r * (1 - p * 0.16) * (1 + beat * 0.04);
+      ctx.fillStyle = ringPalette[p];
+      ctx.beginPath();
+      ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Wet specular highlight on the upper-left of the iris
+    ctx.fillStyle = 'rgba(255, 200, 220, 0.55)';
+    ctx.beginPath();
+    ctx.ellipse(cx - r * 0.3, cy - r * 0.3, r * 0.20, r * 0.10, -0.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ---- 5. CENTRAL CYAN DELIVERY SOCKET — the bright eye of the
+    // aperture; this is where the cargo gets deposited. Pulses with
+    // the heartbeat so it visibly invites the player in.
+    ctx.shadowBlur = 18 + beat * 14;
+    ctx.shadowColor = 'rgba(120, 240, 220, 0.95)';
+    ctx.fillStyle = 'rgba(140, 255, 230, ' + (0.85 + beat * 0.15) + ')';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.92 + beat * 0.08) + ')';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // ---- 6. RADIATING CYAN BEAMS — pulled outward from the socket
+    // toward the rim. Visually "draws the rig in".
+    ctx.strokeStyle = 'rgba(180, 255, 230, ' + (0.30 + beat * 0.25) + ')';
+    ctx.lineWidth = 2;
+    for (let b = 0; b < 8; b++) {
+      const ang = b * (Math.PI / 4) + frame * 0.018;
+      const innerR = r * 0.22;
+      const outerR = r * 0.85;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * innerR, cy + Math.sin(ang) * innerR);
+      ctx.lineTo(cx + Math.cos(ang) * outerR, cy + Math.sin(ang) * outerR);
+      ctx.stroke();
+    }
+
+    // ---- 7. CARDIAC CHAMBER LABEL — small cyan text floating above
+    // the aperture so the destination still reads as DLX/dispatch
+    // nomenclature without any DLX brand plate.
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = 'rgba(80, 220, 220, 0.95)';
+    ctx.fillStyle = 'rgba(140, 255, 220, ' + (0.90 + beat * 0.10) + ')';
+    ctx.font = 'bold 11px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('CARDIAC CHAMBER', cx, cy - r - 22);
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.restore();
+  }
+
+  // Stub kept so any leftover render path that calls into this file
+  // keeps compiling. The old metal-bay logic below is no longer used.
+  function _UNUSED_drawLandmarkOrganicCardiacDockOld(x, y) {
     ctx.save();
     const floorY = PLAY_H / 2 + 28;
     const ceilY  = PLAY_H / 2 - 80;
