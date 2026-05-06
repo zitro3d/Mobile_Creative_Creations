@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v379';
+const DLX_BUILD = 'v380';
 
 (function() {
   // ---------- Device detection ----------
@@ -7648,7 +7648,14 @@ const DLX_BUILD = 'v379';
         // Procedurally drop hazards out at the right edge as we travel.
         // Stage-aware mix — 'spikes' (jagged formations) introduced from
         // stage 2 onward so the early dunes stay easy to learn on.
-        while (dailyNextHazardX < dailyScrollX + W + 200 && dailyNextHazardX < TRUCK_STOP_NO_SPAWN_AFTER) {
+        // Surface hazards (cacti / rocks / spikes) are wasteland-only;
+        // gate the entire spawn on the citadel horizon so they don't
+        // also build up an invisible collision layer in cave / organic
+        // levels.
+        const _spawnSurfaceHazards = currentDeliveryLevel.horizonStyle === 'citadel';
+        while (_spawnSurfaceHazards
+               && dailyNextHazardX < dailyScrollX + W + 200
+               && dailyNextHazardX < TRUCK_STOP_NO_SPAWN_AFTER) {
           const r = Math.random();
           let kind;
           if (dailyCurrentStage >= 1) {
@@ -7840,7 +7847,8 @@ const DLX_BUILD = 'v379';
         // trajectory arcs (rises briefly, then falls). The rig has
         // to dodge them as they cross. Direct kill on contact.
         // (Underground rig is safe via the v234 underground gate.)
-        if (frame >= dailyNextLavaAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
+        if (currentDeliveryLevel.obstacleSet.lavaBalls
+            && frame >= dailyNextLavaAt && !dailyDelivered && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
           // Spawn a primary ball, plus a SALVO partner 15 % of the
           // time (was 30 % — playtest felt too many doubles). Partner
           // is altitude-offset and delayed off-screen further to the
@@ -7909,7 +7917,8 @@ const DLX_BUILD = 'v379';
         // ground monsters are a recurring threat rather than a rare one.
         const tentCap = (currentDeliveryLevel
                           && currentDeliveryLevel.obstacleTheme === 'organic') ? 8 : 4;
-        if (frame >= dailyNextTentacleAt && !dailyDelivered && dailyTentaclesSpawned < tentCap && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
+        if (currentDeliveryLevel.obstacleSet.tentacles
+            && frame >= dailyNextTentacleAt && !dailyDelivered && dailyTentaclesSpawned < tentCap && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
           // Don't erupt right at a tunnel mouth or exit — the rig is
           // committed to the corridor in that range and the
           // auto-stabilize handoff buffer extends ~40 px past it, so a
@@ -8263,8 +8272,11 @@ const DLX_BUILD = 'v379';
         }
         // ---- Magnet recall boxes (cargo recovery + scrap magnet field) ----
         // Mostly low to the ground (must dive for them) but ~25% spawn
-        // mid-air so the altitude isn't predictable.
-        while (dailyNextMagnetX < dailyScrollX + W + 200) {
+        // mid-air so the altitude isn't predictable. Cave levels suppress
+        // them — recovery in Glow Chamber comes via the in-column cog
+        // pickups, and the pink desert box would feel out of place.
+        const _spawnMagnetBoxes = currentDeliveryLevel.obstacleTheme !== 'cave';
+        while (_spawnMagnetBoxes && dailyNextMagnetX < dailyScrollX + W + 200) {
           // Nudge spawn forward up to 6 times to find a clear spot —
           // pink boxes are too important to skip outright
           let spawnX = dailyNextMagnetX;
