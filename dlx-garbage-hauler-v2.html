@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v363';
+const DLX_BUILD = 'v364';
 
 (function() {
   // ---------- Device detection ----------
@@ -8231,6 +8231,7 @@ const DLX_BUILD = 'v363';
               cargo.bubbleRef = null;
               cargo.parasiteLocked = false;
               cargo.parasitePair = null;
+              cargo.sporeCoatCount = 0;       // wipe spore coats
               cargo.x = bird.x - 32;
               cargo.y = bird.y - 4;
               cargo.vy = 0;
@@ -8736,112 +8737,61 @@ const DLX_BUILD = 'v363';
           }
         }
 
-        // ---- CRYSTALLINE SPORE NODES (Leviathan only) -------------
-        // Asymmetric alien crystal shards drift through the open
-        // cavity. When the rig's cargo is in beam range, the node
-        // fires a slow plasma beam that crystallizes the cargo over
-        // ~5 sec. If the crystallization completes, the cargo is
-        // lost (turned into crystal). Counter: ram the node 3 times
-        // to shatter it, OR fly fast enough that cargo leaves beam
-        // range before crystallization completes (the progress
-        // decays when out of range). Force field shield blocks the
-        // beam entirely.
+        // ---- SPORE CLOUDS (Leviathan only) -------------------------
+        // Drifting bioluminescent alien spore puffs in the open cavity.
+        // Each fresh cloud the cargo passes through adds one "spore
+        // coat" to the cargo. After 3 coats the cargo is too heavy
+        // and the magnet bond breaks (theft fires). Counter: dodge
+        // the clouds — they're slow and visible. Force field shield
+        // blocks spore attachment entirely.
         if (currentDeliveryLevel.obstacleSet
-            && currentDeliveryLevel.obstacleSet.crystalNodes
+            && currentDeliveryLevel.obstacleSet.sporeClouds
             && !dailyDelivered
             && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
             && cargo && cargo.attached && !cargo.lost
-            && frame >= dailyNextCrystalAt
-            && dailyCrystalNodes.length < 1) {
-          const aheadWX = bird.x + dailyScrollX + 240 + Math.random() * 120;
-          const nY = 80 + Math.random() * (PLAY_H - 200);
-          dailyCrystalNodes.push({
+            && frame >= dailyNextSporeCloudAt
+            && dailySporeClouds.length < 2) {
+          const aheadWX = bird.x + dailyScrollX + 240 + Math.random() * 140;
+          const cY = 80 + Math.random() * (PLAY_H - 200);
+          dailySporeClouds.push({
             worldX: aheadWX,
-            y: Math.max(60, Math.min(PLAY_H - 100, nY)),
-            r: 14,
-            rot: Math.random() * Math.PI * 2,
+            y: Math.max(60, Math.min(PLAY_H - 100, cY)),
+            r: 28,
             spawnFrame: frame,
-            crystallizationT: 0,
-            hits: 0,
-            popped: false,
-            popFrame: 0,
-            beamActive: false,
-            lastHitFrame: -999,
+            triggered: false,
           });
-          // Crystals are rarer than bubbles — every ~20-30 sec
-          dailyNextCrystalAt = frame + 1200 + Math.floor(Math.random() * 600);
+          // Spawn every ~12-18 sec
+          dailyNextSporeCloudAt = frame + 720 + Math.floor(Math.random() * 360);
         }
-        for (let i = dailyCrystalNodes.length - 1; i >= 0; i--) {
-          const n = dailyCrystalNodes[i];
-          // Slow drift forward (relative to world) so the node lingers
-          // somewhat in screen space — gives the player time to react
-          // and ram. Half scroll speed → drifts past at half rate.
-          const _spdC = currentPipeSpeed
+        for (let i = dailySporeClouds.length - 1; i >= 0; i--) {
+          const c = dailySporeClouds[i];
+          // Slow drift forward (relative to world) so the cloud
+          // lingers — half scroll speed in world.
+          const _spdSC = currentPipeSpeed
             ? currentPipeSpeed()
             : PIPE_SPEED_BASE;
-          n.worldX += _spdC * 0.5;
-          const sx = n.worldX - dailyScrollX;
-          // Pop animation runs for 30 frames then despawn
-          if (n.popped) {
-            if (frame - n.popFrame > 30) dailyCrystalNodes.splice(i, 1);
-            continue;
-          }
-          // Beam targeting — only fires when cargo is attached, in
-          // range, NOT inside a pipe (pipe walls block beam), and
-          // the rig isn't shielded.
-          const ffActive = forceFieldFrames > 0;
-          let cargoInBeam = false;
-          if (cargo && cargo.attached && !cargo.lost && !ffActive) {
-            const cargoWX = cargo.x + dailyScrollX;
-            const inPipe = pipeInteriorAt(cargoWX, cargo.y) !== null;
-            if (!inPipe) {
-              const dxC = cargo.x - sx;
-              const dyC = cargo.y - n.y;
-              if (dxC * dxC + dyC * dyC < 120 * 120) {
-                cargoInBeam = true;
+          c.worldX += _spdSC * 0.5;
+          const sx = c.worldX - dailyScrollX;
+          // Spore attachment — cargo passes through cloud, no shield,
+          // and this cloud hasn't already coated the cargo.
+          const ffActiveS = forceFieldFrames > 0;
+          if (!c.triggered && !ffActiveS
+              && cargo && cargo.attached && !cargo.lost) {
+            const dxC = cargo.x - sx;
+            const dyC = cargo.y - c.y;
+            if (dxC * dxC + dyC * dyC < (c.r + 4) * (c.r + 4)) {
+              c.triggered = true;
+              cargo.sporeCoatCount = (cargo.sporeCoatCount || 0) + 1;
+              emitPickupSparks(cargo.x, cargo.y, '#a0ff80', 10);
+              playSound('pickup');
+              if (cargo.sporeCoatCount >= 3) {
+                triggerCargoTheft(cargo.x, cargo.y);
+                cargo.sporeCoatCount = 0;
               }
             }
           }
-          if (cargoInBeam) {
-            n.beamActive = true;
-            // ~2 sec to fully crystallize a continuous beam (was 5).
-            // Forward flight means the player is in beam range for
-            // ~1-2 sec at most per encounter, so a faster charge
-            // makes theft a real outcome instead of a near-miss.
-            n.crystallizationT = Math.min(1.0, n.crystallizationT + 1 / 120);
-            if (n.crystallizationT >= 1.0) {
-              n.popped = true;
-              n.popFrame = frame;
-              triggerCargoTheft(cargo.x, cargo.y);
-            }
-          } else {
-            n.beamActive = false;
-            // Slower decay than charge (4 sec to fully clear), so
-            // crystallization accumulates across multiple short
-            // encounters with the same node — leaving the beam
-            // gives recovery, but staying out a full 4 sec resets.
-            n.crystallizationT = Math.max(0, n.crystallizationT - 1 / 240);
-          }
-          // Ram detection — rig collides with the node body. 18-frame
-          // cooldown between hit counts so a sustained press doesn't
-          // burn through 3 hits in 3 frames.
-          const dxR = bird.x - sx;
-          const dyR = bird.y - n.y;
-          const reachR = BIRD_R + n.r - 2;
-          if (dxR * dxR + dyR * dyR < reachR * reachR
-              && frame - n.lastHitFrame > 18) {
-            n.hits++;
-            n.lastHitFrame = frame;
-            emitPickupSparks(sx, n.y, '#80e0ff', 12);
-            if (n.hits >= 3) {
-              n.popped = true;
-              n.popFrame = frame;
-              emitPickupSparks(sx, n.y, '#ffd060', 18);
-              playSound('forceField');
-            }
-          }
           // Cleanup off-screen
-          if (sx < -50) dailyCrystalNodes.splice(i, 1);
+          if (sx < -50) dailySporeClouds.splice(i, 1);
         }
 
         // ---- PERISTALTIC PIPE PURGES (Leviathan only) -------------
@@ -17954,13 +17904,105 @@ const DLX_BUILD = 'v363';
     }
   }
 
-  // Crystalline Spore Node — asymmetric alien crystal that beams +
-  // crystallizes cargo. Iridescent body with fleshy tendrils growing
-  // out between facets, slow rotation, hit pips along the rim. When
-  // beaming, body tints magenta and a pink plasma line extends to
-  // the cargo with energy crackles + crystal scales growing on the
-  // crate.
-  function drawDailyCrystalNodes() {
+  // Spore Cloud — drifting bioluminescent alien spore puff. Six
+  // overlapping translucent green-cyan blobs form the cloud body,
+  // with drifting bright spore particles inside. Triggered clouds
+  // (already coated the cargo) dim out so the player can tell which
+  // ones are spent vs. fresh. Also renders attached spores on the
+  // cargo when sporeCoatCount > 0 so the threat is visible.
+  function drawDailySporeClouds() {
+    if (!isDaily || !dailySporeClouds.length) {
+      // Even if no clouds are active, draw any spore coats on the
+      // cargo (so the warning persists between cloud encounters).
+      if (cargo && cargo.attached && !cargo.lost
+          && cargo.sporeCoatCount > 0) {
+        drawSporesOnCargo();
+      }
+      return;
+    }
+    for (const c of dailySporeClouds) {
+      const sx = c.worldX - dailyScrollX;
+      if (sx < -40 || sx > W + 40) continue;
+      const sxR = Math.round(sx);
+      const cy  = Math.round(c.y);
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.10 + c.spawnFrame * 0.13);
+      const isSpent = c.triggered;
+      // Outer halo — bright green-cyan when fresh, dim grey-green
+      // when already used.
+      ctx.shadowBlur = 14 + pulse * 8;
+      ctx.shadowColor = isSpent
+        ? 'rgba(80, 120, 100, 0.65)'
+        : 'rgba(120, 255, 180, 0.95)';
+      ctx.fillStyle = isSpent
+        ? 'rgba(100, 140, 120, 0.18)'
+        : 'rgba(140, 255, 200, ' + (0.30 + pulse * 0.20) + ')';
+      ctx.beginPath();
+      ctx.arc(sxR, cy, c.r + 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Inner cloud body — six overlapping translucent puffs giving
+      // the cloud an irregular cumulus silhouette.
+      for (let p = 0; p < 6; p++) {
+        const ang = p * (Math.PI / 3) + frame * 0.012;
+        const pr = c.r * 0.55;
+        const px = sxR + Math.cos(ang) * c.r * 0.40;
+        const py = cy  + Math.sin(ang) * c.r * 0.40;
+        ctx.fillStyle = isSpent
+          ? 'rgba(100, 140, 120, 0.20)'
+          : 'rgba(160, 255, 200, ' + (0.32 + pulse * 0.12) + ')';
+        ctx.beginPath();
+        ctx.arc(px, py, pr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Drifting bright spore particles inside the cloud
+      const partCount = isSpent ? 4 : 14;
+      for (let s = 0; s < partCount; s++) {
+        const ang = s * 0.6 + frame * 0.04 + c.spawnFrame * 0.01;
+        const sr = (s % 5) * (c.r * 0.18);
+        const spx = sxR + Math.cos(ang) * sr;
+        const spy = cy  + Math.sin(ang) * sr * 0.7;
+        ctx.fillStyle = isSpent
+          ? 'rgba(180, 220, 200, 0.45)'
+          : 'rgba(230, 255, 240, ' + (0.65 + pulse * 0.30) + ')';
+        ctx.beginPath();
+        ctx.arc(spx, spy, 1.0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // Attached spore visualization on the cargo
+    if (cargo && cargo.attached && !cargo.lost
+        && cargo.sporeCoatCount > 0) {
+      drawSporesOnCargo();
+    }
+  }
+
+  // Render glowing alien spores clinging to the cargo crate. Count
+  // scales with cargo.sporeCoatCount (1, 2, or 3 coats). Visual
+  // alarm so the player can see how close they are to losing cargo.
+  function drawSporesOnCargo() {
+    if (!cargo || cargo.lost) return;
+    const count = cargo.sporeCoatCount * 5;     // 5 spores per coat
+    const cgx = cargo.x;
+    const cgy = cargo.y;
+    const wobble = 0.5 + 0.5 * Math.sin(frame * 0.20);
+    for (let s = 0; s < count; s++) {
+      const ang = s * 0.79 + frame * 0.012;
+      const r = 9 + Math.sin(s * 1.3 + frame * 0.04) * 2;
+      const sx = cgx + Math.cos(ang) * r;
+      const sy = cgy + Math.sin(ang) * r * 0.8;
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(140, 255, 180, 0.95)';
+      ctx.fillStyle = 'rgba(160, 255, 200, ' + (0.85 + wobble * 0.15) + ')';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  // (Crystalline Spore Node renderer removed in v364 — replaced by
+  // the simpler Spore Cloud above.)
+  function _UNUSED_drawDailyCrystalNodes() {
     if (!isDaily || !dailyCrystalNodes.length) return;
     for (const n of dailyCrystalNodes) {
       const sx = n.worldX - dailyScrollX;
@@ -22831,7 +22873,7 @@ const DLX_BUILD = 'v363';
       drawDailyMirrorPairs();
       drawPipePurges();
       drawDailyPressureBubbles();
-      drawDailyCrystalNodes();
+      drawDailySporeClouds();
       drawDailyDrones();
       drawDailyLavaBalls();
       drawCargoBond();
@@ -23319,8 +23361,8 @@ const DLX_BUILD = 'v363';
     dailyNextMirrorPairAt = frame + 720; // first mirror parasite pair ~12s in
     dailyPressureBubbles = [];
     dailyNextBubbleAt    = frame + 600;  // first bubble ~10s in
-    dailyCrystalNodes    = [];
-    dailyNextCrystalAt   = frame + 900;  // first crystal node ~15s in
+    dailySporeClouds        = [];
+    dailyNextSporeCloudAt   = frame + 720;  // first spore cloud ~12s in
     dailyDrones = [];
     dailyNextDroneAt = frame + 1800;     // first drone enters during stage 2
     dailyCurrentStage = 0;
@@ -23753,7 +23795,7 @@ const DLX_BUILD = 'v363';
         // pipe theme better.
         pressureBubbles: true,             // drifting cavity bubble that engulfs cargo
         peristalticPurge: true,            // 20% of pipes contract + expel cargo
-        crystalNodes: true,                // alien crystal that beams + crystallizes cargo
+        sporeClouds: true,                 // drifting alien spore cloud — 3 coats = theft
       },
       obstacleTheme: 'organic',
       // Buoyancy — the rig handles like it's submerged. Gravity, flap
@@ -23807,8 +23849,14 @@ const DLX_BUILD = 'v363';
   // cargo over ~5 sec; if it completes, cargo is lost (turned into
   // crystal). Counter: ram the node 3 times to shatter it, or let
   // cargo leave the beam range (beam progress decays).
-  let dailyCrystalNodes  = [];
-  let dailyNextCrystalAt = 0;
+  // Spore Clouds (Leviathan only). Drifting bioluminescent alien
+  // spore puffs in the open cavity. Each time the cargo passes
+  // through a fresh cloud, it gains a "spore coat." After 3 coats
+  // the cargo is too heavy and the magnet bond breaks — theft fires.
+  // Counter: avoid the clouds; they're slow and visible. Force field
+  // shield bypasses spore attachment entirely.
+  let dailySporeClouds = [];
+  let dailyNextSporeCloudAt = 0;
   let dailyNextThiefAt = 0;        // frame index when next flying thief enters
   let dailyDrones = [];            // [{ x, y, vx, state, stateFrames, beam }] — anti-magnet drones (Phase A3)
   let dailyNextDroneAt = 0;        // frame index when next drone enters
