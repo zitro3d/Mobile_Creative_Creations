@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v361';
+const DLX_BUILD = 'v362';
 
 (function() {
   // ---------- Device detection ----------
@@ -4220,6 +4220,8 @@ const DLX_BUILD = 'v361';
   let empFrames     = 0;   // EMP pulse — bosses frozen (no movement, no firing)
   let invulnFrames  = 0;   // brief i-frames after shield break / spawn
   let frozenFrames  = 0;   // 2-sec electric stun (Leviathan jellyfish hit)
+  let tentacleKillPending = false;  // set when an organic tentacle grabs the rig
+                                     // — collide() reads it next frame to trigger death
   let combo         = 0;   // consecutive pickups without miss
   let comboMax      = 0;
   let missiles      = [];  // active missile shots
@@ -6657,6 +6659,7 @@ const DLX_BUILD = 'v361';
     empFrames = 0;
     invulnFrames = 0;
     frozenFrames = 0;
+    tentacleKillPending = false;
     heatShieldUsed = false;        // ANVIL perk reset — fresh shield per run
     combo = 0;
     comboMax = 0;
@@ -7924,14 +7927,26 @@ const DLX_BUILD = 'v361';
             bird.y > tipY - 10 &&
             bird.y < gy
           ) {
-            // Capture: snap player back ~600 worldX (a "thrown to start of
-            // section" mini-penalty per the GDD without ending the run)
+            // Mark captured — ground tentacles in ORGANIC theme now
+            // KILL on contact (handled by collide() detecting the
+            // capture flag). Sunset keeps the legacy "throw back
+            // 600 worldX" non-lethal mini-penalty.
             t.captured = true;
             t.capFrames = 30;
-            dailyScrollX = Math.max(0, dailyScrollX - 600);
-            playSound('tentacleCapture');
-            shakeFrames = 24;
-            flashAlpha = 0.6;
+            if (currentDeliveryLevel
+                && currentDeliveryLevel.obstacleTheme === 'organic') {
+              // Lethal hit — the death is triggered in collide()
+              // which checks the flag. Shake only, NO white flash
+              // (per playtest: full-screen flashes blow out the
+              // view; the death sequence itself has its own cue).
+              shakeFrames = 24;
+              tentacleKillPending = true;
+            } else {
+              dailyScrollX = Math.max(0, dailyScrollX - 600);
+              playSound('tentacleCapture');
+              shakeFrames = 24;
+              flashAlpha = 0.6;
+            }
           }
           if (t.life >= t.maxLife) dailyTentacles.splice(i, 1);
         }
@@ -8203,6 +8218,24 @@ const DLX_BUILD = 'v361';
           const hitR = (p.kind === 'magnetBox') ? 28 : (22 * sparkMult);
           if (dx * dx + dy * dy < hitR * hitR) {
             p.alive = false;
+            // CARGO RESTORE (Leviathan recovery loop) — picking up any
+            // in-pipe pickup (cog OR fuel cell) while cargo is lost
+            // brings the cargo back. Replaces the standalone gold
+            // recovery gem from v359 — the diamonds inside the pipes
+            // ARE the recovery now.
+            if (cargo && cargo.lost
+                && (p.kind === 'scrapCog' || p.kind === 'fuelCell')) {
+              cargo.lost = false;
+              cargo.attached = true;
+              cargo.bubbleEngulfed = false;
+              cargo.bubbleRef = null;
+              cargo.parasiteLocked = false;
+              cargo.parasitePair = null;
+              cargo.x = bird.x - 32;
+              cargo.y = bird.y - 4;
+              cargo.vy = 0;
+              emitPickupSparks(bird.x, bird.y, '#ffd060', 22);
+            }
             if (p.kind === 'scrapCog') {
               // Gold tunnel cogs are worth 3x and emit gold sparks
               const isGold = !!p.gold;
@@ -8811,36 +8844,6 @@ const DLX_BUILD = 'v361';
           if (sx < -50) dailyCrystalNodes.splice(i, 1);
         }
 
-        // ---- RECOVERY GEM pickup — restores stolen cargo
-        if (dailyRecoveryGem) {
-          const gSX = dailyRecoveryGem.worldX - dailyScrollX;
-          const dx  = bird.x - gSX;
-          const dy  = bird.y - dailyRecoveryGem.y;
-          if (dx * dx + dy * dy < 28 * 28) {
-            // Restore cargo: clear lost flag, re-attach to rig, snap
-            // position to the trail spot so it doesn't fall through
-            // walls. Plays a celebratory spark burst.
-            if (cargo) {
-              cargo.lost = false;
-              cargo.attached = true;
-              cargo.bubbleEngulfed = false;
-              cargo.bubbleRef = null;
-              cargo.parasiteLocked = false;
-              cargo.parasitePair = null;
-              cargo.x = bird.x - 32;
-              cargo.y = bird.y - 4;
-              cargo.vy = 0;
-              emitPickupSparks(bird.x, bird.y, '#ffd060', 22);
-              playSound('powerup');
-            }
-            dailyRecoveryGem = null;
-          } else if (gSX < -40) {
-            // Gem scrolled off-screen without being recovered — clear
-            // it. Cargo stays lost.
-            dailyRecoveryGem = null;
-          }
-        }
-
         // ---- PERISTALTIC PIPE PURGES (Leviathan only) -------------
         // 20% of organic pipes have a periodic contraction cycle. A
         // wave of pink light TELEGRAPHS for 60 frames travelling left-
@@ -9125,6 +9128,12 @@ const DLX_BUILD = 'v361';
     // continuous chain (dune surface, vertical entrance gap,
     // ceiling-floor corridor, and exit ramp).
     if (isDaily) {
+      // ORGANIC tentacle hit triggers death (the in-loop tentacle
+      // update sets the flag when the rig overlaps a strike zone).
+      if (tentacleKillPending) {
+        tentacleKillPending = false;
+        return true;
+      }
       if (bird.y - r <= 0) { bird.y = r; bird.vy = 0; }
       const wxRig = bird.x + dailyScrollX;
       const L = tunnelLayoutAt(wxRig);
@@ -9256,7 +9265,8 @@ const DLX_BUILD = 'v361';
               lb.x = -10000;        // remove this jellyfish
               frozenFrames = Math.max(frozenFrames, 120);   // 2 sec
               invulnFrames = Math.max(invulnFrames, 150);
-              flashAlpha = 0.35;
+              // No white flash on freeze — the electric arcs on the
+              // rig are enough feedback (per user playtest).
               shakeFrames = Math.max(shakeFrames, 14);
               playSound('forceField');
               return false;
@@ -9867,24 +9877,12 @@ const DLX_BUILD = 'v361';
     // Pro-tier polish (v330): on every scoring tick in an organic-theme
     // level, fire a 200ms cyan flash on the nearest active tentacle.
     // Cooldown gates the cadence so the daily's distance-based scoring
-    // (every ~24px) doesn't strobe constantly.
-    if (state === STATE_PLAY && isDaily && currentDeliveryLevel
-        && currentDeliveryLevel.obstacleTheme === 'organic'
-        && tentacleFlashCooldown <= 0
-        && dailyTentacles && dailyTentacles.length) {
-      let nearest = null;
-      let nearestDist = Infinity;
-      for (const tt of dailyTentacles) {
-        const sx = tt.worldX - dailyScrollX;
-        const dx = sx - bird.x;
-        const d = Math.abs(dx);
-        if (d < nearestDist) { nearestDist = d; nearest = tt; }
-      }
-      if (nearest) {
-        nearest.flashFrames = 12;     // ~200ms at 60fps
-      }
-      tentacleFlashCooldown = 36;     // ~600ms gap between flashes
-    }
+    // (Removed v362: score-tick cyan flash on nearest tentacle.
+    // Player feedback was that the flash made the tentacle look
+    // interactive when the rig hovered near it. With tentacles now
+    // genuinely lethal in organic theme, the flash was misleading
+    // — it suggested "this is reacting to me" rather than reading
+    // as a kill threat.)
     maybeAdvanceLevel();
   }
 
@@ -18040,93 +18038,6 @@ const DLX_BUILD = 'v361';
     }
   }
 
-  // Gold Recovery Gem. Distinct gold/amber palette so it doesn't
-  // get visually confused with cyan crystal nodes, magenta bubbles,
-  // or pink purge effects. Bobs gently, glows, sparkles.
-  function drawRecoveryGem() {
-    if (!dailyRecoveryGem) return;
-    const g = dailyRecoveryGem;
-    const sx = g.worldX - dailyScrollX;
-    if (sx < -30 || sx > W + 30) return;
-    const bobY = g.y + Math.sin(frame * 0.10 + g.bobPhase) * 3;
-    const cx = Math.round(sx);
-    const cy = Math.round(bobY);
-    const pulse = 0.5 + 0.5 * Math.sin(frame * 0.14 + g.bobPhase);
-    // Outer halo — bright gold
-    ctx.shadowBlur = 14 + pulse * 8;
-    ctx.shadowColor = 'rgba(255, 220, 80, 0.95)';
-    ctx.fillStyle = 'rgba(255, 220, 80, ' + (0.40 + pulse * 0.20) + ')';
-    ctx.beginPath();
-    ctx.arc(cx, cy, 16 + pulse * 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    // Diamond body — rotated square
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(Math.PI / 4 + frame * 0.008);
-    const r = 8;
-    // Dark backing
-    ctx.fillStyle = '#3a2806';
-    ctx.fillRect(-r - 1, -r - 1, (r + 1) * 2, (r + 1) * 2);
-    // Body
-    ctx.fillStyle = '#ffd060';
-    ctx.fillRect(-r, -r, r * 2, r * 2);
-    // Top facet highlight
-    ctx.fillStyle = '#fff0a8';
-    ctx.fillRect(-r, -r, r * 2, 2);
-    // Bright catchlight
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(-2, -2, 2, 2);
-    ctx.restore();
-    // White sparkle particles around the gem (4 small dots in a slow
-    // orbit at varying radii)
-    for (let s = 0; s < 4; s++) {
-      const sang = frame * 0.04 + s * (Math.PI / 2) + g.bobPhase;
-      const sr = 14 + Math.sin(frame * 0.08 + s) * 3;
-      const spx = cx + Math.cos(sang) * sr;
-      const spy = cy + Math.sin(sang) * sr * 0.7;
-      ctx.shadowBlur = 3;
-      ctx.shadowColor = 'rgba(255, 240, 180, 0.95)';
-      ctx.fillStyle = 'rgba(255, 250, 220, 0.95)';
-      ctx.beginPath();
-      ctx.arc(spx, spy, 1.0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-    // "RECOVER" text label below the gem
-    ctx.fillStyle = 'rgba(255, 230, 130, 0.85)';
-    ctx.font = 'bold 6px Impact, "Arial Black", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('RECOVER', cx, cy + 22);
-    ctx.textAlign = 'start';
-    ctx.textBaseline = 'alphabetic';
-  }
-
-  // Brief HUD banner shown for ~150 frames after a theft fires.
-  // Fades out over the last 30 frames. Text-only, no screen tint.
-  function drawTheftBanner() {
-    const since = frame - dailyTheftBannerAt;
-    if (since < 0 || since > 150) return;
-    const fade = since < 8 ? since / 8
-              : since > 120 ? Math.max(0, 1 - (since - 120) / 30)
-              : 1.0;
-    const bannerY = PLAY_H * 0.30;
-    ctx.shadowBlur = 6;
-    ctx.shadowColor = 'rgba(255, 60, 80, 0.95)';
-    ctx.fillStyle = 'rgba(255, 80, 100, ' + fade + ')';
-    ctx.font = 'bold 16px Impact, "Arial Black", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('CARGO STOLEN', W / 2, bannerY);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(255, 220, 130, ' + fade + ')';
-    ctx.font = 'bold 9px Impact, "Arial Black", sans-serif';
-    ctx.fillText('GRAB THE GOLD GEM', W / 2, bannerY + 14);
-    ctx.textAlign = 'start';
-    ctx.textBaseline = 'alphabetic';
-  }
-
   // Peristaltic purge overlay — drawn on top of the pipe's interior
   // for any tunnel where o.purges is true. Two visible phases: a
   // pink wave traveling left→right (telegraph), then a contraction
@@ -22769,7 +22680,6 @@ const DLX_BUILD = 'v361';
       drawPipePurges();
       drawDailyPressureBubbles();
       drawDailyCrystalNodes();
-      drawRecoveryGem();
       drawDailyDrones();
       drawDailyLavaBalls();
       drawCargoBond();
@@ -23259,8 +23169,6 @@ const DLX_BUILD = 'v361';
     dailyNextBubbleAt    = frame + 600;  // first bubble ~10s in
     dailyCrystalNodes    = [];
     dailyNextCrystalAt   = frame + 900;  // first crystal node ~15s in
-    dailyRecoveryGem     = null;
-    dailyTheftBannerAt   = -999;
     dailyDrones = [];
     dailyNextDroneAt = frame + 1800;     // first drone enters during stage 2
     dailyCurrentStage = 0;
@@ -23749,16 +23657,6 @@ const DLX_BUILD = 'v361';
   // cargo leave the beam range (beam progress decays).
   let dailyCrystalNodes  = [];
   let dailyNextCrystalAt = 0;
-  // Recovery Gem — single gold gem that spawns when any theft
-  // mechanism actually completes (bubble consume / crystal full
-  // crystallization / purge expel). Picking it up RESTORES the
-  // cargo: clears cargo.lost, re-magnetizes the crate to the rig.
-  // Distinct gold/amber palette — no enemy in Leviathan uses this
-  // color so it's instantly readable as "the good gem."
-  let dailyRecoveryGem = null;
-  // Brief HUD banner shown when cargo gets stolen so the player
-  // knows what happened + that the gem is the way back.
-  let dailyTheftBannerAt = -999;
   let dailyNextThiefAt = 0;        // frame index when next flying thief enters
   let dailyDrones = [];            // [{ x, y, vx, state, stateFrames, beam }] — anti-magnet drones (Phase A3)
   let dailyNextDroneAt = 0;        // frame index when next drone enters
@@ -24026,10 +23924,9 @@ const DLX_BUILD = 'v361';
     return null;
   }
   // Centralized cargo-theft helper — called by every Leviathan theft
-  // mechanism when it actually completes. Marks cargo lost, plays
-  // feedback, and spawns the gold recovery gem at a reachable
-  // position ahead of the rig. Player flies to the gem to get cargo
-  // back. No-op if cargo is already lost or a gem is already out.
+  // mechanism when it actually completes. Marks cargo lost + plays
+  // feedback. RECOVERY: pick up any cog or fuel cell inside a pipe
+  // to restore the cargo (handled in the pickup collection loop).
   function triggerCargoTheft(srcX, srcY) {
     if (!cargo || cargo.lost) return;
     cargo.attached = false;
@@ -24040,20 +23937,6 @@ const DLX_BUILD = 'v361';
     cargo.lost = true;
     emitPickupSparks(srcX || cargo.x, srcY || cargo.y, '#ff6080', 18);
     playSound('boom');
-    dailyTheftBannerAt = frame;
-    if (!dailyRecoveryGem) {
-      // Spawn the gold gem ahead of the rig at a random reachable Y
-      // (mid-cavity, away from ceiling/floor). World-anchored so it
-      // scrolls with the world like other pickups.
-      const aheadWX = bird.x + dailyScrollX + 200 + Math.random() * 160;
-      const gY = 100 + Math.random() * (PLAY_H - 220);
-      dailyRecoveryGem = {
-        worldX: aheadWX,
-        y: gY,
-        bobPhase: Math.random() * Math.PI * 2,
-        spawnFrame: frame,
-      };
-    }
   }
   // Back-compat shim: surfaceAt now resolves to the layout floor at
   // that X (so callers get the surface the rig stands on, including
