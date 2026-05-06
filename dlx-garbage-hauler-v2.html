@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v356';
+const DLX_BUILD = 'v357';
 
 (function() {
   // ---------- Device detection ----------
@@ -8673,6 +8673,113 @@ const DLX_BUILD = 'v356';
             }
             dailyPressureBubbles.splice(i, 1);
           }
+        }
+
+        // ---- CRYSTALLINE SPORE NODES (Leviathan only) -------------
+        // Asymmetric alien crystal shards drift through the open
+        // cavity. When the rig's cargo is in beam range, the node
+        // fires a slow plasma beam that crystallizes the cargo over
+        // ~5 sec. If the crystallization completes, the cargo is
+        // lost (turned into crystal). Counter: ram the node 3 times
+        // to shatter it, OR fly fast enough that cargo leaves beam
+        // range before crystallization completes (the progress
+        // decays when out of range). Force field shield blocks the
+        // beam entirely.
+        if (currentDeliveryLevel.obstacleSet
+            && currentDeliveryLevel.obstacleSet.crystalNodes
+            && !dailyDelivered
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
+            && cargo && cargo.attached && !cargo.lost
+            && frame >= dailyNextCrystalAt
+            && dailyCrystalNodes.length < 1) {
+          const aheadWX = bird.x + dailyScrollX + 240 + Math.random() * 120;
+          const nY = 80 + Math.random() * (PLAY_H - 200);
+          dailyCrystalNodes.push({
+            worldX: aheadWX,
+            y: Math.max(60, Math.min(PLAY_H - 100, nY)),
+            r: 14,
+            rot: Math.random() * Math.PI * 2,
+            spawnFrame: frame,
+            crystallizationT: 0,
+            hits: 0,
+            popped: false,
+            popFrame: 0,
+            beamActive: false,
+            lastHitFrame: -999,
+          });
+          // Crystals are rarer than bubbles — every ~20-30 sec
+          dailyNextCrystalAt = frame + 1200 + Math.floor(Math.random() * 600);
+        }
+        for (let i = dailyCrystalNodes.length - 1; i >= 0; i--) {
+          const n = dailyCrystalNodes[i];
+          // Slow drift forward (relative to world) so the node lingers
+          // somewhat in screen space — gives the player time to react
+          // and ram. Half scroll speed → drifts past at half rate.
+          const _spdC = currentPipeSpeed
+            ? currentPipeSpeed()
+            : PIPE_SPEED_BASE;
+          n.worldX += _spdC * 0.5;
+          const sx = n.worldX - dailyScrollX;
+          // Pop animation runs for 30 frames then despawn
+          if (n.popped) {
+            if (frame - n.popFrame > 30) dailyCrystalNodes.splice(i, 1);
+            continue;
+          }
+          // Beam targeting — only fires when cargo is attached, in
+          // range, NOT inside a pipe (pipe walls block beam), and
+          // the rig isn't shielded.
+          const ffActive = forceFieldFrames > 0;
+          let cargoInBeam = false;
+          if (cargo && cargo.attached && !cargo.lost && !ffActive) {
+            const cargoWX = cargo.x + dailyScrollX;
+            const inPipe = pipeInteriorAt(cargoWX, cargo.y) !== null;
+            if (!inPipe) {
+              const dxC = cargo.x - sx;
+              const dyC = cargo.y - n.y;
+              if (dxC * dxC + dyC * dyC < 120 * 120) {
+                cargoInBeam = true;
+              }
+            }
+          }
+          if (cargoInBeam) {
+            n.beamActive = true;
+            // ~5 sec to fully crystallize a continuous beam.
+            n.crystallizationT = Math.min(1.0, n.crystallizationT + 1 / 300);
+            if (n.crystallizationT >= 1.0) {
+              cargo.attached = false;
+              cargo.bubbleEngulfed = false;
+              cargo.bubbleRef = null;
+              cargo.lost = true;
+              emitPickupSparks(cargo.x, cargo.y, '#80e0ff', 22);
+              n.popped = true;
+              n.popFrame = frame;
+            }
+          } else {
+            n.beamActive = false;
+            // Decay 2x faster than charge so once cargo leaves the
+            // beam the threat resets quickly.
+            n.crystallizationT = Math.max(0, n.crystallizationT - 1 / 150);
+          }
+          // Ram detection — rig collides with the node body. 18-frame
+          // cooldown between hit counts so a sustained press doesn't
+          // burn through 3 hits in 3 frames.
+          const dxR = bird.x - sx;
+          const dyR = bird.y - n.y;
+          const reachR = BIRD_R + n.r - 2;
+          if (dxR * dxR + dyR * dyR < reachR * reachR
+              && frame - n.lastHitFrame > 18) {
+            n.hits++;
+            n.lastHitFrame = frame;
+            emitPickupSparks(sx, n.y, '#80e0ff', 12);
+            if (n.hits >= 3) {
+              n.popped = true;
+              n.popFrame = frame;
+              emitPickupSparks(sx, n.y, '#ffd060', 18);
+              playSound('forceField');
+            }
+          }
+          // Cleanup off-screen
+          if (sx < -50) dailyCrystalNodes.splice(i, 1);
         }
 
         // ---- PERISTALTIC PIPE PURGES (Leviathan only) -------------
@@ -17638,6 +17745,242 @@ const DLX_BUILD = 'v356';
     }
   }
 
+  // Crystalline Spore Node — asymmetric alien crystal that beams +
+  // crystallizes cargo. Iridescent body with fleshy tendrils growing
+  // out between facets, slow rotation, hit pips along the rim. When
+  // beaming, body tints magenta and a pink plasma line extends to
+  // the cargo with energy crackles + crystal scales growing on the
+  // crate.
+  function drawDailyCrystalNodes() {
+    if (!isDaily || !dailyCrystalNodes.length) return;
+    for (const n of dailyCrystalNodes) {
+      const sx = n.worldX - dailyScrollX;
+      if (sx < -40 || sx > W + 40) continue;
+      const sxR = Math.round(sx);
+      const cy  = Math.round(n.y);
+
+      // Pop animation — expanding shard burst + fade
+      if (n.popped) {
+        const t = (frame - n.popFrame) / 30;
+        if (t > 1) continue;
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(120, 240, 255, 0.95)';
+        ctx.strokeStyle = 'rgba(180, 230, 255, ' + (1 - t) + ')';
+        ctx.lineWidth = 2 - t;
+        ctx.beginPath();
+        ctx.arc(sxR, cy, n.r + 4 + t * 26, 0, Math.PI * 2);
+        ctx.stroke();
+        // Six radial shards flying outward
+        for (let s = 0; s < 6; s++) {
+          const a = s * (Math.PI / 3);
+          const sr = n.r + 4 + t * 22;
+          const sx2 = sxR + Math.cos(a) * sr;
+          const sy2 = cy  + Math.sin(a) * sr;
+          ctx.fillStyle = 'rgba(120, 220, 255, ' + (1 - t) + ')';
+          ctx.beginPath();
+          ctx.moveTo(sx2 - 1.5, sy2);
+          ctx.lineTo(sx2,       sy2 - 3);
+          ctx.lineTo(sx2 + 1.5, sy2);
+          ctx.lineTo(sx2,       sy2 + 1);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+        continue;
+      }
+
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.10 + n.spawnFrame * 0.13);
+      const beamActive = n.beamActive;
+
+      // ---- Outer halo
+      ctx.shadowBlur = 12 + pulse * 6;
+      ctx.shadowColor = beamActive
+        ? 'rgba(255, 100, 200, 0.95)'
+        : 'rgba(120, 240, 255, 0.85)';
+      ctx.fillStyle = beamActive
+        ? 'rgba(255, 130, 200, ' + (0.30 + pulse * 0.20) + ')'
+        : 'rgba(120, 220, 255, ' + (0.25 + pulse * 0.15) + ')';
+      ctx.beginPath();
+      ctx.arc(sxR, cy, n.r + 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // ---- Crystal body (rotates slowly)
+      ctx.save();
+      ctx.translate(sxR, cy);
+      ctx.rotate(n.rot + frame * 0.005);
+      // Asymmetric polygon — 7 vertices, deliberately uneven
+      const verts = [
+        { x:  0,  y: -n.r - 2 },
+        { x: 11,  y: -6 },
+        { x: 14,  y: 5 },
+        { x: 4,   y: n.r - 1 },
+        { x: -7,  y: n.r - 3 },
+        { x: -13, y: 0 },
+        { x: -10, y: -9 },
+      ];
+      // Dark backing
+      ctx.fillStyle = beamActive ? '#3a0820' : '#0a1a30';
+      ctx.beginPath();
+      ctx.moveTo(verts[0].x, verts[0].y);
+      for (let v = 1; v < verts.length; v++) ctx.lineTo(verts[v].x, verts[v].y);
+      ctx.closePath();
+      ctx.fill();
+      // Iridescent body — diagonal gradient through the shape
+      const bodyGrad = ctx.createLinearGradient(-n.r, -n.r, n.r, n.r);
+      if (beamActive) {
+        bodyGrad.addColorStop(0,   '#ff80c0');
+        bodyGrad.addColorStop(0.5, '#a060e0');
+        bodyGrad.addColorStop(1,   '#80a0ff');
+      } else {
+        bodyGrad.addColorStop(0,   '#80e0ff');
+        bodyGrad.addColorStop(0.5, '#a080ff');
+        bodyGrad.addColorStop(1,   '#60c0ff');
+      }
+      ctx.fillStyle = bodyGrad;
+      ctx.beginPath();
+      ctx.moveTo(verts[0].x, verts[0].y);
+      for (let v = 1; v < verts.length; v++) ctx.lineTo(verts[v].x, verts[v].y);
+      ctx.closePath();
+      ctx.fill();
+      // Bright facet edges
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(verts[0].x, verts[0].y);
+      for (let v = 1; v < verts.length; v++) ctx.lineTo(verts[v].x, verts[v].y);
+      ctx.closePath();
+      ctx.stroke();
+      // Inner facet creases — center to each vertex at 60% radius
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.lineWidth = 0.5;
+      for (let v = 0; v < verts.length; v++) {
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(verts[v].x * 0.6, verts[v].y * 0.6);
+        ctx.stroke();
+      }
+      // Bright pulsing core
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = beamActive
+        ? 'rgba(255, 200, 240, 0.95)'
+        : 'rgba(180, 240, 255, 0.95)';
+      ctx.fillStyle = beamActive ? '#ffe0f0' : '#e0f8ff';
+      ctx.beginPath();
+      ctx.arc(0, 0, 2 + pulse * 1.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+
+      // ---- Fleshy tendrils between facets (don't rotate with the
+      // crystal — they're rooted in space). Three thin pink tendrils
+      // wave with frame-driven sine offsets.
+      for (let t = 0; t < 3; t++) {
+        const tang = (t / 3) * Math.PI * 2 + frame * 0.02;
+        const baseR = n.r * 0.65;
+        const tipR  = n.r + 5 + Math.sin(frame * 0.06 + t * 1.7) * 2;
+        const bx = sxR + Math.cos(tang) * baseR;
+        const by = cy  + Math.sin(tang) * baseR;
+        const tx = sxR + Math.cos(tang + 0.25) * tipR;
+        const ty = cy  + Math.sin(tang + 0.25) * tipR;
+        ctx.strokeStyle = 'rgba(120, 30, 70, 0.85)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.quadraticCurveTo(
+          (bx + tx) / 2 + Math.cos(tang) * 4,
+          (by + ty) / 2 + Math.sin(tang) * 4,
+          tx, ty
+        );
+        ctx.stroke();
+        // Tip nodule
+        ctx.fillStyle = 'rgba(255, 140, 200, 0.85)';
+        ctx.beginPath();
+        ctx.arc(tx, ty, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // ---- Hit pips along the lower rim (3 marks)
+      for (let h = 0; h < 3; h++) {
+        const ang = Math.PI * 0.55 + h * 0.30;
+        const px = sxR + Math.cos(ang) * (n.r + 8);
+        const py = cy  + Math.sin(ang) * (n.r + 8);
+        if (h < n.hits) {
+          ctx.fillStyle = '#ffd83d';
+          ctx.beginPath();
+          ctx.arc(px, py, 1.6, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.strokeStyle = 'rgba(40, 12, 28, 0.8)';
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.arc(px, py, 1.6, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+
+      // ---- Plasma beam to cargo (when beaming)
+      if (beamActive && cargo && cargo.attached && !cargo.lost) {
+        const cgx = cargo.x;
+        const cgy = cargo.y;
+        const beamW = 2 + n.crystallizationT * 4;
+        // Outer beam glow
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(255, 100, 200, 0.95)';
+        ctx.strokeStyle = 'rgba(255, 130, 200, 0.55)';
+        ctx.lineWidth = beamW + 2;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(sxR, cy);
+        ctx.lineTo(cgx, cgy);
+        ctx.stroke();
+        // Inner bright core
+        ctx.strokeStyle = 'rgba(255, 220, 240, 0.95)';
+        ctx.lineWidth = beamW * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(sxR, cy);
+        ctx.lineTo(cgx, cgy);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+        ctx.shadowBlur = 0;
+        // Energy crackles drifting along the beam
+        const dx = cgx - sxR;
+        const dy = cgy - cy;
+        for (let s = 0; s < 4; s++) {
+          const tt = ((frame * 0.04 + s * 0.25)) % 1;
+          const px = sxR + dx * tt;
+          const py = cy  + dy * tt;
+          const ox = Math.sin(frame * 0.5 + s * 1.7) * 3;
+          const oy = Math.cos(frame * 0.5 + s * 1.7) * 3;
+          ctx.fillStyle = 'rgba(255, 240, 250, 0.85)';
+          ctx.beginPath();
+          ctx.arc(px + ox, py + oy, 1.0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Crystal scales growing on the cargo (count scales with
+        // crystallizationT so the player sees the threat ramping)
+        const scaleCount = Math.floor(n.crystallizationT * 8);
+        for (let s = 0; s < scaleCount; s++) {
+          const sang = s * 0.79 + frame * 0.005;
+          const srad = 8 + Math.sin(s * 1.3) * 2;
+          const sxs = cgx + Math.cos(sang) * srad;
+          const sys = cgy + Math.sin(sang) * srad;
+          ctx.shadowBlur = 4;
+          ctx.shadowColor = 'rgba(120, 240, 255, 0.95)';
+          ctx.fillStyle = '#80e0ff';
+          ctx.beginPath();
+          ctx.moveTo(sxs - 1.5, sys);
+          ctx.lineTo(sxs,       sys - 2.5);
+          ctx.lineTo(sxs + 1.5, sys);
+          ctx.lineTo(sxs,       sys + 1);
+          ctx.closePath();
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+      }
+    }
+  }
+
   // Peristaltic purge overlay — drawn on top of the pipe's interior
   // for any tunnel where o.purges is true. Two visible phases: a
   // pink wave traveling left→right (telegraph), then a contraction
@@ -22242,6 +22585,7 @@ const DLX_BUILD = 'v356';
       drawDailyMirrorPairs();
       drawPipePurges();
       drawDailyPressureBubbles();
+      drawDailyCrystalNodes();
       drawDailyDrones();
       drawDailyLavaBalls();
       drawCargoBond();
@@ -22728,6 +23072,8 @@ const DLX_BUILD = 'v356';
     dailyNextMirrorPairAt = frame + 720; // first mirror parasite pair ~12s in
     dailyPressureBubbles = [];
     dailyNextBubbleAt    = frame + 600;  // first bubble ~10s in
+    dailyCrystalNodes    = [];
+    dailyNextCrystalAt   = frame + 900;  // first crystal node ~15s in
     dailyDrones = [];
     dailyNextDroneAt = frame + 1800;     // first drone enters during stage 2
     dailyCurrentStage = 0;
@@ -23160,6 +23506,7 @@ const DLX_BUILD = 'v356';
         // pipe theme better.
         pressureBubbles: true,             // drifting cavity bubble that engulfs cargo
         peristalticPurge: true,            // 20% of pipes contract + expel cargo
+        crystalNodes: true,                // alien crystal that beams + crystallizes cargo
       },
       obstacleTheme: 'organic',
       // Buoyancy — the rig handles like it's submerged. Gravity, flap
@@ -23207,6 +23554,14 @@ const DLX_BUILD = 'v356';
   // hits) to pop it and recover the crate.
   let dailyPressureBubbles = [];
   let dailyNextBubbleAt    = 0;
+  // Crystalline Spore Nodes (Leviathan only). Asymmetric alien crystal
+  // shards that drift through the open cavity. When cargo enters their
+  // beam range, they fire a slow plasma beam that crystallizes the
+  // cargo over ~5 sec; if it completes, cargo is lost (turned into
+  // crystal). Counter: ram the node 3 times to shatter it, or let
+  // cargo leave the beam range (beam progress decays).
+  let dailyCrystalNodes  = [];
+  let dailyNextCrystalAt = 0;
   let dailyNextThiefAt = 0;        // frame index when next flying thief enters
   let dailyDrones = [];            // [{ x, y, vx, state, stateFrames, beam }] — anti-magnet drones (Phase A3)
   let dailyNextDroneAt = 0;        // frame index when next drone enters
