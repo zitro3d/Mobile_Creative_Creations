@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v368';
+const DLX_BUILD = 'v369';
 
 (function() {
   // ---------- Device detection ----------
@@ -8022,14 +8022,19 @@ const DLX_BUILD = 'v368';
             const variantRoll = isOrganic ? Math.random() : 1.0;
             const skyFloor = PLAY_H - 152;       // bottom pipe must stop above this
             if (variantRoll < 0.25) {
-              // BOTTOM-ONLY — top piece is empty (top = 0); rig has
-              // wide open space above and threads near the floor.
+              // BOTTOM-ONLY — top piece is empty (top = 0); the
+              // bottom piece is a SHORT slab in the lower cavity
+              // (100-180 px tall). Rig has wide open space above —
+              // the entire upper screen is clear.
+              const bottomH = 100 + Math.random() * 80;
               o.top = 0;
-              o.gap = 80 + Math.random() * 60;   // 80..140 px of bottom piece floor clearance
+              o.gap = Math.max(80, PLAY_H - bottomH);   // gap = open space above bottom piece
             } else if (variantRoll < 0.50) {
               // TOP-ONLY — bottom piece is empty (top + gap >= PLAY_H).
-              // Rig has open space below and threads near the ceiling.
-              o.top = 80 + Math.random() * 60;   // 80..140 px of top piece
+              // Top piece is a SHORT slab on the ceiling (100-180 px
+              // tall). Rig has wide open space below — most of the
+              // screen is clear.
+              o.top = 100 + Math.random() * 80;
               o.gap = PLAY_H + 20;               // forces bottom piece off-screen
             } else {
               // STANDARD pair (also Sunset's only path).
@@ -8355,7 +8360,14 @@ const DLX_BUILD = 'v368';
           // Random spawn altitude across the upper 60% of the playfield —
           // sometimes a thief comes in close (just above cargo level),
           // sometimes it stays high and drops the full cable.
-          const spawnY = 40 + Math.random() * (PLAY_H * 0.55);
+          // Phages cruise in the UPPER cavity (top ~30 % of screen)
+          // and approach less frequently than v367. Their tongue
+          // strike reaches down into the play area below.
+          const isOrgTf = currentDeliveryLevel
+            && currentDeliveryLevel.obstacleTheme === 'organic';
+          const spawnY = isOrgTf
+            ? 40 + Math.random() * (PLAY_H * 0.30)   // organic: stay high
+            : 40 + Math.random() * (PLAY_H * 0.55);  // sunset: full upper half
           const _tfSpdMul = (currentDeliveryLevel
             && currentDeliveryLevel.obstacleSpeedMul) || 1.0;
           dailyThieves.push({
@@ -8366,7 +8378,10 @@ const DLX_BUILD = 'v368';
             state: 'cruise',
             stateFrames: 0,
           });
-          dailyNextThiefAt = frame + 420 + Math.floor(Math.random() * 240);
+          // Slower cadence in organic — tongue strikes are punchy so
+          // they don't need to come in waves like the gunship thief.
+          dailyNextThiefAt = frame + (isOrgTf ? 720 : 420)
+            + Math.floor(Math.random() * (isOrgTf ? 360 : 240));
         }
         for (let i = dailyThieves.length - 1; i >= 0; i--) {
           const tf = dailyThieves[i];
@@ -8389,9 +8404,14 @@ const DLX_BUILD = 'v368';
               tf.x += tf.vx * 0.35;
               tf.cableLen = Math.min(tf.cableLen + 3.5, 220);
             }
-            // Strike: when the claw reaches cargo level, snap the bond
-            const magnetX = tf.x;
-            const magnetY = tf.y + 12 + tf.cableLen;
+            // Strike: when the claw / tongue reaches cargo level, snap
+            // the bond. Organic phage's tongue origins from the
+            // FRONT-MOUTH (-22 px in body local coords) rather than
+            // the underside, so its tip lands forward-and-down.
+            const _orgTongue = currentDeliveryLevel
+              && currentDeliveryLevel.obstacleTheme === 'organic';
+            const magnetX = tf.x + (_orgTongue ? -22 : 0);
+            const magnetY = tf.y + (_orgTongue ? 4 : 12) + tf.cableLen;
             if (cargo && cargo.attached && !cargo.lost) {
               const ddx = magnetX - cargo.x;
               const ddy = magnetY - cargo.y;
