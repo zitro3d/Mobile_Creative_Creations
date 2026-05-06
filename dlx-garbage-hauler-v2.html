@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v375';
+const DLX_BUILD = 'v376';
 
 (function() {
   // ---------- Device detection ----------
@@ -23364,15 +23364,23 @@ const DLX_BUILD = 'v375';
 
     fctx.save();
     fctx.globalCompositeOperation = 'destination-out';
-    // Radial gradient — full-cut at the light source, fades to
-    // no-cut past the reach. The path clips this gradient to the
-    // cone wedge so only the cone-shaped subarea gets cleared.
+    // Radial gradient — bright core out to the reach distance, then
+    // a long TWILIGHT band where the cut strength drops to ~50 %
+    // before tapering to 0 at the falloff edge. The half-strength
+    // zone reads as the headlight scattering past the bright cone
+    // instead of a hard cliff between lit and pitch black.
+    //
+    //   0.00 .. coreEnd  → full cut (bright core of the cone)
+    //   coreEnd .. 1.00  → fades 1.0 → 0.50 → 0.0 (twilight rim)
+    const coreEnd = reach / r;                       // 0..1 fraction
+    const twilightMid = coreEnd + (1 - coreEnd) * 0.55;
     const grad = fctx.createRadialGradient(lightX, lightY, 0,
                                            lightX, lightY, r);
-    grad.addColorStop(0,    'rgba(255, 255, 255, 1.0)');
-    grad.addColorStop(0.55, 'rgba(255, 255, 255, 0.95)');
-    grad.addColorStop(0.85, 'rgba(255, 255, 255, 0.55)');
-    grad.addColorStop(1,    'rgba(255, 255, 255, 0)');
+    grad.addColorStop(0,             'rgba(255, 255, 255, 1.0)');
+    grad.addColorStop(coreEnd,       'rgba(255, 255, 255, 0.92)');
+    grad.addColorStop(twilightMid,   'rgba(255, 255, 255, 0.48)');
+    grad.addColorStop(0.96,          'rgba(255, 255, 255, 0.10)');
+    grad.addColorStop(1,             'rgba(255, 255, 255, 0)');
     fctx.fillStyle = grad;
 
     fctx.beginPath();
@@ -24367,8 +24375,8 @@ const DLX_BUILD = 'v375';
       flashlight: {
         enabled: true,
         widthDeg: 70,
-        reach:    280,
-        falloff:  90,
+        reach:    260,         // bright core distance
+        falloff:  150,         // long twilight zone (was 90) — softer rim
         darkness: 0.96,
         // Headlight position offset relative to the rig center.
         anchorOX: 4,
