@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v352';
+const DLX_BUILD = 'v353';
 
 (function() {
   // ---------- Device detection ----------
@@ -7379,6 +7379,57 @@ const DLX_BUILD = 'v352';
           }
           bird.vy -= 0.40 * (1 - amt);
           // Clamp eases from ±4 (full stabilize) toward MAX_FALL
+          const maxVy = 4.0 + (MAX_FALL - 4.0) * (1 - amt);
+          if (bird.vy >  maxVy) bird.vy =  maxVy;
+          if (bird.vy < -maxVy) bird.vy = -maxVy;
+          break;
+        }
+      }
+
+      // ---- PIPE AUTO-STABILIZE (organic theme) ----
+      // Pipes are floating corridors with NO entry ramps, so the
+      // ground-tunnel stabilize block above never fires for them.
+      // Without help, taps push the rig straight into the ceiling.
+      // Same gravity-cancel + centerline spring + damping pattern as
+      // the desert ground tunnel, scoped to the pipe's interior.
+      if (isDaily && dailyAirObstacles && dailyAirObstacles.length) {
+        for (const o of dailyAirObstacles) {
+          if (o.kind !== 'tunnel' || !o.isPipe) continue;
+          const sx = o.worldX - dailyScrollX;
+          const exitX = sx + o.length;
+          const fadeLen = 80;             // shorter fade — no ground hand-off
+          const fadeEnd = exitX + fadeLen;
+          if (bird.x < sx - 4 || bird.x > fadeEnd) continue;
+          // Only stabilize when the rig is actually IN the pipe's
+          // vertical band (with a small grace zone outside the rim
+          // so a near-mouth approach starts to spring before fully
+          // committed).
+          const innerTop = o.centerY - PIPE_HALF_H;
+          const innerBot = o.centerY + PIPE_HALF_H;
+          if (bird.y < innerTop - 6 || bird.y > innerBot + 6) continue;
+          if (!o.rigEntered) {
+            o.rigEntered = true;
+            playSound('tunnelEnter');
+          }
+          let amt = 1.0;
+          if (bird.x > exitX) {
+            amt = 1.0 - (bird.x - exitX) / fadeLen;
+            if (amt < 0) amt = 0;
+          }
+          const center = o.centerY;
+          const _buoyG = (currentDeliveryLevel
+            && currentDeliveryLevel.gravityMultiplier) || 1.0;
+          bird.vy -= GRAVITY * _buoyG * amt;          // gravity cancel
+          // SPRING toward centerY — pulls the rig back to the middle
+          // when taps pin it to the ceiling or gravity sinks it to
+          // the floor. Symmetric since pipes have no entry/exit
+          // direction-of-travel asymmetry.
+          bird.vy += (center - bird.y) * 0.11 * amt;
+          // DAMPING — both directions inside, so taps and gravity
+          // both lose ~22 % of their delta and the rig settles.
+          bird.vy *= (1 - 0.22 * amt);
+          // Clamp velocity tighter inside the pipe so a hard tap
+          // doesn't smash the ceiling.
           const maxVy = 4.0 + (MAX_FALL - 4.0) * (1 - amt);
           if (bird.vy >  maxVy) bird.vy =  maxVy;
           if (bird.vy < -maxVy) bird.vy = -maxVy;
