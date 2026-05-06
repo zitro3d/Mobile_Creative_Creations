@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v358';
+const DLX_BUILD = 'v359';
 
 (function() {
   // ---------- Device detection ----------
@@ -8589,9 +8589,24 @@ const DLX_BUILD = 'v358';
             ? currentPipeSpeed()
             : PIPE_SPEED_BASE;
           if (b.holdsCargo) {
-            b.worldX += speed * 1.0;       // ~fixed in screen
+            // Slight drift left in screen (95 % of scroll) so the
+            // bubble visibly carries cargo toward the rear. Combined
+            // with the 240-frame consume timer this gives the player
+            // a clear ~4-sec window to ram before cargo is lost.
+            b.worldX += speed * 0.95;
           } else {
             b.worldX += speed * 0.5;       // slow drift past
+          }
+          // Consume timer — once the bubble has held cargo for 240
+          // frames (~4 sec) and the player hasn't popped it, the
+          // cargo gets fully digested. Spawns the recovery gem.
+          if (b.holdsCargo && !b.popped) {
+            b.holdFrames = (b.holdFrames || 0) + 1;
+            if (b.holdFrames >= 240) {
+              b.popped = true;
+              b.popFrame = frame;
+              triggerCargoTheft(b.worldX - dailyScrollX, b.y);
+            }
           }
           // Subtle vertical bob so the bubble feels alive in the fluid
           const bobY = b.y + Math.sin((frame + i * 17) * 0.04) * 1.5;
@@ -8606,11 +8621,15 @@ const DLX_BUILD = 'v358';
             if (!anyHolding) {
               const dx = cargo.x - sx;
               const dy = cargo.y - bobY;
-              if (dx * dx + dy * dy < (b.r + 4) * (b.r + 4)) {
+              // More forgiving engulf radius (b.r + 12 = 30 px) so
+              // touching the bubble's halo counts as engulf, not
+              // pixel-perfect overlap with the core.
+              if (dx * dx + dy * dy < (b.r + 12) * (b.r + 12)) {
                 cargo.attached = false;
                 cargo.bubbleEngulfed = true;
                 cargo.bubbleRef = b;
                 b.holdsCargo = true;
+                b.holdFrames = 0;
                 emitPickupSparks(cargo.x, cargo.y, '#ffb0e0', 12);
                 playSound('boom');
               }
@@ -8658,12 +8677,9 @@ const DLX_BUILD = 'v358';
           }
           if (sx < -40) {
             // If the bubble drifted off-screen still holding cargo,
-            // the cargo is lost — same model as falling cargo scrolling
-            // off the left edge.
+            // theft completes — spawn recovery gem via the helper.
             if (b.holdsCargo && cargo && cargo.bubbleEngulfed) {
-              cargo.bubbleEngulfed = false;
-              cargo.bubbleRef = null;
-              cargo.lost = true;
+              triggerCargoTheft(0, b.y);
             }
             dailyPressureBubbles.splice(i, 1);
           }
@@ -8740,13 +8756,9 @@ const DLX_BUILD = 'v358';
             // ~5 sec to fully crystallize a continuous beam.
             n.crystallizationT = Math.min(1.0, n.crystallizationT + 1 / 300);
             if (n.crystallizationT >= 1.0) {
-              cargo.attached = false;
-              cargo.bubbleEngulfed = false;
-              cargo.bubbleRef = null;
-              cargo.lost = true;
-              emitPickupSparks(cargo.x, cargo.y, '#80e0ff', 22);
               n.popped = true;
               n.popFrame = frame;
+              triggerCargoTheft(cargo.x, cargo.y);
             }
           } else {
             n.beamActive = false;
@@ -8776,6 +8788,36 @@ const DLX_BUILD = 'v358';
           if (sx < -50) dailyCrystalNodes.splice(i, 1);
         }
 
+        // ---- RECOVERY GEM pickup — restores stolen cargo
+        if (dailyRecoveryGem) {
+          const gSX = dailyRecoveryGem.worldX - dailyScrollX;
+          const dx  = bird.x - gSX;
+          const dy  = bird.y - dailyRecoveryGem.y;
+          if (dx * dx + dy * dy < 28 * 28) {
+            // Restore cargo: clear lost flag, re-attach to rig, snap
+            // position to the trail spot so it doesn't fall through
+            // walls. Plays a celebratory spark burst.
+            if (cargo) {
+              cargo.lost = false;
+              cargo.attached = true;
+              cargo.bubbleEngulfed = false;
+              cargo.bubbleRef = null;
+              cargo.parasiteLocked = false;
+              cargo.parasitePair = null;
+              cargo.x = bird.x - 32;
+              cargo.y = bird.y - 4;
+              cargo.vy = 0;
+              emitPickupSparks(bird.x, bird.y, '#ffd060', 22);
+              playSound('powerup');
+            }
+            dailyRecoveryGem = null;
+          } else if (gSX < -40) {
+            // Gem scrolled off-screen without being recovered — clear
+            // it. Cargo stays lost.
+            dailyRecoveryGem = null;
+          }
+        }
+
         // ---- PERISTALTIC PIPE PURGES (Leviathan only) -------------
         // 20% of organic pipes have a periodic contraction cycle. A
         // wave of pink light TELEGRAPHS for 60 frames travelling left-
@@ -8802,12 +8844,11 @@ const DLX_BUILD = 'v358';
             o.purgeState = 'contract';
             o.purgeContractT = (phase - COOLDOWN - WAVE) / CONTRACT;  // 0..1 right→left
             o.purgeWaveT = 1;
-            // DRAG cargo backward if it's in the contraction zone.
-            // Doesn't BREAK the magnet bond — applies a leftward force
-            // that competes with the magnet's pull. Player has to flap
-            // forward to hold the cargo. Bond only breaks if cargo
-            // gets dragged past the pipe's left mouth (~80 px lag).
-            // Force field bubble blocks the drag entirely.
+            // STEAL cargo if the contraction sweeps PAST cargo's
+            // position. The 60-frame pink wave gave the player time
+            // to outrun the cycle or shield up. Once contraction
+            // reaches cargo, magnet bond breaks AND cargo is lost
+            // (recovery gem spawns). Force field shield blocks.
             const ffActive = forceFieldFrames > 0;
             if (!ffActive && cargo && cargo.attached && !cargo.lost) {
               const cWX = cargo.x + dailyScrollX;
@@ -8815,27 +8856,13 @@ const DLX_BUILD = 'v358';
                 const innerTop = o.centerY - PIPE_HALF_H;
                 const innerBot = o.centerY + PIPE_HALF_H;
                 if (cargo.y > innerTop && cargo.y < innerBot) {
-                  // Where is the contraction RIGHT NOW (in pipe-local x)?
                   const contractX = o.length * (1 - o.purgeContractT);
                   const cargoLocalX = cWX - o.worldX;
-                  // Cargo at or behind the contraction's leading edge
-                  // gets a steady leftward push (not a teleport). The
-                  // magnet pulls cargo back toward bird.x - 32 at rate
-                  // 0.20, so this push competes — cargo lags but stays
-                  // bonded. Player can outrun the contraction by
-                  // flapping forward fast.
-                  if (cargoLocalX > contractX - 24) {
-                    cargo.x -= 2.0;             // steady drag
-                    // Hard expel: if the magnet bond stretches more
-                    // than 80 px (cargo is way behind the rig), break
-                    // the bond so the cargo is genuinely lost.
-                    if ((bird.x - cargo.x) > 80) {
-                      cargo.attached = false;
-                      cargo.bubbleEngulfed = false;
-                      cargo.bubbleRef = null;
-                      cargo.vy = 1.0;
-                      emitPickupSparks(cargo.x, cargo.y, '#ff80c0', 12);
-                    }
+                  // Contraction's leading edge sweeps right→left. If
+                  // cargo is at OR behind the leading edge by 8 px,
+                  // it's been overtaken — theft fires.
+                  if (cargoLocalX > contractX - 8 && cargoLocalX < contractX + 8) {
+                    triggerCargoTheft(cargo.x, cargo.y);
                   }
                 }
               }
@@ -17975,6 +18002,93 @@ const DLX_BUILD = 'v358';
     }
   }
 
+  // Gold Recovery Gem. Distinct gold/amber palette so it doesn't
+  // get visually confused with cyan crystal nodes, magenta bubbles,
+  // or pink purge effects. Bobs gently, glows, sparkles.
+  function drawRecoveryGem() {
+    if (!dailyRecoveryGem) return;
+    const g = dailyRecoveryGem;
+    const sx = g.worldX - dailyScrollX;
+    if (sx < -30 || sx > W + 30) return;
+    const bobY = g.y + Math.sin(frame * 0.10 + g.bobPhase) * 3;
+    const cx = Math.round(sx);
+    const cy = Math.round(bobY);
+    const pulse = 0.5 + 0.5 * Math.sin(frame * 0.14 + g.bobPhase);
+    // Outer halo — bright gold
+    ctx.shadowBlur = 14 + pulse * 8;
+    ctx.shadowColor = 'rgba(255, 220, 80, 0.95)';
+    ctx.fillStyle = 'rgba(255, 220, 80, ' + (0.40 + pulse * 0.20) + ')';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 16 + pulse * 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Diamond body — rotated square
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(Math.PI / 4 + frame * 0.008);
+    const r = 8;
+    // Dark backing
+    ctx.fillStyle = '#3a2806';
+    ctx.fillRect(-r - 1, -r - 1, (r + 1) * 2, (r + 1) * 2);
+    // Body
+    ctx.fillStyle = '#ffd060';
+    ctx.fillRect(-r, -r, r * 2, r * 2);
+    // Top facet highlight
+    ctx.fillStyle = '#fff0a8';
+    ctx.fillRect(-r, -r, r * 2, 2);
+    // Bright catchlight
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(-2, -2, 2, 2);
+    ctx.restore();
+    // White sparkle particles around the gem (4 small dots in a slow
+    // orbit at varying radii)
+    for (let s = 0; s < 4; s++) {
+      const sang = frame * 0.04 + s * (Math.PI / 2) + g.bobPhase;
+      const sr = 14 + Math.sin(frame * 0.08 + s) * 3;
+      const spx = cx + Math.cos(sang) * sr;
+      const spy = cy + Math.sin(sang) * sr * 0.7;
+      ctx.shadowBlur = 3;
+      ctx.shadowColor = 'rgba(255, 240, 180, 0.95)';
+      ctx.fillStyle = 'rgba(255, 250, 220, 0.95)';
+      ctx.beginPath();
+      ctx.arc(spx, spy, 1.0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    // "RECOVER" text label below the gem
+    ctx.fillStyle = 'rgba(255, 230, 130, 0.85)';
+    ctx.font = 'bold 6px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('RECOVER', cx, cy + 22);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // Brief HUD banner shown for ~150 frames after a theft fires.
+  // Fades out over the last 30 frames. Text-only, no screen tint.
+  function drawTheftBanner() {
+    const since = frame - dailyTheftBannerAt;
+    if (since < 0 || since > 150) return;
+    const fade = since < 8 ? since / 8
+              : since > 120 ? Math.max(0, 1 - (since - 120) / 30)
+              : 1.0;
+    const bannerY = PLAY_H * 0.30;
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(255, 60, 80, 0.95)';
+    ctx.fillStyle = 'rgba(255, 80, 100, ' + fade + ')';
+    ctx.font = 'bold 16px Impact, "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('CARGO STOLEN', W / 2, bannerY);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255, 220, 130, ' + fade + ')';
+    ctx.font = 'bold 9px Impact, "Arial Black", sans-serif';
+    ctx.fillText('GRAB THE GOLD GEM', W / 2, bannerY + 14);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+  }
+
   // Peristaltic purge overlay — drawn on top of the pipe's interior
   // for any tunnel where o.purges is true. Two visible phases: a
   // pink wave traveling left→right (telegraph), then a contraction
@@ -22580,10 +22694,12 @@ const DLX_BUILD = 'v358';
       drawPipePurges();
       drawDailyPressureBubbles();
       drawDailyCrystalNodes();
+      drawRecoveryGem();
       drawDailyDrones();
       drawDailyLavaBalls();
       drawCargoBond();
       drawDailyCargo();
+      drawTheftBanner();
     }
     drawExhaust();
     drawSparks();
@@ -23068,6 +23184,8 @@ const DLX_BUILD = 'v358';
     dailyNextBubbleAt    = frame + 600;  // first bubble ~10s in
     dailyCrystalNodes    = [];
     dailyNextCrystalAt   = frame + 900;  // first crystal node ~15s in
+    dailyRecoveryGem     = null;
+    dailyTheftBannerAt   = -999;
     dailyDrones = [];
     dailyNextDroneAt = frame + 1800;     // first drone enters during stage 2
     dailyCurrentStage = 0;
@@ -23556,6 +23674,16 @@ const DLX_BUILD = 'v358';
   // cargo leave the beam range (beam progress decays).
   let dailyCrystalNodes  = [];
   let dailyNextCrystalAt = 0;
+  // Recovery Gem — single gold gem that spawns when any theft
+  // mechanism actually completes (bubble consume / crystal full
+  // crystallization / purge expel). Picking it up RESTORES the
+  // cargo: clears cargo.lost, re-magnetizes the crate to the rig.
+  // Distinct gold/amber palette — no enemy in Leviathan uses this
+  // color so it's instantly readable as "the good gem."
+  let dailyRecoveryGem = null;
+  // Brief HUD banner shown when cargo gets stolen so the player
+  // knows what happened + that the gem is the way back.
+  let dailyTheftBannerAt = -999;
   let dailyNextThiefAt = 0;        // frame index when next flying thief enters
   let dailyDrones = [];            // [{ x, y, vx, state, stateFrames, beam }] — anti-magnet drones (Phase A3)
   let dailyNextDroneAt = 0;        // frame index when next drone enters
@@ -23821,6 +23949,36 @@ const DLX_BUILD = 'v358';
       }
     }
     return null;
+  }
+  // Centralized cargo-theft helper — called by every Leviathan theft
+  // mechanism when it actually completes. Marks cargo lost, plays
+  // feedback, and spawns the gold recovery gem at a reachable
+  // position ahead of the rig. Player flies to the gem to get cargo
+  // back. No-op if cargo is already lost or a gem is already out.
+  function triggerCargoTheft(srcX, srcY) {
+    if (!cargo || cargo.lost) return;
+    cargo.attached = false;
+    cargo.bubbleEngulfed = false;
+    cargo.bubbleRef = null;
+    cargo.parasiteLocked = false;
+    cargo.parasitePair = null;
+    cargo.lost = true;
+    emitPickupSparks(srcX || cargo.x, srcY || cargo.y, '#ff6080', 18);
+    playSound('boom');
+    dailyTheftBannerAt = frame;
+    if (!dailyRecoveryGem) {
+      // Spawn the gold gem ahead of the rig at a random reachable Y
+      // (mid-cavity, away from ceiling/floor). World-anchored so it
+      // scrolls with the world like other pickups.
+      const aheadWX = bird.x + dailyScrollX + 200 + Math.random() * 160;
+      const gY = 100 + Math.random() * (PLAY_H - 220);
+      dailyRecoveryGem = {
+        worldX: aheadWX,
+        y: gY,
+        bobPhase: Math.random() * Math.PI * 2,
+        spawnFrame: frame,
+      };
+    }
   }
   // Back-compat shim: surfaceAt now resolves to the layout floor at
   // that X (so callers get the surface the rig stands on, including
