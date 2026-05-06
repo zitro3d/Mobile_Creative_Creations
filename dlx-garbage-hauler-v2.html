@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v365';
+const DLX_BUILD = 'v366';
 
 (function() {
   // ---------- Device detection ----------
@@ -7585,7 +7585,13 @@ const DLX_BUILD = 'v365';
         }
       } else if (isDaily) {
         // ---- Daily delivery course — terrain + ground hazards + cargo ----
-        dailyScrollX += speed;
+        // While the rig is FROZEN by a jellyfish sting, world scroll
+        // pauses too — otherwise the rig coasts forward at full
+        // scroll speed despite being unable to flap, which is unfair
+        // (obstacles slide past the helpless rig).
+        if (frozenFrames === 0) {
+          dailyScrollX += speed;
+        }
         // Procedurally drop hazards out at the right edge as we travel.
         // Stage-aware mix — 'spikes' (jagged formations) introduced from
         // stage 2 onward so the early dunes stay easy to learn on.
@@ -8182,6 +8188,15 @@ const DLX_BUILD = 'v365';
           const pullR2 = pullR * pullR;
           for (const p of dailyPickups) {
             if (!p.alive || p.kind !== 'scrapCog') continue;
+            // Don't pull cogs through pipe walls. If a cog is inside
+            // a pipe and the rig isn't inside THE SAME pipe, skip
+            // it — the pipe wall blocks the magnet beam. Player has
+            // to enter the pipe to collect it like any other cog.
+            const cogPipe = pipeInteriorAt(p.worldX, p.y);
+            if (cogPipe) {
+              const rigPipe = pipeInteriorAt(bird.x + dailyScrollX, bird.y);
+              if (!rigPipe || rigPipe.pipe !== cogPipe.pipe) continue;
+            }
             const psx = p.worldX - dailyScrollX;
             const dx = bird.x - psx;
             const dy = bird.y - p.y;
@@ -17635,165 +17650,155 @@ const DLX_BUILD = 'v365';
     }
   }
 
-  // Amoeba-infected pillars (Leviathan only). A translucent gelatinous
-  // mass is wrapped around one of the bone-spur pillars (top piece OR
-  // bottom piece, random). The pillar's silhouette stays visible
-  // through the jelly so the rig's collision rules are unchanged. From
-  // the side of the wrap that faces the gap, the amoeba grows a sticky
-  // pseudopod that stretches horizontally toward the cargo's locked
-  // altitude, then retracts (with cargo, if it grabbed).
+  // Pillar VINE — green grasping vine with suction cups, anchored
+  // to a bone-spur pillar. Rests dormant until the rig nears, then
+  // grows outward toward the cargo with rows of small suction cups
+  // along its length and a big grasping cup at the tip. Re-uses the
+  // amoeba-pillar lifecycle (telegraph → strike → meeting → retract
+  // → consume) with a different visual identity.
   function drawDailyMirrorPairs() {
     if (!isDaily || !dailyMirrorPairs.length) return;
     for (const p of dailyMirrorPairs) {
       const screenX = p.worldX - dailyScrollX;
       if (screenX < -60 || screenX > W + 60) continue;
       const sxR = Math.round(screenX);
-      const wobble = Math.sin(frame * 0.07 + screenX * 0.05);
 
-      // ---- WRAP — translucent jelly clinging to the pillar piece.
-      // Drawn as a fat capsule following the pillar's vertical span on
-      // the chosen side. Slightly bulges outward + irregular wavy edge.
-      const pieceTop = (p.side === 'top') ? 0 : (p.pillarTop + p.pillarGap);
-      const pieceBot = (p.side === 'top') ? p.pillarTop : PLAY_H;
-      const pieceCx  = sxR;
-      // Reduce wrap height slightly so it doesn't poke into the gap
-      // frame, and give it a bit of vertical breathing.
-      const wrapTopY = pieceTop + (p.side === 'top' ? 4 : -2);
-      const wrapBotY = pieceBot - (p.side === 'top' ? -2 : 4);
-      const wrapH    = Math.max(20, wrapBotY - wrapTopY);
-      const wrapHalfW = 22;     // jelly extends 4px past the 36-wide pillar each side
-
+      // ---- BASE BULB — small green nodule at the pillar surface
+      // where the vine emerges. Lives on the bodyY anchor point.
+      const baseX = sxR;
+      const baseY = p.bodyY;
       ctx.save();
-      // 1) Outer dark gelatin halo (silhouette punch)
-      ctx.fillStyle = 'rgba(40, 8, 22, 0.55)';
+      // Dark backing
+      ctx.fillStyle = 'rgba(20, 50, 24, 0.95)';
       ctx.beginPath();
-      ctx.ellipse(pieceCx, (wrapTopY + wrapBotY) / 2,
-                  wrapHalfW + 1.5 + wobble * 0.6,
-                  wrapH / 2 + 1.0, 0, 0, Math.PI * 2);
+      ctx.ellipse(baseX, baseY, 9, 7, 0, 0, Math.PI * 2);
       ctx.fill();
-      // 2) Translucent magenta jelly body
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = 'rgba(255, 120, 180, 0.55)';
-      ctx.fillStyle = 'rgba(220, 80, 140, 0.55)';
+      // Mossy green body
+      ctx.fillStyle = '#3e7b32';
       ctx.beginPath();
-      ctx.ellipse(pieceCx, (wrapTopY + wrapBotY) / 2,
-                  wrapHalfW + wobble * 0.5,
-                  wrapH / 2, 0, 0, Math.PI * 2);
+      ctx.ellipse(baseX, baseY, 7.5, 5.5, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.shadowBlur = 0;
-      // 3) Inner cytoplasm — drifting vacuoles + nucleus
-      const cy0 = (wrapTopY + wrapBotY) / 2;
-      // Nucleus — darker oval, slowly drifts
-      const nucX = pieceCx + Math.sin(frame * 0.03) * 3;
-      const nucY = cy0 + Math.sin(frame * 0.04) * 4;
-      ctx.fillStyle = 'rgba(120, 20, 60, 0.85)';
+      // Lit highlight
+      ctx.fillStyle = 'rgba(180, 230, 130, 0.65)';
       ctx.beginPath();
-      ctx.ellipse(nucX, nucY, 5, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(baseX - 2, baseY - 2, 3, 1.6, -0.5, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = 'rgba(60, 8, 30, 0.85)';
-      ctx.beginPath();
-      ctx.arc(nucX - 1, nucY - 0.5, 1.4, 0, Math.PI * 2);
-      ctx.fill();
-      // Vacuoles — small lighter spots
-      for (let v = 0; v < 4; v++) {
-        const ph = frame * 0.05 + v * 1.7;
-        const vx = pieceCx + Math.sin(ph) * (wrapHalfW * 0.55);
-        const vy = cy0 + Math.cos(ph * 0.7) * (wrapH * 0.30);
-        const vr = 1.6 + (v % 2);
-        ctx.fillStyle = 'rgba(255, 200, 230, 0.55)';
-        ctx.beginPath();
-        ctx.arc(vx, vy, vr, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255, 240, 250, 0.85)';
-        ctx.beginPath();
-        ctx.arc(vx - 0.5, vy - 0.5, vr * 0.4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      // 4) Glistening membrane outline + wet rim
-      ctx.strokeStyle = 'rgba(255, 180, 220, 0.85)';
-      ctx.lineWidth = 1.0;
-      ctx.beginPath();
-      ctx.ellipse(pieceCx, cy0, wrapHalfW, wrapH / 2, 0, 0, Math.PI * 2);
-      ctx.stroke();
       ctx.restore();
 
-      // ---- PSEUDOPOD — horizontal stretching arm from the wrap edge
-      // toward the locked cargo position. Skip when fully retracted.
+      // ---- VINE BODY — segmented green stem extending from base
+      // toward (lockScreenX, lockY). Length scales with podT, with
+      // suction cups along the underside (toward the meeting line)
+      // and a large grasping cup at the tip.
       if (p.podT > 0.01) {
-        const baseX = sxR;
-        const baseY = p.bodyY;
-        const tipX  = baseX + (p.lockScreenX - baseX) * p.podT;
-        const tipY  = baseY + (p.lockY      - baseY) * p.podT;
-        // Subtle organic curve: control point offset perpendicular to
-        // the base→tip line by a wobble that breathes with frame.
+        const tipX = baseX + (p.lockScreenX - baseX) * p.podT;
+        const tipY = baseY + (p.lockY      - baseY) * p.podT;
         const dx = tipX - baseX, dy = tipY - baseY;
         const len = Math.hypot(dx, dy) || 1;
         const nx = -dy / len, ny = dx / len;
-        const ctrlOff = 4 * Math.sin(frame * 0.10) * p.podT;
-        const ctrlX = (baseX + tipX) / 2 + nx * ctrlOff;
-        const ctrlY = (baseY + tipY) / 2 + ny * ctrlOff;
+        // Subtle wobble — vines sway as they grow
+        const wob = 3 * Math.sin(frame * 0.10 + p.spawnFrame * 0.07) * p.podT;
+        const ctrlX = (baseX + tipX) / 2 + nx * wob;
+        const ctrlY = (baseY + tipY) / 2 + ny * wob;
 
         ctx.save();
         ctx.lineCap = 'round';
-        // Tapered stroke: draw thicker outer, thinner inner, simulate
-        // pseudopod taper from base to tip.
-        // Outer dark
-        ctx.lineWidth = 9;
-        ctx.strokeStyle = 'rgba(40, 8, 22, 0.85)';
+
+        // 1) Outer dark silhouette — thick black-green stroke
+        ctx.lineWidth = 7.5;
+        ctx.strokeStyle = 'rgba(12, 30, 14, 0.95)';
         ctx.beginPath();
         ctx.moveTo(baseX, baseY);
         ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
         ctx.stroke();
-        // Body magenta
-        ctx.lineWidth = 6;
-        ctx.strokeStyle = 'rgba(220, 70, 130, 0.92)';
+        // 2) Vine body — mossy green
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = '#3e7b32';
         ctx.beginPath();
         ctx.moveTo(baseX, baseY);
         ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
         ctx.stroke();
-        // Inner highlight
-        ctx.lineWidth = 2.4;
-        ctx.strokeStyle = 'rgba(255, 180, 220, 0.85)';
+        // 3) Highlight stripe — brighter green along the lit side
+        ctx.lineWidth = 1.6;
+        ctx.strokeStyle = 'rgba(180, 230, 130, 0.75)';
         ctx.beginPath();
-        ctx.moveTo(baseX, baseY);
-        ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+        ctx.moveTo(baseX - nx * 0.8, baseY - ny * 0.8);
+        ctx.quadraticCurveTo(
+          ctrlX - nx * 0.8, ctrlY - ny * 0.8,
+          tipX - nx * 0.8, tipY - ny * 0.8
+        );
         ctx.stroke();
 
-        // Sticky tip blob — bigger when fully extended, glows brighter
-        // during the grab window or while holding cargo.
+        // 4) SUCTION CUPS along the vine — sample 6 points along the
+        // bezier and draw a small disk at each, offset to the
+        // underside (away from the highlight) so they read as cups.
+        for (let s = 1; s <= 6; s++) {
+          const tt = s / 7;
+          const u = 1 - tt;
+          const cx = u * u * baseX + 2 * u * tt * ctrlX + tt * tt * tipX;
+          const cy = u * u * baseY + 2 * u * tt * ctrlY + tt * tt * tipY;
+          // Underside offset — pixel-perfect inside-arc placement
+          const off = 3.4;
+          const cpx = cx + nx * off;
+          const cpy = cy + ny * off;
+          // Cup outer ring (dark green)
+          ctx.fillStyle = 'rgba(12, 30, 14, 0.95)';
+          ctx.beginPath();
+          ctx.arc(cpx, cpy, 1.9, 0, Math.PI * 2);
+          ctx.fill();
+          // Cup body (pale pink suction membrane)
+          ctx.fillStyle = 'rgba(255, 190, 200, 0.85)';
+          ctx.beginPath();
+          ctx.arc(cpx, cpy, 1.4, 0, Math.PI * 2);
+          ctx.fill();
+          // Cup center hole (dark)
+          ctx.fillStyle = 'rgba(60, 14, 28, 0.95)';
+          ctx.beginPath();
+          ctx.arc(cpx, cpy, 0.7, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // 5) TIP GRASPING CUP — large flower-like sucker at the end
+        // of the vine. Concentric rings, glows brighter on grab.
         const isMeeting = (p.phase === 'meeting');
         const isHolding = (p.phase === 'retract' || p.phase === 'consume') && p.holdsCargo;
-        const tipGlow = isMeeting || isHolding ? 1.0 : (0.4 + 0.4 * p.podT);
-        ctx.shadowBlur = 6 + tipGlow * 8;
-        ctx.shadowColor = 'rgba(255, 160, 210, 0.95)';
-        ctx.fillStyle = 'rgba(40, 8, 22, 0.85)';
+        const tipGlow = isMeeting || isHolding ? 1.0 : (0.5 + 0.4 * p.podT);
+        // Dark backing
+        ctx.fillStyle = 'rgba(12, 30, 14, 0.95)';
         ctx.beginPath();
-        ctx.arc(tipX, tipY, 6.5 + tipGlow * 1.0, 0, Math.PI * 2);
+        ctx.arc(tipX, tipY, 7.5 + tipGlow * 1.5, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = 'rgba(220, 70, 130, 0.95)';
+        // Outer petal ring (mossy green)
+        ctx.fillStyle = '#3e7b32';
         ctx.beginPath();
-        ctx.arc(tipX, tipY, 5.5 + tipGlow * 1.0, 0, Math.PI * 2);
+        ctx.arc(tipX, tipY, 6 + tipGlow * 1.4, 0, Math.PI * 2);
         ctx.fill();
-        // Sticky inner core
-        ctx.fillStyle = 'rgba(255, 220, 240, ' + (0.7 + tipGlow * 0.30) + ')';
+        // Inner sucker membrane (pale pink, glows on grab)
+        ctx.shadowBlur = isMeeting || isHolding ? 8 : 0;
+        ctx.shadowColor = 'rgba(255, 180, 200, 0.95)';
+        ctx.fillStyle = 'rgba(255, 200, 220, ' + (0.85 + tipGlow * 0.15) + ')';
         ctx.beginPath();
-        ctx.arc(tipX, tipY, 2.2 + tipGlow * 0.6, 0, Math.PI * 2);
+        ctx.arc(tipX, tipY, 4 + tipGlow * 1.0, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
-
-        // Goo droplet trailing the tip while extending — small dots
-        // along the curve to sell "this is liquid, not rigid."
-        if (p.podT < 1.0 || isMeeting) {
-          for (let s = 1; s < 3; s++) {
-            const t01 = 0.3 + s * 0.25;
-            const px = (1 - t01) * (1 - t01) * baseX + 2 * (1 - t01) * t01 * ctrlX + t01 * t01 * tipX;
-            const py = (1 - t01) * (1 - t01) * baseY + 2 * (1 - t01) * t01 * ctrlY + t01 * t01 * tipY;
-            ctx.fillStyle = 'rgba(255, 200, 230, 0.55)';
-            ctx.beginPath();
-            ctx.arc(px, py, 1.0, 0, Math.PI * 2);
-            ctx.fill();
-          }
+        // Inner cup hole
+        ctx.fillStyle = 'rgba(60, 14, 28, 0.95)';
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, 1.8 + tipGlow * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        // Petal "spokes" radiating around the tip cup — 6 small ridges
+        // that sell the flower-cup look.
+        ctx.strokeStyle = '#3e7b32';
+        ctx.lineWidth = 1.0;
+        for (let pp = 0; pp < 6; pp++) {
+          const ang = pp * (Math.PI / 3) + frame * 0.01;
+          const r0 = 4 + tipGlow * 1.0;
+          const r1 = 6.5 + tipGlow * 1.4;
+          ctx.beginPath();
+          ctx.moveTo(tipX + Math.cos(ang) * r0, tipY + Math.sin(ang) * r0);
+          ctx.lineTo(tipX + Math.cos(ang) * r1, tipY + Math.sin(ang) * r1);
+          ctx.stroke();
         }
+
         ctx.restore();
       }
     }
@@ -23785,16 +23790,22 @@ const DLX_BUILD = 'v365';
       // a gunship). Lava balls + scrap towers + tentacles + tunnels also
       // stay; their renderers dispatch on obstacleTheme.
       obstacleSet: {
-        drones: false, thieves: false, groundOps: false,
+        drones: false, thieves: true, groundOps: false,
         lavaBalls: true, scrapTowers: true, airWrecks: false,
         tunnels: true, tentacles: true,
-        // mirrorParasites disabled — replaced by pressure bubbles +
-        // peristaltic purges (v354). Amoeba pillar-dweller didn't
-        // actually steal cargo and the new mechanics fit the liquid +
-        // pipe theme better.
-        pressureBubbles: true,             // drifting cavity bubble that engulfs cargo
+        // Cargo-theft creatures (per v366 redesign):
+        //   THIEVES (phage organic reskin) — flying green parasitic
+        //     creature in the open cavity. Drops a tendril claw on
+        //     the cargo. User: "bring back the green character with
+        //     limbs that contracted and took my cargo."
+        //   MIRROR PARASITES (re-skinned as VINE-CUP) — pillar-
+        //     anchored vine with suction cups that grows out when
+        //     the rig passes. User: "suction cup on the pillars
+        //     almost like a vine that grows when it sees me pass."
+        // Removed: pressureBubbles, sporeClouds, crystalNodes —
+        // none felt right per playtest.
+        mirrorParasites: true,
         peristalticPurge: true,            // 20% of pipes contract + expel cargo
-        sporeClouds: true,                 // drifting alien spore cloud — 3 coats = theft
       },
       obstacleTheme: 'organic',
       // Buoyancy — the rig handles like it's submerged. Gravity, flap
@@ -24117,7 +24128,8 @@ const DLX_BUILD = 'v365';
       const innerTop = o.centerY - PIPE_HALF_H;
       const innerBot = o.centerY + PIPE_HALF_H;
       if (birdY > innerTop && birdY < innerBot) {
-        return { ceiling: innerTop, floor: innerBot, centerY: o.centerY };
+        return { ceiling: innerTop, floor: innerBot, centerY: o.centerY,
+                 pipe: o };
       }
     }
     return null;
