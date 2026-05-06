@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v359';
+const DLX_BUILD = 'v360';
 
 (function() {
   // ---------- Device detection ----------
@@ -8619,12 +8619,19 @@ const DLX_BUILD = 'v359';
               && cargo && cargo.attached && !cargo.lost) {
             const anyHolding = dailyPressureBubbles.some(bb => bb.holdsCargo);
             if (!anyHolding) {
-              const dx = cargo.x - sx;
-              const dy = cargo.y - bobY;
-              // More forgiving engulf radius (b.r + 12 = 30 px) so
-              // touching the bubble's halo counts as engulf, not
-              // pixel-perfect overlap with the core.
-              if (dx * dx + dy * dy < (b.r + 12) * (b.r + 12)) {
+              // Engulf fires if EITHER the rig OR the cargo overlaps
+              // the bubble — cargo trails 32 px behind the rig, so a
+              // cargo-only check misses when the player flies the rig
+              // straight through the bubble. (b.r + 14 = 32-px reach
+              // from the bubble center, generous for both checks.)
+              const reach = b.r + 14;
+              const dxR = bird.x - sx;
+              const dyR = bird.y - bobY;
+              const dxC = cargo.x - sx;
+              const dyC = cargo.y - bobY;
+              const rigHit   = dxR * dxR + dyR * dyR < reach * reach;
+              const cargoHit = dxC * dxC + dyC * dyC < reach * reach;
+              if (rigHit || cargoHit) {
                 cargo.attached = false;
                 cargo.bubbleEngulfed = true;
                 cargo.bubbleRef = b;
@@ -8753,8 +8760,11 @@ const DLX_BUILD = 'v359';
           }
           if (cargoInBeam) {
             n.beamActive = true;
-            // ~5 sec to fully crystallize a continuous beam.
-            n.crystallizationT = Math.min(1.0, n.crystallizationT + 1 / 300);
+            // ~2 sec to fully crystallize a continuous beam (was 5).
+            // Forward flight means the player is in beam range for
+            // ~1-2 sec at most per encounter, so a faster charge
+            // makes theft a real outcome instead of a near-miss.
+            n.crystallizationT = Math.min(1.0, n.crystallizationT + 1 / 120);
             if (n.crystallizationT >= 1.0) {
               n.popped = true;
               n.popFrame = frame;
@@ -8762,9 +8772,11 @@ const DLX_BUILD = 'v359';
             }
           } else {
             n.beamActive = false;
-            // Decay 2x faster than charge so once cargo leaves the
-            // beam the threat resets quickly.
-            n.crystallizationT = Math.max(0, n.crystallizationT - 1 / 150);
+            // Slower decay than charge (4 sec to fully clear), so
+            // crystallization accumulates across multiple short
+            // encounters with the same node — leaving the beam
+            // gives recovery, but staying out a full 4 sec resets.
+            n.crystallizationT = Math.max(0, n.crystallizationT - 1 / 240);
           }
           // Ram detection — rig collides with the node body. 18-frame
           // cooldown between hit counts so a sustained press doesn't
