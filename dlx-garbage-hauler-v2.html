@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v367';
+const DLX_BUILD = 'v368';
 
 (function() {
   // ---------- Device detection ----------
@@ -7299,6 +7299,11 @@ const DLX_BUILD = 'v367';
         // freeze duration, no gravity, no input.
         bird.vy = 0;
       } else {
+        // Viscous drag (Leviathan) — decays vy magnitude each frame
+        // so taps don't carry the rig as far up as they would in air.
+        const buoyDrag = (isDaily && currentDeliveryLevel
+          && currentDeliveryLevel.buoyancyDrag) || 1.0;
+        bird.vy *= buoyDrag;
         bird.vy = Math.min(bird.vy + GRAVITY * liftMult * buoyGrav,
                            MAX_FALL * buoyFall);
       }
@@ -7792,12 +7797,14 @@ const DLX_BUILD = 'v367';
           // time (was 30 % — playtest felt too many doubles). Partner
           // is altitude-offset and delayed off-screen further to the
           // right so they cross at staggered times.
+          const _spdML = (currentDeliveryLevel
+            && currentDeliveryLevel.obstacleSpeedMul) || 1.0;
           const spawnLava = function(altY, xOffset) {
             dailyLavaBalls.push({
               x: W + 32 + (xOffset || 0),
               y: altY,
-              vx: -(3.6 + Math.random() * 2.2),
-              vy: -2.2 - Math.random() * 1.4,
+              vx: -(3.6 + Math.random() * 2.2) * _spdML,
+              vy: (-2.2 - Math.random() * 1.4) * _spdML,
               r: 11.7 + Math.random() * 4.5,         // 10 % smaller core
               life: 0,
               seed: Math.random() * 1000,
@@ -7817,9 +7824,11 @@ const DLX_BUILD = 'v367';
                          :                          320;
           dailyNextLavaAt = frame + interval + Math.floor(Math.random() * 140);
         }
+        const _lbGravMul = (currentDeliveryLevel
+          && currentDeliveryLevel.obstacleSpeedMul) || 1.0;
         for (let i = dailyLavaBalls.length - 1; i >= 0; i--) {
           const lb = dailyLavaBalls[i];
-          lb.vy += 0.08;                            // gentle gravity → projectile arc
+          lb.vy += 0.08 * _lbGravMul;               // gentle gravity → projectile arc
           lb.x += lb.vx;
           lb.y += lb.vy;
           lb.life++;
@@ -8003,15 +8012,33 @@ const DLX_BUILD = 'v367';
             seed: Math.floor(Math.random() * 9999),
           };
           if (kind === 'scrapTower') {
-            // Tighter gaps in later stages
-            const gap = dailyCurrentStage >= 2 ? 120 + Math.random() * 30
-                                                : 150 + Math.random() * 30;
-            // Clamp the gap to the new sky region so the lower pipe
-            // base sits ABOVE the underground horizon (~PLAY_H - 132).
+            // PILLAR VARIETY (organic theme only): 25 % bottom-only,
+            // 25 % top-only, 50 % both pieces. Single-piece pillars
+            // give wider flight openings and break up the always-
+            // double-sided pattern. Sunset Wastes still always
+            // gets both pieces (paired stacks are core to the
+            // industrial-wasteland feel).
+            const isOrganic = currentDeliveryLevel.obstacleTheme === 'organic';
+            const variantRoll = isOrganic ? Math.random() : 1.0;
             const skyFloor = PLAY_H - 152;       // bottom pipe must stop above this
-            const top = 60 + Math.random() * Math.max(40, skyFloor - 60 - gap);
-            o.top = top;
-            o.gap = gap;
+            if (variantRoll < 0.25) {
+              // BOTTOM-ONLY — top piece is empty (top = 0); rig has
+              // wide open space above and threads near the floor.
+              o.top = 0;
+              o.gap = 80 + Math.random() * 60;   // 80..140 px of bottom piece floor clearance
+            } else if (variantRoll < 0.50) {
+              // TOP-ONLY — bottom piece is empty (top + gap >= PLAY_H).
+              // Rig has open space below and threads near the ceiling.
+              o.top = 80 + Math.random() * 60;   // 80..140 px of top piece
+              o.gap = PLAY_H + 20;               // forces bottom piece off-screen
+            } else {
+              // STANDARD pair (also Sunset's only path).
+              const gap = dailyCurrentStage >= 2 ? 120 + Math.random() * 30
+                                                  : 150 + Math.random() * 30;
+              const top = 60 + Math.random() * Math.max(40, skyFloor - 60 - gap);
+              o.top = top;
+              o.gap = gap;
+            }
           } else if (kind === 'tunnel') {
             // ---- DUAL-LAYER TUNNEL ----
             // Length needs to fit entrance gap (4 tiles) + body +
@@ -8329,10 +8356,12 @@ const DLX_BUILD = 'v367';
           // sometimes a thief comes in close (just above cargo level),
           // sometimes it stays high and drops the full cable.
           const spawnY = 40 + Math.random() * (PLAY_H * 0.55);
+          const _tfSpdMul = (currentDeliveryLevel
+            && currentDeliveryLevel.obstacleSpeedMul) || 1.0;
           dailyThieves.push({
             x: W + 50,
             y: spawnY,
-            vx: -1.7 - Math.random() * 0.5,
+            vx: (-1.7 - Math.random() * 0.5) * _tfSpdMul,
             cableLen: 0,
             state: 'cruise',
             stateFrames: 0,
@@ -9112,9 +9141,13 @@ const DLX_BUILD = 'v367';
       // entrance + exit ramps, give the rig a 12 px grace so a small
       // overshoot during stabilize tracking doesn't insta-kill on the
       // sloping floor — it can dip slightly into the slope and recover.
+      // ORGANIC THEME also gets an 8-px floor grace so flying low to
+      // grab a near-floor pickup doesn't crash on a slight overshoot.
+      const isOrganicFloor = currentDeliveryLevel
+        && currentDeliveryLevel.obstacleTheme === 'organic';
       const floorKill = (L.state === 'entrance' || L.state === 'exit')
         ? L.floor + 12
-        : L.floor;
+        : L.floor + (isOrganicFloor ? 8 : 0);
       if (bird.y + r >= floorKill) return true;
       // ---- DIRT CAP — body state only ----
       // The rig must enter the corridor via the entrance ramp. Without
@@ -23818,9 +23851,18 @@ const DLX_BUILD = 'v367';
       // impulse, and terminal velocity all scaled by the same factor so
       // the flap arc height stays unchanged but every motion is ~25 %
       // slower. Net feel: heavier-AND-lighter at once = swimming.
-      gravityMultiplier: 0.75,
-      flapMultiplier:    0.75,
+      gravityMultiplier: 0.85,
+      flapMultiplier:    0.65,
       maxFallMultiplier: 0.75,
+      // Viscous drag on the rig's vertical velocity each frame —
+      // simulates swimming through liquid. Smaller value = stronger
+      // drag = vy decays faster after a tap, so the rig stops
+      // climbing sooner instead of drifting up.
+      buoyancyDrag:      0.94,
+      // Other-object speed multiplier — applied to jellyfish (lava
+      // balls) and phage thieves so they also "swim" instead of
+      // zipping through the air.
+      obstacleSpeedMul:  0.75,
     },
   };
   // The level currently driving the daily-mode renderers. Every daily
