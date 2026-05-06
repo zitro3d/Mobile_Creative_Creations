@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v355';
+const DLX_BUILD = 'v356';
 
 (function() {
   // ---------- Device detection ----------
@@ -8586,12 +8586,27 @@ const DLX_BUILD = 'v355';
         }
         for (let i = dailyPressureBubbles.length - 1; i >= 0; i--) {
           const b = dailyPressureBubbles[i];
+          // Bubbles holding cargo lock to screen position (drift forward
+          // with the world scroll) so the player has time to ram them.
+          // Idle bubbles drift forward at half scroll speed — past the
+          // rig more slowly so they read as "floating in the fluid"
+          // instead of zipping past.
+          const speed = currentPipeSpeed
+            ? currentPipeSpeed()
+            : PIPE_SPEED_BASE;
+          if (b.holdsCargo) {
+            b.worldX += speed * 1.0;       // ~fixed in screen
+          } else {
+            b.worldX += speed * 0.5;       // slow drift past
+          }
           // Subtle vertical bob so the bubble feels alive in the fluid
           const bobY = b.y + Math.sin((frame + i * 17) * 0.04) * 1.5;
           const sx = b.worldX - dailyScrollX;
           // Engulf check — bubble overlaps cargo while cargo is still
-          // attached to rig. Only one bubble can hold cargo at a time.
-          if (!b.holdsCargo && !b.popped
+          // attached to rig. Force field bubble is shield-tier
+          // protection: blocks the engulf entirely.
+          const ffActiveB = forceFieldFrames > 0;
+          if (!b.holdsCargo && !b.popped && !ffActiveB
               && cargo && cargo.attached && !cargo.lost) {
             const anyHolding = dailyPressureBubbles.some(bb => bb.holdsCargo);
             if (!anyHolding) {
@@ -8686,10 +8701,14 @@ const DLX_BUILD = 'v355';
             o.purgeState = 'contract';
             o.purgeContractT = (phase - COOLDOWN - WAVE) / CONTRACT;  // 0..1 right→left
             o.purgeWaveT = 1;
-            // Push cargo backward if it's in the contraction zone.
-            // Contraction starts at the pipe's right mouth and sweeps
-            // left toward the entrance. Cargo overlap = backward kick.
-            if (cargo && cargo.attached && !cargo.lost) {
+            // DRAG cargo backward if it's in the contraction zone.
+            // Doesn't BREAK the magnet bond — applies a leftward force
+            // that competes with the magnet's pull. Player has to flap
+            // forward to hold the cargo. Bond only breaks if cargo
+            // gets dragged past the pipe's left mouth (~80 px lag).
+            // Force field bubble blocks the drag entirely.
+            const ffActive = forceFieldFrames > 0;
+            if (!ffActive && cargo && cargo.attached && !cargo.lost) {
               const cWX = cargo.x + dailyScrollX;
               if (cWX >= o.worldX && cWX <= o.worldX + o.length) {
                 const innerTop = o.centerY - PIPE_HALF_H;
@@ -8698,16 +8717,24 @@ const DLX_BUILD = 'v355';
                   // Where is the contraction RIGHT NOW (in pipe-local x)?
                   const contractX = o.length * (1 - o.purgeContractT);
                   const cargoLocalX = cWX - o.worldX;
-                  // If cargo is at or behind the contraction, push it
-                  // backward (left) faster than the rig can scroll
-                  // forward — cargo trails further behind every frame.
+                  // Cargo at or behind the contraction's leading edge
+                  // gets a steady leftward push (not a teleport). The
+                  // magnet pulls cargo back toward bird.x - 32 at rate
+                  // 0.20, so this push competes — cargo lags but stays
+                  // bonded. Player can outrun the contraction by
+                  // flapping forward fast.
                   if (cargoLocalX > contractX - 24) {
-                    cargo.attached = false;
-                    cargo.bubbleEngulfed = false;
-                    cargo.bubbleRef = null;
-                    cargo.vy = 1.0;                  // small downward kick
-                    cargo.x -= 4;                    // big leftward push
-                    emitPickupSparks(cargo.x, cargo.y, '#ff80c0', 12);
+                    cargo.x -= 2.0;             // steady drag
+                    // Hard expel: if the magnet bond stretches more
+                    // than 80 px (cargo is way behind the rig), break
+                    // the bond so the cargo is genuinely lost.
+                    if ((bird.x - cargo.x) > 80) {
+                      cargo.attached = false;
+                      cargo.bubbleEngulfed = false;
+                      cargo.bubbleRef = null;
+                      cargo.vy = 1.0;
+                      emitPickupSparks(cargo.x, cargo.y, '#ff80c0', 12);
+                    }
                   }
                 }
               }
