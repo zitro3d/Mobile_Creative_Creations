@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v353';
+const DLX_BUILD = 'v354';
 
 (function() {
   // ---------- Device detection ----------
@@ -8001,6 +8001,18 @@ const DLX_BUILD = 'v353';
               o.isPipe  = true;
               const margin = PIPE_HALF_H + 30;
               o.centerY = margin + Math.random() * (PLAY_H - 2 * margin);
+              // 20% of pipes purge: a periodic contraction sweeps from
+              // the right mouth toward the left, pushing cargo backward
+              // out the rear of the pipe. Telegraphed by a pink wave.
+              if (currentDeliveryLevel.obstacleSet
+                  && currentDeliveryLevel.obstacleSet.peristalticPurge
+                  && Math.random() < 0.20) {
+                o.purges = true;
+                o.purgeFrame = 0;
+                o.purgeState = 'idle';
+                o.purgeWaveT = 0;
+                o.purgeContractT = 0;
+              }
             } else {
               o.floorY = PLAY_H - 8;                           // tunnel floor near bottom
             }
@@ -8536,6 +8548,172 @@ const DLX_BUILD = 'v353';
             dailyMirrorPairs.splice(i, 1);
           }
         }
+
+        // ---- DRIFTING PRESSURE BUBBLES (Leviathan only) -----------
+        // Slow-moving fluid bubbles drift through the open cavity. If
+        // the rig's cargo touches one, the bubble swallows the cargo
+        // and the cargo floats inside the bubble (drifts away as the
+        // world scrolls past). Player rams the bubble 3 times to pop
+        // it and recover the cargo. Only spawns while the rig has
+        // cargo magnetically attached and isn't inside a pipe.
+        if (currentDeliveryLevel.obstacleSet
+            && currentDeliveryLevel.obstacleSet.pressureBubbles
+            && !dailyDelivered
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
+            && cargo && cargo.attached && !cargo.lost
+            && frame >= dailyNextBubbleAt
+            && dailyPressureBubbles.length < 2) {
+          // Spawn a bubble ahead of the rig at a random altitude in
+          // the upper-cavity band, biased to be near cargo's altitude
+          // so the threat is real. 50% picks a y near cargo, 50% picks
+          // a free random y so dodging matters.
+          const aheadWX = bird.x + dailyScrollX + 220 + Math.random() * 140;
+          const nearCargo = Math.random() < 0.5;
+          const bY = nearCargo
+            ? cargo.y + (Math.random() - 0.5) * 60
+            : 80 + Math.random() * (PLAY_H - 180);
+          dailyPressureBubbles.push({
+            worldX: aheadWX,
+            y: Math.max(60, Math.min(PLAY_H - 100, bY)),
+            r: 18,
+            spawnFrame: frame,
+            holdsCargo: false,
+            hits: 0,
+            popped: false,
+            popFrame: 0,
+          });
+          dailyNextBubbleAt = frame + 720 + Math.floor(Math.random() * 360);
+        }
+        for (let i = dailyPressureBubbles.length - 1; i >= 0; i--) {
+          const b = dailyPressureBubbles[i];
+          // Subtle vertical bob so the bubble feels alive in the fluid
+          const bobY = b.y + Math.sin((frame + i * 17) * 0.04) * 1.5;
+          const sx = b.worldX - dailyScrollX;
+          // Engulf check — bubble overlaps cargo while cargo is still
+          // attached to rig. Only one bubble can hold cargo at a time.
+          if (!b.holdsCargo && !b.popped
+              && cargo && cargo.attached && !cargo.lost) {
+            const anyHolding = dailyPressureBubbles.some(bb => bb.holdsCargo);
+            if (!anyHolding) {
+              const dx = cargo.x - sx;
+              const dy = cargo.y - bobY;
+              if (dx * dx + dy * dy < (b.r + 4) * (b.r + 4)) {
+                cargo.attached = false;
+                cargo.bubbleEngulfed = true;
+                cargo.bubbleRef = b;
+                b.holdsCargo = true;
+                emitPickupSparks(cargo.x, cargo.y, '#ffb0e0', 12);
+                playSound('boom');
+              }
+            }
+          }
+          // While bubble holds cargo, lock cargo to bubble screen pos
+          if (b.holdsCargo && !b.popped
+              && cargo && cargo.bubbleEngulfed && !cargo.lost) {
+            cargo.x = sx;
+            cargo.y = bobY;
+            cargo.vy = 0;
+          }
+          // Ram detection — rig collides with bubble. Each ram counts
+          // as one hit; force-field / shield does NOT pop bubbles
+          // (intentional: pop requires deliberate ram).
+          if (!b.popped) {
+            const dxR = bird.x - sx;
+            const dyR = bird.y - bobY;
+            const reachR = BIRD_R + b.r - 2;
+            if (dxR * dxR + dyR * dyR < reachR * reachR) {
+              if (b.lastHitFrame === undefined || frame - b.lastHitFrame > 18) {
+                b.hits++;
+                b.lastHitFrame = frame;
+                emitPickupSparks(sx, bobY, '#ffb0e0', 10);
+                if (b.hits >= 3) {
+                  b.popped = true;
+                  b.popFrame = frame;
+                  // Release cargo if held; let it fall + re-magnetize
+                  if (b.holdsCargo && cargo && cargo.bubbleEngulfed) {
+                    cargo.bubbleEngulfed = false;
+                    cargo.bubbleRef = null;
+                    cargo.vy = -1.5;             // small upward kick
+                    emitPickupSparks(sx, bobY, '#ffd060', 16);
+                    playSound('forceField');
+                  }
+                }
+              }
+            }
+          }
+          // Cleanup: despawn after pop (30-frame fade) or once it has
+          // drifted off the left side of the screen with cargo lost.
+          if (b.popped && frame - b.popFrame > 30) {
+            dailyPressureBubbles.splice(i, 1);
+            continue;
+          }
+          if (sx < -40) {
+            // If the bubble drifted off-screen still holding cargo,
+            // the cargo is lost — same model as falling cargo scrolling
+            // off the left edge.
+            if (b.holdsCargo && cargo && cargo.bubbleEngulfed) {
+              cargo.bubbleEngulfed = false;
+              cargo.bubbleRef = null;
+              cargo.lost = true;
+            }
+            dailyPressureBubbles.splice(i, 1);
+          }
+        }
+
+        // ---- PERISTALTIC PIPE PURGES (Leviathan only) -------------
+        // 20% of organic pipes have a periodic contraction cycle. A
+        // wave of pink light TELEGRAPHS for 60 frames travelling left-
+        // to-right; then the pipe contracts and a constriction sweeps
+        // RIGHT-TO-LEFT, pushing any cargo in its path backward toward
+        // the pipe's rear mouth. If cargo is expelled out the left
+        // side, the magnet bond breaks and cargo falls behind.
+        for (const o of dailyAirObstacles) {
+          if (o.kind !== 'tunnel' || !o.isPipe || !o.purges) continue;
+          o.purgeFrame++;
+          // State machine: idle (cooldown) → wave → contract → idle
+          const COOLDOWN = 240, WAVE = 60, CONTRACT = 50;
+          const total = COOLDOWN + WAVE + CONTRACT;
+          const phase = o.purgeFrame % total;
+          if (phase < COOLDOWN) {
+            o.purgeState = 'idle';
+            o.purgeWaveT  = 0;
+            o.purgeContractT = 0;
+          } else if (phase < COOLDOWN + WAVE) {
+            o.purgeState = 'wave';
+            o.purgeWaveT = (phase - COOLDOWN) / WAVE;     // 0..1 left→right
+            o.purgeContractT = 0;
+          } else {
+            o.purgeState = 'contract';
+            o.purgeContractT = (phase - COOLDOWN - WAVE) / CONTRACT;  // 0..1 right→left
+            o.purgeWaveT = 1;
+            // Push cargo backward if it's in the contraction zone.
+            // Contraction starts at the pipe's right mouth and sweeps
+            // left toward the entrance. Cargo overlap = backward kick.
+            if (cargo && cargo.attached && !cargo.lost) {
+              const cWX = cargo.x + dailyScrollX;
+              if (cWX >= o.worldX && cWX <= o.worldX + o.length) {
+                const innerTop = o.centerY - PIPE_HALF_H;
+                const innerBot = o.centerY + PIPE_HALF_H;
+                if (cargo.y > innerTop && cargo.y < innerBot) {
+                  // Where is the contraction RIGHT NOW (in pipe-local x)?
+                  const contractX = o.length * (1 - o.purgeContractT);
+                  const cargoLocalX = cWX - o.worldX;
+                  // If cargo is at or behind the contraction, push it
+                  // backward (left) faster than the rig can scroll
+                  // forward — cargo trails further behind every frame.
+                  if (cargoLocalX > contractX - 24) {
+                    cargo.attached = false;
+                    cargo.bubbleEngulfed = false;
+                    cargo.bubbleRef = null;
+                    cargo.vy = 1.0;                  // small downward kick
+                    cargo.x -= 4;                    // big leftward push
+                    emitPickupSparks(cargo.x, cargo.y, '#ff80c0', 12);
+                  }
+                }
+              }
+            }
+          }
+        }
         // Cargo physics
         if (cargo) {
           if (cargo.attached && !cargo.lost) {
@@ -8551,6 +8729,11 @@ const DLX_BUILD = 'v353';
             // Position is dictated by the holding parasite pair (set in
             // the pair update above). No falling, no re-magnetize while
             // locked. Released by ramming a head.
+            cargo.vy = 0;
+          } else if (cargo.bubbleEngulfed && !cargo.lost) {
+            // Position is dictated by the engulfing bubble (set in the
+            // bubble update above). No falling, no re-magnetize while
+            // engulfed. Released when the bubble is popped (3 rams).
             cargo.vy = 0;
           } else if (!cargo.lost) {
             cargo.vy = Math.min(cargo.vy + 0.5, 9);
@@ -17323,6 +17506,179 @@ const DLX_BUILD = 'v353';
     }
   }
 
+  // Drifting pressure bubbles. A glowing translucent fluid sphere
+  // with a soft halo + wet specular highlight. While holding cargo,
+  // the inner core dims to dark crimson and concentric ring pulses
+  // emanate so the engulf state is visually obvious. Three rim
+  // ripples on the bottom each ram (hits 1, 2, 3) so the player can
+  // see how close they are to popping.
+  function drawDailyPressureBubbles() {
+    if (!isDaily || !dailyPressureBubbles.length) return;
+    for (const b of dailyPressureBubbles) {
+      const sx = b.worldX - dailyScrollX;
+      if (sx < -30 || sx > W + 30) continue;
+      const sxR = Math.round(sx);
+      const bobY = b.y + Math.sin((frame + b.spawnFrame) * 0.04) * 1.5;
+      const cy = Math.round(bobY);
+
+      // Pop animation — expanding ring + fade
+      if (b.popped) {
+        const t = (frame - b.popFrame) / 30;
+        if (t > 1) continue;
+        const pr = b.r + t * 22;
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(255, 180, 220, 0.95)';
+        ctx.strokeStyle = 'rgba(255, 200, 230, ' + (1 - t) + ')';
+        ctx.lineWidth = 3 - t * 2;
+        ctx.beginPath();
+        ctx.arc(sxR, cy, pr, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        continue;
+      }
+
+      const pulse = 0.5 + 0.5 * Math.sin(frame * 0.10 + b.spawnFrame * 0.13);
+      const holdsCargo = b.holdsCargo;
+      // Outer halo
+      ctx.shadowBlur = 14 + pulse * 6;
+      ctx.shadowColor = holdsCargo
+        ? 'rgba(255, 100, 160, 0.95)'
+        : 'rgba(255, 180, 230, 0.85)';
+      ctx.fillStyle = holdsCargo
+        ? 'rgba(255, 130, 180, ' + (0.30 + pulse * 0.18) + ')'
+        : 'rgba(255, 200, 240, ' + (0.22 + pulse * 0.15) + ')';
+      ctx.beginPath();
+      ctx.arc(sxR, cy, b.r + 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Translucent body — slightly pink iridescent fluid
+      const bodyGrad = ctx.createRadialGradient(sxR - b.r * 0.3, cy - b.r * 0.3, 1,
+                                                sxR, cy, b.r);
+      if (holdsCargo) {
+        bodyGrad.addColorStop(0,    'rgba(255, 180, 220, 0.85)');
+        bodyGrad.addColorStop(0.55, 'rgba(180, 50, 100, 0.78)');
+        bodyGrad.addColorStop(1,    'rgba(80,  16, 40, 0.85)');
+      } else {
+        bodyGrad.addColorStop(0,    'rgba(255, 240, 250, 0.85)');
+        bodyGrad.addColorStop(0.55, 'rgba(240, 180, 220, 0.45)');
+        bodyGrad.addColorStop(1,    'rgba(180, 100, 160, 0.65)');
+      }
+      ctx.fillStyle = bodyGrad;
+      ctx.beginPath();
+      ctx.arc(sxR, cy, b.r, 0, Math.PI * 2);
+      ctx.fill();
+      // Membrane outline
+      ctx.strokeStyle = holdsCargo
+        ? 'rgba(60, 16, 40, 0.95)'
+        : 'rgba(180, 80, 140, 0.85)';
+      ctx.lineWidth = 1.0;
+      ctx.beginPath();
+      ctx.arc(sxR, cy, b.r, 0, Math.PI * 2);
+      ctx.stroke();
+      // Wet specular highlight upper-left
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.beginPath();
+      ctx.ellipse(sxR - b.r * 0.45, cy - b.r * 0.45,
+                  b.r * 0.30, b.r * 0.18, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Hit pips along the bottom rim — show damage state (0..3)
+      for (let h = 0; h < 3; h++) {
+        const ang = (Math.PI * 0.55) + h * 0.30;
+        const px = sxR + Math.cos(ang) * (b.r - 2);
+        const py = cy + Math.sin(ang) * (b.r - 2);
+        if (h < b.hits) {
+          ctx.fillStyle = '#ffd83d';
+          ctx.beginPath();
+          ctx.arc(px, py, 1.6, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.strokeStyle = 'rgba(40, 12, 28, 0.8)';
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.arc(px, py, 1.6, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+      // If holding cargo, show concentric ring pulse so it's obvious
+      if (holdsCargo) {
+        const ringT = (frame % 60) / 60;
+        ctx.strokeStyle = 'rgba(255, 200, 230, ' + (1 - ringT) * 0.6 + ')';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(sxR, cy, b.r * (0.6 + ringT * 0.35), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Peristaltic purge overlay — drawn on top of the pipe's interior
+  // for any tunnel where o.purges is true. Two visible phases: a
+  // pink wave traveling left→right (telegraph), then a contraction
+  // band sweeping right→left (the actual push).
+  function drawPipePurges() {
+    if (!isDaily || !dailyAirObstacles.length) return;
+    for (const o of dailyAirObstacles) {
+      if (o.kind !== 'tunnel' || !o.isPipe || !o.purges) continue;
+      const sx = o.worldX - dailyScrollX;
+      const sxEnd = sx + o.length;
+      if (sxEnd < -10 || sx > W + 10) continue;
+      const innerTop = o.centerY - PIPE_HALF_H + 2;
+      const innerBot = o.centerY + PIPE_HALF_H - 2;
+      const innerH = innerBot - innerTop;
+
+      if (o.purgeState === 'wave') {
+        // Pink light wave travels through the pipe interior. A vertical
+        // bar of bright pink moves left→right; a wider trailing glow
+        // gradient fades behind it. Pure visual telegraph — harmless.
+        const waveX = sx + o.length * o.purgeWaveT;
+        // Trailing glow band
+        const trailLen = 60;
+        const trailStart = waveX - trailLen;
+        const trailGrad = ctx.createLinearGradient(trailStart, 0, waveX, 0);
+        trailGrad.addColorStop(0,   'rgba(255, 130, 200, 0)');
+        trailGrad.addColorStop(1,   'rgba(255, 180, 220, 0.55)');
+        ctx.fillStyle = trailGrad;
+        ctx.fillRect(Math.max(sx, trailStart), innerTop,
+                     Math.min(waveX, sxEnd) - Math.max(sx, trailStart),
+                     innerH);
+        // Bright bar
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(255, 180, 230, 0.95)';
+        ctx.fillStyle = 'rgba(255, 220, 240, 0.85)';
+        ctx.fillRect(Math.max(sx, waveX - 1.5), innerTop, 3, innerH);
+        ctx.shadowBlur = 0;
+      } else if (o.purgeState === 'contract') {
+        // Contraction sweeps right → left, pushing cargo backward.
+        // Visual: a vertical pink "squeeze" band that's narrowest at
+        // the center axis and widens toward the rim, telling the player
+        // the pipe is physically pinching.
+        const contractX = sx + o.length * (1 - o.purgeContractT);
+        const bandW = 24;
+        const cy = o.centerY;
+        // Outer pink fill (the contraction zone)
+        ctx.fillStyle = 'rgba(255, 100, 160, 0.55)';
+        ctx.fillRect(Math.max(sx, contractX - bandW / 2), innerTop,
+                     bandW, innerH);
+        // Pinch silhouettes — top + bottom slabs slide IN toward the
+        // center axis so the corridor visually narrows
+        const pinchAmt = Math.sin(o.purgeContractT * Math.PI) * 12;
+        ctx.fillStyle = 'rgba(180, 50, 100, 0.95)';
+        ctx.fillRect(contractX - bandW / 2, innerTop, bandW, pinchAmt);
+        ctx.fillRect(contractX - bandW / 2, innerBot - pinchAmt, bandW, pinchAmt);
+        // Bright leading edge
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(255, 180, 220, 0.95)';
+        ctx.strokeStyle = 'rgba(255, 200, 230, 0.95)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(contractX, innerTop);
+        ctx.lineTo(contractX, innerBot);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+    }
+  }
+
   function drawDailyCargo() {
     if (!isDaily || !cargo || cargo.lost) return;
     if (currentDeliveryLevel.obstacleTheme === 'organic') {
@@ -21857,6 +22213,8 @@ const DLX_BUILD = 'v353';
       drawDailyTentacles();
       drawDailyThieves();
       drawDailyMirrorPairs();
+      drawPipePurges();
+      drawDailyPressureBubbles();
       drawDailyDrones();
       drawDailyLavaBalls();
       drawCargoBond();
@@ -22341,6 +22699,8 @@ const DLX_BUILD = 'v353';
     dailyNextThiefAt = frame + 300;      // first thief swoops in ~5s after launch
     dailyMirrorPairs = [];
     dailyNextMirrorPairAt = frame + 720; // first mirror parasite pair ~12s in
+    dailyPressureBubbles = [];
+    dailyNextBubbleAt    = frame + 600;  // first bubble ~10s in
     dailyDrones = [];
     dailyNextDroneAt = frame + 1800;     // first drone enters during stage 2
     dailyCurrentStage = 0;
@@ -22767,7 +23127,12 @@ const DLX_BUILD = 'v353';
         drones: false, thieves: false, groundOps: false,
         lavaBalls: true, scrapTowers: true, airWrecks: false,
         tunnels: true, tentacles: true,
-        mirrorParasites: true,            // replaces thieves in Leviathan
+        // mirrorParasites disabled — replaced by pressure bubbles +
+        // peristaltic purges (v354). Amoeba pillar-dweller didn't
+        // actually steal cargo and the new mechanics fit the liquid +
+        // pipe theme better.
+        pressureBubbles: true,             // drifting cavity bubble that engulfs cargo
+        peristalticPurge: true,            // 20% of pipes contract + expel cargo
       },
       obstacleTheme: 'organic',
       // Buoyancy — the rig handles like it's submerged. Gravity, flap
@@ -22808,6 +23173,13 @@ const DLX_BUILD = 'v353';
   // retract window to free the cargo.
   let dailyMirrorPairs = [];
   let dailyNextMirrorPairAt = 0;
+  // Drifting pressure bubbles (Leviathan only). A glowing fluid
+  // bubble drifts slowly through the open cavity. If the rig's
+  // CARGO touches it, the bubble engulfs the cargo and the cargo
+  // floats away inside the bubble. Player must ram the bubble (3
+  // hits) to pop it and recover the crate.
+  let dailyPressureBubbles = [];
+  let dailyNextBubbleAt    = 0;
   let dailyNextThiefAt = 0;        // frame index when next flying thief enters
   let dailyDrones = [];            // [{ x, y, vx, state, stateFrames, beam }] — anti-magnet drones (Phase A3)
   let dailyNextDroneAt = 0;        // frame index when next drone enters
