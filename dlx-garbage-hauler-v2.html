@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v377';
+const DLX_BUILD = 'v378';
 
 (function() {
   // ---------- Device detection ----------
@@ -11462,14 +11462,19 @@ const DLX_BUILD = 'v377';
     ctx.save();
 
     if (currentDeliveryLevel.horizonStyle === 'cave') {
-      // ---- CAVE CEILING SILHOUETTE -------------------------------
+      // ---- CAVE CEILING SILHOUETTE + ROCK TEXTURE ----------------
       // Caves are enclosed top + bottom. Y of the ceiling at any
       // worldX comes from caveCeilingAt(); same helper is used by
       // collide() so visuals and the kill-line stay synced.
-      ctx.fillStyle = '#06080e';            // rock-mass fill, near-black
+      // The fill is layered (silhouette → tonal gradient → mineral
+      // bands → diagonal strata → specular spots) so the rock has
+      // dimensionality rather than reading as flat black.
+      const stepC = 5;
+      // Build the silhouette as a clip path so all the texture
+      // layers stay inside the rock shape.
+      ctx.save();
       ctx.beginPath();
       ctx.moveTo(-4, 0);
-      const stepC = 6;
       for (let sx = -4; sx <= W + 4; sx += stepC) {
         const wx = sx + dailyScrollX;
         const y  = Math.round(caveCeilingAt(wx));
@@ -11477,12 +11482,63 @@ const DLX_BUILD = 'v377';
       }
       ctx.lineTo(W + 4, 0);
       ctx.closePath();
-      ctx.fill();
-      // Lighter rock highlight along the ceiling edge — catches the
-      // flashlight beam so the silhouette has dimensionality rather
-      // than reading as a flat black bar.
-      ctx.strokeStyle = 'rgba(60, 80, 100, 0.55)';
+      ctx.clip();
+
+      // Base fill — vertical tonal gradient: deepest near the top
+      // edge of the screen (deep rock), lifting toward the ceiling
+      // edge so the visible lip catches the light better.
+      const ceilBaseY = PLAY_H * 0.32;
+      const ceilGrad = ctx.createLinearGradient(0, 0, 0, ceilBaseY + 8);
+      ceilGrad.addColorStop(0,    '#06080e');
+      ceilGrad.addColorStop(0.55, '#0c1018');
+      ceilGrad.addColorStop(0.90, '#161c28');
+      ceilGrad.addColorStop(1,    '#1c2230');
+      ctx.fillStyle = ceilGrad;
+      ctx.fillRect(0, 0, W, ceilBaseY + 12);
+
+      // Diagonal STRATA lines across the rock — long, very low alpha,
+      // hint at sedimentary banding. Tilted 18° from horizontal.
+      ctx.strokeStyle = 'rgba(120, 140, 170, 0.07)';
       ctx.lineWidth = 1;
+      const strataScroll = dailyScrollX * 0.5;
+      for (let s = -8; s < 24; s++) {
+        const yL = s * 14 - (strataScroll * 0.04 % 14);
+        ctx.beginPath();
+        ctx.moveTo(-4, yL);
+        ctx.lineTo(W + 4, yL + 18);     // diagonal slant
+        ctx.stroke();
+      }
+
+      // SPECULAR POCK SPOTS — small lighter dots scattered through
+      // the rock, deterministic per worldX so they scroll with the
+      // cave instead of shimmering.
+      ctx.fillStyle = 'rgba(140, 165, 195, 0.45)';
+      const pockStep = 26;
+      const pockStart = Math.floor(dailyScrollX / pockStep) - 1;
+      const pockEnd   = Math.floor((dailyScrollX + W) / pockStep) + 1;
+      for (let i = pockStart; i <= pockEnd; i++) {
+        for (let row = 0; row < 4; row++) {
+          const seed = i * 0.7717 + row * 3.131;
+          if (srand(seed) < 0.55) continue;
+          const wx = i * pockStep + Math.floor(srand(seed + 1.1) * 24);
+          const ssx = wx - dailyScrollX;
+          if (ssx < -2 || ssx > W + 2) continue;
+          const ceilHere = caveCeilingAt(wx);
+          const py = 6 + row * 14 + Math.floor(srand(seed + 2.7) * 6);
+          if (py >= ceilHere - 1) continue;
+          const pr = 0.6 + srand(seed + 3.3) * 0.7;
+          ctx.beginPath();
+          ctx.arc(ssx, py, pr, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+
+      // Lit edge highlight along the ceiling silhouette — drawn
+      // OUTSIDE the clip so the edge reads cleanly. Slight bluish
+      // tint = wet stone catching the headlight.
+      ctx.strokeStyle = 'rgba(110, 135, 165, 0.75)';
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
       for (let sx = -4; sx <= W + 4; sx += stepC) {
         const wx = sx + dailyScrollX;
@@ -11491,28 +11547,40 @@ const DLX_BUILD = 'v377';
         else            ctx.lineTo(sx, y);
       }
       ctx.stroke();
+
       // Stalactite hint — thin tapered triangles hanging from the
-      // ceiling at sparse intervals. Adds the "you are inside a
-      // cave" tell even before the obstacle column pass.
-      ctx.fillStyle = '#04060c';
-      const dripStep = 80;
+      // ceiling at sparse intervals. Bumped count + size from v377
+      // so the cave-tell reads stronger.
+      const dripStep = 56;
       const dripStart = Math.floor(dailyScrollX / dripStep) - 1;
       const dripEnd   = Math.floor((dailyScrollX + W) / dripStep) + 1;
       for (let i = dripStart; i <= dripEnd; i++) {
         const seed = i * 0.3199 + 5.07;
-        if (srand(seed) < 0.55) continue;          // sparse
-        const wx = i * dripStep + Math.floor(srand(seed + 1.1) * 30);
+        if (srand(seed) < 0.45) continue;
+        const wx = i * dripStep + Math.floor(srand(seed + 1.1) * 26);
         const sx = Math.round(wx - dailyScrollX);
         if (sx < -8 || sx > W + 8) continue;
         const baseCeil = caveCeilingAt(wx);
-        const len = 6 + Math.floor(srand(seed + 2.3) * 14);
+        const len = 6 + Math.floor(srand(seed + 2.3) * 18);
         const halfW = 2 + Math.floor(srand(seed + 3.7) * 2);
+        // Tapered drip — darker base, lit edge stroke
+        ctx.fillStyle = '#0a0e16';
         ctx.beginPath();
         ctx.moveTo(sx - halfW, baseCeil - 2);
         ctx.lineTo(sx + halfW, baseCeil - 2);
         ctx.lineTo(sx,         baseCeil + len);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(110, 135, 165, 0.55)';
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+        // Wet tip droplet
+        if (len > 12) {
+          ctx.fillStyle = 'rgba(160, 195, 225, 0.55)';
+          ctx.beginPath();
+          ctx.arc(sx, baseCeil + len - 1, 0.9, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
       ctx.restore();
       return;     // cave skips the dune layers entirely
@@ -15611,73 +15679,187 @@ const DLX_BUILD = 'v377';
   // at a navigable gap. Painted before the flashlight mask, so
   // outside the cone the column is invisible — it's the player's
   // job to thread the gap before the rock comes into view.
+  //
+  // Surface texturing pass: the silhouette is the same jagged shape
+  // built from per-row sine wobble, but the fill is layered:
+  //   1. Multi-stop horizontal gradient (lit-side bright → shadow
+  //      side dark) gives the column dimensionality, not flat black.
+  //   2. Vertical drip striations (stalactites only — flow lines).
+  //   3. Horizontal mineral bands (lighter rings every ~14 px).
+  //   4. Wet specular spots (deterministic per-seed, sparse).
+  //   5. Cracks/fissures (rare jagged dark lines).
+  //   6. Lit edge highlight stroke catches the headlight.
   function drawCaveColumn(sx, o) {
     const colW = o.colWidth || 36;
     const halfW = colW / 2;
     const wxCenter = o.worldX + 18;
+    const cx = sx + 18;                        // column center on screen
     const ceilY = caveCeilingAt(wxCenter);
     const floorY = terrainHeightAt(wxCenter);
     const gapTop = o.gapTopY;
     const gapBot = gapTop + o.gapH;
     const seed = o.seed || 1;
 
-    ctx.save();
-    // ---- Stalactite (top half) — hangs from ceiling down to gap top.
-    // Jagged side profile from per-row sine offsets so the silhouette
-    // doesn't read as a clean rectangle.
-    const topRows = Math.max(1, Math.floor((gapTop - ceilY) / 8));
-    ctx.fillStyle = '#0c1018';
-    ctx.beginPath();
-    ctx.moveTo(sx + 18 - halfW, ceilY);
-    for (let r = 0; r <= topRows; r++) {
-      const y = ceilY + (gapTop - ceilY) * (r / topRows);
-      const taper = (r / topRows) * 0.55;          // narrows toward the gap
-      const wob = Math.sin(seed * 0.13 + r * 0.7) * 2.0;
-      const w = halfW * (1 - taper) + wob;
-      ctx.lineTo(sx + 18 - w, y);
+    // Helper — build the stalactite outline path on the active ctx.
+    // Returns the maxHalfW used (for texture-clipping bounds later).
+    function stalacPath(_ctx) {
+      const topRows = Math.max(1, Math.floor((gapTop - ceilY) / 6));
+      _ctx.beginPath();
+      _ctx.moveTo(cx - halfW, ceilY);
+      // LEFT edge — top to tip
+      for (let r = 0; r <= topRows; r++) {
+        const y = ceilY + (gapTop - ceilY) * (r / topRows);
+        const taper = (r / topRows) * 0.55;
+        // Two-frequency wobble — bigger amplitude than v377 so the
+        // silhouette reads as broken rock, not a smooth cone.
+        const wob = Math.sin(seed * 0.13 + r * 0.74) * 3.0
+                  + Math.sin(seed * 0.31 + r * 1.83 + 1.1) * 1.7;
+        const w = halfW * (1 - taper) + wob;
+        _ctx.lineTo(cx - w, y);
+      }
+      // Pointed tip
+      _ctx.lineTo(cx, gapTop);
+      // RIGHT edge — tip back to top
+      for (let r = topRows; r >= 0; r--) {
+        const y = ceilY + (gapTop - ceilY) * (r / topRows);
+        const taper = (r / topRows) * 0.55;
+        const wob = Math.sin(seed * 0.13 + r * 0.74 + 2.1) * 3.0
+                  + Math.sin(seed * 0.31 + r * 1.83 + 3.7) * 1.7;
+        const w = halfW * (1 - taper) + wob;
+        _ctx.lineTo(cx + w, y);
+      }
+      _ctx.closePath();
     }
-    // Pointed stalactite tip
-    ctx.lineTo(sx + 18, gapTop);
-    for (let r = topRows; r >= 0; r--) {
-      const y = ceilY + (gapTop - ceilY) * (r / topRows);
-      const taper = (r / topRows) * 0.55;
-      const wob = Math.sin(seed * 0.13 + r * 0.7 + 2.1) * 2.0;
-      const w = halfW * (1 - taper) + wob;
-      ctx.lineTo(sx + 18 + w, y);
+    function stalagPath(_ctx) {
+      const botRows = Math.max(1, Math.floor((floorY - gapBot) / 6));
+      _ctx.beginPath();
+      _ctx.moveTo(cx - halfW, floorY);
+      for (let r = 0; r <= botRows; r++) {
+        const y = floorY - (floorY - gapBot) * (r / botRows);
+        const taper = (r / botRows) * 0.55;
+        const wob = Math.sin(seed * 0.17 + r * 0.74 + 1.3) * 3.0
+                  + Math.sin(seed * 0.41 + r * 1.83 + 0.4) * 1.7;
+        const w = halfW * (1 - taper) + wob;
+        _ctx.lineTo(cx - w, y);
+      }
+      _ctx.lineTo(cx, gapBot);
+      for (let r = botRows; r >= 0; r--) {
+        const y = floorY - (floorY - gapBot) * (r / botRows);
+        const taper = (r / botRows) * 0.55;
+        const wob = Math.sin(seed * 0.17 + r * 0.74 + 3.4) * 3.0
+                  + Math.sin(seed * 0.41 + r * 1.83 + 2.6) * 1.7;
+        const w = halfW * (1 - taper) + wob;
+        _ctx.lineTo(cx + w, y);
+      }
+      _ctx.closePath();
     }
-    ctx.closePath();
-    ctx.fill();
-    // Lit edge highlight — thin lighter line catches the headlight
-    ctx.strokeStyle = 'rgba(80, 100, 130, 0.65)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
 
-    // ---- Stalagmite (bottom half) — rises from floor up to gap bot.
-    const botRows = Math.max(1, Math.floor((floorY - gapBot) / 8));
-    ctx.fillStyle = '#0c1018';
-    ctx.beginPath();
-    ctx.moveTo(sx + 18 - halfW, floorY);
-    for (let r = 0; r <= botRows; r++) {
-      const y = floorY - (floorY - gapBot) * (r / botRows);
-      const taper = (r / botRows) * 0.55;
-      const wob = Math.sin(seed * 0.17 + r * 0.7 + 1.3) * 2.0;
-      const w = halfW * (1 - taper) + wob;
-      ctx.lineTo(sx + 18 - w, y);
+    function paintRockHalf(buildPath, topY, botY, isStalactite) {
+      ctx.save();
+      // 1. Build clip from the silhouette so all texture stays inside.
+      buildPath(ctx);
+      ctx.clip();
+
+      // 2. Base fill — multi-stop horizontal gradient gives the rock
+      //    a shaded lit-side / shadow-side read instead of flat black.
+      const grad = ctx.createLinearGradient(cx - halfW - 2, 0,
+                                             cx + halfW + 2, 0);
+      grad.addColorStop(0,    '#0a0d14');     // shadow side
+      grad.addColorStop(0.42, '#161c28');     // mid stone
+      grad.addColorStop(0.62, '#222a3a');     // lit highlight band
+      grad.addColorStop(1,    '#0c1118');     // far edge dropoff
+      ctx.fillStyle = grad;
+      ctx.fillRect(cx - halfW - 6, topY - 1, colW + 12, botY - topY + 2);
+
+      // 3. Horizontal MINERAL BANDS — lighter strata every ~14 px so
+      //    the rock reads as layered limestone, not poured concrete.
+      const bandStep = 14;
+      ctx.strokeStyle = 'rgba(120, 140, 170, 0.18)';
+      ctx.lineWidth = 1;
+      for (let by = topY + 6; by < botY; by += bandStep) {
+        const wob = Math.sin(seed * 0.07 + by * 0.13) * 1.3;
+        ctx.beginPath();
+        ctx.moveTo(cx - halfW - 4, by + wob);
+        ctx.lineTo(cx + halfW + 4, by + wob);
+        ctx.stroke();
+      }
+
+      // 4. VERTICAL DRIP STRIATIONS — stalactites get vertical flow
+      //    lines (water rivulets running down), stalagmites get
+      //    radial fan lines (cone deposit grain).
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.40)';
+      ctx.lineWidth = 0.7;
+      if (isStalactite) {
+        for (let s = 0; s < 5; s++) {
+          const u = (s + 0.5) / 5;                     // 0..1 across width
+          const x0 = cx - halfW + u * colW
+                   + Math.sin(seed * 0.21 + s * 1.7) * 1.2;
+          const x1 = x0 + Math.sin(seed * 0.27 + s * 0.9) * 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x0, topY + 1);
+          ctx.lineTo(x1, botY - 1);
+          ctx.stroke();
+        }
+      } else {
+        // Stalagmite — radial fan from tip downward
+        const tipX = cx, tipY = topY + 1;
+        for (let s = 0; s < 5; s++) {
+          const u = (s + 0.5) / 5 - 0.5;               // -0.5..+0.5
+          const endX = cx + u * colW * 0.9;
+          ctx.beginPath();
+          ctx.moveTo(tipX + u * 1.2, tipY);
+          ctx.lineTo(endX, botY - 1);
+          ctx.stroke();
+        }
+      }
+
+      // 5. WET SPECULAR SPOTS — small bluish highlights (deterministic
+      //    per seed) so the rock looks damp under the headlight.
+      ctx.fillStyle = 'rgba(180, 200, 220, 0.55)';
+      for (let s = 0; s < 3; s++) {
+        const u = srand(seed * 0.31 + s * 1.27);       // 0..1
+        const v = srand(seed * 0.43 + s * 2.13);
+        const px = cx - halfW + u * colW;
+        const py = topY + (botY - topY) * (0.15 + v * 0.70);
+        const pr = 0.7 + srand(seed * 0.51 + s) * 0.6;
+        ctx.beginPath();
+        ctx.arc(px, py, pr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 6. CRACKS — rare jagged dark fissures across the rock face.
+      //    One per half if the seed coin says so.
+      if (srand(seed * 0.19 + (isStalactite ? 0 : 1.7)) < 0.55) {
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.lineWidth = 0.9;
+        const startX = cx - halfW * 0.5
+                     + srand(seed * 0.61) * colW * 0.5;
+        const startY = topY + (botY - topY)
+                       * (0.18 + srand(seed * 0.71) * 0.5);
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        let x = startX, y = startY;
+        for (let k = 0; k < 4; k++) {
+          x += (srand(seed * 0.79 + k * 1.3) - 0.5) * 10;
+          y += 3 + srand(seed * 0.83 + k * 1.7) * 4;
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 7. Outline stroke OUTSIDE the clip so the silhouette edge
+      //    reads cleanly against the dark cave background.
+      ctx.save();
+      buildPath(ctx);
+      ctx.strokeStyle = 'rgba(90, 110, 140, 0.70)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
     }
-    ctx.lineTo(sx + 18, gapBot);
-    for (let r = botRows; r >= 0; r--) {
-      const y = floorY - (floorY - gapBot) * (r / botRows);
-      const taper = (r / botRows) * 0.55;
-      const wob = Math.sin(seed * 0.17 + r * 0.7 + 3.4) * 2.0;
-      const w = halfW * (1 - taper) + wob;
-      ctx.lineTo(sx + 18 + w, y);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(80, 100, 130, 0.65)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.restore();
+
+    paintRockHalf(stalacPath, ceilY, gapTop, true);
+    paintRockHalf(stalagPath, gapBot, floorY, false);
   }
 
   // Tunnel section — two parallel walls with a navigable channel in
