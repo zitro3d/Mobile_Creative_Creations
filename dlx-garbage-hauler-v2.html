@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v376';
+const DLX_BUILD = 'v377';
 
 (function() {
   // ---------- Device detection ----------
@@ -8048,6 +8048,15 @@ const DLX_BUILD = 'v376';
           if (kind === 'tunnel' && !currentDeliveryLevel.obstacleSet.tunnels) {
             kind = 'scrapTower';
           }
+          // Cave-theme override — every air-obstacle slot in Glow
+          // Chamber becomes a full-height cave column. Done BEFORE
+          // the suppression checks so the cave override wins
+          // regardless of which sunset/leviathan kind the random
+          // roll picked.
+          if (currentDeliveryLevel.obstacleTheme === 'cave'
+              && currentDeliveryLevel.obstacleSet.caveColumns) {
+            kind = 'caveColumn';
+          }
           if (kind === 'scrapTower' && !currentDeliveryLevel.obstacleSet.scrapTowers) {
             // Edge case for hypothetical future levels with no scrap towers —
             // skip this slot entirely rather than spawn a forbidden kind.
@@ -8092,6 +8101,37 @@ const DLX_BUILD = 'v376';
               o.top = top;
               o.gap = gap;
             }
+          } else if (kind === 'caveColumn') {
+            // ---- FULL-HEIGHT CAVE COLUMN (Glow Chamber) ----
+            // Top stalactite + bottom stalagmite meeting at a
+            // navigable mid-gap. Gap height is ~110-140 px; gap
+            // top position is randomized so the column cadence
+            // and the chamber rhythm together drive the player's
+            // path through the cave.
+            const sampleX  = dailyNextAirObstacleX + 18;     // column-center sample
+            const ceilY    = caveCeilingAt(sampleX);
+            const floorY   = terrainHeightAt(sampleX);
+            const usable   = Math.max(80, floorY - ceilY);
+            const gapH     = 110 + Math.random() * 30;       // 110-140 px gap
+            const minM     = 18;
+            const maxM     = Math.max(minM + 1, usable - gapH - 20);
+            const topMargin= minM + Math.random() * (maxM - minM);
+            o.gapTopY = ceilY + topMargin;
+            o.gapH    = gapH;
+            o.colWidth= 36;
+            // Drop a recovery cog inside the gap so the player has
+            // a visible tell of the safe lane and earns a pickup
+            // for threading it cleanly.
+            dailyPickups.push({
+              worldX: dailyNextAirObstacleX + 18,
+              y: o.gapTopY + gapH * 0.5,
+              kind: 'scrapCog',
+              gold: false,
+              alive: true,
+              bobPhase: Math.random() * Math.PI * 2,
+              orbitR: 0,
+              orbitSpeed: 0,
+            });
           } else if (kind === 'tunnel') {
             // ---- DUAL-LAYER TUNNEL ----
             // Length needs to fit entrance gap (4 tiles) + body +
@@ -9232,6 +9272,15 @@ const DLX_BUILD = 'v376';
       }
       if (bird.y - r <= 0) { bird.y = r; bird.vy = 0; }
       const wxRig = bird.x + dailyScrollX;
+      // Cave-theme: hitting the rock ceiling kills (matches the
+      // visible silhouette painted in drawDailyHorizon's cave
+      // branch). Force-field shield bypasses, GHOST perk bypasses.
+      if (currentDeliveryLevel.obstacleTheme === 'cave'
+          && ghostFrames === 0
+          && forceFieldFrames === 0) {
+        const ceilingY = caveCeilingAt(wxRig);
+        if (bird.y - r <= ceilingY) return true;
+      }
       const L = tunnelLayoutAt(wxRig);
       // FLOOR — every state has one. Rig dies hitting it. Inside the
       // entrance + exit ramps, give the rig a 12 px grace so a small
@@ -9328,6 +9377,16 @@ const DLX_BUILD = 'v376';
           const tw = 36;
           if (bird.x + r > sx && bird.x - r < sx + tw) {
             if (bird.y - r < o.top || bird.y + r > o.top + o.gap) return true;
+          }
+        } else if (o.kind === 'caveColumn') {
+          // Full-height cave column — solid stone except in the
+          // navigable gap. Same shield rule as scrap towers: this
+          // is the "wall" the player must thread, so the force
+          // field does NOT bypass. Only invulnerability/ghost
+          // (handled before this loop) gets through.
+          const cw = o.colWidth || 36;
+          if (bird.x + r > sx && bird.x - r < sx + cw) {
+            if (bird.y - r < o.gapTopY || bird.y + r > o.gapTopY + o.gapH) return true;
           }
         } else if (o.kind === 'airWreck') {
           if (passThrough) continue;             // field passes through wrecks
@@ -11404,57 +11463,37 @@ const DLX_BUILD = 'v376';
 
     if (currentDeliveryLevel.horizonStyle === 'cave') {
       // ---- CAVE CEILING SILHOUETTE -------------------------------
-      // Caves are enclosed top + bottom. The floor still uses the
-      // existing terrain dune profile (palette-swapped to dark slate),
-      // but the ceiling needs to be painted here as a rock-jagged
-      // silhouette descending from the top of the screen.
-      //
-      // CHAMBER PROFILE: ceiling height undulates between
-      //   • LOW    (~12 % PLAY_H, wide-open chamber)
-      //   • HIGH   (~32 % PLAY_H, tight passage)
-      // Period is ~2100 world-units so the player flies through ~1
-      // chamber every few seconds at base scroll speed.
+      // Caves are enclosed top + bottom. Y of the ceiling at any
+      // worldX comes from caveCeilingAt(); same helper is used by
+      // collide() so visuals and the kill-line stay synced.
       ctx.fillStyle = '#06080e';            // rock-mass fill, near-black
       ctx.beginPath();
       ctx.moveTo(-4, 0);
       const stepC = 6;
-      const ceilOpenY  = PLAY_H * 0.10;     // chamber peak (low)
-      const ceilTightY = PLAY_H * 0.32;     // passage floor (high)
       for (let sx = -4; sx <= W + 4; sx += stepC) {
         const wx = sx + dailyScrollX;
-        // Slow chamber-period wave + faster rock noise for jagged edge
-        const chamberPhase = Math.sin(wx * 0.0030);          // -1..1
-        const open = (chamberPhase + 1) * 0.5;               // 0..1
-        const baseCeil = ceilTightY + (ceilOpenY - ceilTightY) * open;
-        const jag = Math.sin(wx * 0.0210) * 4
-                  + Math.sin(wx * 0.0450 + 1.7) * 2.5;
-        const y = Math.round(baseCeil + jag);
+        const y  = Math.round(caveCeilingAt(wx));
         ctx.lineTo(sx, y);
       }
       ctx.lineTo(W + 4, 0);
       ctx.closePath();
       ctx.fill();
       // Lighter rock highlight along the ceiling edge — catches the
-      // (still-imagined) flashlight beam so the silhouette has
-      // dimensionality rather than reading as a flat black bar.
+      // flashlight beam so the silhouette has dimensionality rather
+      // than reading as a flat black bar.
       ctx.strokeStyle = 'rgba(60, 80, 100, 0.55)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let sx = -4; sx <= W + 4; sx += stepC) {
         const wx = sx + dailyScrollX;
-        const chamberPhase = Math.sin(wx * 0.0030);
-        const open = (chamberPhase + 1) * 0.5;
-        const baseCeil = ceilTightY + (ceilOpenY - ceilTightY) * open;
-        const jag = Math.sin(wx * 0.0210) * 4
-                  + Math.sin(wx * 0.0450 + 1.7) * 2.5;
-        const y = Math.round(baseCeil + jag);
+        const y  = Math.round(caveCeilingAt(wx));
         if (sx === -4) ctx.moveTo(sx, y);
         else            ctx.lineTo(sx, y);
       }
       ctx.stroke();
       // Stalactite hint — thin tapered triangles hanging from the
       // ceiling at sparse intervals. Adds the "you are inside a
-      // cave" tell even before Ship 2's full obstacle pass.
+      // cave" tell even before the obstacle column pass.
       ctx.fillStyle = '#04060c';
       const dripStep = 80;
       const dripStart = Math.floor(dailyScrollX / dripStep) - 1;
@@ -11465,9 +11504,7 @@ const DLX_BUILD = 'v376';
         const wx = i * dripStep + Math.floor(srand(seed + 1.1) * 30);
         const sx = Math.round(wx - dailyScrollX);
         if (sx < -8 || sx > W + 8) continue;
-        const chamberPhase = Math.sin(wx * 0.0030);
-        const open = (chamberPhase + 1) * 0.5;
-        const baseCeil = ceilTightY + (ceilOpenY - ceilTightY) * open;
+        const baseCeil = caveCeilingAt(wx);
         const len = 6 + Math.floor(srand(seed + 2.3) * 14);
         const halfW = 2 + Math.floor(srand(seed + 3.7) * 2);
         ctx.beginPath();
@@ -15551,13 +15588,15 @@ const DLX_BUILD = 'v376';
     // Two-pass render so PIPES (organic tunnels) draw ON TOP of any
     // bone-spur pillar they intersect. Desert ground tunnels also
     // benefit (tunnels don't typically overlap pillars but it's
-    // harmless). Pass 1: pillars + air wrecks. Pass 2: tunnels.
+    // harmless). Pass 1: pillars + air wrecks + cave columns.
+    // Pass 2: tunnels.
     for (const o of dailyAirObstacles) {
       const sx = o.worldX - dailyScrollX;
       if (o.kind === 'tunnel') continue;
       if (sx < -120 || sx > W + 60) continue;
       if (o.kind === 'scrapTower') drawScrapTower(sx, o.top, o.gap, o.seed);
       else if (o.kind === 'airWreck') drawAirWreck(sx, o.alt, o.seed);
+      else if (o.kind === 'caveColumn') drawCaveColumn(sx, o);
     }
     for (const o of dailyAirObstacles) {
       if (o.kind !== 'tunnel') continue;
@@ -15565,6 +15604,80 @@ const DLX_BUILD = 'v376';
       if (sx + o.length < -40 || sx > W + 40) continue;
       drawTunnel(o, sx);
     }
+  }
+  // Glow Chamber cave column — full-height stone obstruction made of
+  // a stalactite (top half, hangs from ceiling silhouette) and a
+  // stalagmite (bottom half, rises from the floor terrain) meeting
+  // at a navigable gap. Painted before the flashlight mask, so
+  // outside the cone the column is invisible — it's the player's
+  // job to thread the gap before the rock comes into view.
+  function drawCaveColumn(sx, o) {
+    const colW = o.colWidth || 36;
+    const halfW = colW / 2;
+    const wxCenter = o.worldX + 18;
+    const ceilY = caveCeilingAt(wxCenter);
+    const floorY = terrainHeightAt(wxCenter);
+    const gapTop = o.gapTopY;
+    const gapBot = gapTop + o.gapH;
+    const seed = o.seed || 1;
+
+    ctx.save();
+    // ---- Stalactite (top half) — hangs from ceiling down to gap top.
+    // Jagged side profile from per-row sine offsets so the silhouette
+    // doesn't read as a clean rectangle.
+    const topRows = Math.max(1, Math.floor((gapTop - ceilY) / 8));
+    ctx.fillStyle = '#0c1018';
+    ctx.beginPath();
+    ctx.moveTo(sx + 18 - halfW, ceilY);
+    for (let r = 0; r <= topRows; r++) {
+      const y = ceilY + (gapTop - ceilY) * (r / topRows);
+      const taper = (r / topRows) * 0.55;          // narrows toward the gap
+      const wob = Math.sin(seed * 0.13 + r * 0.7) * 2.0;
+      const w = halfW * (1 - taper) + wob;
+      ctx.lineTo(sx + 18 - w, y);
+    }
+    // Pointed stalactite tip
+    ctx.lineTo(sx + 18, gapTop);
+    for (let r = topRows; r >= 0; r--) {
+      const y = ceilY + (gapTop - ceilY) * (r / topRows);
+      const taper = (r / topRows) * 0.55;
+      const wob = Math.sin(seed * 0.13 + r * 0.7 + 2.1) * 2.0;
+      const w = halfW * (1 - taper) + wob;
+      ctx.lineTo(sx + 18 + w, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    // Lit edge highlight — thin lighter line catches the headlight
+    ctx.strokeStyle = 'rgba(80, 100, 130, 0.65)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // ---- Stalagmite (bottom half) — rises from floor up to gap bot.
+    const botRows = Math.max(1, Math.floor((floorY - gapBot) / 8));
+    ctx.fillStyle = '#0c1018';
+    ctx.beginPath();
+    ctx.moveTo(sx + 18 - halfW, floorY);
+    for (let r = 0; r <= botRows; r++) {
+      const y = floorY - (floorY - gapBot) * (r / botRows);
+      const taper = (r / botRows) * 0.55;
+      const wob = Math.sin(seed * 0.17 + r * 0.7 + 1.3) * 2.0;
+      const w = halfW * (1 - taper) + wob;
+      ctx.lineTo(sx + 18 - w, y);
+    }
+    ctx.lineTo(sx + 18, gapBot);
+    for (let r = botRows; r >= 0; r--) {
+      const y = floorY - (floorY - gapBot) * (r / botRows);
+      const taper = (r / botRows) * 0.55;
+      const wob = Math.sin(seed * 0.17 + r * 0.7 + 3.4) * 2.0;
+      const w = halfW * (1 - taper) + wob;
+      ctx.lineTo(sx + 18 + w, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(80, 100, 130, 0.65)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
   }
 
   // Tunnel section — two parallel walls with a navigable channel in
@@ -24359,13 +24472,15 @@ const DLX_BUILD = 'v376';
       dispatchLabel: 'CAVERN MOUTH',
       dockLabel: 'CLIFF DOCK',
       cargoFlavor: null,
-      // Cave levels suppress every existing obstacle — Ships 2+ wire
-      // cave-native obstacles (columns, stalactites, glow critters)
-      // through their own flags.
+      // Cave levels suppress every existing obstacle and route the
+      // air-obstacle slot through the cave-column branch instead.
+      // Ships 3-5 will add critter flags (glowBats, salamanders,
+      // glowSpiders) alongside this one.
       obstacleSet: {
         drones: false, thieves: false, groundOps: false,
         lavaBalls: false, scrapTowers: false, airWrecks: false,
         tunnels: false, tentacles: false,
+        caveColumns: true,
       },
       obstacleTheme: 'cave',
       // Flashlight cone — Ship 1 hook. The rig has a forward-pointing
@@ -24536,6 +24651,23 @@ const DLX_BUILD = 'v376';
     const b = Math.sin(worldX * 0.0110 + 1.7) * 11;
     const c = Math.sin(worldX * 0.0270 + 0.3) * 6;
     return base + a + b + c;
+  }
+  // Cave-theme ceiling silhouette — Y of the cave ceiling at a given
+  // world X. Used by both the cave horizon renderer and the
+  // collide() check so visuals + collision agree exactly.
+  // Profile: long-period chamber wave (open → tight → open) + faster
+  // jagged rock noise. Both renderer and collider read this; if you
+  // change the formula, the silhouette and the kill-line stay synced.
+  const CAVE_CEIL_OPEN_Y  = () => PLAY_H * 0.10;
+  const CAVE_CEIL_TIGHT_Y = () => PLAY_H * 0.32;
+  function caveCeilingAt(worldX) {
+    const chamberPhase = Math.sin(worldX * 0.0030);
+    const open = (chamberPhase + 1) * 0.5;
+    const base = CAVE_CEIL_TIGHT_Y()
+               + (CAVE_CEIL_OPEN_Y() - CAVE_CEIL_TIGHT_Y()) * open;
+    const jag = Math.sin(worldX * 0.0210) * 4
+              + Math.sin(worldX * 0.0450 + 1.7) * 2.5;
+    return base + jag;
   }
   // Dual-layer tunnel level-generation logic. Each tunnel obstacle
   // defines a level "subsection" with a MainGround line (the dune
