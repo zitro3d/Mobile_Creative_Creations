@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v372';
+const DLX_BUILD = 'v373';
 
 (function() {
   // ---------- Device detection ----------
@@ -3313,6 +3313,54 @@ const DLX_BUILD = 'v372';
         tone( 80, 0.50, 'sawtooth', 0.18, 30);
         setTimeout(function(){ tone(140, 0.28, 'square', 0.12, 70); }, 100);
         setTimeout(function(){ tone( 60, 0.40, 'sine',   0.14, 30); }, 250);
+        break;
+      case 'tongueStrike':
+        // Slime locks on and starts extending its snake tongue. Quick
+        // wet hiss + low whoosh — telegraphs "incoming" without
+        // overpowering the music.
+        noiseBurst(0.28, 0.18);
+        tone(220, 0.16, 'sawtooth', 0.10, 80);
+        setTimeout(function(){ tone(110, 0.28, 'sine', 0.11, 60); }, 60);
+        break;
+      case 'tongueGrab':
+        // Slime tongue successfully grabs cargo. Heavier wet squelch
+        // + low gurgle so the moment of theft FEELS organic, not the
+        // generic 'boom' it shared with sunset thieves.
+        noiseBurst(0.42, 0.32);
+        tone( 90, 0.32, 'sawtooth', 0.18, 35);
+        setTimeout(function(){ tone(140, 0.18, 'square', 0.13, 70); }, 90);
+        setTimeout(function(){ tone( 60, 0.40, 'sine',   0.14, 25); }, 200);
+        break;
+      case 'vineLash':
+        // Vine whips out of the pillar — creaking wood + air-rush
+        // whoosh as the plant snaps forward.
+        noiseBurst(0.20, 0.15);
+        tone(210, 0.22, 'sawtooth', 0.10, 90);
+        setTimeout(function(){ tone(330, 0.18, 'triangle', 0.10, 220); }, 70);
+        break;
+      case 'vineGrab':
+        // Vine grabs cargo with its suction cups — plant-snap + low
+        // slither so it reads as plant theft, not slime theft.
+        noiseBurst(0.30, 0.24);
+        tone(140, 0.28, 'sawtooth', 0.13, 60);
+        setTimeout(function(){ tone( 95, 0.30, 'sine', 0.13, 50); }, 100);
+        break;
+      case 'jellyZap':
+        // Jellyfish electric stun — short crackling zap that reads
+        // as electricity, not a chime. Rapid square-wave bursts.
+        noiseBurst(0.16, 0.10);
+        tone(880,  0.06, 'square',   0.16, 1320);
+        setTimeout(function(){ tone(1320, 0.06, 'square',   0.14, 1760); },  30);
+        setTimeout(function(){ tone(660,  0.10, 'square',   0.12,  880); },  70);
+        setTimeout(function(){ tone(440,  0.20, 'sawtooth', 0.10,  220); }, 130);
+        break;
+      case 'cargoRestore':
+        // In-pipe pickup recovers a stolen cargo crate — mechanical
+        // click followed by an ascending bell so the recovery beat
+        // is audible over the standard cog/fuel-cell pickup tone.
+        tone(440, 0.10, 'square',   0.11, 660);
+        setTimeout(function(){ tone(660, 0.10, 'triangle', 0.12, 880); },  70);
+        setTimeout(function(){ tone(880, 0.28, 'sine',     0.14, 1320); }, 140);
         break;
       case 'dock':
         // Mechanical latch-engage when the truck stop docking
@@ -8283,6 +8331,7 @@ const DLX_BUILD = 'v372';
               cargo.y = bird.y - 4;
               cargo.vy = 0;
               emitPickupSparks(bird.x, bird.y, '#ffd060', 22);
+              playSound('cargoRestore');
             }
             if (p.kind === 'scrapCog') {
               // Gold tunnel cogs are worth 3x and emit gold sparks
@@ -8360,9 +8409,11 @@ const DLX_BUILD = 'v372';
           // Random spawn altitude across the upper 60% of the playfield —
           // sometimes a thief comes in close (just above cargo level),
           // sometimes it stays high and drops the full cable.
-          // Phages cruise in the UPPER cavity (top ~30 % of screen)
-          // and approach less frequently than v367. Their tongue
-          // strike reaches down into the play area below.
+          // Phages cruise in the UPPER cavity. In ORGANIC theme the
+          // slime now AMBUSHES from BEHIND (off-screen LEFT) so it
+          // appears unexpectedly behind the rig and chases up to it.
+          // In Sunset the gunship thief still comes from off-screen
+          // right.
           const isOrgTf = currentDeliveryLevel
             && currentDeliveryLevel.obstacleTheme === 'organic';
           const spawnY = isOrgTf
@@ -8371,9 +8422,11 @@ const DLX_BUILD = 'v372';
           const _tfSpdMul = (currentDeliveryLevel
             && currentDeliveryLevel.obstacleSpeedMul) || 1.0;
           dailyThieves.push({
-            x: W + 50,
+            x: isOrgTf ? -50 : W + 50,
             y: spawnY,
-            vx: (-1.7 - Math.random() * 0.5) * _tfSpdMul,
+            vx: isOrgTf
+              ? (1.5 + Math.random() * 0.6)              // organic: chase right
+              : (-1.7 - Math.random() * 0.5) * _tfSpdMul,
             cableLen: 0,
             state: 'cruise',
             stateFrames: 0,
@@ -8386,32 +8439,41 @@ const DLX_BUILD = 'v372';
         for (let i = dailyThieves.length - 1; i >= 0; i--) {
           const tf = dailyThieves[i];
           tf.stateFrames++;
+          // Organic theme: slime ambushes from BEHIND (vx > 0). It
+          // catches up to the rig from off-screen left, locks on near
+          // the cargo, lashes a snake-tendril over the rig's head,
+          // then retreats back the way it came.
+          const _orgTf = currentDeliveryLevel
+            && currentDeliveryLevel.obstacleTheme === 'organic';
           if (tf.state === 'cruise') {
             tf.x += tf.vx;
-            // Once it crosses over the cargo, start dropping the claw
-            if (cargo && !cargo.lost && Math.abs(tf.x - cargo.x) < 22) {
+            // Trigger lower when slime is just behind the cargo (so
+            // its tendril reaches OVER the rig forward to the cargo).
+            const triggerX = _orgTf ? cargo.x - 36 : cargo.x;
+            const dxc = tf.x - triggerX;
+            if (cargo && !cargo.lost && Math.abs(dxc) < 22) {
               tf.state = 'lower';
               tf.stateFrames = 0;
+              if (_orgTf) playSound('tongueStrike');
             }
-            if (tf.x < -60) dailyThieves.splice(i, 1);
+            // Despawn off the wrong side of the screen
+            if ((!_orgTf && tf.x < -60) || (_orgTf && tf.x > W + 60)) {
+              dailyThieves.splice(i, 1);
+            }
           } else if (tf.state === 'lower') {
-            // First 12 frames are a "lock-on" pause: thief hovers stationary
-            // and a yellow telegraph line shows the strike trajectory so the
-            // player has a beat to dodge before the claw drops.
+            // First 12 frames are a "lock-on" pause.
             if (tf.stateFrames < 12) {
-              // Hover in place — no forward drift, no cable extension yet
+              // Hover in place
             } else {
               tf.x += tf.vx * 0.35;
               tf.cableLen = Math.min(tf.cableLen + 3.5, 220);
             }
-            // Strike: when the claw / tongue reaches cargo level, snap
-            // the bond. Organic phage's tongue origins from the
-            // FRONT-MOUTH (-22 px in body local coords) rather than
-            // the underside, so its tip lands forward-and-down.
-            const _orgTongue = currentDeliveryLevel
-              && currentDeliveryLevel.obstacleTheme === 'organic';
-            const magnetX = tf.x + (_orgTongue ? -22 : 0);
-            const magnetY = tf.y + (_orgTongue ? 4 : 12) + tf.cableLen;
+            // Strike check — organic slime: tendril origins from the
+            // TOP of the head and reaches FORWARD-and-DOWN. Tip lands
+            // in front of the slime (positive x) at cargo's altitude.
+            // Sunset gunship: cable drops straight down from underside.
+            const magnetX = tf.x + (_orgTf ? 22 : 0);
+            const magnetY = tf.y + (_orgTf ? 4 : 12) + tf.cableLen;
             if (cargo && cargo.attached && !cargo.lost) {
               const ddx = magnetX - cargo.x;
               const ddy = magnetY - cargo.y;
@@ -8421,28 +8483,34 @@ const DLX_BUILD = 'v372';
                 tf.state = 'retract';
                 tf.stateFrames = 0;
                 emitPickupSparks(cargo.x, cargo.y, '#a0f0ff', 6);
-                playSound('boom');
+                playSound(_orgTf ? 'tongueGrab' : 'boom');
               }
             }
-            // Cable maxed out without grabbing — give up and retract
+            // Tendril maxed out without grabbing — retract
             if (tf.cableLen >= 220) {
               tf.state = 'retract';
               tf.stateFrames = 0;
             }
           } else if (tf.state === 'retract') {
-            // Reel the claw back up, keep cruising left
             tf.cableLen = Math.max(0, tf.cableLen - 6);
             tf.x += tf.vx * 0.6;
             if (tf.cableLen <= 0) {
               tf.state = 'retreat';
               tf.stateFrames = 0;
+              // Organic: reverse direction so the slime flees BACK
+              // off the left edge it came from (looks like it dives
+              // away after grabbing).
+              if (_orgTf) tf.vx = -2.5 - Math.random() * 0.5;
             }
-            if (tf.x < -60) dailyThieves.splice(i, 1);
+            if ((!_orgTf && tf.x < -60) || (_orgTf && tf.x > W + 60)) {
+              dailyThieves.splice(i, 1);
+            }
           } else {
-            // retreat — accelerate left, off-screen
-            tf.vx -= 0.06;
+            // retreat — accelerate in the direction of vx (organic:
+            // left, sunset: more left). Despawn at the far edge.
+            tf.vx += _orgTf ? -0.06 : -0.06;
             tf.x += tf.vx;
-            if (tf.x < -60) dailyThieves.splice(i, 1);
+            if (tf.x < -60 || tf.x > W + 60) dailyThieves.splice(i, 1);
           }
         }
         // ---- AMOEBA-INFECTED PILLARS (Leviathan only) -------------
@@ -8547,6 +8615,7 @@ const DLX_BUILD = 'v372';
             if (p.phaseFrame >= 60) {
               p.phase = 'strike';
               p.phaseFrame = 0;
+              playSound('vineLash');
             }
           } else if (p.phase === 'strike') {
             // Pseudopod whips out the rest of the way over 30 frames.
@@ -8574,7 +8643,7 @@ const DLX_BUILD = 'v372';
                 cargo.parasitePair = p;
                 p.holdsCargo = true;
                 emitPickupSparks(cargo.x, cargo.y, '#a0ff60', 14);
-                playSound('boom');
+                playSound('vineGrab');
               }
             }
             if (p.phaseFrame >= 10) {
@@ -9302,7 +9371,7 @@ const DLX_BUILD = 'v372';
               if (typeof dailyScrollX !== 'undefined') {
                 dailyScrollX = Math.max(0, dailyScrollX - 80);
               }
-              playSound('forceField');
+              playSound('jellyZap');
               return false;
             }
             if (rigPerk('heatShield') && !heatShieldUsed) {
@@ -17519,113 +17588,186 @@ const DLX_BUILD = 'v372';
       }
       ctx.shadowBlur = 0;
 
-      // ---- BODY — viscous gel mass with a pulsing irregular outline.
-      // 16-segment polar wobble gives a constantly-morphing silhouette
-      // (no fixed shape).
+      // ---- BODY — viscous gel mass with a JAGGED predator outline.
+      // 16-segment polar wobble + spike protrusions on the bottom
+      // half so the silhouette reads as a hunting shape, not a soft
+      // blob. Drippy fang-like protrusions hang underneath.
       const breath = 1 + 0.06 * Math.sin(frame * 0.09 + tf.x * 0.013);
       const bw = 26 * breath;
       const bh = 17 * breath;
-      // Outer membrane glow — soft violet halo
+      // Outer membrane glow — deep crimson halo (was soft violet)
       ctx.shadowBlur = 14;
-      ctx.shadowColor = 'rgba(180, 110, 230, 0.95)';
-      ctx.fillStyle = 'rgba(180, 130, 220, 0.30)';
+      ctx.shadowColor = 'rgba(220, 30, 80, 0.95)';
+      ctx.fillStyle = 'rgba(180, 40, 90, 0.32)';
       ctx.beginPath();
       ctx.ellipse(0, 0, bw * 1.30, bh * 1.35, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
-      // Wobbling gel body — polar coordinates with sine-perturbed
-      // radius so the outline ripples like liquid surface tension.
+      // Wobbling gel body — sharper spikes on the bottom + sides.
+      // Top half stays smoother; bottom half adds occasional spikes
+      // (every 3rd segment) so the silhouette reads as toothed.
       const wobSegs = 16;
       ctx.beginPath();
       for (let s = 0; s <= wobSegs; s++) {
         const ang = (s / wobSegs) * Math.PI * 2;
         const ripple = Math.sin(frame * 0.10 + s * 1.7 + tf.x * 0.02) * 1.5
                      + Math.sin(frame * 0.06 + s * 3.1) * 1.0;
-        const rx = bw + ripple;
-        const ry = bh + ripple * 0.7;
+        // Spike protrusion on the bottom half (sin(ang) > 0.3) every
+        // 3rd segment — adds 4-5 px of jag, like dripping fangs.
+        const isBottom = Math.sin(ang) > 0.3;
+        const spike = (isBottom && s % 3 === 0) ? 5 : 0;
+        const rx = bw + ripple + spike * 0.4;
+        const ry = bh + ripple * 0.7 + spike;
         const x = Math.cos(ang) * rx;
         const y = Math.sin(ang) * ry;
         if (s === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
       ctx.closePath();
-      // Gel gradient — wet violet with dark crimson-purple core
+      // Gel gradient — deep blood-crimson with darker oxblood core.
+      // Top wet specular keeps a single highlight so the body still
+      // reads as wet gel (not solid meat).
       const bodyGrad = ctx.createRadialGradient(
         -bw * 0.30, -bh * 0.35, bw * 0.08,
         0,           0,          bw
       );
-      bodyGrad.addColorStop(0,    'rgba(245, 220, 255, 0.92)');     // wet specular
-      bodyGrad.addColorStop(0.30, 'rgba(180, 110, 220, 0.90)');     // mid violet
-      bodyGrad.addColorStop(0.70, 'rgba(80,  30,  130, 0.88)');     // deeper purple
-      bodyGrad.addColorStop(1,    'rgba(30,  10,  60,  0.82)');     // translucent rim
+      bodyGrad.addColorStop(0,    'rgba(255, 200, 220, 0.92)');     // wet specular
+      bodyGrad.addColorStop(0.30, 'rgba(200, 50,  90,  0.92)');     // bloody mid
+      bodyGrad.addColorStop(0.70, 'rgba(110, 14,  40,  0.92)');     // deep crimson
+      bodyGrad.addColorStop(1,    'rgba(40,  4,   16,  0.85)');     // black-red rim
       ctx.shadowBlur = 6;
-      ctx.shadowColor = 'rgba(120, 60, 180, 0.6)';
+      ctx.shadowColor = 'rgba(180, 30, 60, 0.6)';
       ctx.fillStyle = bodyGrad;
       ctx.fill();
       ctx.shadowBlur = 0;
-      // Membrane outline — thin wet rim
-      ctx.strokeStyle = 'rgba(220, 180, 255, 0.55)';
+      // Membrane outline — thin dark blood-red rim
+      ctx.strokeStyle = 'rgba(60, 8, 24, 0.85)';
       ctx.lineWidth = 0.8;
       ctx.stroke();
 
-      // ---- DRIFTING VACUOLES — small lighter-gel bubbles inside the
-      // body, moving independently each frame.
+      // ---- GLOWING RED VEINS through the body — 3 branching lines
+      // pulsing with the heartbeat-like flow phase. Reads as alien
+      // bloodstream visible through the translucent gel.
+      ctx.strokeStyle = 'rgba(255, 80, 110, 0.65)';
+      ctx.lineWidth = 0.7;
+      const veinPaths = [
+        [[-bw * 0.40, -bh * 0.40], [-bw * 0.10,  0], [-bw * 0.30,  bh * 0.45]],
+        [[ bw * 0.40, -bh * 0.50], [ bw * 0.10, -bh * 0.10], [-bw * 0.05,  bh * 0.30]],
+        [[ bw * 0.20,  bh * 0.40], [ bw * 0.45,  bh * 0.10], [ bw * 0.55, -bh * 0.30]],
+      ];
+      for (const path of veinPaths) {
+        ctx.beginPath();
+        ctx.moveTo(path[0][0], path[0][1]);
+        for (let i = 1; i < path.length; i++) {
+          ctx.lineTo(path[i][0], path[i][1]);
+        }
+        ctx.stroke();
+      }
+
+      // ---- DRIFTING VACUOLES — dark blood-globules now (was light
+      // violet bubbles). Reads as something thicker than water.
       for (let v = 0; v < 4; v++) {
         const ph = frame * 0.04 + v * 1.7 + tf.x * 0.01;
         const vx = Math.sin(ph) * (bw * 0.55);
         const vy = Math.cos(ph * 0.7) * (bh * 0.50);
         const vr = 1.4 + (v % 2) * 0.6;
-        ctx.fillStyle = 'rgba(220, 180, 255, 0.45)';
+        ctx.fillStyle = 'rgba(40, 4, 16, 0.55)';
         ctx.beginPath();
         ctx.arc(vx, vy, vr, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = 'rgba(255, 230, 255, 0.65)';
+        ctx.fillStyle = 'rgba(180, 40, 80, 0.55)';
         ctx.beginPath();
-        ctx.arc(vx - 0.4, vy - 0.4, vr * 0.35, 0, Math.PI * 2);
+        ctx.arc(vx - 0.3, vy - 0.3, vr * 0.45, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // ---- DRIFTING EYES — 4 black eyes floating independently
-      // inside the gel body. Each has its own slow drift orbit, so
-      // there's no fixed face — alien, vicious. One is larger and
-      // glows red when actively tracking cargo.
-      const eyeData = [
-        { phase: 0.00, ox: -0.50, oy: -0.20, r: 1.4 },
-        { phase: 1.30, ox: -0.10, oy:  0.30, r: 1.2 },
-        { phase: 2.50, ox:  0.30, oy: -0.15, r: 1.3 },
-        { phase: 3.80, ox:  0.55, oy:  0.25, r: 1.0 },
+      // ---- TWO PREDATOR EYES — large hunting eyes, no longer
+      // drifting freely. Slight scan-bob each frame so they look
+      // alive but stay fixed on the front of the body. Whites of the
+      // eyes are bloodshot pink with black pupils.
+      const eyeBob = Math.sin(frame * 0.06 + tf.x * 0.01) * 0.6;
+      const huntEyes = [
+        { ox: -bw * 0.40, oy: -bh * 0.10 + eyeBob, r: 3.4 },
+        { ox: -bw * 0.20, oy: -bh * 0.08 + eyeBob, r: 3.0 },
       ];
-      for (const e of eyeData) {
-        const ph = frame * 0.03 + e.phase + tf.x * 0.005;
-        const drift = 1.2;
-        const ex = e.ox * bw + Math.sin(ph) * drift;
-        const ey = e.oy * bh + Math.cos(ph * 0.8) * drift;
-        ctx.fillStyle = 'rgba(8, 2, 12, 0.95)';
+      for (const e of huntEyes) {
+        // Eye sclera — bloodshot pink-white
+        ctx.fillStyle = 'rgba(255, 220, 220, 0.95)';
         ctx.beginPath();
-        ctx.arc(ex, ey, e.r, 0, Math.PI * 2);
+        ctx.arc(e.ox, e.oy, e.r, 0, Math.PI * 2);
         ctx.fill();
-        // Tiny white catch-light on each eye
-        ctx.fillStyle = 'rgba(220, 180, 255, 0.85)';
+        // Bloodshot veins
+        ctx.strokeStyle = 'rgba(180, 20, 40, 0.65)';
+        ctx.lineWidth = 0.4;
+        for (let v = 0; v < 3; v++) {
+          const ang = v * (Math.PI / 1.5) + frame * 0.01;
+          ctx.beginPath();
+          ctx.moveTo(e.ox + Math.cos(ang) * 0.6, e.oy + Math.sin(ang) * 0.6);
+          ctx.lineTo(e.ox + Math.cos(ang) * (e.r - 0.3),
+                     e.oy + Math.sin(ang) * (e.r - 0.3));
+          ctx.stroke();
+        }
+        // Black pupil — locked forward (slightly to the left = front)
+        const lockGlowE = (tf.state === 'lower') ? 1 : 0.5;
+        ctx.shadowBlur = lockGlowE > 0.7 ? 4 : 0;
+        ctx.shadowColor = 'rgba(255, 40, 60, 0.95)';
+        ctx.fillStyle = '#0a0408';
         ctx.beginPath();
-        ctx.arc(ex - e.r * 0.3, ey - e.r * 0.3, e.r * 0.30, 0, Math.PI * 2);
+        ctx.arc(e.ox - 0.4, e.oy, e.r * 0.55, 0, Math.PI * 2);
         ctx.fill();
+        ctx.shadowBlur = 0;
+        // Tiny red glint on the pupil when locked
+        if (lockGlowE > 0.7) {
+          ctx.fillStyle = 'rgba(255, 80, 100, 0.95)';
+          ctx.beginPath();
+          ctx.arc(e.ox - 0.6, e.oy - 0.4, e.r * 0.18, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
-      // The large lock-on eye drifts on the front of the body and
-      // glows red when targeting cargo (lower state).
-      const lockGlow = (tf.state === 'lower') ? 1 : 0.4;
-      const ph = frame * 0.04 + tf.x * 0.005;
-      const lockEx = -bw * 0.50 + Math.sin(ph) * 1.4;
-      const lockEy = -bh * 0.10 + Math.cos(ph * 0.8) * 1.4;
-      ctx.shadowBlur = 6 * lockGlow;
-      ctx.shadowColor = 'rgba(255, 60, 80, 0.95)';
-      ctx.fillStyle = 'rgba(255, 80, 100, ' + (0.85 + lockGlow * 0.15) + ')';
-      ctx.beginPath();
-      ctx.arc(lockEx, lockEy, 2.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#180408';
-      ctx.beginPath();
-      ctx.arc(lockEx, lockEy, 1.0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
+
+      // ---- FANGS — four curved teeth visible inside the gel near
+      // the front mouth (where the tongue emerges). Pale bone with
+      // dark roots. Visible through the translucent body.
+      const fangBaseY = bh * 0.05;
+      const fangTipY  = bh * 0.55;
+      ctx.fillStyle = 'rgba(245, 230, 220, 0.92)';
+      ctx.strokeStyle = 'rgba(60, 30, 20, 0.85)';
+      ctx.lineWidth = 0.5;
+      for (let f = 0; f < 4; f++) {
+        const fangX = -bw * 0.55 + f * (bw * 0.30);
+        const tipBend = (f === 0 || f === 3) ? -2 : 1.5;   // outer fangs curve outward
+        ctx.beginPath();
+        ctx.moveTo(fangX - 1.6, fangBaseY);
+        ctx.quadraticCurveTo(fangX + tipBend, fangBaseY + (fangTipY - fangBaseY) * 0.7,
+                              fangX, fangTipY);
+        ctx.lineTo(fangX + 1.0, fangTipY * 0.95);
+        ctx.lineTo(fangX + 1.6, fangBaseY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // ---- DROOL — small drips falling from the front-mouth area
+      // every few frames, recycling positions so it loops cleanly.
+      ctx.fillStyle = 'rgba(180, 40, 80, 0.85)';
+      for (let d = 0; d < 3; d++) {
+        const dPhase = (frame * 0.04 + d * 0.45 + tf.x * 0.01) % 1;
+        const dx = -bw + 2 + d * 6 + Math.sin(frame * 0.10 + d) * 0.6;
+        const dy = bh * 0.5 + dPhase * 22;
+        const dr = 1.3 - dPhase * 0.6;
+        if (dr > 0.2) {
+          ctx.beginPath();
+          ctx.arc(dx, dy, dr, 0, Math.PI * 2);
+          ctx.fill();
+          // Wet specular dot
+          ctx.fillStyle = 'rgba(255, 200, 220, 0.85)';
+          ctx.beginPath();
+          ctx.arc(dx - 0.3, dy - 0.3, dr * 0.4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(180, 40, 80, 0.85)';
+        }
+      }
+      // (Old scattered eye + lock-eye block removed — replaced with
+      // the two predator eyes above.)
 
       // ---- DRIPPING TENDRILS on top of body — wet gel strings
       // hanging upward; they sway in the cavity current.
@@ -17676,64 +17818,119 @@ const DLX_BUILD = 'v372';
         ctx.restore();
       }
 
-      // ---- VISCOUS GEL TONGUE from the front mouth toward cargo.
-      // Same forward-down geometry as v370 (mouth origin), recoloured
-      // violet to match the slime body and given a thicker drippy
-      // feel.
+      // ---- SNAKE-TENDRIL TONGUE from the TOP OF THE HEAD, arching
+      // forward and DOWN to the cargo. The slime ambushes from
+      // BEHIND, so the tongue snakes up out of its skull, rears over
+      // the body, then strikes forward like a cobra. Multi-frequency
+      // sine undulation along the path gives the snake-like motion;
+      // a tight coil at the fully-extended tip reads as "wrapping"
+      // around the cargo crate.
       const cableLen = tf.cableLen || 0;
-      const mouthX = -bw + 2;
-      const mouthY = 0;
-      const tipLocalX = -22;
+      const headX = 0;
+      const headY = -bh - 4;            // top of head — emerges UPWARD
+      const tipLocalX = 22;             // forward (right) — slime is BEHIND cargo
       const tipLocalY = 4 + cableLen;
-      const tvx = tipLocalX - mouthX;
-      const tvy = tipLocalY - mouthY;
-      const tlen = Math.hypot(tvx, tvy) || 1;
-      const tnx = -tvy / tlen;
-      const tny = tvx / tlen;
+      // Arch peak ABOVE both endpoints — gives the rearing-cobra silhouette.
+      const peakX = (headX + tipLocalX) * 0.5 + 6;
+      const peakY = Math.min(headY, tipLocalY) - 12 - cableLen * 0.04;
+      // Tip-tangent perpendicular for the maw orientation
+      const _tipTdx = 2 * (tipLocalX - peakX);
+      const _tipTdy = 2 * (tipLocalY - peakY);
+      const _tipTlen = Math.hypot(_tipTdx, _tipTdy) || 1;
+      const _tipTnx = -_tipTdy / _tipTlen;
+      const _tipTny =  _tipTdx / _tipTlen;
       const drawTonguePath = (lineW, style) => {
         ctx.strokeStyle = style;
         ctx.lineWidth = lineW;
         ctx.beginPath();
-        ctx.moveTo(mouthX, mouthY);
-        for (let s = 1; s <= 10; s++) {
-          const tt = s / 10;
-          const bx = mouthX + tvx * tt;
-          const by = mouthY + tvy * tt;
-          const wob = Math.sin(flowPhase * 0.6 + tt * 4.5) * 1.6 * tt;
-          ctx.lineTo(bx + tnx * wob, by + tny * wob);
+        const N = 18;
+        for (let s = 0; s <= N; s++) {
+          const tt = s / N;
+          // Quadratic Bezier: head -> peak -> tip
+          const u = 1 - tt;
+          const bx = u * u * headX + 2 * u * tt * peakX + tt * tt * tipLocalX;
+          const by = u * u * headY + 2 * u * tt * peakY + tt * tt * tipLocalY;
+          // Tangent for perpendicular undulation
+          const tdx = 2 * (u * (peakX - headX) + tt * (tipLocalX - peakX));
+          const tdy = 2 * (u * (peakY - headY) + tt * (tipLocalY - peakY));
+          const tlen = Math.hypot(tdx, tdy) || 1;
+          const tnxL = -tdy / tlen;
+          const tnyL =  tdx / tlen;
+          // SNAKE undulation — two superposed sine waves at different
+          // freqs/phases. Amplitude grows with tt so the body of the
+          // tongue wobbles more than its anchor.
+          const wobA = Math.sin(flowPhase * 0.85 + tt * 7.0) * 2.4 * tt;
+          const wobB = Math.sin(flowPhase * 1.45 + tt * 11.0 + 1.2) * 1.0 * tt;
+          const wob  = wobA + wobB;
+          const px = bx + tnxL * wob;
+          const py = by + tnyL * wob;
+          if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.stroke();
       };
       if (cableLen > 0) {
         ctx.lineCap = 'round';
-        // Outer dark backing
-        drawTonguePath(4.0, 'rgba(40, 14, 70, 0.92)');
-        // Body — viscous violet gel
-        drawTonguePath(2.8, 'rgba(180, 110, 220, 0.95)');
+        // Outer dark backing — black-blood rim
+        drawTonguePath(4.0, 'rgba(28, 6, 18, 0.92)');
+        // Body — viscous crimson gel matching the slime palette
+        drawTonguePath(2.8, 'rgba(190, 60, 110, 0.95)');
         // Inner highlight strand — wet specular
-        drawTonguePath(1.0, 'rgba(245, 220, 255, 0.85)');
+        drawTonguePath(1.0, 'rgba(255, 220, 235, 0.85)');
         ctx.lineCap = 'butt';
-        // Drippy droplets along the tongue — small gel beads at
-        // alternating positions along the curve.
-        for (let s = 1; s < 4; s++) {
-          const tt = 0.25 + s * 0.20;
-          const bx = mouthX + tvx * tt;
-          const by = mouthY + tvy * tt;
-          const wob = Math.sin(flowPhase * 0.6 + tt * 4.5) * 1.6 * tt;
-          const dx = bx + tnx * wob;
-          const dy = by + tny * wob;
-          ctx.fillStyle = 'rgba(220, 170, 255, 0.85)';
+        // Drippy droplets along the tongue
+        for (let s = 1; s < 5; s++) {
+          const tt = 0.18 + s * 0.18;
+          const u = 1 - tt;
+          const bx = u * u * headX + 2 * u * tt * peakX + tt * tt * tipLocalX;
+          const by = u * u * headY + 2 * u * tt * peakY + tt * tt * tipLocalY;
+          const tdx = 2 * (u * (peakX - headX) + tt * (tipLocalX - peakX));
+          const tdy = 2 * (u * (peakY - headY) + tt * (tipLocalY - peakY));
+          const tlen = Math.hypot(tdx, tdy) || 1;
+          const tnxL = -tdy / tlen;
+          const tnyL =  tdx / tlen;
+          const wobA = Math.sin(flowPhase * 0.85 + tt * 7.0) * 2.4 * tt;
+          const wobB = Math.sin(flowPhase * 1.45 + tt * 11.0 + 1.2) * 1.0 * tt;
+          const wob  = wobA + wobB;
+          const dx = bx + tnxL * wob;
+          const dy = by + tnyL * wob;
+          ctx.fillStyle = 'rgba(220, 100, 140, 0.85)';
           ctx.beginPath();
           ctx.arc(dx, dy, 0.9, 0, Math.PI * 2);
           ctx.fill();
         }
+        // COIL/WRAP at the tip when nearly fully extended — short
+        // spiral suggesting the tongue is wrapping around the crate.
+        if (cableLen >= 180) {
+          ctx.strokeStyle = 'rgba(190, 60, 110, 0.92)';
+          ctx.lineWidth = 2.4;
+          ctx.beginPath();
+          const cAng0 = flowPhase * 0.4;
+          const coilTurns = 1.6;
+          for (let s = 0; s <= 14; s++) {
+            const tt = s / 14;
+            const a = cAng0 + tt * Math.PI * coilTurns;
+            const r = 4 + tt * 1.6;
+            const cx = tipLocalX + Math.cos(a) * r;
+            const cy = tipLocalY + Math.sin(a) * r;
+            if (s === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+          }
+          ctx.stroke();
+          // Bright coil highlight
+          ctx.strokeStyle = 'rgba(255, 220, 235, 0.7)';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
       }
 
       // ---- SWALLOWING MAW at the tongue tip — dark hole in the gel
-      // ringed by violet flesh. Pulses pink when actively grabbing.
-      const _tipWobble = Math.sin(flowPhase * 0.6 + 4.5) * 1.6;
-      const threadEndX = tipLocalX + tnx * _tipWobble;
-      const suckerCy   = tipLocalY + tny * _tipWobble;
+      // ringed by crimson flesh. Only drawn when tongue is extended
+      // (anchored at the tip, NOT visible on the resting body).
+      const _tipWobble = (cableLen > 0)
+        ? (Math.sin(flowPhase * 0.85 + 7.0) * 2.4
+         + Math.sin(flowPhase * 1.45 + 11.0 + 1.2) * 1.0)
+        : 0;
+      const threadEndX = tipLocalX + _tipTnx * _tipWobble;
+      const suckerCy   = tipLocalY + _tipTny * _tipWobble;
       // Outer lip — dark violet rim
       ctx.fillStyle = 'rgba(40, 14, 70, 0.95)';
       ctx.beginPath();
