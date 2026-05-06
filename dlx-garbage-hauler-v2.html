@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v378';
+const DLX_BUILD = 'v379';
 
 (function() {
   // ---------- Device detection ----------
@@ -8551,6 +8551,113 @@ const DLX_BUILD = 'v378';
             tf.vx += _orgTf ? -0.06 : -0.06;
             tf.x += tf.vx;
             if (tf.x < -60 || tf.x > W + 60) dailyThieves.splice(i, 1);
+          }
+        }
+        // ---- GLOW-BATS (Glow Chamber only) ---------------------
+        // Wave of 2-3 bioluminescent bats swoops in from the dark
+        // above the flashlight cone. Each bat dives toward the
+        // cargo position; on contact it grabs the crate and flees
+        // back upward into the dark. Player counter-play: dodge
+        // out of the cargo's altitude band before the bats reach
+        // it. Recovery: in-pipe scrap-cog pickups restore stolen
+        // cargo (Ship 2 already wired triggerCargoTheft → cog
+        // recovery flow).
+        if (currentDeliveryLevel.obstacleSet
+            && currentDeliveryLevel.obstacleSet.glowBats
+            && cargo && cargo.attached && !cargo.lost
+            && !dailyDelivered
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
+            && frame >= dailyNextGlowBatAt) {
+          // Spawn a wave of 2-3 bats clustered at a top-edge entry
+          // point. Each bat starts above the visible play area and
+          // dives toward the cargo's current screen position.
+          const waveSize = 2 + Math.floor(Math.random() * 2);   // 2 or 3
+          const entryX = cargo.x + (Math.random() - 0.5) * 80;
+          const tones = ['violet', 'cyan', 'lime'];
+          for (let b = 0; b < waveSize; b++) {
+            dailyGlowBats.push({
+              x: entryX + (b - (waveSize - 1) * 0.5) * 22,
+              y: -20 - b * 14,                       // staggered above screen
+              vx: (Math.random() - 0.5) * 0.6,
+              vy: 1.2 + Math.random() * 0.4,
+              state: 'incoming',
+              stateFrames: 0,
+              flapPhase: Math.random() * Math.PI * 2,
+              glowTone: tones[Math.floor(Math.random() * tones.length)],
+              carrying: false,
+            });
+          }
+          dailyNextGlowBatAt = frame + 540 + Math.floor(Math.random() * 360);  // 9-15s
+        }
+        for (let i = dailyGlowBats.length - 1; i >= 0; i--) {
+          const bt = dailyGlowBats[i];
+          bt.stateFrames++;
+          bt.flapPhase += 0.32;
+          if (bt.state === 'incoming') {
+            // Steer toward cargo (or last-known altitude if cargo
+            // already lost / detached during the dive).
+            if (cargo && cargo.attached && !cargo.lost) {
+              const dx = cargo.x - bt.x;
+              const dy = cargo.y - bt.y;
+              bt.vx += dx * 0.0009;
+              bt.vy += dy * 0.0009;
+            }
+            // Cap speed so the bat reads as a glide, not a missile
+            const sp = Math.hypot(bt.vx, bt.vy);
+            const maxSp = 3.6;
+            if (sp > maxSp) {
+              bt.vx *= maxSp / sp;
+              bt.vy *= maxSp / sp;
+            }
+            bt.x += bt.vx;
+            bt.y += bt.vy;
+            // Grab check
+            if (cargo && cargo.attached && !cargo.lost) {
+              const ddx = cargo.x - bt.x;
+              const ddy = cargo.y - bt.y;
+              if (ddx * ddx + ddy * ddy < 22 * 22) {
+                bt.state = 'flee';
+                bt.stateFrames = 0;
+                bt.carrying = true;
+                cargo.attached = false;
+                cargo.batGrabbed = true;
+                cargo.batRef = bt;
+                emitPickupSparks(cargo.x, cargo.y, '#c060ff', 8);
+                playSound('tongueGrab');     // wet predator-grab cue
+              }
+            }
+            // Despawn if the bat misses entirely and exits below
+            if (bt.y > PLAY_H + 30) {
+              dailyGlowBats.splice(i, 1);
+              continue;
+            }
+            // Despawn if the bat overshoots horizontally
+            if (bt.x < -40 || bt.x > W + 40) {
+              dailyGlowBats.splice(i, 1);
+              continue;
+            }
+          } else if (bt.state === 'flee') {
+            // Climb up + slight forward, accelerating away from rig
+            bt.vy = Math.max(bt.vy - 0.10, -3.6);
+            bt.vx *= 0.96;
+            bt.x += bt.vx;
+            bt.y += bt.vy;
+            if (bt.carrying && cargo && cargo.batGrabbed && !cargo.lost) {
+              cargo.x = bt.x;
+              cargo.y = bt.y + 12;       // crate hangs below the bat
+              cargo.vy = 0;
+              // Once the bat clears the top of the screen, the
+              // cargo is fully gone — convert to a "lost" state
+              // and trigger the standard recovery flow.
+              if (bt.y < -40) {
+                triggerCargoTheft(cargo.x, cargo.y);
+                bt.carrying = false;
+              }
+            }
+            if (bt.y < -60) {
+              dailyGlowBats.splice(i, 1);
+              continue;
+            }
           }
         }
         // ---- AMOEBA-INFECTED PILLARS (Leviathan only) -------------
@@ -23582,10 +23689,12 @@ const DLX_BUILD = 'v378';
       drawDailySporeClouds();
       drawDailyDrones();
       drawDailyLavaBalls();
+      drawDailyGlowBats();      // cave-theme bat body (masked outside cone)
       drawCargoBond();
       drawDailyCargo();
     }
     if (isDaily) drawDailyFlashlight();   // cave-theme darkness mask
+    if (isDaily) drawDailyGlowBatHalos(); // bat blacklight glow (above the mask)
     drawExhaust();
     drawSparks();
     drawPickupSparks();
@@ -23620,6 +23729,127 @@ const DLX_BUILD = 'v378';
     ctx.save();
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, PLAY_H);
+    ctx.restore();
+  }
+  // ---------- Glow-bats (Glow Chamber) ----------------------------
+  // Two render passes:
+  //   drawDailyGlowBats     — full body + wings, drawn BEFORE the
+  //                           flashlight mask so it's only visible
+  //                           inside the cone.
+  //   drawDailyGlowBatHalos — additive blacklight halo, drawn AFTER
+  //                           the mask so the glow is visible
+  //                           everywhere in the dark.
+  function _glowBatToneRGB(tone) {
+    if (tone === 'cyan')   return '120, 220, 255';
+    if (tone === 'lime')   return '170, 255, 130';
+    return '210, 130, 255';                          // violet (default)
+  }
+  function drawDailyGlowBats() {
+    if (!isDaily || !dailyGlowBats.length) return;
+    for (const bt of dailyGlowBats) {
+      ctx.save();
+      ctx.translate(Math.round(bt.x), Math.round(bt.y));
+      // Wing flap — open span varies with flapPhase (cosine)
+      const flap = (Math.cos(bt.flapPhase) + 1) * 0.5;     // 0..1
+      const wingSpan = 9 + flap * 8;                       // 9..17 px
+      const wingDrop = 4 - flap * 5;                       // 4..-1
+      // BODY — small dark fur shape
+      ctx.fillStyle = '#1a0a22';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 6, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // EARS — two small triangles on top
+      ctx.fillStyle = '#0e0414';
+      ctx.beginPath();
+      ctx.moveTo(-3, -3);
+      ctx.lineTo(-1.5, -7);
+      ctx.lineTo(-0.5, -3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0.5, -3);
+      ctx.lineTo(1.5, -7);
+      ctx.lineTo(3, -3);
+      ctx.closePath();
+      ctx.fill();
+      // WINGS — bat-style triangle membranes flapping outward.
+      // Tone-tinted fill so each wing reads with its glow color.
+      const rgb = _glowBatToneRGB(bt.glowTone);
+      ctx.fillStyle = 'rgba(' + rgb + ', 0.55)';
+      // Left wing
+      ctx.beginPath();
+      ctx.moveTo(-3, -1);
+      ctx.quadraticCurveTo(-wingSpan * 0.7, wingDrop - 2,
+                           -wingSpan,        wingDrop);
+      ctx.lineTo(-wingSpan * 0.5, 3);
+      ctx.lineTo(-2, 2);
+      ctx.closePath();
+      ctx.fill();
+      // Right wing
+      ctx.beginPath();
+      ctx.moveTo(3, -1);
+      ctx.quadraticCurveTo(wingSpan * 0.7, wingDrop - 2,
+                           wingSpan,        wingDrop);
+      ctx.lineTo(wingSpan * 0.5, 3);
+      ctx.lineTo(2, 2);
+      ctx.closePath();
+      ctx.fill();
+      // Wing strut (membrane bone)
+      ctx.strokeStyle = 'rgba(' + rgb + ', 0.85)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(-3, -1);
+      ctx.quadraticCurveTo(-wingSpan * 0.7, wingDrop - 2,
+                           -wingSpan,        wingDrop);
+      ctx.moveTo(3, -1);
+      ctx.quadraticCurveTo(wingSpan * 0.7, wingDrop - 2,
+                           wingSpan,        wingDrop);
+      ctx.stroke();
+      // EYES — bright tone-colored pinpoints (predator stare)
+      ctx.fillStyle = 'rgba(' + rgb + ', 0.95)';
+      ctx.beginPath();
+      ctx.arc(-2, -1, 0.9, 0, Math.PI * 2);
+      ctx.arc( 2, -1, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      // CLAWS — extended only in 'flee' state when carrying cargo
+      if (bt.state === 'flee' && bt.carrying) {
+        ctx.strokeStyle = 'rgba(255, 240, 220, 0.8)';
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(-2, 5);
+        ctx.lineTo(-2, 9);
+        ctx.moveTo( 0, 5);
+        ctx.lineTo( 0, 10);
+        ctx.moveTo( 2, 5);
+        ctx.lineTo( 2, 9);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+  function drawDailyGlowBatHalos() {
+    if (!isDaily || !dailyGlowBats.length) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';   // additive blend
+    for (const bt of dailyGlowBats) {
+      const rgb = _glowBatToneRGB(bt.glowTone);
+      // Soft bloom — large faint disc + small bright core. Reads
+      // as bioluminescence even when the body is masked dark.
+      const bloom = ctx.createRadialGradient(bt.x, bt.y, 0,
+                                              bt.x, bt.y, 22);
+      bloom.addColorStop(0,    'rgba(' + rgb + ', 0.55)');
+      bloom.addColorStop(0.45, 'rgba(' + rgb + ', 0.18)');
+      bloom.addColorStop(1,    'rgba(' + rgb + ', 0)');
+      ctx.fillStyle = bloom;
+      ctx.beginPath();
+      ctx.arc(bt.x, bt.y, 22, 0, Math.PI * 2);
+      ctx.fill();
+      // Bright core dot
+      ctx.fillStyle = 'rgba(' + rgb + ', 0.85)';
+      ctx.beginPath();
+      ctx.arc(bt.x, bt.y, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   }
   // ---------- Flashlight cone (cave-theme levels) -----------------
@@ -24148,6 +24378,8 @@ const DLX_BUILD = 'v378';
     };
     dailyThieves = [];
     dailyNextThiefAt = frame + 300;      // first thief swoops in ~5s after launch
+    dailyGlowBats = [];
+    dailyNextGlowBatAt = frame + 540;    // first bat wave ~9s after launch
     dailyMirrorPairs = [];
     dailyNextMirrorPairAt = frame + 720; // first mirror parasite pair ~12s in
     dailyPressureBubbles = [];
@@ -24656,13 +24888,14 @@ const DLX_BUILD = 'v378';
       cargoFlavor: null,
       // Cave levels suppress every existing obstacle and route the
       // air-obstacle slot through the cave-column branch instead.
-      // Ships 3-5 will add critter flags (glowBats, salamanders,
-      // glowSpiders) alongside this one.
+      // Cave-native critter flags (glowBats added in Ship 3;
+      // salamanders + spiders coming in Ships 4-5).
       obstacleSet: {
         drones: false, thieves: false, groundOps: false,
         lavaBalls: false, scrapTowers: false, airWrecks: false,
         tunnels: false, tentacles: false,
         caveColumns: true,
+        glowBats: true,
       },
       obstacleTheme: 'cave',
       // Flashlight cone — Ship 1 hook. The rig has a forward-pointing
@@ -24705,6 +24938,14 @@ const DLX_BUILD = 'v378';
   let dailyDistanceForScore = 0;   // tracker so grantScore fires once per chunk
   let cargo = null;                // { x, y, vy, attached, lost } — magnetically tethered crate
   let dailyThieves = [];           // [{ x, y, vx, vy, state, stateFrames }] — flying cargo thieves
+  // Glow-bats (Glow Chamber only). Wave of 2-3 bats that swoop in
+  // from the dark above the cone and try to snatch the cargo. Each
+  // bat: { x, y, vx, vy, state, stateFrames, flapPhase, glowTone,
+  // carrying }. Painted in two passes — full body BEFORE the
+  // flashlight mask (only visible inside the cone) and additive
+  // halo AFTER the mask (visible everywhere in the dark).
+  let dailyGlowBats = [];
+  let dailyNextGlowBatAt = 0;
   // Mirror parasites (Leviathan only). Each entry is a PAIR: a floor
   // parasite + a ceiling parasite that emerge at the same worldX,
   // lunge toward each other through the air, and grab the cargo
