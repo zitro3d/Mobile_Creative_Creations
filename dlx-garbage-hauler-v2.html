@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v374';
+const DLX_BUILD = 'v375';
 
 (function() {
   // ---------- Device detection ----------
@@ -11401,6 +11401,85 @@ const DLX_BUILD = 'v374';
   function drawDailyHorizon() {
     if (!isDaily) return;
     ctx.save();
+
+    if (currentDeliveryLevel.horizonStyle === 'cave') {
+      // ---- CAVE CEILING SILHOUETTE -------------------------------
+      // Caves are enclosed top + bottom. The floor still uses the
+      // existing terrain dune profile (palette-swapped to dark slate),
+      // but the ceiling needs to be painted here as a rock-jagged
+      // silhouette descending from the top of the screen.
+      //
+      // CHAMBER PROFILE: ceiling height undulates between
+      //   • LOW    (~12 % PLAY_H, wide-open chamber)
+      //   • HIGH   (~32 % PLAY_H, tight passage)
+      // Period is ~2100 world-units so the player flies through ~1
+      // chamber every few seconds at base scroll speed.
+      ctx.fillStyle = '#06080e';            // rock-mass fill, near-black
+      ctx.beginPath();
+      ctx.moveTo(-4, 0);
+      const stepC = 6;
+      const ceilOpenY  = PLAY_H * 0.10;     // chamber peak (low)
+      const ceilTightY = PLAY_H * 0.32;     // passage floor (high)
+      for (let sx = -4; sx <= W + 4; sx += stepC) {
+        const wx = sx + dailyScrollX;
+        // Slow chamber-period wave + faster rock noise for jagged edge
+        const chamberPhase = Math.sin(wx * 0.0030);          // -1..1
+        const open = (chamberPhase + 1) * 0.5;               // 0..1
+        const baseCeil = ceilTightY + (ceilOpenY - ceilTightY) * open;
+        const jag = Math.sin(wx * 0.0210) * 4
+                  + Math.sin(wx * 0.0450 + 1.7) * 2.5;
+        const y = Math.round(baseCeil + jag);
+        ctx.lineTo(sx, y);
+      }
+      ctx.lineTo(W + 4, 0);
+      ctx.closePath();
+      ctx.fill();
+      // Lighter rock highlight along the ceiling edge — catches the
+      // (still-imagined) flashlight beam so the silhouette has
+      // dimensionality rather than reading as a flat black bar.
+      ctx.strokeStyle = 'rgba(60, 80, 100, 0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let sx = -4; sx <= W + 4; sx += stepC) {
+        const wx = sx + dailyScrollX;
+        const chamberPhase = Math.sin(wx * 0.0030);
+        const open = (chamberPhase + 1) * 0.5;
+        const baseCeil = ceilTightY + (ceilOpenY - ceilTightY) * open;
+        const jag = Math.sin(wx * 0.0210) * 4
+                  + Math.sin(wx * 0.0450 + 1.7) * 2.5;
+        const y = Math.round(baseCeil + jag);
+        if (sx === -4) ctx.moveTo(sx, y);
+        else            ctx.lineTo(sx, y);
+      }
+      ctx.stroke();
+      // Stalactite hint — thin tapered triangles hanging from the
+      // ceiling at sparse intervals. Adds the "you are inside a
+      // cave" tell even before Ship 2's full obstacle pass.
+      ctx.fillStyle = '#04060c';
+      const dripStep = 80;
+      const dripStart = Math.floor(dailyScrollX / dripStep) - 1;
+      const dripEnd   = Math.floor((dailyScrollX + W) / dripStep) + 1;
+      for (let i = dripStart; i <= dripEnd; i++) {
+        const seed = i * 0.3199 + 5.07;
+        if (srand(seed) < 0.55) continue;          // sparse
+        const wx = i * dripStep + Math.floor(srand(seed + 1.1) * 30);
+        const sx = Math.round(wx - dailyScrollX);
+        if (sx < -8 || sx > W + 8) continue;
+        const chamberPhase = Math.sin(wx * 0.0030);
+        const open = (chamberPhase + 1) * 0.5;
+        const baseCeil = ceilTightY + (ceilOpenY - ceilTightY) * open;
+        const len = 6 + Math.floor(srand(seed + 2.3) * 14);
+        const halfW = 2 + Math.floor(srand(seed + 3.7) * 2);
+        ctx.beginPath();
+        ctx.moveTo(sx - halfW, baseCeil - 2);
+        ctx.lineTo(sx + halfW, baseCeil - 2);
+        ctx.lineTo(sx,         baseCeil + len);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+      return;     // cave skips the dune layers entirely
+    }
 
     if (currentDeliveryLevel.horizonStyle === 'citadel') {
       // ---- Citadel silhouette layer (deepest, slowest parallax) ----
@@ -23211,6 +23290,7 @@ const DLX_BUILD = 'v374';
       drawCargoBond();
       drawDailyCargo();
     }
+    if (isDaily) drawDailyFlashlight();   // cave-theme darkness mask
     drawExhaust();
     drawSparks();
     drawPickupSparks();
@@ -23245,6 +23325,83 @@ const DLX_BUILD = 'v374';
     ctx.save();
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, PLAY_H);
+    ctx.restore();
+  }
+  // ---------- Flashlight cone (cave-theme levels) -----------------
+  // Glow Chamber + future cave levels mask the world dark and carve
+  // a forward-facing cone out of the darkness so the rig's headlight
+  // is the only light source. Drawn on an offscreen canvas so the
+  // cone "hole" can be punched into the dark layer alone, not into
+  // the world content underneath.
+  let _flashMask = null;
+  function drawDailyFlashlight() {
+    if (!isDaily) return;
+    const cfg = currentDeliveryLevel.flashlight;
+    if (!cfg || !cfg.enabled) return;
+
+    if (!_flashMask
+        || _flashMask.width !== W
+        || _flashMask.height !== PLAY_H) {
+      _flashMask = document.createElement('canvas');
+      _flashMask.width  = W;
+      _flashMask.height = PLAY_H;
+    }
+    const fctx = _flashMask.getContext('2d');
+    fctx.clearRect(0, 0, W, PLAY_H);
+
+    // Step 1 — paint the entire mask dark.
+    fctx.fillStyle = 'rgba(2, 3, 8, ' + cfg.darkness + ')';
+    fctx.fillRect(0, 0, W, PLAY_H);
+
+    // Step 2 — carve a soft-edged cone hole using destination-out.
+    const lightX = bird.x + (cfg.anchorOX || 0);
+    const lightY = bird.y + (cfg.anchorOY || 0);
+    const reach   = cfg.reach;
+    const fall    = cfg.falloff || 0;
+    const halfArc = (cfg.widthDeg * Math.PI / 180) / 2;
+    const aim     = cfg.aimRad || 0;
+    const r       = reach + fall;
+
+    fctx.save();
+    fctx.globalCompositeOperation = 'destination-out';
+    // Radial gradient — full-cut at the light source, fades to
+    // no-cut past the reach. The path clips this gradient to the
+    // cone wedge so only the cone-shaped subarea gets cleared.
+    const grad = fctx.createRadialGradient(lightX, lightY, 0,
+                                           lightX, lightY, r);
+    grad.addColorStop(0,    'rgba(255, 255, 255, 1.0)');
+    grad.addColorStop(0.55, 'rgba(255, 255, 255, 0.95)');
+    grad.addColorStop(0.85, 'rgba(255, 255, 255, 0.55)');
+    grad.addColorStop(1,    'rgba(255, 255, 255, 0)');
+    fctx.fillStyle = grad;
+
+    fctx.beginPath();
+    fctx.moveTo(lightX, lightY);
+    const segs = 14;
+    for (let i = 0; i <= segs; i++) {
+      const a = (aim - halfArc) + (halfArc * 2) * (i / segs);
+      fctx.lineTo(lightX + Math.cos(a) * r,
+                  lightY + Math.sin(a) * r);
+    }
+    fctx.closePath();
+    fctx.fill();
+    fctx.restore();
+
+    // Step 3 — composite the masked darkness onto the main canvas.
+    ctx.drawImage(_flashMask, 0, 0);
+
+    // Step 4 — warm headlight halo at the lamp source so the player
+    // can see where the beam is anchored on the rig.
+    ctx.save();
+    const halo = ctx.createRadialGradient(lightX, lightY, 0,
+                                          lightX, lightY, 18);
+    halo.addColorStop(0,   'rgba(255, 240, 200, 0.55)');
+    halo.addColorStop(0.6, 'rgba(255, 220, 160, 0.18)');
+    halo.addColorStop(1,   'rgba(255, 200, 120, 0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(lightX, lightY, 18, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
   function drawModifierHud() {
@@ -24151,6 +24308,76 @@ const DLX_BUILD = 'v374';
       // balls) and phage thieves so they also "swim" instead of
       // zipping through the air.
       obstacleSpeedMul:  0.75,
+    },
+    glowChamber: {
+      label: 'GLOW CHAMBER',
+      // Pitch-black cave interior. Sky is solid near-black so the
+      // entire frame reads as "in the dark" before the flashlight
+      // mask carves out the visible cone. Slight slate tint at the
+      // bottom suggests rock floor depth, not sky.
+      skyPalette: [
+        { stop: 0,    color: '#020308' },
+        { stop: 0.50, color: '#04050c' },
+        { stop: 1,    color: '#080a14' },
+      ],
+      skyMoons: 'none',
+      hazeStripeColor: 'rgba(0, 0, 0, 0)',          // no haze in caves
+      // Faint cyan motes — bioluminescent dust drifting through the
+      // dark cave. Visible even outside the flashlight cone so the
+      // void doesn't read as empty.
+      dustMoteColor: 'rgba(140, 220, 255, 0.45)',
+      dustEmberStart: [120, 220, 255],
+      dustEmberEnd:   [60, 160, 220],
+      groundBand: '#04060a',
+      horizonStyle: 'cave',
+      // Cave doesn't use horizon dunes; the cave branch in
+      // drawDailyHorizon early-returns before the dune layers run.
+      // These are required by config but unused.
+      horizonDuneFarColor: 'rgba(20, 24, 32, 0.0)',
+      horizonDuneMidColor: 'rgba(12, 14, 22, 0.0)',
+      horizonDuneHighlight: 'rgba(0, 0, 0, 0)',
+      // Earth gradient — dark slate rock with a cool blue undertone
+      // so wet cave stone reads correctly under the flashlight.
+      earthPalette: [
+        { stop: 0,    color: '#1c2030' },
+        { stop: 0.35, color: '#0e1118' },
+        { stop: 0.75, color: '#06080e' },
+        { stop: 1,    color: '#020308' },
+      ],
+      ambientField: null,
+      pulseTintColor: null,
+      pulseTintAmp: 0,
+      pulsePeriodFrames: 0,
+      dispatchLabel: 'CAVERN MOUTH',
+      dockLabel: 'CLIFF DOCK',
+      cargoFlavor: null,
+      // Cave levels suppress every existing obstacle — Ships 2+ wire
+      // cave-native obstacles (columns, stalactites, glow critters)
+      // through their own flags.
+      obstacleSet: {
+        drones: false, thieves: false, groundOps: false,
+        lavaBalls: false, scrapTowers: false, airWrecks: false,
+        tunnels: false, tentacles: false,
+      },
+      obstacleTheme: 'cave',
+      // Flashlight cone — Ship 1 hook. The rig has a forward-pointing
+      // headlight; outside the cone the world is masked dark. Cone
+      // angle is generous (~70°) so the level plays friendly on first
+      // build; we can tighten once the chamber rhythm reads.
+      flashlight: {
+        enabled: true,
+        widthDeg: 70,
+        reach:    280,
+        falloff:  90,
+        darkness: 0.96,
+        // Headlight position offset relative to the rig center.
+        anchorOX: 4,
+        anchorOY: -10,
+        // Slight downward aim so the cone scoops the floor a bit
+        // more than the ceiling — feels natural for a forward-flying
+        // rig with a top-mounted headlight.
+        aimRad:   0.05,
+      },
     },
   };
   // The level currently driving the daily-mode renderers. Every daily
