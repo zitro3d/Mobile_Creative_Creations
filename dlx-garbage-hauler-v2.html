@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v360';
+const DLX_BUILD = 'v361';
 
 (function() {
   // ---------- Device detection ----------
@@ -4219,6 +4219,7 @@ const DLX_BUILD = 'v360';
   let ghostFrames   = 0;   // phase through obstacles
   let empFrames     = 0;   // EMP pulse — bosses frozen (no movement, no firing)
   let invulnFrames  = 0;   // brief i-frames after shield break / spawn
+  let frozenFrames  = 0;   // 2-sec electric stun (Leviathan jellyfish hit)
   let combo         = 0;   // consecutive pickups without miss
   let comboMax      = 0;
   let missiles      = [];  // active missile shots
@@ -6655,6 +6656,7 @@ const DLX_BUILD = 'v360';
     ghostFrames = 0;
     empFrames = 0;
     invulnFrames = 0;
+    frozenFrames = 0;
     heatShieldUsed = false;        // ANVIL perk reset — fresh shield per run
     combo = 0;
     comboMax = 0;
@@ -7119,6 +7121,8 @@ const DLX_BUILD = 'v360';
   }
 
   function flap() {
+    // Stunned: flap input ignored for the freeze duration.
+    if (frozenFrames > 0) return;
     if (state === STATE_READY) {
       state = STATE_PLAY;
       bird.x = Math.round(W * BIRD_X_FRAC);
@@ -7276,6 +7280,7 @@ const DLX_BUILD = 'v360';
       if (ghostFrames > 0)   ghostFrames--;
       if (empFrames > 0)     empFrames--;
       if (invulnFrames > 0)  invulnFrames--;
+      if (frozenFrames > 0)  frozenFrames--;
 
       // GHOST perk: Lift Assist scales gravity (0.85× = 15 % less drag
       // per frame, makes the rig feel lighter / easier to keep aloft).
@@ -7286,8 +7291,14 @@ const DLX_BUILD = 'v360';
         && currentDeliveryLevel.gravityMultiplier) || 1.0;
       const buoyFall = (isDaily && currentDeliveryLevel
         && currentDeliveryLevel.maxFallMultiplier) || 1.0;
-      bird.vy = Math.min(bird.vy + GRAVITY * liftMult * buoyGrav,
-                         MAX_FALL * buoyFall);
+      if (frozenFrames > 0) {
+        // Stunned by a jellyfish sting — rig hovers in place for the
+        // freeze duration, no gravity, no input.
+        bird.vy = 0;
+      } else {
+        bird.vy = Math.min(bird.vy + GRAVITY * liftMult * buoyGrav,
+                           MAX_FALL * buoyFall);
+      }
 
       // Leviathan heartbeat ambient field — when the active level has
       // ambientField === 'pulse', the body's heartbeat gives a subtle
@@ -9235,6 +9246,21 @@ const DLX_BUILD = 'v360';
           const dy = bird.y - lb.y;
           const reach = r + lb.r - 2;
           if (dx * dx + dy * dy < reach * reach) {
+            // ORGANIC THEME — jellyfish stings the rig with an
+            // electric shock instead of killing. 2-sec freeze:
+            // flap input ignored, physics suspended, electric arcs
+            // crackle on the rig. Brief invuln after so the next
+            // jellyfish doesn't immediately re-stun. Force field
+            // shield bypasses the sting entirely.
+            if (currentDeliveryLevel.obstacleTheme === 'organic') {
+              lb.x = -10000;        // remove this jellyfish
+              frozenFrames = Math.max(frozenFrames, 120);   // 2 sec
+              invulnFrames = Math.max(invulnFrames, 150);
+              flashAlpha = 0.35;
+              shakeFrames = Math.max(shakeFrames, 14);
+              playSound('forceField');
+              return false;
+            }
             if (rigPerk('heatShield') && !heatShieldUsed) {
               heatShieldUsed = true;
               // Push the ball off-screen so the existing despawn check
@@ -21797,6 +21823,43 @@ const DLX_BUILD = 'v360';
   function drawBird() {
     // Asymmetrical boxy Garbage Hauler — rust, patches, and a struggling engine
     ctx.save();
+
+    // Stun arcs — crackling electric arcs around the rig while
+    // frozen by a jellyfish sting. Drawn UNDER the ship so the rig
+    // silhouette stays clean on top.
+    if (frozenFrames > 0) {
+      const arcCount = 5;
+      for (let i = 0; i < arcCount; i++) {
+        const a0 = (frame * 0.4 + i * 1.7) % (Math.PI * 2);
+        const r0 = BIRD_R + 4;
+        const r1 = BIRD_R + 9 + Math.sin(frame * 0.6 + i) * 2;
+        const x0 = bird.x + Math.cos(a0) * r0;
+        const y0 = bird.y + Math.sin(a0) * r0;
+        const x1 = bird.x + Math.cos(a0 + 0.5) * r1;
+        const y1 = bird.y + Math.sin(a0 + 0.5) * r1;
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = 'rgba(180, 220, 255, 0.95)';
+        ctx.strokeStyle = 'rgba(220, 240, 255, 0.85)';
+        ctx.lineWidth = 1.0;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        // Mid jitter point for a forked-lightning shape
+        const mx = (x0 + x1) / 2 + (Math.random() - 0.5) * 4;
+        const my = (y0 + y1) / 2 + (Math.random() - 0.5) * 4;
+        ctx.lineTo(mx, my);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+      // Outer cyan halo
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'rgba(120, 200, 255, 0.95)';
+      ctx.fillStyle = 'rgba(120, 200, 255, 0.20)';
+      ctx.beginPath();
+      ctx.arc(bird.x, bird.y, BIRD_R + 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
 
     // Shield bubble rendered underneath the ship
     if (shieldCharges > 0) drawShieldBubble();
