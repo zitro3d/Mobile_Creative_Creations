@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v380';
+const DLX_BUILD = 'v381';
 
 (function() {
   // ---------- Device detection ----------
@@ -8128,14 +8128,14 @@ const DLX_BUILD = 'v380';
             o.gapTopY = ceilY + topMargin;
             o.gapH    = gapH;
             o.colWidth= 36;
-            // Drop a recovery cog inside the gap so the player has
-            // a visible tell of the safe lane and earns a pickup
-            // for threading it cleanly.
+            // Drop a recovery CRYSTAL inside the gap so the player
+            // has a visible tell of the safe lane and earns a pickup
+            // for threading it cleanly. Cave-themed pickup (replaces
+            // the gear-cog visual that read as out of place).
             dailyPickups.push({
               worldX: dailyNextAirObstacleX + 18,
               y: o.gapTopY + gapH * 0.5,
-              kind: 'scrapCog',
-              gold: false,
+              kind: 'caveCrystal',
               alive: true,
               bobPhase: Math.random() * Math.PI * 2,
               orbitR: 0,
@@ -8371,7 +8371,8 @@ const DLX_BUILD = 'v380';
             // recovery gem from v359 — the diamonds inside the pipes
             // ARE the recovery now.
             if (cargo && cargo.lost
-                && (p.kind === 'scrapCog' || p.kind === 'fuelCell')) {
+                && (p.kind === 'scrapCog' || p.kind === 'fuelCell'
+                    || p.kind === 'caveCrystal')) {
               cargo.lost = false;
               cargo.attached = true;
               cargo.bubbleEngulfed = false;
@@ -8391,6 +8392,12 @@ const DLX_BUILD = 'v380';
               grantScore(isGold ? 15 : 5);
               emitPickupSparks(pickupX, pickupY, isGold ? '#ffd060' : '#3ad0ff', isGold ? 12 : 8);
               playSound(isGold ? 'gold' : 'pickup');
+            } else if (p.kind === 'caveCrystal') {
+              // Glow Chamber recovery pickup — angular crystal cluster
+              // (replaces gear-cog visual). Same score as common cog.
+              grantScore(5);
+              emitPickupSparks(pickupX, pickupY, '#a0e8ff', 10);
+              playSound('pickup');
             } else if (p.kind === 'magnetBox') {
               // RECALL — every box ALWAYS yanks the cargo back to the
               // rig regardless of state (detached, lost off-screen, or
@@ -11581,6 +11588,44 @@ const DLX_BUILD = 'v380';
     ctx.save();
 
     if (currentDeliveryLevel.horizonStyle === 'cave') {
+      // ---- CAVE BACKDROP — distant rock walls for depth -----------
+      // Two parallax layers BEHIND the foreground ceiling/floor so
+      // the cave reads as a 3D space, not a flat silhouette band.
+      // Each layer is a wavy rock silhouette drifting at its own
+      // scroll speed. Both layers are inside the flashlight cone
+      // mask, so they only resolve where the headlight reaches.
+      //   • DEEP (slowest, darkest): far cave wall. Heavy haze tint.
+      //   • MID  (a touch faster, lighter): silhouettes of distant
+      //     stalactites + ground rocks.
+      const drawBackLayer = function(scrollMul, fillStyle, ampFar, ampNear, period, yMidFrac, vertExtent) {
+        const scroll = dailyScrollX * scrollMul;
+        ctx.fillStyle = fillStyle;
+        ctx.beginPath();
+        const yMid = PLAY_H * yMidFrac;
+        ctx.moveTo(-4, yMid + vertExtent);
+        for (let sx = -4; sx <= W + 4; sx += 8) {
+          const wx = sx + scroll;
+          const top = Math.sin(wx * period) * ampFar
+                    + Math.sin(wx * period * 4.2 + 1.1) * ampNear;
+          ctx.lineTo(sx, yMid - top);
+        }
+        ctx.lineTo(W + 4, yMid + vertExtent);
+        ctx.closePath();
+        ctx.fill();
+      };
+      // DEEP wall — far ceiling shadow + distant ground bulge.
+      // Ceiling band: large soft humps below the painted ceiling.
+      drawBackLayer(0.10, '#0a0d14',
+                    18, 6, 0.0040, 0.30, -PLAY_H);   // deep ceiling band
+      drawBackLayer(0.10, '#0a0d14',
+                    18, 6, 0.0040, 0.86, +PLAY_H);   // deep floor band (mirror)
+      // MID wall — slightly lighter slate with sharper bumps. Drifts
+      // a touch faster than DEEP so the parallax separation reads.
+      drawBackLayer(0.22, '#10141e',
+                    12, 8, 0.0072, 0.36, -PLAY_H);   // mid ceiling band
+      drawBackLayer(0.22, '#10141e',
+                    12, 8, 0.0072, 0.80, +PLAY_H);   // mid floor band
+
       // ---- CAVE CEILING SILHOUETTE + ROCK TEXTURE ----------------
       // Caves are enclosed top + bottom. Y of the ceiling at any
       // worldX comes from caveCeilingAt(); same helper is used by
@@ -16850,6 +16895,10 @@ const DLX_BUILD = 'v380';
         offY = Math.sin(ang) * radius;
       } else if (p.kind === 'fuelCell') {
         offY = Math.sin(frame * 0.10 + p.bobPhase) * 3;
+      } else if (p.kind === 'caveCrystal') {
+        // Crystal floats with a tiny vertical bob so the gem reads
+        // as suspended in the cave air, not stuck to the rock.
+        offY = Math.sin(frame * 0.08 + p.bobPhase) * 2.2;
       } else {
         // Magnet box — gentle vertical bob
         offY = Math.sin(frame * 0.08 + p.bobPhase) * 2;
@@ -16861,8 +16910,72 @@ const DLX_BUILD = 'v380';
       if (p.kind === 'scrapCog') drawScrapCog();
       else if (p.kind === 'magnetBox') drawMagnetBox();
       else if (p.kind === 'fuelCell') drawFuelCell();
+      else if (p.kind === 'caveCrystal') drawCaveCrystal();
       ctx.restore();
     }
+  }
+  // Glow Chamber recovery pickup — small angular crystal cluster
+  // glowing pale cyan. Faceted hexagonal silhouette + bright core
+  // so it reads as a gemstone, not a gear. Drawn additively so
+  // the cyan glow shines through both inside and outside the
+  // flashlight cone (visible cue of the safe lane in the dark).
+  function drawCaveCrystal() {
+    const t = frame * 0.10;
+    const pulse = 0.85 + Math.sin(t) * 0.15;
+    // Soft halo backdrop (additive)
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 14);
+    halo.addColorStop(0,   'rgba(140, 220, 255, ' + (0.55 * pulse) + ')');
+    halo.addColorStop(0.6, 'rgba(140, 220, 255, ' + (0.18 * pulse) + ')');
+    halo.addColorStop(1,   'rgba(140, 220, 255, 0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Faceted crystal — diamond/hex silhouette with a bright top facet
+    // and a darker bottom facet for depth.
+    ctx.save();
+    // Dark backing facet (lower half darker for shading)
+    ctx.fillStyle = '#1a3848';
+    ctx.beginPath();
+    ctx.moveTo(0, -7);
+    ctx.lineTo(5, -2);
+    ctx.lineTo(4,  4);
+    ctx.lineTo(0,  8);
+    ctx.lineTo(-4, 4);
+    ctx.lineTo(-5,-2);
+    ctx.closePath();
+    ctx.fill();
+    // Top-front facet — brighter cyan
+    ctx.fillStyle = 'rgba(140, 220, 255, 0.95)';
+    ctx.beginPath();
+    ctx.moveTo(0, -7);
+    ctx.lineTo(5, -2);
+    ctx.lineTo(0,  2);
+    ctx.lineTo(-5, -2);
+    ctx.closePath();
+    ctx.fill();
+    // Inner specular dot
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.beginPath();
+    ctx.arc(0, -3, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+    // Crystal outline
+    ctx.strokeStyle = 'rgba(180, 230, 255, 0.85)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(0, -7);
+    ctx.lineTo(5, -2);
+    ctx.lineTo(4,  4);
+    ctx.lineTo(0,  8);
+    ctx.lineTo(-4, 4);
+    ctx.lineTo(-5,-2);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
   }
 
   // DLX FUEL CELL — iridescent rainbow crystal. Visually telegraphs the
@@ -23701,12 +23814,11 @@ const DLX_BUILD = 'v380';
       drawDailySporeClouds();
       drawDailyDrones();
       drawDailyLavaBalls();
-      drawDailyGlowBats();      // cave-theme bat body (masked outside cone)
       drawCargoBond();
       drawDailyCargo();
     }
     if (isDaily) drawDailyFlashlight();   // cave-theme darkness mask
-    if (isDaily) drawDailyGlowBatHalos(); // bat blacklight glow (above the mask)
+    if (isDaily) drawDailyGlowBats();     // additive bat silhouette ABOVE the mask
     drawExhaust();
     drawSparks();
     drawPickupSparks();
@@ -23756,114 +23868,117 @@ const DLX_BUILD = 'v380';
     if (tone === 'lime')   return '170, 255, 130';
     return '210, 130, 255';                          // violet (default)
   }
+  // Single-pass additive bat — the silhouette IS the glow. Wing
+  // membrane + body + ears are all painted with additive blending
+  // after the flashlight mask, so the bat shape itself reads as
+  // a bioluminescent creature (clearly bat-shaped, not a dot).
   function drawDailyGlowBats() {
     if (!isDaily || !dailyGlowBats.length) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
     for (const bt of dailyGlowBats) {
+      const rgb = _glowBatToneRGB(bt.glowTone);
       ctx.save();
       ctx.translate(Math.round(bt.x), Math.round(bt.y));
       // Wing flap — open span varies with flapPhase (cosine)
       const flap = (Math.cos(bt.flapPhase) + 1) * 0.5;     // 0..1
-      const wingSpan = 9 + flap * 8;                       // 9..17 px
-      const wingDrop = 4 - flap * 5;                       // 4..-1
-      // BODY — small dark fur shape
-      ctx.fillStyle = '#1a0a22';
+      const wingSpan = 16 + flap * 12;                     // 16..28 px (was 9..17)
+      const wingDrop = 6 - flap * 7;                       // 6..-1
+      // Soft halo backdrop — big and faint so the bat shape reads
+      // as glowing rather than just a dot.
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 18);
+      halo.addColorStop(0,    'rgba(' + rgb + ', 0.45)');
+      halo.addColorStop(0.6,  'rgba(' + rgb + ', 0.16)');
+      halo.addColorStop(1,    'rgba(' + rgb + ', 0)');
+      ctx.fillStyle = halo;
       ctx.beginPath();
-      ctx.ellipse(0, 0, 6, 5, 0, 0, Math.PI * 2);
+      ctx.arc(0, 0, 18, 0, Math.PI * 2);
       ctx.fill();
-      // EARS — two small triangles on top
-      ctx.fillStyle = '#0e0414';
+      // WING MEMBRANES — bat-style sweep, BIG and clearly winged.
+      // Drawn before the body so the body sits on top of the wings.
+      ctx.fillStyle = 'rgba(' + rgb + ', 0.78)';
+      // Left wing — outer arc + scalloped trailing edge
       ctx.beginPath();
-      ctx.moveTo(-3, -3);
-      ctx.lineTo(-1.5, -7);
-      ctx.lineTo(-0.5, -3);
+      ctx.moveTo(-4, -2);
+      ctx.quadraticCurveTo(-wingSpan * 0.55, wingDrop - 3,
+                           -wingSpan,         wingDrop);
+      ctx.quadraticCurveTo(-wingSpan * 0.65, wingDrop + 5,
+                           -wingSpan * 0.45, wingDrop + 6);
+      ctx.quadraticCurveTo(-wingSpan * 0.30, wingDrop + 4,
+                           -wingSpan * 0.20, wingDrop + 5);
+      ctx.lineTo(-3,  4);
       ctx.closePath();
       ctx.fill();
+      // Right wing — mirror
       ctx.beginPath();
-      ctx.moveTo(0.5, -3);
-      ctx.lineTo(1.5, -7);
-      ctx.lineTo(3, -3);
+      ctx.moveTo(4, -2);
+      ctx.quadraticCurveTo(wingSpan * 0.55, wingDrop - 3,
+                           wingSpan,         wingDrop);
+      ctx.quadraticCurveTo(wingSpan * 0.65, wingDrop + 5,
+                           wingSpan * 0.45, wingDrop + 6);
+      ctx.quadraticCurveTo(wingSpan * 0.30, wingDrop + 4,
+                           wingSpan * 0.20, wingDrop + 5);
+      ctx.lineTo(3,  4);
       ctx.closePath();
       ctx.fill();
-      // WINGS — bat-style triangle membranes flapping outward.
-      // Tone-tinted fill so each wing reads with its glow color.
-      const rgb = _glowBatToneRGB(bt.glowTone);
-      ctx.fillStyle = 'rgba(' + rgb + ', 0.55)';
-      // Left wing
+      // Wing membrane bones — brighter strokes radiating from the body
+      ctx.strokeStyle = 'rgba(' + rgb + ', 1.0)';
+      ctx.lineWidth = 1.0;
       ctx.beginPath();
       ctx.moveTo(-3, -1);
-      ctx.quadraticCurveTo(-wingSpan * 0.7, wingDrop - 2,
-                           -wingSpan,        wingDrop);
-      ctx.lineTo(-wingSpan * 0.5, 3);
-      ctx.lineTo(-2, 2);
-      ctx.closePath();
-      ctx.fill();
-      // Right wing
-      ctx.beginPath();
+      ctx.quadraticCurveTo(-wingSpan * 0.55, wingDrop - 3,
+                           -wingSpan,         wingDrop);
+      ctx.moveTo(-3, 1);
+      ctx.quadraticCurveTo(-wingSpan * 0.45, wingDrop + 1,
+                           -wingSpan * 0.45, wingDrop + 6);
       ctx.moveTo(3, -1);
-      ctx.quadraticCurveTo(wingSpan * 0.7, wingDrop - 2,
-                           wingSpan,        wingDrop);
-      ctx.lineTo(wingSpan * 0.5, 3);
-      ctx.lineTo(2, 2);
-      ctx.closePath();
-      ctx.fill();
-      // Wing strut (membrane bone)
-      ctx.strokeStyle = 'rgba(' + rgb + ', 0.85)';
-      ctx.lineWidth = 0.8;
-      ctx.beginPath();
-      ctx.moveTo(-3, -1);
-      ctx.quadraticCurveTo(-wingSpan * 0.7, wingDrop - 2,
-                           -wingSpan,        wingDrop);
-      ctx.moveTo(3, -1);
-      ctx.quadraticCurveTo(wingSpan * 0.7, wingDrop - 2,
-                           wingSpan,        wingDrop);
+      ctx.quadraticCurveTo(wingSpan * 0.55, wingDrop - 3,
+                           wingSpan,         wingDrop);
+      ctx.moveTo(3, 1);
+      ctx.quadraticCurveTo(wingSpan * 0.45, wingDrop + 1,
+                           wingSpan * 0.45, wingDrop + 6);
       ctx.stroke();
-      // EYES — bright tone-colored pinpoints (predator stare)
+      // BODY — bigger glowing oval (was 6x5, now 9x7)
       ctx.fillStyle = 'rgba(' + rgb + ', 0.95)';
       ctx.beginPath();
-      ctx.arc(-2, -1, 0.9, 0, Math.PI * 2);
-      ctx.arc( 2, -1, 0.9, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 9, 7, 0, 0, Math.PI * 2);
       ctx.fill();
-      // CLAWS — extended only in 'flee' state when carrying cargo
+      // EARS — taller pointed triangles
+      ctx.beginPath();
+      ctx.moveTo(-4, -4);
+      ctx.lineTo(-2, -11);
+      ctx.lineTo(-1, -4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(1, -4);
+      ctx.lineTo(2, -11);
+      ctx.lineTo(4, -4);
+      ctx.closePath();
+      ctx.fill();
+      // EYES — bright white pinpoints (additive → reads as glowing eyes)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.beginPath();
+      ctx.arc(-2.6, -1.5, 1.0, 0, Math.PI * 2);
+      ctx.arc( 2.6, -1.5, 1.0, 0, Math.PI * 2);
+      ctx.fill();
+      // CLAWS — extended only when carrying cargo
       if (bt.state === 'flee' && bt.carrying) {
-        ctx.strokeStyle = 'rgba(255, 240, 220, 0.8)';
-        ctx.lineWidth = 0.7;
+        ctx.strokeStyle = 'rgba(255, 250, 230, 0.95)';
+        ctx.lineWidth = 0.8;
         ctx.beginPath();
-        ctx.moveTo(-2, 5);
-        ctx.lineTo(-2, 9);
-        ctx.moveTo( 0, 5);
-        ctx.lineTo( 0, 10);
-        ctx.moveTo( 2, 5);
-        ctx.lineTo( 2, 9);
+        ctx.moveTo(-3, 6);  ctx.lineTo(-3, 11);
+        ctx.moveTo( 0, 7);  ctx.lineTo( 0, 12);
+        ctx.moveTo( 3, 6);  ctx.lineTo( 3, 11);
         ctx.stroke();
       }
       ctx.restore();
     }
-  }
-  function drawDailyGlowBatHalos() {
-    if (!isDaily || !dailyGlowBats.length) return;
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';   // additive blend
-    for (const bt of dailyGlowBats) {
-      const rgb = _glowBatToneRGB(bt.glowTone);
-      // Soft bloom — large faint disc + small bright core. Reads
-      // as bioluminescence even when the body is masked dark.
-      const bloom = ctx.createRadialGradient(bt.x, bt.y, 0,
-                                              bt.x, bt.y, 22);
-      bloom.addColorStop(0,    'rgba(' + rgb + ', 0.55)');
-      bloom.addColorStop(0.45, 'rgba(' + rgb + ', 0.18)');
-      bloom.addColorStop(1,    'rgba(' + rgb + ', 0)');
-      ctx.fillStyle = bloom;
-      ctx.beginPath();
-      ctx.arc(bt.x, bt.y, 22, 0, Math.PI * 2);
-      ctx.fill();
-      // Bright core dot
-      ctx.fillStyle = 'rgba(' + rgb + ', 0.85)';
-      ctx.beginPath();
-      ctx.arc(bt.x, bt.y, 2.4, 0, Math.PI * 2);
-      ctx.fill();
-    }
     ctx.restore();
   }
+  // Removed in v381: drawDailyGlowBatHalos (the radial-bloom-only
+  // pass that made bats read as "dots"). Halo is now baked into
+  // drawDailyGlowBats so the bat silhouette + halo render together.
   // ---------- Flashlight cone (cave-theme levels) -----------------
   // Glow Chamber + future cave levels mask the world dark and carve
   // a forward-facing cone out of the darkness so the rig's headlight
@@ -24869,12 +24984,13 @@ const DLX_BUILD = 'v380';
       ],
       skyMoons: 'none',
       hazeStripeColor: 'rgba(0, 0, 0, 0)',          // no haze in caves
-      // Faint cyan motes — bioluminescent dust drifting through the
-      // dark cave. Visible even outside the flashlight cone so the
-      // void doesn't read as empty.
-      dustMoteColor: 'rgba(140, 220, 255, 0.45)',
-      dustEmberStart: [120, 220, 255],
-      dustEmberEnd:   [60, 160, 220],
+      // Cave is silent black — no sky motes, no drifting embers.
+      // (v381: replaced the blue cyan motes that read as out-of-place
+      // sunset-style sparkles. Atmospheric depth comes from the cave
+      // backdrop layer instead.)
+      dustMoteColor: 'rgba(0, 0, 0, 0)',
+      dustEmberStart: [0, 0, 0],
+      dustEmberEnd:   [0, 0, 0],
       groundBand: '#04060a',
       horizonStyle: 'cave',
       // Cave doesn't use horizon dunes; the cave branch in
