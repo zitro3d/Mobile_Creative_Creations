@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v396';
+const DLX_BUILD = 'v397';
 
 (function() {
   // ---------- Device detection ----------
@@ -16140,28 +16140,234 @@ const DLX_BUILD = 'v396';
   }
 
   // ---------- Glow Chamber cave debris -----------------------------
-  // Scattered junk along the cave floor — broken crystal shards,
-  // crashed DLX crate fragments, busted mining tools, rubble piles.
-  // Adds environmental storytelling: someone hauled cargo through
-  // here before, and not all of them made it. Drawn BEFORE the
-  // flashlight mask so debris only resolves inside the headlight
-  // cone — the player discovers it as they fly past.
+  // Scattered junk along the cave floor — wasteland-trucker flavor:
+  // broken crystal shards, crashed DLX crate fragments, rusted
+  // hauler oil barrels, stacked tires, busted mining tools, rubble
+  // piles. Adds environmental storytelling that this cave is part
+  // of an active DLX trucker route. Drawn BEFORE the flashlight
+  // mask so debris only resolves inside the headlight cone.
   function drawCaveDebris() {
+    // Continuous mining-cart rails along the cave floor (drawn FIRST
+    // so debris piles can sit on top of them).
+    drawCaveRails();
+    // Periodic ceiling-hung DLX route signs.
+    drawCaveRouteSigns();
     const step = 90;
     const startI = Math.floor(dailyScrollX / step) - 1;
     const endI   = Math.floor((dailyScrollX + W) / step) + 1;
     for (let i = startI; i <= endI; i++) {
       const seed = i * 0.4731 + 11.13;
-      if (srand(seed) < 0.50) continue;       // 50% sparse
+      if (srand(seed) < 0.45) continue;       // ~55% spawn rate
       const wx = i * step + Math.floor(srand(seed + 1.1) * 60);
       const sx = Math.round(wx - dailyScrollX);
-      if (sx < -20 || sx > W + 20) continue;
+      if (sx < -24 || sx > W + 24) continue;
       const gy = Math.round(terrainHeightAt(wx));
-      const kind = Math.floor(srand(seed + 2.7) * 4);
+      const kind = Math.floor(srand(seed + 2.7) * 6);
       if      (kind === 0) drawCaveBrokenCrystal(sx, gy, seed);
       else if (kind === 1) drawCaveCrateFragment(sx, gy, seed);
       else if (kind === 2) drawCaveBustedTool(sx, gy, seed);
-      else                 drawCaveRubblePile(sx, gy, seed);
+      else if (kind === 3) drawCaveRubblePile(sx, gy, seed);
+      else if (kind === 4) drawCaveRustedBarrel(sx, gy, seed);
+      else                 drawCaveTireStack(sx, gy, seed);
+    }
+  }
+
+  // RUSTED DLX OIL BARREL — tipped over, dented, with a faded
+  // hazard-stripe band and DLX stencil. Wasteland trucker flavor.
+  function drawCaveRustedBarrel(sx, gy, seed) {
+    const tilt = (srand(seed + 11.1) - 0.5) * 0.5;
+    const flipped = srand(seed + 11.7) < 0.4;
+    ctx.save();
+    ctx.translate(sx, gy - 6);
+    ctx.rotate(tilt);
+    if (flipped) ctx.rotate(Math.PI * 0.5);
+    // Barrel body — rust orange with vertical lighter band
+    const grad = ctx.createLinearGradient(-7, 0, 7, 0);
+    grad.addColorStop(0,   '#5a2410');
+    grad.addColorStop(0.5, '#a85838');
+    grad.addColorStop(1,   '#5a2410');
+    ctx.fillStyle = grad;
+    ctx.fillRect(-7, -7, 14, 14);
+    // Top + bottom band rims
+    ctx.fillStyle = '#3a1808';
+    ctx.fillRect(-7, -7, 14, 1.4);
+    ctx.fillRect(-7,  5.6, 14, 1.4);
+    // Hazard stripe band across the middle (faded)
+    ctx.fillStyle = '#1a0e05';
+    ctx.fillRect(-7, -1, 14, 2.5);
+    ctx.fillStyle = '#c0a020';
+    for (let off = 0; off < 14; off += 3.5) {
+      ctx.beginPath();
+      ctx.moveTo(-7 + off,     -1);
+      ctx.lineTo(-7 + off + 2, -1);
+      ctx.lineTo(-7 + off + 3, 1.5);
+      ctx.lineTo(-7 + off + 1, 1.5);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // DLX stencil on the side (faded paint)
+    ctx.fillStyle = 'rgba(220, 230, 240, 0.45)';
+    ctx.font = 'bold 4px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DLX', 0, -4);
+    // Heavy outline
+    ctx.strokeStyle = '#1a0e05';
+    ctx.lineWidth = 0.9;
+    ctx.strokeRect(-7, -7, 14, 14);
+    // Dents — small dark patches
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.beginPath();
+    ctx.arc(-3, -4, 1.2, 0, Math.PI * 2);
+    ctx.arc( 4,  3, 1.0, 0, Math.PI * 2);
+    ctx.fill();
+    // Oil drip leaking from the side
+    if (srand(seed + 12.3) < 0.6) {
+      ctx.fillStyle = '#0a0608';
+      ctx.beginPath();
+      ctx.moveTo(7, 4);
+      ctx.lineTo(9, 6);
+      ctx.lineTo(7, 7);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // OLD TIRE STACK — 2-3 worn DLX hauler tires piled up on the
+  // cave floor. Reads as "abandoned trucker maintenance pile."
+  function drawCaveTireStack(sx, gy, seed) {
+    const stackH = 2 + Math.floor(srand(seed + 13.1) * 2);   // 2-3
+    for (let s = 0; s < stackH; s++) {
+      const ty = gy - 4 - s * 7;
+      const offset = (s % 2 === 0 ? 0 : 1.6);
+      // Outer tire (dark rubber)
+      ctx.fillStyle = '#0a0e16';
+      ctx.beginPath();
+      ctx.ellipse(sx + offset, ty, 9, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Inner rim (rusted metal)
+      ctx.fillStyle = '#5a3018';
+      ctx.beginPath();
+      ctx.ellipse(sx + offset, ty, 4, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Center bolt hub
+      ctx.fillStyle = '#1a0e05';
+      ctx.beginPath();
+      ctx.arc(sx + offset, ty, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+      // Tread highlight
+      ctx.strokeStyle = 'rgba(80, 90, 100, 0.55)';
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.ellipse(sx + offset, ty - 0.5, 9, 4, 0, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.stroke();
+    }
+  }
+
+  // MINING-CART RAILS along the cave floor — two parallel rusted
+  // rail lines + crossties at regular intervals. Continuous along
+  // the run so the cave reads as an active DLX hauler route, not
+  // a wild cave. Drawn at terrain Y so the rails sit ON the floor.
+  function drawCaveRails() {
+    const tieStep = 28;
+    const tieStart = Math.floor(dailyScrollX / tieStep) - 1;
+    const tieEnd   = Math.floor((dailyScrollX + W) / tieStep) + 1;
+    // Crossties first (dark wood blocks under the rails)
+    for (let i = tieStart; i <= tieEnd; i++) {
+      const wx = i * tieStep;
+      const sx = Math.round(wx - dailyScrollX);
+      if (sx < -20 || sx > W + 20) continue;
+      const gy = Math.round(terrainHeightAt(wx));
+      ctx.fillStyle = '#3a2418';
+      ctx.fillRect(sx - 11, gy - 2, 22, 3);
+      ctx.strokeStyle = 'rgba(20, 12, 6, 0.85)';
+      ctx.lineWidth = 0.6;
+      ctx.strokeRect(sx - 11, gy - 2, 22, 3);
+    }
+    // Two parallel RAILS — sample at fine pixel spacing so they
+    // follow the floor profile cleanly.
+    const step = 4;
+    const drawRail = function(yOff, color, width) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      let first = true;
+      for (let sx = -8; sx <= W + 8; sx += step) {
+        const wx = sx + dailyScrollX;
+        const gy = terrainHeightAt(wx) + yOff;
+        if (first) { ctx.moveTo(sx, gy); first = false; }
+        else        ctx.lineTo(sx, gy);
+      }
+      ctx.stroke();
+    };
+    // Outer rail (darker)
+    drawRail(-3.4, '#6a3818', 2.2);
+    // Inner rail (lighter rust)
+    drawRail(-2.0, '#a85838', 1.6);
+    // Lit rail-top sheen
+    drawRail(-3.0, 'rgba(255, 200, 130, 0.55)', 0.6);
+    drawRail(-1.6, 'rgba(255, 200, 130, 0.45)', 0.5);
+  }
+
+  // OLD DLX ROUTE SIGN hanging from the cave ceiling on chains.
+  // Wasteland-styled mile-marker / route plaque so the cave reads
+  // as a known DLX hauler corridor.
+  function drawCaveRouteSigns() {
+    const signStep = 480;
+    const startI = Math.floor(dailyScrollX / signStep) - 1;
+    const endI   = Math.floor((dailyScrollX + W) / signStep) + 1;
+    for (let i = startI; i <= endI; i++) {
+      const seed = i * 0.6531 + 7.41;
+      if (srand(seed) < 0.45) continue;       // sparse
+      const wx = i * signStep + Math.floor(srand(seed + 1.1) * 80);
+      const sx = Math.round(wx - dailyScrollX);
+      if (sx < -50 || sx > W + 50) continue;
+      const ceilY = caveCeilingAt(wx);
+      const signY = ceilY + 30;
+      // Hanging chain
+      ctx.strokeStyle = 'rgba(120, 90, 50, 0.85)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(sx - 14, ceilY);
+      ctx.lineTo(sx - 14, signY - 6);
+      ctx.moveTo(sx + 14, ceilY);
+      ctx.lineTo(sx + 14, signY - 6);
+      ctx.stroke();
+      // Bracket fixtures at the ceiling anchors
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(sx - 17, ceilY - 1, 6, 2.5);
+      ctx.fillRect(sx + 11, ceilY - 1, 6, 2.5);
+      // Sign panel — faded yellow paint with dark border, weathered
+      const which = Math.floor(srand(seed + 2.3) * 3);
+      const labels = ['DLX HAULER ROUTE',
+                      'MILE ' + (37 + Math.floor(srand(seed + 3.1) * 60)),
+                      'DUMP AHEAD'];
+      const text = labels[which];
+      const sw = 36 + text.length * 2.6;
+      ctx.fillStyle = '#3a1c08';
+      ctx.fillRect(sx - sw / 2, signY - 6, sw, 14);
+      ctx.fillStyle = '#a8780a';
+      ctx.fillRect(sx - sw / 2 + 1, signY - 5, sw - 2, 12);
+      // Faded paint highlights (top edge)
+      ctx.fillStyle = 'rgba(255, 220, 120, 0.45)';
+      ctx.fillRect(sx - sw / 2 + 1, signY - 5, sw - 2, 1.4);
+      // Heavy outline
+      ctx.strokeStyle = '#1a0e05';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx - sw / 2, signY - 6, sw, 14);
+      // Stencil text
+      ctx.fillStyle = '#1a0e05';
+      ctx.font = 'bold 7px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, sx, signY + 1);
+      // Rust spots on the sign
+      ctx.fillStyle = 'rgba(60, 24, 8, 0.55)';
+      ctx.beginPath();
+      ctx.arc(sx - sw / 2 + 4, signY + 3, 1.2, 0, Math.PI * 2);
+      ctx.arc(sx + sw / 2 - 5, signY - 2, 0.9, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
