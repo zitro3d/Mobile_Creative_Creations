@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v395';
+const DLX_BUILD = 'v396';
 
 (function() {
   // ---------- Device detection ----------
@@ -3361,6 +3361,30 @@ const DLX_BUILD = 'v395';
         tone(440, 0.10, 'square',   0.11, 660);
         setTimeout(function(){ tone(660, 0.10, 'triangle', 0.12, 880); },  70);
         setTimeout(function(){ tone(880, 0.28, 'sine',     0.14, 1320); }, 140);
+        break;
+      case 'specialCrate':
+        // PRIORITY crate pickup — bright 4-note major arpeggio
+        // ascending into a sustained gold bell. Lands harder than
+        // the standard pickup so the bonus pickup feels rewarding.
+        noiseBurst(0.32, 0.16);
+        tone(523, 0.14, 'triangle', 0.14, 523);   // C5
+        setTimeout(function(){ tone(659, 0.14, 'triangle', 0.14, 659); }, 100);
+        setTimeout(function(){ tone(880, 0.14, 'triangle', 0.14, 880); }, 200);
+        setTimeout(function(){ tone(1175, 0.40, 'sine',    0.16, 1175); }, 300);
+        break;
+      case 'specialLost':
+        // PRIORITY crate stolen — descending sad three-note motif
+        // so the loss reads instantly without a heavy crash sound.
+        tone(880, 0.18, 'triangle', 0.13, 880);
+        setTimeout(function(){ tone(659, 0.18, 'triangle', 0.13, 659); }, 120);
+        setTimeout(function(){ tone(440, 0.40, 'sine',     0.14, 440); }, 260);
+        break;
+      case 'shieldBlock':
+        // Force-field bubble deflects a bandit hook — quick high
+        // chime + a short white-noise spark.
+        noiseBurst(0.18, 0.08);
+        tone(1320, 0.10, 'square',   0.16, 1760);
+        setTimeout(function(){ tone(880, 0.10, 'triangle', 0.12,  880); }, 60);
         break;
       case 'dock':
         // Mechanical latch-engage when the truck stop docking
@@ -4354,9 +4378,17 @@ const DLX_BUILD = 'v395';
     // earlier, so we don't overwrite the honest text with a misleading
     // unconditional "DELIVERY MADE!" right before the victory screen.
     const cargoIntact = !!(cargo && !cargo.lost && cargo.attached);
-    setLevelBanner(cargoIntact ? '★ DELIVERY MADE!' : '★ ARRIVED · CARGO LOST');
-    burstFrames = Math.max(burstFrames, 30);
-    flashAlpha = 0.4;
+    // PRIORITY bonus delivery — if the player kept the special crate
+    // through the whole run, big score bonus + custom banner.
+    const hasBonus = !!(cargo && cargo.hasBonus && cargoIntact);
+    if (hasBonus) {
+      grantScore(200);
+      setLevelBanner('★ PRIORITY DELIVERY · +200');
+    } else {
+      setLevelBanner(cargoIntact ? '★ DELIVERY MADE!' : '★ ARRIVED · CARGO LOST');
+    }
+    burstFrames = Math.max(burstFrames, hasBonus ? 50 : 30);
+    flashAlpha = hasBonus ? 0.55 : 0.4;
     playSound('levelup');
     stopThemeAmbient(0.8);
     state = STATE_VICTORY;
@@ -8975,8 +9007,16 @@ const DLX_BUILD = 'v395';
                 cargo.attached = false;
                 cargo.banditGrabbed = true;
                 cargo.banditRef = bd;
+                // PRIORITY bonus is permanently lost on theft —
+                // recall crystals only restore the regular cargo.
+                const lostBonus = !!cargo.hasBonus;
+                if (lostBonus) {
+                  cargo.hasBonus = false;
+                  emitPickupSparks(cargo.x, cargo.y, '#ff60a0', 18);
+                }
                 emitPickupSparks(cargo.x, cargo.y, '#ffd040', 12);
                 playSound('tongueGrab');
+                if (lostBonus) playSound('specialLost');
               }
             }
             // Shield deflection — if the hook tip is touching the
@@ -8988,6 +9028,7 @@ const DLX_BUILD = 'v395';
                 emitPickupSparks(bd.hookTipX, bd.hookTipY, '#a0e8ff', 8);
                 bd.state = 'retract';
                 bd.stateFrames = 0;
+                playSound('shieldBlock');
               }
             }
             if (bd.stateFrames >= 18) {
@@ -9041,6 +9082,67 @@ const DLX_BUILD = 'v395';
               dailyDlxBandits.splice(i, 1);
               continue;
             }
+          }
+        }
+        // ---- WATERFALLS + PRIORITY CRATES (Glow Chamber only) -----
+        // Spawn a waterfall ahead of the rig at periodic intervals.
+        // Behind each waterfall sits a special PRIORITY crate worth
+        // big bonus score on delivery. If a bandit takes the cargo
+        // while you have the bonus, the bonus is permanently lost.
+        if (currentDeliveryLevel.obstacleTheme === 'cave'
+            && frame >= dailyNextWaterfallAt
+            && dailyWaterfallsSpawned < 3
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
+          const wxWF = dailyScrollX + W + 200 + Math.random() * 80;
+          // Don't spawn near a cave column (don't want them to clash)
+          let conflict = false;
+          for (const o of dailyAirObstacles) {
+            if (o.kind === 'caveColumn'
+                && Math.abs(o.worldX - wxWF) < 220) {
+              conflict = true;
+              break;
+            }
+          }
+          if (!conflict) {
+            const ceilHere = caveCeilingAt(wxWF);
+            const floorHere = terrainHeightAt(wxWF);
+            // Crate sits MID-HEIGHT inside the waterfall column
+            const crateY = (ceilHere + floorHere) * 0.5
+                         + (Math.random() - 0.5) * 30;
+            dailyWaterfalls.push({
+              worldX: wxWF,
+              crateY: crateY,
+              ceilY: ceilHere,
+              floorY: floorHere,
+              collected: false,
+            });
+            dailyWaterfallsSpawned++;
+            dailyNextWaterfallAt = frame + 2400 + Math.floor(Math.random() * 1200);
+          } else {
+            dailyNextWaterfallAt = frame + 60;        // try again shortly
+          }
+        }
+        // Collision: rig overlapping the priority crate triggers pickup
+        for (const wf of dailyWaterfalls) {
+          if (wf.collected) continue;
+          const sxW = wf.worldX - dailyScrollX;
+          if (sxW < -40 || sxW > W + 40) continue;
+          const dx = bird.x - sxW;
+          const dy = bird.y - wf.crateY;
+          if (dx * dx + dy * dy < 26 * 26) {
+            wf.collected = true;
+            wf.collectFrame = frame;
+            if (cargo) cargo.hasBonus = true;
+            grantScore(60);
+            emitPickupSparks(sxW, wf.crateY, '#ffd040', 30);
+            playSound('specialCrate');
+          }
+        }
+        // Cull off-screen waterfalls
+        for (let i = dailyWaterfalls.length - 1; i >= 0; i--) {
+          const wf = dailyWaterfalls[i];
+          if (wf.worldX - dailyScrollX < -80) {
+            dailyWaterfalls.splice(i, 1);
           }
         }
         // ---- AMOEBA-INFECTED PILLARS (Leviathan only) -------------
@@ -20748,6 +20850,55 @@ const DLX_BUILD = 'v395';
       ctx.fill();
       ctx.shadowBlur = 0;
     }
+    // PRIORITY BONUS layer — gold trim + halo + antenna with pink
+    // LED. Drawn over the regular cargo so the player knows their
+    // cargo is now "upgraded" until a bandit takes it.
+    if (cargo.hasBonus) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const tB = frame * 0.08;
+      const pulseB = 0.85 + Math.sin(tB) * 0.15;
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 22);
+      halo.addColorStop(0, 'rgba(255, 220, 80, ' + (0.55 * pulseB) + ')');
+      halo.addColorStop(1, 'rgba(255, 220, 80, 0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // Gold-trim outline around the crate
+      ctx.strokeStyle = '#ffd040';
+      ctx.lineWidth = 1.6;
+      ctx.strokeRect(-w / 2 - 1, -h / 2 - 1, w + 2, h + 2);
+      // Antenna mast + blinking pink LED beacon on top
+      ctx.fillStyle = '#3a2c12';
+      ctx.fillRect(-1, -h / 2 - 4, 2, 4);
+      const ledOn = ((frame * 0.06) % 1) < 0.5;
+      ctx.fillStyle = ledOn ? '#ff60a0' : '#3a1838';
+      ctx.beginPath();
+      ctx.arc(0, -h / 2 - 5, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      // Halo around the LED when it's lit
+      if (ledOn) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const ledHalo = ctx.createRadialGradient(0, -h / 2 - 5, 0,
+                                                  0, -h / 2 - 5, 5);
+        ledHalo.addColorStop(0, 'rgba(255, 100, 200, 0.7)');
+        ledHalo.addColorStop(1, 'rgba(255, 100, 200, 0)');
+        ctx.fillStyle = ledHalo;
+        ctx.beginPath();
+        ctx.arc(0, -h / 2 - 5, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      // PRIORITY mini-tag on top of the caution stripe
+      ctx.fillStyle = '#3a2c12';
+      ctx.font = 'bold 4px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('PRIORITY', 0, 0.4);
+    }
     ctx.restore();
   }
 
@@ -25261,6 +25412,7 @@ const DLX_BUILD = 'v395';
       drawDailyDrones();
       drawDailyLavaBalls();
       drawDailyBandits();        // bandit body + sled (lit by cone, BEFORE mask)
+      drawDailyWaterfalls();     // waterfalls + priority crates (BEFORE mask)
     }
     if (isDaily) drawDailyFlashlight();         // cave-theme darkness mask
     if (isDaily) drawDailyGlowBats();           // additive bat silhouette ABOVE the mask
@@ -25857,6 +26009,140 @@ const DLX_BUILD = 'v395';
     }
     ctx.restore();
   }
+  // ---------- Waterfalls + PRIORITY crates (Glow Chamber) ---------
+  // Vertical streaming water column from cave ceiling to cave floor.
+  // Behind each waterfall sits a gold-trim PRIORITY crate the player
+  // can fly INTO the column to grab. Drawn BEFORE the flashlight
+  // mask so the cone reveals the waterfall as the rig approaches.
+  function drawDailyWaterfalls() {
+    if (!isDaily || !dailyWaterfalls.length) return;
+    for (const wf of dailyWaterfalls) {
+      const sx = wf.worldX - dailyScrollX;
+      if (sx < -50 || sx > W + 50) continue;
+      const colHalfW = 26;
+      const wL = sx - colHalfW;
+      const wR = sx + colHalfW;
+
+      // ---- PRIORITY CRATE behind the waterfall (drawn first so
+      //      the streaming water layers on top, partially obscuring
+      //      the crate — sells the "behind the waterfall" reveal).
+      if (!wf.collected) {
+        ctx.save();
+        ctx.translate(sx, wf.crateY);
+        // Gold rainbow halo (additive)
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const t = frame * 0.10;
+        const pulse = 0.85 + Math.sin(t) * 0.15;
+        const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 26);
+        halo.addColorStop(0,   'rgba(255, 220, 80, ' + (0.65 * pulse) + ')');
+        halo.addColorStop(0.5, 'rgba(255, 180, 100, ' + (0.30 * pulse) + ')');
+        halo.addColorStop(1,   'rgba(255, 220, 80, 0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(0, 0, 26, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        // Crate body — gold chrome
+        const cw = 26, ch = 22;
+        ctx.fillStyle = '#3a2c12';                 // dark backing
+        ctx.fillRect(-cw / 2 - 1, -ch / 2 - 1, cw + 2, ch + 2);
+        const grad = ctx.createLinearGradient(0, -ch / 2, 0, ch / 2);
+        grad.addColorStop(0,    '#ffe070');
+        grad.addColorStop(0.5,  '#d49018');
+        grad.addColorStop(1,    '#7a5008');
+        ctx.fillStyle = grad;
+        ctx.fillRect(-cw / 2, -ch / 2, cw, ch);
+        ctx.strokeStyle = '#a87810';
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(-cw / 2, -ch / 2, cw, ch);
+        // Top edge highlight
+        ctx.fillStyle = 'rgba(255, 250, 200, 0.65)';
+        ctx.fillRect(-cw / 2 + 1, -ch / 2 + 1, cw - 2, 1.2);
+        // Corner reinforcement
+        ctx.fillStyle = '#7a5008';
+        const ccp = 4;
+        ctx.fillRect(-cw / 2,        -ch / 2,        ccp, ccp);
+        ctx.fillRect( cw / 2 - ccp,  -ch / 2,        ccp, ccp);
+        ctx.fillRect(-cw / 2,         ch / 2 - ccp,  ccp, ccp);
+        ctx.fillRect( cw / 2 - ccp,   ch / 2 - ccp,  ccp, ccp);
+        // Stencil
+        ctx.fillStyle = '#3a2c12';
+        ctx.font = 'bold 5px Impact, "Arial Black", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('PRIORITY', 0, -2);
+        ctx.fillText('DLX', 0, 5);
+        // Antenna on top with blinking pink LED
+        ctx.fillStyle = '#3a2c12';
+        ctx.fillRect(-1, -ch / 2 - 5, 2, 5);
+        ctx.fillStyle = ((frame * 0.06) % 1) < 0.5
+          ? '#ff60a0' : '#3a1838';
+        ctx.beginPath();
+        ctx.arc(0, -ch / 2 - 7, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // ---- WATERFALL STREAM — vertical streaming animated lines
+      ctx.save();
+      const streamOff = (frame * 4) % 14;
+      ctx.fillStyle = 'rgba(150, 200, 240, 0.45)';
+      for (let lx = wL; lx < wR; lx += 3) {
+        const lineOff = ((Math.abs(lx | 0)) * 7) % 14;
+        const yStart = wf.ceilY + ((streamOff + lineOff) % 14);
+        for (let y = yStart; y < wf.floorY; y += 14) {
+          ctx.fillRect(lx, y, 1, 7);
+        }
+      }
+      // Soft white veil overlay across the column
+      ctx.fillStyle = 'rgba(180, 220, 250, 0.18)';
+      ctx.fillRect(wL, wf.ceilY, wR - wL, wf.floorY - wf.ceilY);
+      // Top spillover — water spilling out of the ceiling
+      ctx.fillStyle = 'rgba(180, 220, 250, 0.35)';
+      ctx.fillRect(wL - 4, wf.ceilY - 2, wR - wL + 8, 4);
+      ctx.restore();
+
+      // ---- MIST POOL at the bottom — soft circles
+      ctx.save();
+      ctx.fillStyle = 'rgba(220, 235, 250, 0.45)';
+      for (let i = 0; i < 5; i++) {
+        const mx = sx - 22 + i * 11 + Math.sin(frame * 0.05 + i) * 2;
+        const my = wf.floorY - 4 + Math.cos(frame * 0.06 + i) * 1.5;
+        ctx.beginPath();
+        ctx.arc(mx, my, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Splash droplets bouncing forward
+      ctx.fillStyle = 'rgba(180, 220, 250, 0.85)';
+      for (let i = 0; i < 4; i++) {
+        const dx = sx - 18 + i * 12;
+        const dy = wf.floorY - 4 + Math.sin(frame * 0.18 + i * 1.3) * 5;
+        ctx.beginPath();
+        ctx.arc(dx, dy, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // Collected pop — brief sparkle burst on pickup, then fade out
+      if (wf.collected && wf.collectFrame
+          && frame - wf.collectFrame < 30) {
+        const t2 = (frame - wf.collectFrame) / 30;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 1 - t2;
+        const pop = ctx.createRadialGradient(sx, wf.crateY, 0,
+                                              sx, wf.crateY, 30);
+        pop.addColorStop(0, 'rgba(255, 240, 160, 0.85)');
+        pop.addColorStop(1, 'rgba(255, 240, 160, 0)');
+        ctx.fillStyle = pop;
+        ctx.beginPath();
+        ctx.arc(sx, wf.crateY, 30, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
   // ---------- Flashlight cone (cave-theme levels) -----------------
   // Glow Chamber + future cave levels mask the world dark and carve
   // a forward-facing cone out of the darkness so the rig's headlight
@@ -26414,7 +26700,11 @@ const DLX_BUILD = 'v395';
       vy: 0,
       attached: true,
       lost: false,
+      hasBonus: false,                // PRIORITY crate bonus (waterfall pickup)
     };
+    dailyWaterfalls = [];
+    dailyNextWaterfallAt = frame + 1800;   // first waterfall ~30s in
+    dailyWaterfallsSpawned = 0;
     dailyThieves = [];
     dailyNextThiefAt = frame + 300;      // first thief swoops in ~5s after launch
     dailyGlowBats = [];
@@ -27015,6 +27305,14 @@ const DLX_BUILD = 'v395';
   // approaching lights pierce the dark before the bandit resolves.
   let dailyDlxBandits = [];
   let dailyNextBanditAt = 0;
+  // Waterfalls + PRIORITY special crates (Glow Chamber). Each
+  // waterfall hides one bonus crate behind it. Picking up the
+  // bonus marks cargo.hasBonus = true. If a bandit then steals
+  // the cargo, the bonus is permanently lost (recall crystals
+  // restore the regular cargo only). Capped at 3 per run.
+  let dailyWaterfalls = [];
+  let dailyNextWaterfallAt = 0;
+  let dailyWaterfallsSpawned = 0;
   // Mirror parasites (Leviathan only). Each entry is a PAIR: a floor
   // parasite + a ceiling parasite that emerge at the same worldX,
   // lunge toward each other through the air, and grab the cargo
@@ -27168,9 +27466,19 @@ const DLX_BUILD = 'v395';
     const open = (chamberPhase + 1) * 0.5;
     const base = CAVE_CEIL_TIGHT_Y()
                + (CAVE_CEIL_OPEN_Y() - CAVE_CEIL_TIGHT_Y()) * open;
+    // MEGA-CHAMBER sub-wave (added v396): a very slow secondary
+    // modulation that occasionally LIFTS the ceiling further
+    // (40+ px) to create dramatic tall chambers between the
+    // standard pass / open-chamber rhythm. Cubic shaping makes
+    // the dramatic openings sparse — most of the run plays the
+    // standard profile and a true mega-chamber appears every
+    // ~7000 worldX as a "wow" moment.
+    const megaPhase = Math.sin(worldX * 0.00085);
+    const megaT = Math.max(0, megaPhase);             // 0..1
+    const megaLift = megaT * megaT * megaT * 36;      // cubic = sparse
     const jag = Math.sin(worldX * 0.0210) * 4
               + Math.sin(worldX * 0.0450 + 1.7) * 2.5;
-    return base + jag;
+    return base - megaLift + jag;
   }
   // Dual-layer tunnel level-generation logic. Each tunnel obstacle
   // defines a level "subsection" with a MainGround line (the dune
