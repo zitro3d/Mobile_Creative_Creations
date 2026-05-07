@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v393';
+const DLX_BUILD = 'v394';
 
 (function() {
   // ---------- Device detection ----------
@@ -8280,6 +8280,53 @@ const DLX_BUILD = 'v393';
           // spawn even if this one was skipped
           dailyNextPickupX += 200 + Math.floor(Math.random() * 160);
         }
+        // ---- RECALL CRYSTALS (Glow Chamber only) ------------------
+        // Rare ceiling-hung pink/magenta gems. Picking one up
+        // recovers any stolen cargo. Capped at 4 spawns per run so
+        // each one feels valuable. Spawn position: hanging just
+        // below the cave ceiling — player has to fly UP to grab it.
+        if (currentDeliveryLevel.obstacleTheme === 'cave'
+            && frame >= dailyNextRecallCrystalAt
+            && dailyRecallCrystalsSpawned < 4
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
+          const wxRC = dailyScrollX + W + 80 + Math.random() * 60;
+          const ceilHere = caveCeilingAt(wxRC);
+          const py = ceilHere + 24 + Math.random() * 14;
+          dailyPickups.push({
+            worldX: wxRC,
+            y: py,
+            kind: 'recallCrystal',
+            alive: true,
+            bobPhase: Math.random() * Math.PI * 2,
+            orbitR: 0,
+            orbitSpeed: 0,
+            ceilY: ceilHere,            // anchor for the chain rendering
+          });
+          dailyRecallCrystalsSpawned++;
+          dailyNextRecallCrystalAt = frame + 1500 + Math.floor(Math.random() * 600);
+        }
+        // ---- CAVE FUEL CELLS (force-field shield, Glow Chamber) ---
+        // Periodic mid-air spawns of the existing amber fuel-cell
+        // pickup so the player has a defensive option against the
+        // bandits. Capped at 3 per run.
+        if (currentDeliveryLevel.obstacleTheme === 'cave'
+            && frame >= dailyNextCaveFuelCellAt
+            && dailyCaveFuelCellsSpawned < 3
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER) {
+          const wxFC = dailyScrollX + W + 80 + Math.random() * 60;
+          const py = 100 + Math.random() * (PLAY_H * 0.40);
+          dailyPickups.push({
+            worldX: wxFC,
+            y: py,
+            kind: 'fuelCell',
+            alive: true,
+            bobPhase: Math.random() * Math.PI * 2,
+            orbitR: 0,
+            orbitSpeed: 0,
+          });
+          dailyCaveFuelCellsSpawned++;
+          dailyNextCaveFuelCellAt = frame + 2400 + Math.floor(Math.random() * 1200);
+        }
         // ---- Magnet recall boxes (cargo recovery + scrap magnet field) ----
         // Mostly low to the ground (must dive for them) but ~25% spawn
         // mid-air so the altitude isn't predictable. Cave levels suppress
@@ -8382,20 +8429,34 @@ const DLX_BUILD = 'v393';
             // brings the cargo back. Replaces the standalone gold
             // recovery gem from v359 — the diamonds inside the pipes
             // ARE the recovery now.
+            // CARGO RECOVERY:
+            //   * Sunset / Leviathan: scrapCog + fuelCell trigger
+            //     recovery (existing in-tunnel/in-pipe pickup loop).
+            //   * Glow Chamber: ONLY the rare recallCrystal triggers
+            //     recovery — regular cave crystals are score-only,
+            //     and the special pink crystal becomes a meaningful
+            //     hunt-for resource.
             if (cargo && cargo.lost
-                && (p.kind === 'scrapCog' || p.kind === 'fuelCell'
-                    || p.kind === 'caveCrystal')) {
+                && (p.kind === 'recallCrystal'
+                    || (currentDeliveryLevel.obstacleTheme !== 'cave'
+                        && (p.kind === 'scrapCog'
+                            || p.kind === 'fuelCell'
+                            || p.kind === 'caveCrystal')))) {
               cargo.lost = false;
               cargo.attached = true;
               cargo.bubbleEngulfed = false;
               cargo.bubbleRef = null;
               cargo.parasiteLocked = false;
               cargo.parasitePair = null;
+              cargo.banditGrabbed = false;
+              cargo.banditRef = null;
               cargo.sporeCoatCount = 0;       // wipe spore coats
               cargo.x = bird.x - 32;
               cargo.y = bird.y - 4;
               cargo.vy = 0;
-              emitPickupSparks(bird.x, bird.y, '#ffd060', 22);
+              const sparkTone = p.kind === 'recallCrystal'
+                ? '#ff60a0' : '#ffd060';
+              emitPickupSparks(bird.x, bird.y, sparkTone, 28);
               playSound('cargoRestore');
             }
             if (p.kind === 'scrapCog') {
@@ -8405,11 +8466,20 @@ const DLX_BUILD = 'v393';
               emitPickupSparks(pickupX, pickupY, isGold ? '#ffd060' : '#3ad0ff', isGold ? 12 : 8);
               playSound(isGold ? 'gold' : 'pickup');
             } else if (p.kind === 'caveCrystal') {
-              // Glow Chamber recovery pickup — angular crystal cluster
-              // (replaces gear-cog visual). Same score as common cog.
+              // Glow Chamber score crystal — score-only. (Recovery
+              // moved to recallCrystal in v394 so the rare pink
+              // crystal is the meaningful cargo-back resource.)
               grantScore(5);
               emitPickupSparks(pickupX, pickupY, '#a0e8ff', 10);
               playSound('pickup');
+            } else if (p.kind === 'recallCrystal') {
+              // RECALL CRYSTAL — rare hidden ceiling-hung gem that
+              // recovers stolen cargo (handled above) + grants a
+              // meaningful score bonus. Distinct sparks + sound so
+              // the pickup reads as special.
+              grantScore(40);
+              emitPickupSparks(pickupX, pickupY, '#ff60a0', 18);
+              playSound('powerup');
             } else if (p.kind === 'magnetBox') {
               // RECALL — every box ALWAYS yanks the cargo back to the
               // rig regardless of state (detached, lost off-screen, or
@@ -8892,7 +8962,10 @@ const DLX_BUILD = 'v393';
             bd.hookTipY = bd.y + bd.hookDirY * bd.hookLen;
             // Grab check every frame during the extension. Bigger
             // radius (32 px, was 22) so timing windows are forgiving.
-            if (cargo && cargo.attached && !cargo.lost && !bd.carrying) {
+            // Force-field shield blocks the grab — the hook sparks
+            // off the bubble harmlessly and the bandit's run misses.
+            if (cargo && cargo.attached && !cargo.lost && !bd.carrying
+                && forceFieldFrames === 0) {
               const ddx = bd.hookTipX - cargo.x;
               const ddy = bd.hookTipY - cargo.y;
               if (ddx * ddx + ddy * ddy < 32 * 32) {
@@ -8902,6 +8975,17 @@ const DLX_BUILD = 'v393';
                 cargo.banditRef = bd;
                 emitPickupSparks(cargo.x, cargo.y, '#ffd040', 12);
                 playSound('tongueGrab');
+              }
+            }
+            // Shield deflection — if the hook tip is touching the
+            // rig area while shield is up, spark + cancel the run.
+            if (forceFieldFrames > 0) {
+              const sdx = bd.hookTipX - bird.x;
+              const sdy = bd.hookTipY - bird.y;
+              if (sdx * sdx + sdy * sdy < 26 * 26) {
+                emitPickupSparks(bd.hookTipX, bd.hookTipY, '#a0e8ff', 8);
+                bd.state = 'retract';
+                bd.stateFrames = 0;
               }
             }
             if (bd.stateFrames >= 18) {
@@ -17885,9 +17969,30 @@ const DLX_BUILD = 'v393';
           // Cave-column gap crystal — gentle vertical bob only
           offY = Math.sin(frame * 0.08 + p.bobPhase) * 2.2;
         }
+      } else if (p.kind === 'recallCrystal') {
+        // Recall crystal hangs from the cave ceiling on a chain;
+        // bobs slightly so the chain reads as taut + breathing.
+        offY = Math.sin(frame * 0.06 + p.bobPhase) * 2.4;
       } else {
         // Magnet box — gentle vertical bob
         offY = Math.sin(frame * 0.08 + p.bobPhase) * 2;
+      }
+      // Recall crystal — draw the hanging chain BEFORE translating
+      // so the chain anchors at the ceiling worldX,ceilY position.
+      if (p.kind === 'recallCrystal' && typeof p.ceilY === 'number') {
+        const cx = Math.round(sxF);
+        const cy = Math.round(p.y + offY);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(140, 165, 195, 0.65)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(cx, p.ceilY);
+        ctx.lineTo(cx, cy - 8);
+        ctx.stroke();
+        // Bracket fixture at the ceiling anchor
+        ctx.fillStyle = '#1a0e05';
+        ctx.fillRect(cx - 3, p.ceilY - 1, 6, 3);
+        ctx.restore();
       }
       ctx.save();
       // Round screen position so the sprite snaps to integer pixels
@@ -17897,8 +18002,106 @@ const DLX_BUILD = 'v393';
       else if (p.kind === 'magnetBox') drawMagnetBox();
       else if (p.kind === 'fuelCell') drawFuelCell();
       else if (p.kind === 'caveCrystal') drawCaveCrystal();
+      else if (p.kind === 'recallCrystal') drawRecallCrystal();
       ctx.restore();
     }
+  }
+  // RECALL CRYSTAL — bigger faceted pink/magenta gem with a slow
+  // rotating ring and a pulsing rainbow halo. Reads as the rare,
+  // valuable cargo-recovery item. Drawn additively so the pink
+  // glow pierces through the dark cave even outside the cone.
+  function drawRecallCrystal() {
+    const t = frame * 0.08;
+    const pulse = 0.85 + Math.sin(t) * 0.15;
+    // Big rainbow halo (additive)
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 24);
+    halo.addColorStop(0,    'rgba(255, 130, 220, ' + (0.70 * pulse) + ')');
+    halo.addColorStop(0.5,  'rgba(220, 140, 255, ' + (0.32 * pulse) + ')');
+    halo.addColorStop(1,    'rgba(255, 130, 220, 0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(0, 0, 24, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Rotating outer prism ring — three small gems orbiting the
+    // central crystal, each a different hue, animated rotation.
+    const ringR = 10 + Math.sin(t * 0.7) * 0.6;
+    for (let i = 0; i < 3; i++) {
+      const ang = t * 0.5 + i * (Math.PI * 2 / 3);
+      const rx = Math.cos(ang) * ringR;
+      const ry = Math.sin(ang) * ringR;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const tinyHalo = ctx.createRadialGradient(rx, ry, 0, rx, ry, 5);
+      const hue = i === 0 ? '255, 100, 200'
+                : i === 1 ? '200, 180, 255'
+                          : '255, 200, 220';
+      tinyHalo.addColorStop(0, 'rgba(' + hue + ', 0.85)');
+      tinyHalo.addColorStop(1, 'rgba(' + hue + ', 0)');
+      ctx.fillStyle = tinyHalo;
+      ctx.beginPath();
+      ctx.arc(rx, ry, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = 'rgba(' + hue + ', 0.95)';
+      ctx.beginPath();
+      ctx.arc(rx, ry, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Crystal body — big faceted gem (8 px tall, double-pyramid)
+    ctx.save();
+    ctx.rotate(Math.sin(t * 0.4) * 0.10);
+    // Dark backing facet
+    ctx.fillStyle = '#5a1838';
+    ctx.beginPath();
+    ctx.moveTo(0, -10);
+    ctx.lineTo(7, -2);
+    ctx.lineTo(6, 6);
+    ctx.lineTo(0, 11);
+    ctx.lineTo(-6, 6);
+    ctx.lineTo(-7, -2);
+    ctx.closePath();
+    ctx.fill();
+    // Top facet (lit pink)
+    ctx.fillStyle = 'rgba(255, 130, 220, 0.95)';
+    ctx.beginPath();
+    ctx.moveTo(0, -10);
+    ctx.lineTo(7, -2);
+    ctx.lineTo(0, 2);
+    ctx.lineTo(-7, -2);
+    ctx.closePath();
+    ctx.fill();
+    // Bottom facet (deeper magenta)
+    ctx.fillStyle = 'rgba(180, 50, 130, 0.85)';
+    ctx.beginPath();
+    ctx.moveTo(0, 11);
+    ctx.lineTo(6, 6);
+    ctx.lineTo(0, 2);
+    ctx.lineTo(-6, 6);
+    ctx.closePath();
+    ctx.fill();
+    // Center specular
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.beginPath();
+    ctx.arc(0, -4, 1.6 * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    // Outline
+    ctx.strokeStyle = 'rgba(255, 200, 240, 0.85)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, -10);
+    ctx.lineTo(7, -2);
+    ctx.lineTo(6, 6);
+    ctx.lineTo(0, 11);
+    ctx.lineTo(-6, 6);
+    ctx.lineTo(-7, -2);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
   }
   // Glow Chamber recovery pickup — small angular crystal cluster
   // glowing pale cyan. Faceted hexagonal silhouette + bright core
@@ -26019,6 +26222,10 @@ const DLX_BUILD = 'v393';
     dailyNextPickupX = 280;               // first scrap cog pickup right out of the gate
     dailyNextMagnetX = 700;               // first magnet recall box ~700px in (sooner so you see one early)
     dailyMagnetFieldFrames = 0;
+    dailyNextRecallCrystalAt = frame + 720;     // first recall crystal ~12s in
+    dailyRecallCrystalsSpawned = 0;
+    dailyNextCaveFuelCellAt = frame + 1080;     // first fuel cell ~18s in
+    dailyCaveFuelCellsSpawned = 0;
     // Hangar launch — the rig starts parked on the runway inside the
     // open DLX hangar. World stays still; first tap fires the launch
     // animation that takes the rig from the runway to the gameplay
@@ -26635,6 +26842,17 @@ const DLX_BUILD = 'v393';
   // Pickups — flyable scrap cogs (points) and magnet boxes (cargo recall)
   let dailyPickups = [];           // [{ worldX, y, kind, alive, bobPhase }]
   let dailyNextPickupX = 0;
+  // Recall crystals (Glow Chamber only) — rare hidden ceiling-
+  // hung gems that recover stolen cargo on pickup. Capped at 4
+  // spawns per run so they're a meaningful resource the player
+  // hunts for.
+  let dailyNextRecallCrystalAt = 0;
+  let dailyRecallCrystalsSpawned = 0;
+  // DLX fuel cells (force-field shield) for Glow Chamber. Periodic
+  // spawn, capped at 3 per run. Existing fuelCell renderer + 6 sec
+  // force-field effect — bandits' hooks can't grab while active.
+  let dailyNextCaveFuelCellAt = 0;
+  let dailyCaveFuelCellsSpawned = 0;
   let dailyNextMagnetX = 0;
   // Intro launch — rig sits parked in the hangar at the start of a
   // daily run; first tap fires the launch animation and the world
