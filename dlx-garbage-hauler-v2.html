@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v394';
+const DLX_BUILD = 'v395';
 
 (function() {
   // ---------- Device detection ----------
@@ -8132,7 +8132,9 @@ const DLX_BUILD = 'v394';
             const topMargin= minM + Math.random() * (maxM - minM);
             o.gapTopY = ceilY + topMargin;
             o.gapH    = gapH;
-            o.colWidth= 36;
+            // Width variety — 30-46 px so the column shapes feel
+            // varied across the run instead of identical pillars.
+            o.colWidth = 30 + Math.random() * 16;
             // Drop a recovery CRYSTAL inside the gap so the player
             // has a visible tell of the safe lane and earns a pickup
             // for threading it cleanly. Cave-themed pickup (replaces
@@ -15999,6 +16001,11 @@ const DLX_BUILD = 'v394';
   // deterministically along the highway so the dunes feel inhabited.
   function drawDailyScenery() {
     if (!isDaily) return;
+    // Cave-theme debris is rendered separately by drawCaveDebris.
+    if (currentDeliveryLevel.obstacleTheme === 'cave') {
+      drawCaveDebris();
+      return;
+    }
     // Cacti / skulls / trash / rocks / brush are wasteland flavor — only
     // render them when the level uses the citadel horizon. Other levels
     // ship their own ground props (or skip them entirely) in a follow-up.
@@ -16028,6 +16035,211 @@ const DLX_BUILD = 'v394';
       else                  drawDailyTumbleweed(sx, gy);
     }
     ctx.restore();
+  }
+
+  // ---------- Glow Chamber cave debris -----------------------------
+  // Scattered junk along the cave floor — broken crystal shards,
+  // crashed DLX crate fragments, busted mining tools, rubble piles.
+  // Adds environmental storytelling: someone hauled cargo through
+  // here before, and not all of them made it. Drawn BEFORE the
+  // flashlight mask so debris only resolves inside the headlight
+  // cone — the player discovers it as they fly past.
+  function drawCaveDebris() {
+    const step = 90;
+    const startI = Math.floor(dailyScrollX / step) - 1;
+    const endI   = Math.floor((dailyScrollX + W) / step) + 1;
+    for (let i = startI; i <= endI; i++) {
+      const seed = i * 0.4731 + 11.13;
+      if (srand(seed) < 0.50) continue;       // 50% sparse
+      const wx = i * step + Math.floor(srand(seed + 1.1) * 60);
+      const sx = Math.round(wx - dailyScrollX);
+      if (sx < -20 || sx > W + 20) continue;
+      const gy = Math.round(terrainHeightAt(wx));
+      const kind = Math.floor(srand(seed + 2.7) * 4);
+      if      (kind === 0) drawCaveBrokenCrystal(sx, gy, seed);
+      else if (kind === 1) drawCaveCrateFragment(sx, gy, seed);
+      else if (kind === 2) drawCaveBustedTool(sx, gy, seed);
+      else                 drawCaveRubblePile(sx, gy, seed);
+    }
+  }
+
+  // BROKEN CRYSTAL — small pile of shattered cyan/pink shards on
+  // the floor. Faint glow halo so the broken crystal still emits
+  // a tiny bit of light (sells "magical mineral" not just glass).
+  function drawCaveBrokenCrystal(sx, gy, seed) {
+    const isPink = srand(seed + 3.3) < 0.4;
+    const tone = isPink ? '255, 130, 220' : '140, 220, 255';
+    // Halo
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const halo = ctx.createRadialGradient(sx, gy - 2, 0, sx, gy - 2, 9);
+    halo.addColorStop(0, 'rgba(' + tone + ', 0.35)');
+    halo.addColorStop(1, 'rgba(' + tone + ', 0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(sx, gy - 2, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // Shattered shards — 3-5 small angular triangles
+    const shardCount = 3 + Math.floor(srand(seed + 4.1) * 3);
+    ctx.fillStyle = '#1c2a3a';
+    for (let s = 0; s < shardCount; s++) {
+      const sx2 = sx - 6 + s * 3;
+      const h = 3 + Math.floor(srand(seed + 5.0 + s) * 3);
+      ctx.beginPath();
+      ctx.moveTo(sx2 - 1.5, gy);
+      ctx.lineTo(sx2 + 1.5, gy);
+      ctx.lineTo(sx2,        gy - h);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Lit shard tips (the ones still glowing)
+    ctx.fillStyle = 'rgba(' + tone + ', 0.85)';
+    for (let s = 0; s < shardCount; s++) {
+      if (srand(seed + 6.3 + s) < 0.5) continue;
+      const sx2 = sx - 6 + s * 3;
+      const h = 3 + Math.floor(srand(seed + 5.0 + s) * 3);
+      ctx.beginPath();
+      ctx.arc(sx2, gy - h, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // BUSTED DLX CRATE — broken planks of a cargo crate that
+  // crashed somewhere on the route. Hazard-stripe scrap so the
+  // viewer reads "DLX cargo run gone wrong."
+  function drawCaveCrateFragment(sx, gy, seed) {
+    const tilt = (srand(seed + 7.1) - 0.5) * 0.6;
+    ctx.save();
+    ctx.translate(sx, gy - 4);
+    ctx.rotate(tilt);
+    // Broken plank
+    ctx.fillStyle = '#3a3a40';
+    ctx.fillRect(-9, -3, 18, 6);
+    ctx.strokeStyle = 'rgba(80, 100, 130, 0.7)';
+    ctx.lineWidth = 0.7;
+    ctx.strokeRect(-9, -3, 18, 6);
+    // Hazard band on the plank
+    ctx.fillStyle = '#1a0e05';
+    ctx.fillRect(-9, -1, 18, 1.6);
+    ctx.fillStyle = '#ffd040';
+    for (let off = 0; off < 18; off += 4) {
+      ctx.beginPath();
+      ctx.moveTo(-9 + off,     -1);
+      ctx.lineTo(-9 + off + 2, -1);
+      ctx.lineTo(-9 + off + 4, 0.6);
+      ctx.lineTo(-9 + off + 2, 0.6);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // DLX stencil partial (broken/faded letter)
+    ctx.fillStyle = 'rgba(255, 208, 64, 0.55)';
+    ctx.font = 'bold 4px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DLX', 0, 2);
+    // A bent nail sticking out
+    ctx.strokeStyle = '#0a0e16';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(7, -3);
+    ctx.lineTo(8, -6);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // BUSTED MINING TOOL — abandoned pickaxe head, broken bolt,
+  // shovel piece. Reads as "DLX mining crew was here."
+  function drawCaveBustedTool(sx, gy, seed) {
+    const which = Math.floor(srand(seed + 8.3) * 3);
+    if (which === 0) {
+      // Pickaxe head with broken handle stub
+      ctx.fillStyle = '#3a4453';
+      ctx.fillRect(sx - 6, gy - 3, 12, 2);
+      ctx.beginPath();
+      ctx.moveTo(sx - 6, gy - 3);
+      ctx.lineTo(sx - 9, gy - 6);
+      ctx.lineTo(sx - 4, gy - 3);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(sx + 6, gy - 3);
+      ctx.lineTo(sx + 9, gy - 6);
+      ctx.lineTo(sx + 4, gy - 3);
+      ctx.fill();
+      // Broken wood handle stub
+      ctx.fillStyle = '#3a2418';
+      ctx.fillRect(sx - 1, gy - 1, 2, 1);
+      ctx.strokeStyle = 'rgba(180, 200, 220, 0.45)';
+      ctx.lineWidth = 0.7;
+      ctx.beginPath();
+      ctx.moveTo(sx - 6, gy - 3);
+      ctx.lineTo(sx + 6, gy - 3);
+      ctx.stroke();
+    } else if (which === 1) {
+      // Big rusty bolt with a nut
+      ctx.fillStyle = '#a85838';
+      ctx.fillRect(sx - 5, gy - 2, 10, 3);
+      // Nut on top
+      ctx.fillStyle = '#3a4453';
+      ctx.beginPath();
+      ctx.moveTo(sx - 3, gy - 2);
+      ctx.lineTo(sx + 3, gy - 2);
+      ctx.lineTo(sx + 4, gy - 5);
+      ctx.lineTo(sx - 4, gy - 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(60, 30, 10, 0.8)';
+      ctx.lineWidth = 0.7;
+      ctx.strokeRect(sx - 5, gy - 2, 10, 3);
+    } else {
+      // Bent shovel head
+      ctx.fillStyle = '#3a4453';
+      ctx.beginPath();
+      ctx.moveTo(sx - 5, gy);
+      ctx.lineTo(sx + 5, gy);
+      ctx.lineTo(sx + 4, gy - 5);
+      ctx.lineTo(sx - 4, gy - 5);
+      ctx.closePath();
+      ctx.fill();
+      // Broken handle stub bent over
+      ctx.strokeStyle = '#3a2418';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(sx, gy - 4);
+      ctx.lineTo(sx + 4, gy - 7);
+      ctx.stroke();
+    }
+  }
+
+  // RUBBLE PILE — small pile of broken cave rock with a couple of
+  // lit chips. Generic ground filler so the floor isn't bare.
+  function drawCaveRubblePile(sx, gy, seed) {
+    ctx.fillStyle = '#1a2030';
+    ctx.beginPath();
+    ctx.moveTo(sx - 8, gy);
+    ctx.lineTo(sx + 8, gy);
+    ctx.lineTo(sx + 5, gy - 3);
+    ctx.lineTo(sx + 1, gy - 5);
+    ctx.lineTo(sx - 3, gy - 4);
+    ctx.lineTo(sx - 6, gy - 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(110, 135, 165, 0.55)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(sx - 6, gy - 2);
+    ctx.lineTo(sx - 3, gy - 4);
+    ctx.lineTo(sx + 1, gy - 5);
+    ctx.lineTo(sx + 5, gy - 3);
+    ctx.stroke();
+    // Couple of bright cyan chips on the pile
+    if (srand(seed + 9.1) < 0.6) {
+      ctx.fillStyle = 'rgba(140, 220, 255, 0.8)';
+      ctx.beginPath();
+      ctx.arc(sx - 1, gy - 4, 0.7, 0, Math.PI * 2);
+      ctx.arc(sx + 3, gy - 2, 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   // Live desert brush — small clump of dry green shrub with a few twigs
@@ -17977,13 +18189,32 @@ const DLX_BUILD = 'v394';
         // Magnet box — gentle vertical bob
         offY = Math.sin(frame * 0.08 + p.bobPhase) * 2;
       }
-      // Recall crystal — draw the hanging chain BEFORE translating
-      // so the chain anchors at the ceiling worldX,ceilY position.
+      // Recall crystal — draw the hanging chain + a soft pink beam
+      // of light around it BEFORE translating, so the crystal reads
+      // as a deliberate beacon hanging from the ceiling, not just
+      // another floating gem.
       if (p.kind === 'recallCrystal' && typeof p.ceilY === 'number') {
         const cx = Math.round(sxF);
         const cy = Math.round(p.y + offY);
+        // Soft pink beam — vertical light spill along the chain
         ctx.save();
-        ctx.strokeStyle = 'rgba(140, 165, 195, 0.65)';
+        ctx.globalCompositeOperation = 'lighter';
+        const beamGrad = ctx.createLinearGradient(cx, p.ceilY, cx, cy + 18);
+        beamGrad.addColorStop(0,    'rgba(255, 130, 220, 0.30)');
+        beamGrad.addColorStop(0.5,  'rgba(255, 130, 220, 0.20)');
+        beamGrad.addColorStop(1,    'rgba(255, 130, 220, 0)');
+        ctx.fillStyle = beamGrad;
+        ctx.beginPath();
+        ctx.moveTo(cx - 3, p.ceilY);
+        ctx.lineTo(cx + 3, p.ceilY);
+        ctx.lineTo(cx + 18, cy + 18);
+        ctx.lineTo(cx - 18, cy + 18);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        // Chain
+        ctx.save();
+        ctx.strokeStyle = 'rgba(140, 165, 195, 0.85)';
         ctx.lineWidth = 1.2;
         ctx.beginPath();
         ctx.moveTo(cx, p.ceilY);
@@ -17991,7 +18222,9 @@ const DLX_BUILD = 'v394';
         ctx.stroke();
         // Bracket fixture at the ceiling anchor
         ctx.fillStyle = '#1a0e05';
-        ctx.fillRect(cx - 3, p.ceilY - 1, 6, 3);
+        ctx.fillRect(cx - 4, p.ceilY - 1, 8, 3);
+        ctx.fillStyle = '#ffd040';
+        ctx.fillRect(cx - 4, p.ceilY - 1, 8, 0.6);
         ctx.restore();
       }
       ctx.save();
@@ -25421,6 +25654,19 @@ const DLX_BUILD = 'v394';
       // Mirror body for facing direction so all coordinates can be
       // written assuming "facing right" (forward = +x).
       ctx.scale(-fc, 1);
+      // Pose dynamics — bandit leans FORWARD when firing the hook
+      // (body rotates ~12° toward the cargo) and recoils slightly
+      // for the first 3 frames of fire so the shot feels punchy.
+      let leanRot = 0;
+      if (bd.state === 'fire' || bd.state === 'reel') {
+        leanRot = 0.20;          // ~11° forward lean
+        if (bd.state === 'fire' && bd.stateFrames < 3) {
+          leanRot -= 0.18;        // brief recoil kick on shot
+        }
+      } else if (bd.state === 'retract') {
+        leanRot = 0.08;           // half-lean during the empty retract
+      }
+      ctx.rotate(leanRot);
 
       // ---- SLED PLATFORM — chunky horizontal slab
       ctx.fillStyle = '#3a3a40';
