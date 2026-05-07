@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v400';
+const DLX_BUILD = 'v401';
 
 (function() {
   // ---------- Device detection ----------
@@ -9167,7 +9167,7 @@ const DLX_BUILD = 'v400';
             && !dailyDelivered
             && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
             && dailyPowerUps.length < 3) {
-          const dailyKinds = ['shield', 'slow', 'double', 'magnet', 'ghost'];
+          const dailyKinds = ['shield', 'slow', 'double', 'magnet', 'ghost', 'missile'];
           const pick = dailyKinds[Math.floor(Math.random() * dailyKinds.length)];
           dailyPowerUps.push({
             x: W + 36,
@@ -10312,6 +10312,50 @@ const DLX_BUILD = 'v400';
         return;
       }
     }
+    // DAILY MODE — pick the nearest forward threat across bandits,
+    // lava balls, tentacles. Missile homes on it and explodes the
+    // entity on contact. If a bandit is already carrying cargo,
+    // hitting them drops the cargo back to the rig (free recovery).
+    if (isDaily) {
+      let bestRef = null, bestKind = null, bestDist = Infinity;
+      const tryTarget = function(ref, tx, ty, kind) {
+        const dx = tx - bird.x;
+        const dy = ty - bird.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < bestDist && tx > bird.x - 40) {
+          bestDist = dist;
+          bestRef = ref;
+          bestKind = kind;
+        }
+      };
+      // Bandits — primary target (active threat)
+      for (const bd of dailyDlxBandits) {
+        tryTarget(bd, bd.x, bd.y, 'bandit');
+      }
+      // Lava balls / jellyfish
+      for (const lb of dailyLavaBalls) {
+        tryTarget(lb, lb.x, lb.y, 'lavaBall');
+      }
+      // Active tentacles
+      for (const t of dailyTentacles) {
+        const sx = t.worldX - dailyScrollX;
+        const reachT = Math.min(1, t.life / 60);
+        const tipY = terrainHeightAt(t.worldX) - 150 * reachT;
+        tryTarget(t, sx, tipY, 'tentacle');
+      }
+      missiles.push({
+        x: bird.x + BIRD_R * 0.6,
+        y: bird.y,
+        vx: bestRef ? 3 : 5,
+        vy: 0,
+        targetDaily: bestRef,
+        targetDailyKind: bestKind,
+        life: 180,
+        trail: [],
+      });
+      playSound('missile');
+      return;
+    }
     let target = null;
     for (const p of pipes) {
       if (p.destroyed) continue;
@@ -10426,6 +10470,43 @@ const DLX_BUILD = 'v400';
           const MAX = 7.5;
           if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
         }
+      } else if (m.targetDaily) {
+        // Daily missile homing — re-resolve target position by kind
+        // each frame (bandits + lava balls move; tentacles extend).
+        let tx, ty, valid = false;
+        if (m.targetDailyKind === 'bandit'
+            && dailyDlxBandits.indexOf(m.targetDaily) >= 0) {
+          tx = m.targetDaily.x;
+          ty = m.targetDaily.y;
+          valid = true;
+        } else if (m.targetDailyKind === 'lavaBall'
+            && dailyLavaBalls.indexOf(m.targetDaily) >= 0
+            && m.targetDaily.x > -1000) {
+          tx = m.targetDaily.x;
+          ty = m.targetDaily.y;
+          valid = true;
+        } else if (m.targetDailyKind === 'tentacle'
+            && dailyTentacles.indexOf(m.targetDaily) >= 0
+            && m.targetDaily.life < m.targetDaily.maxLife) {
+          tx = m.targetDaily.worldX - dailyScrollX;
+          const reachT = Math.min(1, m.targetDaily.life / 60);
+          ty = terrainHeightAt(m.targetDaily.worldX) - 150 * reachT;
+          valid = true;
+        }
+        if (valid) {
+          const dx = tx - m.x, dy = ty - m.y;
+          const d = Math.sqrt(dx * dx + dy * dy) || 1;
+          const accel = 0.7;
+          m.vx += (dx / d) * accel;
+          m.vy += (dy / d) * accel;
+          const sp = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
+          const MAX = 8;
+          if (sp > MAX) { m.vx = m.vx / sp * MAX; m.vy = m.vy / sp * MAX; }
+        } else {
+          // Target gone — fly forward
+          m.targetDaily = null;
+          m.vx = Math.min((m.vx || 0) + 0.5, 9);
+        }
       } else if (m.target && !m.target.destroyed) {
         const tx = m.target.x + PIPE_W / 2;
         const ty = m.target.top + m.target.gap / 2;
@@ -10508,6 +10589,59 @@ const DLX_BUILD = 'v400';
           const ddx = m.x - tc.tipX, ddy = m.y - tc.tipY;
           if (ddx * ddx + ddy * ddy < 14 * 14) {
             severTentacle(tc);
+            missiles.splice(i, 1);
+            continue;
+          }
+        }
+      }
+      // DAILY missile hit detection — bandit, lava ball, tentacle
+      if (m.targetDaily) {
+        const ref = m.targetDaily;
+        const kind = m.targetDailyKind;
+        if (kind === 'bandit' && dailyDlxBandits.indexOf(ref) >= 0) {
+          const ddx = m.x - ref.x, ddy = m.y - ref.y;
+          if (ddx * ddx + ddy * ddy < 22 * 22) {
+            // Bandit downed — drop cargo if carrying (free recovery!)
+            if (ref.carrying && cargo && cargo.banditGrabbed && !cargo.lost) {
+              cargo.attached = true;
+              cargo.banditGrabbed = false;
+              cargo.banditRef = null;
+              cargo.x = bird.x - 32;
+              cargo.y = bird.y - 4;
+              cargo.vy = 0;
+              emitPickupSparks(cargo.x, cargo.y, '#ffd060', 28);
+              playSound('cargoRestore');
+              ref.carrying = false;
+            }
+            ref.state = 'flee';
+            ref.stateFrames = 0;
+            ref.vx = ref.vx > 0 ? 5 : -5;        // accelerate off-screen
+            grantScore(20);
+            emitPickupSparks(m.x, m.y, '#ffd040', 22);
+            playSound('boom');
+            missiles.splice(i, 1);
+            continue;
+          }
+        } else if (kind === 'lavaBall' && dailyLavaBalls.indexOf(ref) >= 0) {
+          const ddx = m.x - ref.x, ddy = m.y - ref.y;
+          if (ddx * ddx + ddy * ddy < 18 * 18) {
+            ref.x = -10000;        // remove via existing despawn
+            grantScore(10);
+            emitPickupSparks(m.x, m.y, '#ff6020', 18);
+            playSound('boom');
+            missiles.splice(i, 1);
+            continue;
+          }
+        } else if (kind === 'tentacle' && dailyTentacles.indexOf(ref) >= 0) {
+          const sx = ref.worldX - dailyScrollX;
+          const reachT = Math.min(1, ref.life / 60);
+          const tipY = terrainHeightAt(ref.worldX) - 150 * reachT;
+          const ddx = m.x - sx, ddy = m.y - tipY;
+          if (ddx * ddx + ddy * ddy < 18 * 18) {
+            ref.life = ref.maxLife;     // force tentacle into retract/despawn
+            grantScore(15);
+            emitPickupSparks(m.x, m.y, '#a0ff60', 16);
+            playSound('boom');
             missiles.splice(i, 1);
             continue;
           }
