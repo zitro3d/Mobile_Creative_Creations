@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v392';
+const DLX_BUILD = 'v393';
 
 (function() {
   // ---------- Device detection ----------
@@ -8856,7 +8856,7 @@ const DLX_BUILD = 'v392';
             if (cargo && cargo.attached && !cargo.lost) {
               const dx = bd.x - cargo.x;
               const dy = bd.y - cargo.y;
-              if (Math.abs(dx) < 90 && Math.abs(dy) < 70) {
+              if (Math.abs(dx) < 70 && Math.abs(dy) < 60) {
                 bd.state = 'fire';
                 bd.stateFrames = 0;
                 // Lock hook direction to cargo's CURRENT position
@@ -8873,18 +8873,29 @@ const DLX_BUILD = 'v392';
               continue;
             }
           } else if (bd.state === 'fire') {
-            // Slow forward drift while firing
-            bd.x += bd.vx * 0.4;
+            // Bandit HOVERS during fire so the hook tip lands where
+            // it's aimed (otherwise the bandit drifts past during
+            // the 18-frame extension and the hook overshoots).
+            // Track cargo for the FIRST 6 frames so a moving cargo
+            // isn't a hard-miss; lock the aim after that.
+            if (bd.stateFrames < 6 && cargo && cargo.attached && !cargo.lost) {
+              const adx = cargo.x - bd.x;
+              const ady = cargo.y - bd.y;
+              const adn = Math.hypot(adx, ady) || 1;
+              bd.hookDirX = adx / adn;
+              bd.hookDirY = ady / adn;
+            }
             // Hook extends over 18 frames toward locked direction
             const HOOK_MAX = 90;
             bd.hookLen = Math.min(HOOK_MAX, (bd.stateFrames / 18) * HOOK_MAX);
             bd.hookTipX = bd.x + bd.hookDirX * bd.hookLen;
             bd.hookTipY = bd.y + bd.hookDirY * bd.hookLen;
-            // Grab check every frame during the extension
+            // Grab check every frame during the extension. Bigger
+            // radius (32 px, was 22) so timing windows are forgiving.
             if (cargo && cargo.attached && !cargo.lost && !bd.carrying) {
               const ddx = bd.hookTipX - cargo.x;
               const ddy = bd.hookTipY - cargo.y;
-              if (ddx * ddx + ddy * ddy < 22 * 22) {
+              if (ddx * ddx + ddy * ddy < 32 * 32) {
                 bd.carrying = true;
                 cargo.attached = false;
                 cargo.banditGrabbed = true;
@@ -8899,11 +8910,11 @@ const DLX_BUILD = 'v392';
             }
           } else if (bd.state === 'reel') {
             // Reel cargo back to bandit hand over 12 frames, then flee.
+            // Bandit stays put — no drift while reeling.
             const t = Math.min(1, bd.stateFrames / 12);
             const newLen = Math.max(0, bd.hookLen * (1 - t));
             bd.hookTipX = bd.x + bd.hookDirX * newLen;
             bd.hookTipY = bd.y + bd.hookDirY * newLen;
-            bd.x += bd.vx * 0.3;
             if (cargo && cargo.banditGrabbed && !cargo.lost) {
               cargo.x = bd.hookTipX;
               cargo.y = bd.hookTipY;
@@ -8915,12 +8926,11 @@ const DLX_BUILD = 'v392';
               bd.hookLen = 0;
             }
           } else if (bd.state === 'retract') {
-            // No grab — retract empty hook over 12 frames
+            // No grab — retract empty hook over 12 frames. Hover.
             const t = Math.min(1, bd.stateFrames / 12);
             const newLen = Math.max(0, 90 * (1 - t));
             bd.hookTipX = bd.x + bd.hookDirX * newLen;
             bd.hookTipY = bd.y + bd.hookDirY * newLen;
-            bd.x += bd.vx * 0.5;
             if (bd.stateFrames >= 12) {
               bd.state = 'flee';
               bd.stateFrames = 0;
