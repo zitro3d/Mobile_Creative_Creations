@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v403';
+const DLX_BUILD = 'v404';
 
 (function() {
   // ---------- Device detection ----------
@@ -15594,11 +15594,42 @@ const DLX_BUILD = 'v403';
       ctx.lineTo(x + off,      gantryTop);
       ctx.stroke();
     }
-    // CRANE CARRIAGE — small box hanging from the beam, slowly
-    // drifting back-and-forth so it reads as ACTIVE.
-    const carriagePhase = Math.sin(frame * 0.012) * 50;
-    const carriageX = x + carriagePhase;
-    const carriageY = gantryTop + 4;
+    // CRANE CARRIAGE — small box hanging from the beam.
+    // During the launch intro animation, the crane PERFORMS A
+    // HOOK-UP CINEMATIC: the carriage tracks the rig, the hook is
+    // attached to the rig at takeoff, then releases + retracts as
+    // the rig clears the hangar. After the intro completes (or any
+    // non-launch frame), the carriage drifts on its idle wave.
+    let carriageX, carriageY = gantryTop + 4;
+    let cableTipY = carriageY + 10 + 22;
+    let cinematicGrip = false;
+    if (typeof dailyIntroFrames !== 'undefined' && dailyIntroFrames > 0) {
+      const introProgress = 1 - dailyIntroFrames / 75;        // 0 → 1
+      // Carriage tracks the rig's screen X (with a tiny lead so
+      // the cable hangs from slightly ahead of the rig — feels
+      // like the crane just released the rig and lifts away.)
+      carriageX = bird.x;
+      // Hook position phases:
+      //   0.00 .. 0.20 — fully extended, gripping the rig
+      //   0.20 .. 0.55 — retracting upward
+      //   0.55 ..      — fully retracted, idle drift takes over
+      const rigCableLen = (bird.y - 6) - (carriageY + 10);
+      if (introProgress < 0.20) {
+        cableTipY = carriageY + 10 + Math.max(8, rigCableLen);
+        cinematicGrip = true;
+      } else if (introProgress < 0.55) {
+        const retractT = (introProgress - 0.20) / 0.35;
+        const ease = 1 - Math.pow(1 - retractT, 2);
+        cableTipY = carriageY + 10 + Math.max(8, rigCableLen) * (1 - ease);
+      } else {
+        cableTipY = carriageY + 10 + 22 + Math.sin(frame * 0.020) * 4;
+      }
+    } else {
+      // Idle drift (post-launch / non-launch frames)
+      const carriagePhase = Math.sin(frame * 0.012) * 50;
+      carriageX = x + carriagePhase;
+      cableTipY = carriageY + 10 + 22 + Math.sin(frame * 0.020) * 4;
+    }
     ctx.fillStyle = '#1a2030';
     ctx.fillRect(carriageX - 10, carriageY, 20, 10);
     ctx.strokeStyle = '#ffd040';
@@ -15609,16 +15640,18 @@ const DLX_BUILD = 'v403';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('DLX', carriageX, carriageY + 5);
-    // CABLE + HOOK — cable from carriage down to a hook
-    const hookY = carriageY + 10 + 22 + Math.sin(frame * 0.020) * 4;
+    // CABLE + HOOK — cable from carriage down to the cable tip.
+    const hookY = cableTipY;
     ctx.strokeStyle = '#1a0e05';
     ctx.lineWidth = 1.4;
     ctx.beginPath();
     ctx.moveTo(carriageX, carriageY + 10);
     ctx.lineTo(carriageX, hookY);
     ctx.stroke();
-    // Hook (J-shape)
-    ctx.strokeStyle = '#3a4453';
+    // Hook (J-shape) — when actively gripping the rig the hook
+    // gets a brighter amber tint + small spark so the latch reads
+    // as engaged.
+    ctx.strokeStyle = cinematicGrip ? '#ffd040' : '#3a4453';
     ctx.lineWidth = 2.2;
     ctx.lineCap = 'round';
     ctx.beginPath();
@@ -15628,6 +15661,19 @@ const DLX_BUILD = 'v403';
                          carriageX - 5, hookY + 12);
     ctx.stroke();
     ctx.lineCap = 'butt';
+    if (cinematicGrip) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const sparkHalo = ctx.createRadialGradient(carriageX, hookY + 8, 0,
+                                                  carriageX, hookY + 8, 8);
+      sparkHalo.addColorStop(0, 'rgba(255, 220, 120, 0.6)');
+      sparkHalo.addColorStop(1, 'rgba(255, 220, 120, 0)');
+      ctx.fillStyle = sparkHalo;
+      ctx.beginPath();
+      ctx.arc(carriageX, hookY + 8, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
 
     // ---- 6. INDUSTRIAL LANDING DECK — steel platform with hazard-
     //         stripe runway markings on top. This is where the rig
