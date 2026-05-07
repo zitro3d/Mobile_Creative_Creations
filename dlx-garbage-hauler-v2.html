@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v383';
+const DLX_BUILD = 'v384';
 
 (function() {
   // ---------- Device detection ----------
@@ -7680,7 +7680,12 @@ const DLX_BUILD = 'v383';
           dailyHazards.shift();
         }
         // Score per ~24 px of distance — drives DELIVERY_TARGET progression
-        while (dailyDistanceForScore < dailyScrollX) {
+        // for Sunset / Leviathan. Glow Chamber suppresses distance
+        // scoring so the score only ticks up when the rig collects
+        // pickups (the player's complaint: "score going up without
+        // collecting anything").
+        const _distanceScores = currentDeliveryLevel.obstacleTheme !== 'cave';
+        while (_distanceScores && dailyDistanceForScore < dailyScrollX) {
           grantScore(1);
           dailyDistanceForScore += 24;
         }
@@ -14540,226 +14545,256 @@ const DLX_BUILD = 'v383';
   }
 
   // CAVERN MOUTH — launch entrance carved as a stone BEAR HEAD set
-  // into the cave wall. The bear's open roaring mouth is the launch
-  // portal; the rig sits on a stone tongue inside and flies out
-  // between the fangs. Front-facing 2D-stylized so the silhouette
-  // reads instantly: ears, eyes (with cyan crystal glints), snout,
-  // nose, mouth, and a row of carved teeth top + bottom.
+  // into the cave wall. Side profile facing RIGHT, mouth wide open
+  // (roaring) so the rig sits inside the open mouth and launches
+  // forward between the upper and lower fangs. Side-profile reads
+  // far more clearly as a bear than the front-facing v383 version.
   function drawLandmarkCaveMouth(x, y) {
     ctx.save();
     const floorY = PLAY_H / 2 + 28;
 
-    // ---- 1. ROCK FACE BACKDROP — wide cliff behind the bear so
-    //         the head reads as carved INTO the cave wall, not a
-    //         free-floating sculpture.
+    // ---- 1. ROCK FACE BACKDROP — wide cliff behind the bear ----
     ctx.fillStyle = '#10141e';
     ctx.beginPath();
-    ctx.moveTo(x - 150, floorY);
-    ctx.lineTo(x - 150, floorY - 168);
-    ctx.lineTo(x - 70,  floorY - 184);
-    ctx.lineTo(x + 70,  floorY - 184);
-    ctx.lineTo(x + 150, floorY - 162);
-    ctx.lineTo(x + 150, floorY);
+    ctx.moveTo(x - 160, floorY);
+    ctx.lineTo(x - 160, floorY - 175);
+    ctx.lineTo(x - 80,  floorY - 188);
+    ctx.lineTo(x + 100, floorY - 178);
+    ctx.lineTo(x + 130, floorY - 150);
+    ctx.lineTo(x + 130, floorY);
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = 'rgba(110, 135, 165, 0.5)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(x - 150, floorY - 168);
-    ctx.lineTo(x - 70,  floorY - 184);
-    ctx.lineTo(x + 70,  floorY - 184);
-    ctx.lineTo(x + 150, floorY - 162);
+    ctx.moveTo(x - 160, floorY - 175);
+    ctx.lineTo(x - 80,  floorY - 188);
+    ctx.lineTo(x + 100, floorY - 178);
+    ctx.lineTo(x + 130, floorY - 150);
     ctx.stroke();
 
-    // ---- 2. EARS — drawn FIRST so the head silhouette overlaps
-    //         their bases (ears tuck behind the crown).
-    for (const sign of [-1, 1]) {
-      const ex = x + sign * 56, ey = floorY - 142;
-      // Outer ear (back)
+    // ---- 2. EAR — single rounded ear on the top-BACK of the skull
+    //         (only one visible from this side-profile angle).
+    {
+      const ex = x - 60, ey = floorY - 138;
       ctx.fillStyle = '#1a2030';
       ctx.beginPath();
-      ctx.moveTo(ex - 16, ey + 12);
-      ctx.lineTo(ex + 14, ey + 12);
-      ctx.quadraticCurveTo(ex + 4, ey - 22, ex - 10, ey - 16);
+      ctx.moveTo(ex - 14, ey + 8);
+      ctx.quadraticCurveTo(ex - 16, ey - 18, ex - 2, ey - 16);
+      ctx.quadraticCurveTo(ex + 14, ey - 12, ex + 12, ey + 6);
       ctx.closePath();
       ctx.fill();
       ctx.strokeStyle = 'rgba(110, 135, 165, 0.65)';
       ctx.lineWidth = 1;
       ctx.stroke();
-      // Inner ear (lighter slate slab)
+      // Inner ear — lighter slate
       ctx.fillStyle = '#2c3548';
       ctx.beginPath();
-      ctx.moveTo(ex - 7, ey + 6);
-      ctx.lineTo(ex + 7, ey + 6);
-      ctx.quadraticCurveTo(ex + 2, ey - 10, ex - 5, ey - 7);
+      ctx.moveTo(ex - 6, ey + 4);
+      ctx.quadraticCurveTo(ex - 8, ey - 10, ex - 1, ey - 9);
+      ctx.quadraticCurveTo(ex + 7, ey - 6, ex + 5, ey + 3);
       ctx.closePath();
       ctx.fill();
     }
 
-    // ---- 3. BEAR HEAD MAIN SILHOUETTE — rounded crown + cheeks +
-    //         jaw. Solid mid-slate fill so the head reads as a
-    //         CARVED STONE shape, not a flat-black mass.
+    // ---- 3. UPPER HEAD + SNOUT silhouette ----
+    //         One closed path traces: back of skull → up the neck →
+    //         over the crown → down the forehead → forward along the
+    //         snout top → around the nose → back along upper lip
+    //         (BACK INTO the mouth roof) → throat hinge → down the
+    //         back of jaw → close.
+    //         Lower jaw is drawn separately so the open mouth reads.
     ctx.fillStyle = '#22293a';
     ctx.beginPath();
-    ctx.moveTo(x - 96, floorY - 10);
-    ctx.quadraticCurveTo(x - 102, floorY - 80, x - 80, floorY - 128);
-    ctx.quadraticCurveTo(x - 42, floorY - 150, x,     floorY - 154);
-    ctx.quadraticCurveTo(x + 42, floorY - 150, x + 80, floorY - 128);
-    ctx.quadraticCurveTo(x + 102, floorY - 80, x + 96, floorY - 10);
-    ctx.lineTo(x - 96, floorY - 10);
+    // Back-of-skull bottom
+    ctx.moveTo(x - 95, floorY - 35);
+    // Up the back of skull
+    ctx.quadraticCurveTo(x - 110, floorY - 70, x - 100, floorY - 110);
+    // Crown rise
+    ctx.quadraticCurveTo(x - 88, floorY - 138, x - 60, floorY - 142);
+    // Top of crown going forward
+    ctx.quadraticCurveTo(x - 30, floorY - 144, x, floorY - 138);
+    // Forehead transition into snout
+    ctx.quadraticCurveTo(x + 20, floorY - 132, x + 32, floorY - 116);
+    // Snout TOP going forward
+    ctx.lineTo(x + 60, floorY - 102);
+    // Front of snout bulge — curve down toward the nose
+    ctx.quadraticCurveTo(x + 80, floorY - 92, x + 78, floorY - 78);
+    // Nose tip pulled forward
+    ctx.quadraticCurveTo(x + 76, floorY - 68, x + 64, floorY - 62);
+    // Upper lip front (mouth opening BEGINS here, going back-left)
+    ctx.lineTo(x + 56, floorY - 56);
+    // Upper lip going back into the mouth (roof of mouth)
+    ctx.quadraticCurveTo(x + 20, floorY - 50, x - 20, floorY - 48);
+    // Throat / back of mouth — hinge where lower jaw meets upper
+    ctx.lineTo(x - 40, floorY - 45);
+    // Down the back of the jaw to close
+    ctx.lineTo(x - 95, floorY - 35);
     ctx.closePath();
     ctx.fill();
-    // Highlight stroke along the rounded crown — catches the headlight
+    // Crown highlight stroke — catches the headlight on the rounded top
     ctx.strokeStyle = 'rgba(140, 165, 195, 0.7)';
     ctx.lineWidth = 1.4;
     ctx.beginPath();
-    ctx.moveTo(x - 102, floorY - 80);
-    ctx.quadraticCurveTo(x - 80, floorY - 128, x - 42, floorY - 150);
-    ctx.quadraticCurveTo(x,     floorY - 158,  x + 42, floorY - 150);
-    ctx.quadraticCurveTo(x + 80, floorY - 128, x + 102, floorY - 80);
-    ctx.stroke();
-    // Brow ridges — subtle darker arches above each eye
-    ctx.strokeStyle = 'rgba(40, 50, 65, 0.85)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x - 44, floorY - 118);
-    ctx.quadraticCurveTo(x - 28, floorY - 124, x - 14, floorY - 118);
-    ctx.moveTo(x + 14, floorY - 118);
-    ctx.quadraticCurveTo(x + 28, floorY - 124, x + 44, floorY - 118);
+    ctx.moveTo(x - 100, floorY - 110);
+    ctx.quadraticCurveTo(x - 88, floorY - 138, x - 60, floorY - 142);
+    ctx.quadraticCurveTo(x - 30, floorY - 144, x, floorY - 138);
+    ctx.quadraticCurveTo(x + 20, floorY - 132, x + 32, floorY - 116);
+    ctx.lineTo(x + 60, floorY - 102);
+    ctx.quadraticCurveTo(x + 80, floorY - 92, x + 78, floorY - 78);
     ctx.stroke();
 
-    // ---- 4. EYES — carved hollow sockets with cyan crystal glints
-    for (const sign of [-1, 1]) {
-      const ex = x + sign * 30, ey = floorY - 108;
-      // Deep socket — pure black void
+    // ---- 4. LOWER JAW — separate dropped piece forming the open
+    //         mouth's bottom. Hinges at the throat (matches upper).
+    ctx.fillStyle = '#1c2230';
+    ctx.beginPath();
+    // Throat hinge (matches upper)
+    ctx.moveTo(x - 40, floorY - 45);
+    // Inside back of mouth (mouth floor going forward)
+    ctx.quadraticCurveTo(x - 30, floorY - 32, x, floorY - 28);
+    // Forward along inside of lower lip
+    ctx.lineTo(x + 36, floorY - 22);
+    // Front of lower lip rising up to meet upper lip
+    ctx.quadraticCurveTo(x + 50, floorY - 16, x + 50, floorY - 8);
+    // Chin underside curving forward
+    ctx.quadraticCurveTo(x + 50, floorY - 2, x + 36, floorY);
+    // Bottom of jaw going back
+    ctx.lineTo(x - 60, floorY - 4);
+    // Back of jaw curving up to throat
+    ctx.quadraticCurveTo(x - 95, floorY - 10, x - 95, floorY - 32);
+    ctx.lineTo(x - 40, floorY - 45);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(110, 135, 165, 0.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 50, floorY - 8);
+    ctx.quadraticCurveTo(x + 50, floorY - 2, x + 36, floorY);
+    ctx.lineTo(x - 60, floorY - 4);
+    ctx.quadraticCurveTo(x - 95, floorY - 10, x - 95, floorY - 32);
+    ctx.stroke();
+
+    // ---- 5. NOSE — black wet nose at the tip of the snout ----
+    ctx.fillStyle = '#04060a';
+    ctx.beginPath();
+    ctx.ellipse(x + 72, floorY - 80, 7, 5, -0.25, 0, Math.PI * 2);
+    ctx.fill();
+    // Nose specular glint
+    ctx.fillStyle = 'rgba(180, 210, 235, 0.65)';
+    ctx.beginPath();
+    ctx.arc(x + 70, floorY - 82, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ---- 6. EYE — single side-profile eye on the upper face ----
+    {
+      const ex = x - 6, ey = floorY - 122;
       ctx.fillStyle = '#04060a';
       ctx.beginPath();
-      ctx.ellipse(ex, ey, 10, 12, 0, 0, Math.PI * 2);
+      ctx.ellipse(ex, ey, 5, 6, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = 'rgba(80, 100, 130, 0.7)';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 0.8;
       ctx.stroke();
-      // Crystal glint inside (cyan, additive halo + bright pinpoint)
+      // Crystal glint
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const halo = ctx.createRadialGradient(ex - 2, ey - 1, 0,
-                                             ex - 2, ey - 1, 7);
-      halo.addColorStop(0,    'rgba(140, 220, 255, 0.95)');
-      halo.addColorStop(0.6,  'rgba(140, 220, 255, 0.35)');
-      halo.addColorStop(1,    'rgba(140, 220, 255, 0)');
+      const halo = ctx.createRadialGradient(ex - 1, ey - 1, 0, ex - 1, ey - 1, 6);
+      halo.addColorStop(0,   'rgba(140, 220, 255, 0.95)');
+      halo.addColorStop(0.6, 'rgba(140, 220, 255, 0.35)');
+      halo.addColorStop(1,   'rgba(140, 220, 255, 0)');
       ctx.fillStyle = halo;
       ctx.beginPath();
-      ctx.arc(ex - 2, ey - 1, 7, 0, Math.PI * 2);
+      ctx.arc(ex - 1, ey - 1, 6, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
       ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
       ctx.beginPath();
-      ctx.arc(ex - 2, ey - 2, 1.6, 0, Math.PI * 2);
+      ctx.arc(ex - 1, ey - 2, 1.2, 0, Math.PI * 2);
       ctx.fill();
     }
-
-    // ---- 5. SNOUT — bulge below the eyes with the nose on top
-    ctx.fillStyle = '#1a2030';
+    // Brow ridge above the eye
+    ctx.strokeStyle = 'rgba(40, 50, 65, 0.85)';
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.ellipse(x, floorY - 78, 30, 22, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(110, 135, 165, 0.55)';
-    ctx.lineWidth = 1;
+    ctx.moveTo(x - 22, floorY - 130);
+    ctx.quadraticCurveTo(x - 6, floorY - 134, x + 12, floorY - 128);
     ctx.stroke();
-    // NOSE — dark stone triangular block on top of the snout
-    ctx.fillStyle = '#04060a';
-    ctx.beginPath();
-    ctx.moveTo(x - 9, floorY - 88);
-    ctx.lineTo(x + 9, floorY - 88);
-    ctx.lineTo(x,     floorY - 78);
-    ctx.closePath();
-    ctx.fill();
-    // Tiny nostril dots
-    ctx.fillStyle = 'rgba(80, 100, 130, 0.6)';
-    ctx.beginPath();
-    ctx.arc(x - 3, floorY - 84, 0.8, 0, Math.PI * 2);
-    ctx.arc(x + 3, floorY - 84, 0.8, 0, Math.PI * 2);
-    ctx.fill();
 
-    // ---- 6. MOUTH OPENING — the LAUNCH PORTAL. Wide arched void
-    //         inside the lower face. Pure black so the rig launches
-    //         out of "deep cave" rather than a colored backdrop.
+    // ---- 7. MOUTH INTERIOR — black void inside the open mouth.
+    //         Layered on top of upper+lower jaw paths so the inside
+    //         of the mouth reads as deep dark.
     ctx.fillStyle = '#020308';
     ctx.beginPath();
-    ctx.moveTo(x - 64, floorY - 52);
-    ctx.quadraticCurveTo(x, floorY - 62, x + 64, floorY - 52);
-    ctx.quadraticCurveTo(x + 70, floorY - 30, x + 56, floorY - 12);
-    ctx.lineTo(x - 56, floorY - 12);
-    ctx.quadraticCurveTo(x - 70, floorY - 30, x - 64, floorY - 52);
+    ctx.moveTo(x + 56, floorY - 56);                         // upper lip front
+    ctx.quadraticCurveTo(x + 20, floorY - 50, x - 20, floorY - 48);
+    ctx.lineTo(x - 40, floorY - 45);                          // back of mouth
+    ctx.quadraticCurveTo(x - 30, floorY - 32, x, floorY - 28);
+    ctx.lineTo(x + 36, floorY - 22);                          // lower lip front
+    ctx.quadraticCurveTo(x + 50, floorY - 16, x + 50, floorY - 8);
+    // Now go back UP to close the void — the front of the mouth
+    // closes between upper and lower lips.
+    ctx.lineTo(x + 56, floorY - 56);
     ctx.closePath();
     ctx.fill();
-    // Lip outline — lighter stone rim around the mouth
-    ctx.strokeStyle = 'rgba(160, 185, 215, 0.9)';
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.moveTo(x - 64, floorY - 52);
-    ctx.quadraticCurveTo(x, floorY - 62, x + 64, floorY - 52);
-    ctx.quadraticCurveTo(x + 70, floorY - 30, x + 56, floorY - 12);
-    ctx.lineTo(x - 56, floorY - 12);
-    ctx.quadraticCurveTo(x - 70, floorY - 30, x - 64, floorY - 52);
-    ctx.stroke();
 
-    // ---- 7. UPPER FANGS — 4 carved stone teeth hanging from the
-    //         upper lip. Outer canines slightly longer than incisors.
-    ctx.fillStyle = '#c8d0d8';
-    ctx.strokeStyle = 'rgba(60, 80, 100, 0.65)';
+    // ---- 8. UPPER FANGS — curved canines hanging from upper lip ----
+    ctx.fillStyle = '#d8e0e8';
+    ctx.strokeStyle = 'rgba(60, 80, 100, 0.7)';
     ctx.lineWidth = 0.7;
-    for (let i = 0; i < 4; i++) {
-      const fx = x - 38 + i * 25;
-      const fyTop = floorY - 50;
-      const fyBot = floorY - (i === 0 || i === 3 ? 30 : 36);
+    // Long pointed canine near the front
+    const upperFangs = [
+      { tx: x + 40, by: floorY - 52, h: 14, w: 4 },   // big canine front
+      { tx: x + 22, by: floorY - 49, h:  9, w: 3 },
+      { tx: x + 4,  by: floorY - 48, h:  7, w: 2.5 },
+    ];
+    for (const f of upperFangs) {
       ctx.beginPath();
-      ctx.moveTo(fx - 3, fyTop);
-      ctx.lineTo(fx + 3, fyTop);
-      ctx.lineTo(fx,     fyBot);
+      ctx.moveTo(f.tx - f.w, f.by);
+      ctx.lineTo(f.tx + f.w, f.by);
+      ctx.lineTo(f.tx,        f.by + f.h);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
     }
 
-    // ---- 8. LOWER FANGS — 3 teeth rising from the lower lip
-    for (let i = 0; i < 3; i++) {
-      const fx = x - 25 + i * 25;
-      const fyBot = floorY - 12;
-      const fyTop = floorY - (i === 1 ? 30 : 24);
+    // ---- 9. LOWER FANGS — rising from the lower jaw ----
+    const lowerFangs = [
+      { tx: x + 30, by: floorY - 22, h: 11, w: 3.5 },  // big lower canine
+      { tx: x + 12, by: floorY - 25, h:  7, w: 2.5 },
+      { tx: x - 6,  by: floorY - 27, h:  6, w: 2.5 },
+    ];
+    for (const f of lowerFangs) {
       ctx.beginPath();
-      ctx.moveTo(fx - 3, fyBot);
-      ctx.lineTo(fx + 3, fyBot);
-      ctx.lineTo(fx,     fyTop);
+      ctx.moveTo(f.tx - f.w, f.by);
+      ctx.lineTo(f.tx + f.w, f.by);
+      ctx.lineTo(f.tx,        f.by - f.h);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
     }
 
-    // ---- 9. STONE TONGUE — flat platform inside the mouth where
-    //         the rig sits before launch. Dark slate slab matching
-    //         the rest of the carving.
+    // ---- 10. STONE TONGUE — flat slab inside the mouth where the
+    //          rig sits at launch. Sits at the standard floor level
+    //          so the rig's launch altitude aligns.
     ctx.fillStyle = '#28303c';
-    ctx.fillRect(x - 56, floorY - 10, 112, 10);
+    ctx.fillRect(x - 36, floorY - 12, 90, 6);
     ctx.fillStyle = 'rgba(160, 185, 215, 0.45)';
-    ctx.fillRect(x - 56, floorY - 10, 112, 1.2);
+    ctx.fillRect(x - 36, floorY - 12, 90, 1.2);
 
-    // ---- 10. CRYSTAL ACCENTS embedded in the head — small cyan
-    //          glow points so the carving doesn't read as static
-    //          stone alone (matches the rest of the cave's
-    //          blacklight aesthetic).
+    // ---- 11. CRYSTAL ACCENTS embedded in the rock around the head
+    //          (NOT on the bear itself — anchors it as a carving).
     const accentSpots = [
-      [x - 80, floorY - 110],
-      [x + 80, floorY - 110],
-      [x,      floorY - 142],
+      [x - 130, floorY - 130],
+      [x + 110, floorY - 150],
+      [x + 100, floorY - 30],
     ];
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const sp of accentSpots) {
       const halo = ctx.createRadialGradient(sp[0], sp[1], 0,
                                              sp[0], sp[1], 9);
-      halo.addColorStop(0,    'rgba(140, 220, 255, 0.55)');
-      halo.addColorStop(1,    'rgba(140, 220, 255, 0)');
+      halo.addColorStop(0, 'rgba(140, 220, 255, 0.55)');
+      halo.addColorStop(1, 'rgba(140, 220, 255, 0)');
       ctx.fillStyle = halo;
       ctx.beginPath();
       ctx.arc(sp[0], sp[1], 9, 0, Math.PI * 2);
@@ -14773,8 +14808,8 @@ const DLX_BUILD = 'v383';
       ctx.fill();
     }
 
-    // ---- 11. CARVED BANNER above the head — DLX-style sign panel
-    const bannerY = floorY - 178;
+    // ---- 12. CARVED BANNER above the head ----
+    const bannerY = floorY - 180;
     ctx.fillStyle = '#1a2030';
     ctx.fillRect(x - 56, bannerY - 12, 112, 18);
     ctx.strokeStyle = 'rgba(140, 220, 255, 0.85)';
@@ -24128,13 +24163,14 @@ const DLX_BUILD = 'v383';
     const y = Math.max(40, H * 0.07);
     const pulseScale = 1 + scorePulse * 0.5;
 
-    // Pro-tier polish (v331, trimmed in v332): in organic-theme levels
-    // the score gets a cyan outer glow and a brief white flash on each
-    // scoring pulse. v332 cut the scan-line overlay (invisible at
-    // score-text size) and the per-frame alpha flicker (too subtle to
-    // register on a 3-digit display).
+    // Per-theme score styling so the HUD belongs to the level.
+    // - 'crt' (organic): cyan outer glow + white flash pulse.
+    // - 'crystal' (cave): pale cyan crystal glow, thinner stroke, no
+    //   chunky bolt-emoji chip — replaces the "cube-like" Sunset look.
     const crt = isDaily && currentDeliveryLevel
                 && currentDeliveryLevel.obstacleTheme === 'organic';
+    const crystal = isDaily && currentDeliveryLevel
+                && currentDeliveryLevel.obstacleTheme === 'cave';
 
     ctx.save();
     ctx.translate(W / 2, y);
@@ -24144,10 +24180,17 @@ const DLX_BUILD = 'v383';
     if (crt) {
       ctx.shadowBlur = 8;
       ctx.shadowColor = 'rgba(120, 240, 220, 0.95)';
+    } else if (crystal) {
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = 'rgba(140, 220, 255, 0.95)';
     }
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = crt ? '#04181a' : '#3a1a05';
-    ctx.fillStyle = crt ? '#7ff8e0' : '#ffd280';
+    ctx.lineWidth = crystal ? 2 : 4;
+    ctx.strokeStyle = crystal ? 'rgba(8, 16, 28, 0.95)'
+                       : crt ? '#04181a'
+                             : '#3a1a05';
+    ctx.fillStyle = crystal ? '#d8f0ff'
+                     : crt   ? '#7ff8e0'
+                             : '#ffd280';
     ctx.strokeText(text, 0, 0);
     ctx.fillText(text, 0, 0);
     ctx.shadowBlur = 0;
@@ -24158,22 +24201,38 @@ const DLX_BUILD = 'v383';
       ctx.fillText(text, 0, 0);
       ctx.globalAlpha = 1.0;
     }
+    if (crystal && scorePulse > 0.3) {
+      // Cyan flash on score pulse — softer than the organic white flash
+      ctx.globalAlpha = (scorePulse - 0.3) * 0.55;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(text, 0, 0);
+      ctx.globalAlpha = 1.0;
+    }
     ctx.restore();
 
-    // Trash Tokens chip — shows this run's earnings just under the score.
-    // Hidden during the boot ready-state and on game-over (handled above).
+    // Run-earnings chip — shows this run's pickup count just under
+    // the score. Hidden during boot ready-state and on game-over.
+    // Cave levels swap the bolt-cog emoji (which iOS renders as a
+    // chunky cube) for a 💎 diamond glyph and a crystal palette so
+    // the chip belongs to the cavern, not the wasteland.
     if (state === STATE_PLAY && runTokens > 0) {
       const cy = y + size * 0.85;
       const tokenSize = Math.max(11, Math.round(size * 0.32));
       ctx.save();
       ctx.font = 'bold ' + tokenSize + 'px "Courier New", monospace';
       ctx.textAlign = 'center';
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#1a0e05';
-      ctx.fillStyle = '#a4d8ff';
-      const t = '🔩 +' + runTokens;
+      ctx.lineWidth = crystal ? 2 : 3;
+      ctx.strokeStyle = crystal ? 'rgba(8, 16, 28, 0.95)' : '#1a0e05';
+      ctx.fillStyle   = crystal ? '#cfeeff' : '#a4d8ff';
+      if (crystal) {
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(140, 220, 255, 0.85)';
+      }
+      const glyph = crystal ? '💎' : '🔩';
+      const t = glyph + ' +' + runTokens;
       ctx.strokeText(t, W / 2, cy);
       ctx.fillText(t, W / 2, cy);
+      ctx.shadowBlur = 0;
       ctx.restore();
     }
   }
@@ -24426,6 +24485,23 @@ const DLX_BUILD = 'v383';
     const cfg = currentDeliveryLevel.flashlight;
     if (!cfg || !cfg.enabled) return;
 
+    // Ramp the mask in/out so the launch landmark + dock are fully
+    // lit at both ends of the run. The flashlight cone only fully
+    // engages once the rig has flown out into the cave system.
+    //   • dailyScrollX 0..220   : no mask (launch area fully lit so
+    //                             the carved bear-mouth reads clean)
+    //   • dailyScrollX 220..600 : mask fades in
+    //   • dailyScrollX 600..8800: full strength (the actual cave run)
+    //   • dailyScrollX 8800..9400: mask fades back out for cliff dock
+    //   • dailyScrollX 9400+    : no mask (dock fully lit)
+    const sx = (typeof dailyScrollX !== 'undefined') ? dailyScrollX : 0;
+    let rampIn = 0;
+    if (sx >= 220) rampIn = Math.min(1, (sx - 220) / 380);
+    let rampOut = 1;
+    if (sx >= 8800) rampOut = Math.max(0, 1 - (sx - 8800) / 600);
+    const effectiveDarkness = cfg.darkness * rampIn * rampOut;
+    if (effectiveDarkness < 0.02) return;       // fully lit — skip mask
+
     if (!_flashMask
         || _flashMask.width !== W
         || _flashMask.height !== PLAY_H) {
@@ -24437,7 +24513,7 @@ const DLX_BUILD = 'v383';
     fctx.clearRect(0, 0, W, PLAY_H);
 
     // Step 1 — paint the entire mask dark.
-    fctx.fillStyle = 'rgba(2, 3, 8, ' + cfg.darkness + ')';
+    fctx.fillStyle = 'rgba(2, 3, 8, ' + effectiveDarkness + ')';
     fctx.fillRect(0, 0, W, PLAY_H);
 
     // Step 2 — carve a soft-edged cone hole using destination-out.
