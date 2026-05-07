@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v384';
+const DLX_BUILD = 'v385';
 
 (function() {
   // ---------- Device detection ----------
@@ -7679,16 +7679,16 @@ const DLX_BUILD = 'v384';
         while (dailyHazards.length && dailyHazards[0].worldX - dailyScrollX < -80) {
           dailyHazards.shift();
         }
-        // Score per ~24 px of distance — drives DELIVERY_TARGET progression
-        // for Sunset / Leviathan. Glow Chamber suppresses distance
-        // scoring so the score only ticks up when the rig collects
-        // pickups (the player's complaint: "score going up without
-        // collecting anything").
-        const _distanceScores = currentDeliveryLevel.obstacleTheme !== 'cave';
-        while (_distanceScores && dailyDistanceForScore < dailyScrollX) {
-          grantScore(1);
-          dailyDistanceForScore += 24;
-        }
+        // Distance-based score was per-frame ticking up by 1 every
+        // 24 px — players reported it read as "score going up
+        // without collecting anything," which broke the
+        // pickup/cargo-delivery loop. Disabled across ALL daily
+        // levels in v385: score now only ticks from explicit
+        // events (pickups, delivery bonus, combos, perks).
+        // Distance progression still tracks via dailyScrollX for
+        // delivery-target gating; we just don't grant points for it.
+        // (Old: while (dailyDistanceForScore < dailyScrollX) {
+        //         grantScore(1); dailyDistanceForScore += 24; })
         // ---- Stage progression ----
         // Stages still gate which obstacles spawn (drones, ground ops,
         // sand patches, tentacles), but we no longer show a banner on
@@ -8687,6 +8687,112 @@ const DLX_BUILD = 'v384';
             }
             if (bt.y < -60) {
               dailyGlowBats.splice(i, 1);
+              continue;
+            }
+          }
+        }
+        // ---- CAVE SALAMANDERS (Glow Chamber only) -----------------
+        // Sit anchored on the cave floor, telegraph a wind-up when
+        // the rig approaches, then LUNGE upward with extended neck
+        // + head to grab cargo passing overhead. Player counter-
+        // play: read the telegraph (eye flash + tense pose) and
+        // raise/lower altitude before the strike commits. Recovery
+        // is the same crystal-pickup flow as bats / columns.
+        if (currentDeliveryLevel.obstacleSet
+            && currentDeliveryLevel.obstacleSet.glowSalamanders
+            && cargo && cargo.attached && !cargo.lost
+            && !dailyDelivered
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
+            && frame >= dailyNextSalamanderAt
+            && dailyGlowSalamanders.length < 3) {
+          // Spawn off-screen RIGHT at floor altitude. The salamander
+          // is anchored in worldX so it scrolls into view.
+          const spawnWX = dailyScrollX + W + 60 + Math.random() * 80;
+          const spawnY  = terrainHeightAt(spawnWX) - 4;
+          dailyGlowSalamanders.push({
+            worldX: spawnWX,
+            baseY:  spawnY,
+            state:  'wait',
+            stateFrames: 0,
+            bobPhase: Math.random() * Math.PI * 2,
+            lungeTargetX: spawnWX,
+            lungeTargetY: spawnY,
+            carrying: false,
+          });
+          dailyNextSalamanderAt = frame + 360 + Math.floor(Math.random() * 240);  // 6-10s
+        }
+        for (let i = dailyGlowSalamanders.length - 1; i >= 0; i--) {
+          const sl = dailyGlowSalamanders[i];
+          sl.stateFrames++;
+          sl.bobPhase += 0.05;
+          const sx = sl.worldX - dailyScrollX;
+
+          if (sl.state === 'wait') {
+            // Trigger the telegraph when the rig is approaching the
+            // salamander's worldX from the LEFT (rig is upcoming).
+            // Cargo must be in reachable altitude band (< 200 px above).
+            if (cargo && cargo.attached && !cargo.lost
+                && sx < bird.x + 100 && sx > bird.x - 30
+                && (sl.baseY - cargo.y) < 220
+                && (sl.baseY - cargo.y) > 20) {
+              sl.state = 'telegraph';
+              sl.stateFrames = 0;
+            }
+            if (sx < -40) { dailyGlowSalamanders.splice(i, 1); continue; }
+          } else if (sl.state === 'telegraph') {
+            // 36-frame wind-up. Player can dodge during this window.
+            if (sl.stateFrames >= 36) {
+              sl.state = 'lunge';
+              sl.stateFrames = 0;
+              // Lock target to cargo's CURRENT screen position so the
+              // strike has commitment (committed at lunge start).
+              if (cargo && cargo.attached && !cargo.lost) {
+                sl.lungeTargetX = cargo.x + dailyScrollX;
+                sl.lungeTargetY = cargo.y;
+              } else {
+                sl.lungeTargetX = sl.worldX;
+                sl.lungeTargetY = sl.baseY - 80;
+              }
+            }
+          } else if (sl.state === 'lunge') {
+            // Head rises toward target over 18 frames; grab check
+            // every frame.
+            const t = Math.min(1, sl.stateFrames / 18);
+            const headWX = sl.worldX + (sl.lungeTargetX - sl.worldX) * t;
+            const headY  = sl.baseY  + (sl.lungeTargetY - sl.baseY) * t;
+            const headSX = headWX - dailyScrollX;
+            if (cargo && cargo.attached && !cargo.lost && !sl.carrying) {
+              const ddx = headSX - cargo.x;
+              const ddy = headY - cargo.y;
+              if (ddx * ddx + ddy * ddy < 22 * 22) {
+                sl.carrying = true;
+                cargo.attached = false;
+                cargo.salamanderGrabbed = true;
+                cargo.salamanderRef = sl;
+                emitPickupSparks(cargo.x, cargo.y, '#a0ff60', 8);
+                playSound('tongueGrab');
+              }
+            }
+            if (sl.stateFrames >= 18) {
+              sl.state = 'retract';
+              sl.stateFrames = 0;
+            }
+          } else if (sl.state === 'retract') {
+            // Head returns to body over 18 frames. Drag cargo down
+            // along the trajectory if grabbed.
+            const t = Math.min(1, sl.stateFrames / 18);
+            if (sl.carrying && cargo && cargo.salamanderGrabbed && !cargo.lost) {
+              const headWX = sl.worldX + (sl.lungeTargetX - sl.worldX) * (1 - t);
+              const headY  = sl.baseY  + (sl.lungeTargetY - sl.baseY) * (1 - t);
+              cargo.x = headWX - dailyScrollX;
+              cargo.y = headY;
+              cargo.vy = 0;
+            }
+            if (sl.stateFrames >= 18) {
+              if (sl.carrying) {
+                triggerCargoTheft(sx, sl.baseY);
+              }
+              dailyGlowSalamanders.splice(i, 1);
               continue;
             }
           }
@@ -24311,8 +24417,9 @@ const DLX_BUILD = 'v384';
       drawCargoBond();
       drawDailyCargo();
     }
-    if (isDaily) drawDailyFlashlight();   // cave-theme darkness mask
-    if (isDaily) drawDailyGlowBats();     // additive bat silhouette ABOVE the mask
+    if (isDaily) drawDailyFlashlight();         // cave-theme darkness mask
+    if (isDaily) drawDailyGlowBats();           // additive bat silhouette ABOVE the mask
+    if (isDaily) drawDailyGlowSalamanders();    // additive lime salamander above the mask
     drawExhaust();
     drawSparks();
     drawPickupSparks();
@@ -24473,6 +24580,154 @@ const DLX_BUILD = 'v384';
   // Removed in v381: drawDailyGlowBatHalos (the radial-bloom-only
   // pass that made bats read as "dots"). Halo is now baked into
   // drawDailyGlowBats so the bat silhouette + halo render together.
+
+  // ---------- Cave salamanders (Glow Chamber) ---------------------
+  // Single-pass additive lime-green creature. Body sits flat on the
+  // floor with 4 legs + tail; during lunge/retract a neck extends
+  // upward toward the cargo. Halo around the body reads as the
+  // blacklight glow even outside the flashlight cone.
+  function drawDailyGlowSalamanders() {
+    if (!isDaily || !dailyGlowSalamanders.length) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const sl of dailyGlowSalamanders) {
+      const sx = sl.worldX - dailyScrollX;
+      if (sx < -40 || sx > W + 40) continue;
+      const baseY = sl.baseY;
+
+      // Compute current head position based on state
+      let headDX = 0, headDY = 0;
+      if (sl.state === 'lunge') {
+        const t = Math.min(1, sl.stateFrames / 18);
+        headDX = (sl.lungeTargetX - sl.worldX) * t;
+        headDY = (sl.lungeTargetY - sl.baseY) * t;
+      } else if (sl.state === 'retract') {
+        const t = Math.min(1, sl.stateFrames / 18);
+        headDX = (sl.lungeTargetX - sl.worldX) * (1 - t);
+        headDY = (sl.lungeTargetY - sl.baseY) * (1 - t);
+      }
+      const headSX = sx + headDX;
+      const headSY = baseY + headDY;
+      const lunging = Math.abs(headDX) > 1 || Math.abs(headDY) > 2;
+
+      // ---- Body halo — soft lime backdrop ----
+      const halo = ctx.createRadialGradient(sx, baseY - 4, 0,
+                                             sx, baseY - 4, 22);
+      halo.addColorStop(0,   'rgba(170, 255, 130, 0.45)');
+      halo.addColorStop(0.6, 'rgba(170, 255, 130, 0.16)');
+      halo.addColorStop(1,   'rgba(170, 255, 130, 0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(sx, baseY - 4, 22, 0, Math.PI * 2);
+      ctx.fill();
+
+      // ---- BODY — elongated lime ellipse lying flat on the floor.
+      ctx.fillStyle = 'rgba(140, 220, 100, 0.85)';
+      ctx.beginPath();
+      ctx.ellipse(sx, baseY - 4, 18, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Darker spine band on the back
+      ctx.fillStyle = 'rgba(80, 140, 60, 0.75)';
+      ctx.beginPath();
+      ctx.ellipse(sx, baseY - 5, 16, 1.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // ---- Bright spine spots (deterministic, 4 along the back) ----
+      ctx.fillStyle = 'rgba(220, 255, 180, 0.95)';
+      for (let s = 0; s < 4; s++) {
+        ctx.beginPath();
+        ctx.arc(sx - 10 + s * 7, baseY - 6, 1.0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // ---- LEGS — 4 short stubs pushing into the floor ----
+      ctx.strokeStyle = 'rgba(120, 200, 80, 0.85)';
+      ctx.lineWidth = 1.6;
+      for (let l = 0; l < 4; l++) {
+        const wob = Math.sin(sl.bobPhase + l * 0.7) * 0.6;
+        const lx = sx - 13 + l * 9;
+        ctx.beginPath();
+        ctx.moveTo(lx, baseY - 3);
+        ctx.lineTo(lx + 2 + wob, baseY);
+        ctx.stroke();
+      }
+
+      // ---- TAIL — wavy taper to the right ----
+      ctx.strokeStyle = 'rgba(140, 220, 100, 0.85)';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(sx + 16, baseY - 4);
+      ctx.quadraticCurveTo(sx + 22, baseY - 3 + Math.sin(sl.bobPhase) * 1.2,
+                           sx + 30, baseY - 4 + Math.sin(sl.bobPhase + 1.6) * 2);
+      ctx.stroke();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(220, 255, 180, 0.85)';
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+
+      // ---- NECK + HEAD — extended during lunge/retract ----
+      // Anchor (body's left/head end) to current head position.
+      const anchorX = sx - 15;
+      const anchorY = baseY - 4;
+      if (lunging) {
+        // Outer dark backing for the neck
+        ctx.strokeStyle = 'rgba(80, 140, 60, 0.85)';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(anchorX, anchorY);
+        ctx.quadraticCurveTo((anchorX + headSX) * 0.5,
+                              (anchorY + headSY) * 0.5 - 4,
+                              headSX, headSY);
+        ctx.stroke();
+        // Mid lime
+        ctx.strokeStyle = 'rgba(140, 220, 100, 0.95)';
+        ctx.lineWidth = 3.4;
+        ctx.stroke();
+        // Bright spine highlight
+        ctx.strokeStyle = 'rgba(220, 255, 180, 0.95)';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+      }
+
+      // ---- HEAD — bright lime ball at the head position ----
+      const hx = lunging ? headSX : anchorX;
+      const hy = lunging ? headSY : anchorY - 1;
+      ctx.fillStyle = 'rgba(170, 255, 130, 0.95)';
+      ctx.beginPath();
+      ctx.arc(hx, hy, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      // Eye glint
+      ctx.fillStyle = 'rgba(255, 255, 200, 0.95)';
+      ctx.beginPath();
+      ctx.arc(hx - 1, hy - 1, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // ---- TELEGRAPH FLASH — pulsing eye glow during wind-up so
+      //     the player can see the strike coming.
+      if (sl.state === 'telegraph') {
+        const pulse = (sl.stateFrames % 12) / 12;
+        ctx.fillStyle = 'rgba(255, 255, 100, ' + (1 - pulse) * 0.7 + ')';
+        ctx.beginPath();
+        ctx.arc(hx, hy, 5 + pulse * 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // ---- TONGUE FLICK during lunge — small forked detail at the
+      //     head tip when the salamander is striking.
+      if (sl.state === 'lunge' && sl.stateFrames > 4) {
+        ctx.strokeStyle = 'rgba(255, 200, 230, 0.85)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(hx, hy);
+        ctx.lineTo(hx - 2, hy - 5);
+        ctx.moveTo(hx, hy);
+        ctx.lineTo(hx + 2, hy - 5);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
   // ---------- Flashlight cone (cave-theme levels) -----------------
   // Glow Chamber + future cave levels mask the world dark and carve
   // a forward-facing cone out of the darkness so the rig's headlight
@@ -25018,6 +25273,8 @@ const DLX_BUILD = 'v384';
     dailyNextThiefAt = frame + 300;      // first thief swoops in ~5s after launch
     dailyGlowBats = [];
     dailyNextGlowBatAt = frame + 540;    // first bat wave ~9s after launch
+    dailyGlowSalamanders = [];
+    dailyNextSalamanderAt = frame + 360; // first salamander spawn ~6s in
     dailyMirrorPairs = [];
     dailyNextMirrorPairAt = frame + 720; // first mirror parasite pair ~12s in
     dailyPressureBubbles = [];
@@ -25527,14 +25784,15 @@ const DLX_BUILD = 'v384';
       cargoFlavor: null,
       // Cave levels suppress every existing obstacle and route the
       // air-obstacle slot through the cave-column branch instead.
-      // Cave-native critter flags (glowBats added in Ship 3;
-      // salamanders + spiders coming in Ships 4-5).
+      // Cave-native critter flags (glowBats added in Ship 3,
+      // salamanders added in Ship 4; spiders coming in Ship 5).
       obstacleSet: {
         drones: false, thieves: false, groundOps: false,
         lavaBalls: false, scrapTowers: false, airWrecks: false,
         tunnels: false, tentacles: false,
         caveColumns: true,
         glowBats: true,
+        glowSalamanders: true,
       },
       obstacleTheme: 'cave',
       // Flashlight cone — Ship 1 hook. The rig has a forward-pointing
@@ -25585,6 +25843,14 @@ const DLX_BUILD = 'v384';
   // halo AFTER the mask (visible everywhere in the dark).
   let dailyGlowBats = [];
   let dailyNextGlowBatAt = 0;
+  // Cave salamanders (Glow Chamber only). Sit on the cave floor,
+  // wait for the rig to pass overhead, telegraph a wind-up, then
+  // lunge UPWARD with neck + head extended toward the cargo. Each
+  // entry: { worldX, baseY, state, stateFrames, bobPhase,
+  // lungeTargetX, lungeTargetY, carrying }. Painted additively so
+  // the lime glow shows even outside the flashlight cone.
+  let dailyGlowSalamanders = [];
+  let dailyNextSalamanderAt = 0;
   // Mirror parasites (Leviathan only). Each entry is a PAIR: a floor
   // parasite + a ceiling parasite that emerge at the same worldX,
   // lunge toward each other through the air, and grab the cargo
