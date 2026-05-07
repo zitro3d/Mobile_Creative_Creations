@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v399';
+const DLX_BUILD = 'v400';
 
 (function() {
   // ---------- Device detection ----------
@@ -8398,12 +8398,16 @@ const DLX_BUILD = 'v399';
         }
         // Magnet field timer (set when a magnet box is picked up)
         if (dailyMagnetFieldFrames > 0) dailyMagnetFieldFrames--;
-        // While the field is active, pull nearby scrap cogs toward the
-        // rig so the player feels the box doing something useful even
-        // when their cargo is already attached.
-        if (dailyMagnetFieldFrames > 0) {
+        // Magnet pull fires when EITHER the dailyMagnetFieldFrames
+        // (from a recall-box pickup) is active, OR the campaign
+        // Tractor Beam mod's magnetFrames timer is running. Both
+        // pull the same loose scrap toward the rig — same effect,
+        // two sources, so the Tractor Beam mod feels familiar
+        // when picked up in daily.
+        const magnetActive = dailyMagnetFieldFrames > 0 || magnetFrames > 0;
+        if (magnetActive) {
           // SPARK perk: Magnet Range +50% widens the active-field pull
-          // radius too (160 → 240 px) so the magnet box pickup feels
+          // radius too (160 → 240 px) so the magnet pickup feels
           // even stronger on a magnet-spec rig.
           const sparkMult = rigPerk('magnetRange') || 1.0;
           const pullR = 160 * sparkMult;
@@ -9152,6 +9156,56 @@ const DLX_BUILD = 'v399';
           if (wf.worldX - dailyScrollX < -80) {
             dailyWaterfalls.splice(i, 1);
           }
+        }
+        // ---- MID-FLIGHT MOD CAPSULES (campaign parity) ----------
+        // Floating capsules drift across the screen at varied
+        // altitudes. Pickup activates one of the campaign mod
+        // power-ups so daily players see the SAME Bumper / Time
+        // Warp / Payday / Tractor Beam / Phase Shift mods they
+        // know from campaign. Cadence ~12-18 sec, max 3 on screen.
+        if (frame >= dailyNextPowerUpAt
+            && !dailyDelivered
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
+            && dailyPowerUps.length < 3) {
+          const dailyKinds = ['shield', 'slow', 'double', 'magnet', 'ghost'];
+          const pick = dailyKinds[Math.floor(Math.random() * dailyKinds.length)];
+          dailyPowerUps.push({
+            x: W + 36,
+            y: 70 + Math.random() * (PLAY_H - 200),
+            kind: pick,
+            bobPhase: Math.random() * Math.PI * 2,
+            alive: true,
+          });
+          dailyNextPowerUpAt = frame + 720 + Math.floor(Math.random() * 360);
+        }
+        for (let i = dailyPowerUps.length - 1; i >= 0; i--) {
+          const pu = dailyPowerUps[i];
+          if (!pu.alive) { dailyPowerUps.splice(i, 1); continue; }
+          // Drift left at half scroll speed so the capsule reads
+          // as a thing the rig is FLYING TOWARDS, not chasing.
+          pu.x -= (speed || 1.6) * 0.55;
+          pu.y += Math.sin(frame * 0.05 + pu.bobPhase) * 0.35;
+          // Tractor-beam pull from the rig: when magnetFrames is
+          // active, capsules curve toward the rig too.
+          if (magnetFrames > 0) {
+            const dxM = bird.x - pu.x;
+            const dyM = bird.y - pu.y;
+            const dM = Math.hypot(dxM, dyM) || 1;
+            if (dM < 200) {
+              pu.x += (dxM / dM) * 1.6;
+              pu.y += (dyM / dM) * 1.6;
+            }
+          }
+          // Pickup
+          const ddx = bird.x - pu.x;
+          const ddy = bird.y - pu.y;
+          if (ddx * ddx + ddy * ddy < 22 * 22) {
+            pu.alive = false;
+            activatePowerUp(pu.kind);
+            emitPickupSparks(pu.x, pu.y, '#ffd040', 16);
+          }
+          // Despawn off the left edge
+          if (pu.x < -40) dailyPowerUps.splice(i, 1);
         }
         // ---- AMOEBA-INFECTED PILLARS (Leviathan only) -------------
         // Cargo theft set-piece. A translucent gelatinous amoeba is
@@ -25627,6 +25681,7 @@ const DLX_BUILD = 'v399';
       drawDailyLavaBalls();
       drawDailyBandits();        // bandit body + sled (lit by cone, BEFORE mask)
       drawDailyWaterfalls();     // waterfalls + priority crates (BEFORE mask)
+      drawDailyPowerUps();       // mid-flight mod capsules (campaign parity)
     }
     if (isDaily) drawDailyFlashlight();         // cave-theme darkness mask
     if (isDaily) drawDailyGlowBats();           // additive bat silhouette ABOVE the mask
@@ -26357,6 +26412,20 @@ const DLX_BUILD = 'v399';
       }
     }
   }
+  // ---------- Daily mid-flight mod capsules (campaign parity) -----
+  // Floating capsules drifting across the screen. Uses the existing
+  // campaign drawPowerUpCapsule renderer so the icons read identical
+  // to what players see in campaign — Bumper / Time Warp / Payday /
+  // Tractor Beam / Phase Shift.
+  function drawDailyPowerUps() {
+    if (!isDaily || !dailyPowerUps.length) return;
+    for (const pu of dailyPowerUps) {
+      if (!pu.alive) continue;
+      const cx = Math.round(pu.x);
+      const cy = Math.round(pu.y + Math.sin(frame * 0.06 + pu.bobPhase) * 2);
+      drawPowerUpCapsule(cx, cy, pu.kind);
+    }
+  }
   // ---------- Flashlight cone (cave-theme levels) -----------------
   // Glow Chamber + future cave levels mask the world dark and carve
   // a forward-facing cone out of the darkness so the rig's headlight
@@ -26919,6 +26988,8 @@ const DLX_BUILD = 'v399';
     dailyWaterfalls = [];
     dailyNextWaterfallAt = frame + 1800;   // first waterfall ~30s in
     dailyWaterfallsSpawned = 0;
+    dailyPowerUps = [];
+    dailyNextPowerUpAt = frame + 540;      // first MOD capsule ~9s in
     dailyThieves = [];
     dailyNextThiefAt = frame + 300;      // first thief swoops in ~5s after launch
     dailyGlowBats = [];
@@ -27522,6 +27593,15 @@ const DLX_BUILD = 'v399';
   let dailyWaterfalls = [];
   let dailyNextWaterfallAt = 0;
   let dailyWaterfallsSpawned = 0;
+  // Mid-flight MOD capsules for daily mode (campaign parity).
+  // Spawned periodically as floating capsules — pickup activates
+  // shield (Bumper), slow (Time Warp), double (Payday), magnet
+  // (Tractor Beam), or ghost (Phase Shift). Same activation
+  // pipeline as campaign so timers/HUD/feedback all read the
+  // same. (Road Kill / missile deferred — needs daily target
+  // picker.) Each entry: { x, y, kind, bobPhase, alive }.
+  let dailyPowerUps = [];
+  let dailyNextPowerUpAt = 0;
   // Mirror parasites (Leviathan only). Each entry is a PAIR: a floor
   // parasite + a ceiling parasite that emerge at the same worldX,
   // lunge toward each other through the air, and grab the cargo
