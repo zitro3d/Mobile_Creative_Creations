@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v401';
+const DLX_BUILD = 'v402';
 
 (function() {
   // ---------- Device detection ----------
@@ -3385,6 +3385,13 @@ const DLX_BUILD = 'v401';
         noiseBurst(0.18, 0.08);
         tone(1320, 0.10, 'square',   0.16, 1760);
         setTimeout(function(){ tone(880, 0.10, 'triangle', 0.12,  880); }, 60);
+        break;
+      case 'comboBreak':
+        // Combo streak ended — quiet two-tone descent so the
+        // player hears the multiplier reset without it being
+        // overwhelming on a regular hit.
+        tone(440, 0.08, 'square',   0.09, 220);
+        setTimeout(function(){ tone(220, 0.12, 'sawtooth', 0.09, 110); }, 50);
         break;
       case 'dock':
         // Mechanical latch-engage when the truck stop docking
@@ -4467,6 +4474,54 @@ const DLX_BUILD = 'v401';
   function setLevelBanner(text) {
     levelBanner.text = text;
     levelBanner.life = 120;
+  }
+  function setShortBanner(text) {
+    // Quick 1-sec banner, used for mid-flight mod activation pop-ups
+    // so the player sees which mod just fired.
+    levelBanner.text = text;
+    levelBanner.life = 60;
+  }
+  // Score floaters — small "+N" text that rises from the pickup
+  // position and fades out. Adds satisfying punch to every
+  // pickup across both campaign + daily so the player feels
+  // each grain of score as it's earned.
+  let scoreFloaters = [];
+  function emitScoreFloater(x, y, value, color) {
+    if (value < 5) return;       // skip noise for trivial pickups
+    scoreFloaters.push({
+      x: x, y: y,
+      text: '+' + value,
+      color: color || '#ffd83d',
+      life: 56,
+      maxLife: 56,
+      vy: -1.5,
+    });
+  }
+  function updateScoreFloaters() {
+    for (let i = scoreFloaters.length - 1; i >= 0; i--) {
+      const f = scoreFloaters[i];
+      f.life--;
+      f.y += f.vy;
+      f.vy *= 0.96;
+      if (f.life <= 0) scoreFloaters.splice(i, 1);
+    }
+  }
+  function drawScoreFloaters() {
+    if (!scoreFloaters.length) return;
+    ctx.save();
+    ctx.font = 'bold 12px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3;
+    for (const f of scoreFloaters) {
+      const a = Math.min(1, f.life / f.maxLife);
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = '#1a0a06';
+      ctx.fillStyle = f.color;
+      ctx.strokeText(f.text, f.x, f.y);
+      ctx.fillText(f.text, f.x, f.y);
+    }
+    ctx.restore();
   }
 
   // ---------- The Dispatcher ----------
@@ -6680,6 +6735,7 @@ const DLX_BUILD = 'v401';
     pipes = [];
     sparks = [];
     pickupSparks = [];
+    scoreFloaters = [];
     exhaust = [];
     score = 0;
     runTokens = 0;
@@ -8502,6 +8558,8 @@ const DLX_BUILD = 'v401';
               grantScore(isGold ? 15 : 5);
               addCombo();
               emitPickupSparks(pickupX, pickupY, isGold ? '#ffd060' : '#3ad0ff', isGold ? 12 : 8);
+              emitScoreFloater(pickupX, pickupY - 8, isGold ? 15 : 5,
+                               isGold ? '#ffd060' : '#3ad0ff');
               playSound(isGold ? 'gold' : 'pickup');
             } else if (p.kind === 'caveCrystal') {
               // Glow Chamber score crystal — score-only. (Recovery
@@ -8510,6 +8568,7 @@ const DLX_BUILD = 'v401';
               grantScore(5);
               addCombo();
               emitPickupSparks(pickupX, pickupY, '#a0e8ff', 10);
+              emitScoreFloater(pickupX, pickupY - 8, 5, '#a0e8ff');
               playSound('pickup');
             } else if (p.kind === 'recallCrystal') {
               // RECALL CRYSTAL — rare hidden ceiling-hung gem that
@@ -8519,6 +8578,7 @@ const DLX_BUILD = 'v401';
               grantScore(40);
               addCombo();
               emitPickupSparks(pickupX, pickupY, '#ff60a0', 18);
+              emitScoreFloater(pickupX, pickupY - 10, 40, '#ff60a0');
               playSound('powerup');
             } else if (p.kind === 'magnetBox') {
               // RECALL — every box ALWAYS yanks the cargo back to the
@@ -8544,6 +8604,7 @@ const DLX_BUILD = 'v401';
               if (!wasLost && !wasDetached) {
                 grantScore(20);
                 addCombo();
+                emitScoreFloater(pickupX, pickupY - 10, 20, '#ff60a0');
               }
               // 4-second scrap magnet field that auto-pulls nearby cogs
               dailyMagnetFieldFrames = 240;
@@ -8557,6 +8618,7 @@ const DLX_BUILD = 'v401';
               grantScore(50);
               addCombo();
               emitPickupSparks(pickupX, pickupY, '#ff9a30', 22);
+              emitScoreFloater(pickupX, pickupY - 10, 50, '#ff9a30');
               playSound('forceField');
             }
           }
@@ -9147,6 +9209,8 @@ const DLX_BUILD = 'v401';
             grantScore(60);
             addCombo();
             emitPickupSparks(sxW, wf.crateY, '#ffd040', 30);
+            emitScoreFloater(sxW, wf.crateY - 14, 60, '#ffd040');
+            setShortBanner('★ PRIORITY CARGO LOADED');
             playSound('specialCrate');
           }
         }
@@ -9771,6 +9835,7 @@ const DLX_BUILD = 'v401';
       updateHazard();
       updateSparks();
       updatePickupSparks();
+      updateScoreFloaters();
       if (frame % 6 === 0) refreshHud();
 
       if (collide()) {
@@ -10172,6 +10237,7 @@ const DLX_BUILD = 'v401';
         const sparkColor = tier ? tierSparks[tier] : '#fff3a8';
         addCombo();
         grantScore(points);
+        emitScoreFloater(cx, cy - 8, points, sparkColor);
         scorePulse = 1;
         burstFrames = tier === 'mythic' ? 22 : (tier ? 14 : 10);
         emitPickupSparks(cx, cy, sparkColor, points);
@@ -10219,6 +10285,19 @@ const DLX_BUILD = 'v401';
     else if (kind === 'missile') fireMissile();
     refreshHud();
     playSound('powerup');
+    // Mod activation banner — players see the mod NAME the moment
+    // they grab a capsule so they know what just fired (campaign +
+    // daily). Quick 1-sec banner that doesn't step on the level
+    // banner system.
+    const label = kind === 'shield'   ? '★ BUMPER'
+                : kind === 'slow'     ? '★ TIME WARP'
+                : kind === 'double'   ? '★ PAYDAY ×2'
+                : kind === 'magnet'   ? '★ TRACTOR BEAM'
+                : kind === 'ghost'    ? '★ PHASE SHIFT'
+                : kind === 'missile'  ? '★ ROAD KILL'
+                : kind === 'emp'      ? '★ EMP'
+                : '★ POWER-UP';
+    setShortBanner(label);
   }
 
   // Auto-fire a homing missile at the next obstacle that is ENTIRELY ahead
@@ -10747,6 +10826,7 @@ const DLX_BUILD = 'v401';
           const points = isGold ? 5 : 1;
           addCombo();
           grantScore(points);
+          if (isGold) emitScoreFloater(l.x, l.y - 8, points, '#ffe066');
           scorePulse = 1;
           burstFrames = 10;
           emitPickupSparks(l.x, l.y, isGold ? '#ffe066' : '#fff3a8', points);
@@ -10849,7 +10929,13 @@ const DLX_BUILD = 'v401';
     if (combo > comboMax) comboMax = combo;
   }
   function breakCombo() {
-    if (combo > 0) combo = 0;
+    if (combo > 0) {
+      combo = 0;
+      // Audio feedback so the player can HEAR the streak end —
+      // helps when the combo HUD might be off-screen at the
+      // moment of theft.
+      playSound('comboBreak');
+    }
   }
 
   // Pickup sparks use a dedicated array so they don't get cleared with sparks on death
@@ -25832,6 +25918,7 @@ const DLX_BUILD = 'v401';
     drawExhaust();
     drawSparks();
     drawPickupSparks();
+    drawScoreFloaters();
     drawMissiles();
     drawLoot();
     drawPirate();
