@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v397';
+const DLX_BUILD = 'v398';
 
 (function() {
   // ---------- Device detection ----------
@@ -8363,11 +8363,10 @@ const DLX_BUILD = 'v397';
         }
         // ---- Magnet recall boxes (cargo recovery + scrap magnet field) ----
         // Mostly low to the ground (must dive for them) but ~25% spawn
-        // mid-air so the altitude isn't predictable. Cave levels suppress
-        // them — recovery in Glow Chamber comes via the in-column cog
-        // pickups, and the pink desert box would feel out of place.
-        const _spawnMagnetBoxes = currentDeliveryLevel.obstacleTheme !== 'cave';
-        while (_spawnMagnetBoxes && dailyNextMagnetX < dailyScrollX + W + 200) {
+        // mid-air so the altitude isn't predictable. Available across
+        // all daily themes (v398: re-enabled in cave for parity with
+        // Sunset/Leviathan — campaign-trained players expect these).
+        while (dailyNextMagnetX < dailyScrollX + W + 200) {
           // Nudge spawn forward up to 6 times to find a clear spot —
           // pink boxes are too important to skip outright
           let spawnX = dailyNextMagnetX;
@@ -8497,6 +8496,7 @@ const DLX_BUILD = 'v397';
               // Gold tunnel cogs are worth 3x and emit gold sparks
               const isGold = !!p.gold;
               grantScore(isGold ? 15 : 5);
+              addCombo();
               emitPickupSparks(pickupX, pickupY, isGold ? '#ffd060' : '#3ad0ff', isGold ? 12 : 8);
               playSound(isGold ? 'gold' : 'pickup');
             } else if (p.kind === 'caveCrystal') {
@@ -8504,6 +8504,7 @@ const DLX_BUILD = 'v397';
               // moved to recallCrystal in v394 so the rare pink
               // crystal is the meaningful cargo-back resource.)
               grantScore(5);
+              addCombo();
               emitPickupSparks(pickupX, pickupY, '#a0e8ff', 10);
               playSound('pickup');
             } else if (p.kind === 'recallCrystal') {
@@ -8512,6 +8513,7 @@ const DLX_BUILD = 'v397';
               // meaningful score bonus. Distinct sparks + sound so
               // the pickup reads as special.
               grantScore(40);
+              addCombo();
               emitPickupSparks(pickupX, pickupY, '#ff60a0', 18);
               playSound('powerup');
             } else if (p.kind === 'magnetBox') {
@@ -8535,7 +8537,10 @@ const DLX_BUILD = 'v397';
               // cargo so the player can see the recall fire
               shakeFrames = Math.max(shakeFrames, 6);
               // Score bonus only fires when cargo was already safely attached
-              if (!wasLost && !wasDetached) grantScore(20);
+              if (!wasLost && !wasDetached) {
+                grantScore(20);
+                addCombo();
+              }
               // 4-second scrap magnet field that auto-pulls nearby cogs
               dailyMagnetFieldFrames = 240;
               emitPickupSparks(pickupX, pickupY, '#ff60a0', 14);
@@ -8546,6 +8551,7 @@ const DLX_BUILD = 'v397';
               const battery = rigPerk('longBattery') || 360;
               forceFieldFrames = Math.max(forceFieldFrames, battery);
               grantScore(50);
+              addCombo();
               emitPickupSparks(pickupX, pickupY, '#ff9a30', 22);
               playSound('forceField');
             }
@@ -9007,6 +9013,7 @@ const DLX_BUILD = 'v397';
                 cargo.attached = false;
                 cargo.banditGrabbed = true;
                 cargo.banditRef = bd;
+                breakCombo();    // grab = streak broken at moment of theft
                 // PRIORITY bonus is permanently lost on theft —
                 // recall crystals only restore the regular cargo.
                 const lostBonus = !!cargo.hasBonus;
@@ -9134,6 +9141,7 @@ const DLX_BUILD = 'v397';
             wf.collectFrame = frame;
             if (cargo) cargo.hasBonus = true;
             grantScore(60);
+            addCombo();
             emitPickupSparks(sxW, wf.crateY, '#ffd040', 30);
             playSound('specialCrate');
           }
@@ -27866,6 +27874,7 @@ const DLX_BUILD = 'v397';
     cargo.parasiteLocked = false;
     cargo.parasitePair = null;
     cargo.lost = true;
+    breakCombo();           // theft = pickup streak ends
     emitPickupSparks(srcX || cargo.x, srcY || cargo.y, '#ff6080', 18);
     playSound('boom');
   }
