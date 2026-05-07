@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v406';
+const DLX_BUILD = 'v407';
 
 (function() {
   // ---------- Device detection ----------
@@ -7660,33 +7660,13 @@ const DLX_BUILD = 'v406';
           bird.y = dailyIntroStartY + (dailyIntroTargetY - dailyIntroStartY) * liftEase;
         }
         // Run cargo spring physics so the cargo trails the rig the
-        // whole time — taxi AND liftoff. Glow Chamber gets a launch
-        // CINEMATIC for the first 30 % of the intro: the cargo
-        // crate descends from the gantry crane HOOK altitude down
-        // onto the rig (so the player sees the crate being loaded
-        // by the crane). After 30 % the standard spring tether
-        // takes over.
+        // whole time — taxi AND liftoff
         if (cargo && cargo.attached && !cargo.lost) {
-          const isLaunchCinematic =
-              currentDeliveryLevel.obstacleTheme === 'cave'
-              && t < 0.30;
-          if (isLaunchCinematic) {
-            const cinT = t / 0.30;
-            const ease = 1 - Math.pow(1 - cinT, 2);
-            // Hook altitude is below the carriage (gantryTop + 4)
-            // matching the crane render's cable-tip math.
-            const cineTopY  = PLAY_H / 2 + 28 - 136 + 14;   // hook start
-            const cineEndY  = bird.y - 4;                    // tether final
-            cargo.x = bird.x - 32;
-            cargo.y = cineTopY + (cineEndY - cineTopY) * ease;
-            cargo.vy = 0;
-          } else {
-            const tx = bird.x - 32;
-            const ty = bird.y - 4 + Math.sin(frame * 0.18) * 1.2;
-            cargo.x += (tx - cargo.x) * 0.30;
-            cargo.y += (ty - cargo.y) * 0.30;
-            cargo.vy = 0;
-          }
+          const tx = bird.x - 32;
+          const ty = bird.y - 4 + Math.sin(frame * 0.18) * 1.2;
+          cargo.x += (tx - cargo.x) * 0.30;
+          cargo.y += (ty - cargo.y) * 0.30;
+          cargo.vy = 0;
         }
         // Ramp the world scroll up over the intro so the hangar slides
         // left past the rig — sells the takeoff momentum
@@ -15614,48 +15594,11 @@ const DLX_BUILD = 'v406';
       ctx.lineTo(x + off,      gantryTop);
       ctx.stroke();
     }
-    // CRANE CARRIAGE — small box hanging from the beam.
-    // During the launch intro animation, the crane PERFORMS A
-    // HOOK-UP CINEMATIC: the carriage tracks the rig, the hook is
-    // attached to the rig at takeoff, then releases + retracts as
-    // the rig clears the hangar. After the intro completes (or any
-    // non-launch frame), the carriage drifts on its idle wave.
-    let carriageX, carriageY = gantryTop + 4;
-    let cableTipY = carriageY + 10 + 22;
-    let cinematicGrip = false;
-    if (typeof dailyIntroFrames !== 'undefined' && dailyIntroFrames > 0) {
-      const introProgress = 1 - dailyIntroFrames / 75;        // 0 → 1
-      // Carriage tracks the rig (and therefore the cargo crate
-      // being lowered onto the rig) horizontally throughout the
-      // cinematic so the cable always hangs straight down to the
-      // crate.
-      carriageX = bird.x;
-      // PHASE 1 (0 → 30 %): cable tip is anchored JUST ABOVE the
-      //   cargo crate, which is itself descending from hook
-      //   altitude onto the rig (handled in the intro update).
-      //   This is what the player sees as "the crane lowers the
-      //   CRATE onto the rig."
-      // PHASE 2 (30 → 65 %): cargo has landed; hook releases and
-      //   retracts up to the carriage with eased acceleration.
-      // PHASE 3 (65 % +): idle drift.
-      if (introProgress < 0.30 && cargo && !cargo.lost) {
-        cableTipY = cargo.y - 11;       // just above the crate
-        cinematicGrip = true;
-      } else if (introProgress < 0.65) {
-        const retractT = (introProgress - 0.30) / 0.35;
-        const ease = 1 - Math.pow(1 - retractT, 2);
-        const startTip = (cargo ? cargo.y - 11 : carriageY + 80);
-        const endTip   = carriageY + 32;
-        cableTipY = startTip + (endTip - startTip) * ease;
-      } else {
-        cableTipY = carriageY + 32 + Math.sin(frame * 0.020) * 4;
-      }
-    } else {
-      // Idle drift (post-launch / non-launch frames)
-      const carriagePhase = Math.sin(frame * 0.012) * 50;
-      carriageX = x + carriagePhase;
-      cableTipY = carriageY + 10 + 22 + Math.sin(frame * 0.020) * 4;
-    }
+    // CRANE CARRIAGE — small box hanging from the beam, slowly
+    // drifting back-and-forth so it reads as ACTIVE.
+    const carriagePhase = Math.sin(frame * 0.012) * 50;
+    const carriageX = x + carriagePhase;
+    const carriageY = gantryTop + 4;
     ctx.fillStyle = '#1a2030';
     ctx.fillRect(carriageX - 10, carriageY, 20, 10);
     ctx.strokeStyle = '#ffd040';
@@ -15666,18 +15609,16 @@ const DLX_BUILD = 'v406';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('DLX', carriageX, carriageY + 5);
-    // CABLE + HOOK — cable from carriage down to the cable tip.
-    const hookY = cableTipY;
+    // CABLE + HOOK — cable from carriage down to a hook
+    const hookY = carriageY + 10 + 22 + Math.sin(frame * 0.020) * 4;
     ctx.strokeStyle = '#1a0e05';
     ctx.lineWidth = 1.4;
     ctx.beginPath();
     ctx.moveTo(carriageX, carriageY + 10);
     ctx.lineTo(carriageX, hookY);
     ctx.stroke();
-    // Hook (J-shape) — when actively gripping the rig the hook
-    // gets a brighter amber tint + small spark so the latch reads
-    // as engaged.
-    ctx.strokeStyle = cinematicGrip ? '#ffd040' : '#3a4453';
+    // Hook (J-shape)
+    ctx.strokeStyle = '#3a4453';
     ctx.lineWidth = 2.2;
     ctx.lineCap = 'round';
     ctx.beginPath();
@@ -15687,19 +15628,6 @@ const DLX_BUILD = 'v406';
                          carriageX - 5, hookY + 12);
     ctx.stroke();
     ctx.lineCap = 'butt';
-    if (cinematicGrip) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      const sparkHalo = ctx.createRadialGradient(carriageX, hookY + 8, 0,
-                                                  carriageX, hookY + 8, 8);
-      sparkHalo.addColorStop(0, 'rgba(255, 220, 120, 0.6)');
-      sparkHalo.addColorStop(1, 'rgba(255, 220, 120, 0)');
-      ctx.fillStyle = sparkHalo;
-      ctx.beginPath();
-      ctx.arc(carriageX, hookY + 8, 8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
 
     // ---- 6. INDUSTRIAL LANDING DECK — steel platform with hazard-
     //         stripe runway markings on top. This is where the rig
