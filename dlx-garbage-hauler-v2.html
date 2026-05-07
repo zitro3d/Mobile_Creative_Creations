@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v390';
+const DLX_BUILD = 'v391';
 
 (function() {
   // ---------- Device detection ----------
@@ -8793,6 +8793,156 @@ const DLX_BUILD = 'v390';
                 triggerCargoTheft(sx, sl.baseY);
               }
               dailyGlowSalamanders.splice(i, 1);
+              continue;
+            }
+          }
+        }
+        // ---- DLX BANDITS (Glow Chamber only — Ship C) -------------
+        // Humanoid thieves on jet-skiff sleds zoom in from off-
+        // screen, line up alongside the cargo, fire a grappling
+        // hook, and flee with the crate if it connects. Player
+        // counter-play: change altitude during the 'incoming'
+        // approach OR during the brief lock-on so the hook locks
+        // onto an old position the cargo no longer occupies.
+        if (currentDeliveryLevel.obstacleSet
+            && currentDeliveryLevel.obstacleSet.dlxBandits
+            && cargo && cargo.attached && !cargo.lost
+            && !dailyDelivered
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
+            && frame >= dailyNextBanditAt
+            && dailyDlxBandits.length < 2) {
+          // Spawn from off-screen LEFT (chasing rig from behind) or
+          // RIGHT (heading toward rig from ahead). Random.
+          const fromBehind = Math.random() < 0.5;
+          const spawnX = fromBehind ? -50 : (W + 50);
+          const spawnY = 70 + Math.random() * (PLAY_H - 200);
+          const speed = fromBehind ? (2.6 + Math.random() * 0.6)
+                                   : -(2.6 + Math.random() * 0.6);
+          dailyDlxBandits.push({
+            x: spawnX,
+            y: spawnY,
+            vx: speed,
+            vy: 0,
+            state: 'incoming',
+            stateFrames: 0,
+            hookLen: 0,
+            hookDirX: 0,
+            hookDirY: 0,
+            hookTipX: spawnX,
+            hookTipY: spawnY,
+            carrying: false,
+            // facing: -1 = bandit body faces RIGHT, +1 = LEFT (so
+            // approach direction matches body orientation)
+            facing: fromBehind ? -1 : 1,
+            flapPhase: Math.random() * Math.PI * 2,
+          });
+          dailyNextBanditAt = frame + 540 + Math.floor(Math.random() * 360);
+        }
+        for (let i = dailyDlxBandits.length - 1; i >= 0; i--) {
+          const bd = dailyDlxBandits[i];
+          bd.stateFrames++;
+          bd.flapPhase += 0.15;
+
+          if (bd.state === 'incoming') {
+            // Steer toward cargo's altitude (approach paralleling)
+            if (cargo && cargo.attached && !cargo.lost) {
+              const dy = cargo.y - bd.y;
+              bd.vy += dy * 0.005;
+              bd.vy = Math.max(-2.4, Math.min(2.4, bd.vy));
+            }
+            bd.x += bd.vx;
+            bd.y += bd.vy;
+            // Trigger fire when bandit is alongside the cargo
+            if (cargo && cargo.attached && !cargo.lost) {
+              const dx = bd.x - cargo.x;
+              const dy = bd.y - cargo.y;
+              if (Math.abs(dx) < 90 && Math.abs(dy) < 70) {
+                bd.state = 'fire';
+                bd.stateFrames = 0;
+                // Lock hook direction to cargo's CURRENT position
+                const ddx = cargo.x - bd.x;
+                const ddy = cargo.y - bd.y;
+                const dd = Math.hypot(ddx, ddy) || 1;
+                bd.hookDirX = ddx / dd;
+                bd.hookDirY = ddy / dd;
+                playSound('vineLash');     // hook-fire whoosh
+              }
+            }
+            if (bd.x < -80 || bd.x > W + 80) {
+              dailyDlxBandits.splice(i, 1);
+              continue;
+            }
+          } else if (bd.state === 'fire') {
+            // Slow forward drift while firing
+            bd.x += bd.vx * 0.4;
+            // Hook extends over 18 frames toward locked direction
+            const HOOK_MAX = 90;
+            bd.hookLen = Math.min(HOOK_MAX, (bd.stateFrames / 18) * HOOK_MAX);
+            bd.hookTipX = bd.x + bd.hookDirX * bd.hookLen;
+            bd.hookTipY = bd.y + bd.hookDirY * bd.hookLen;
+            // Grab check every frame during the extension
+            if (cargo && cargo.attached && !cargo.lost && !bd.carrying) {
+              const ddx = bd.hookTipX - cargo.x;
+              const ddy = bd.hookTipY - cargo.y;
+              if (ddx * ddx + ddy * ddy < 22 * 22) {
+                bd.carrying = true;
+                cargo.attached = false;
+                cargo.banditGrabbed = true;
+                cargo.banditRef = bd;
+                emitPickupSparks(cargo.x, cargo.y, '#ffd040', 12);
+                playSound('tongueGrab');
+              }
+            }
+            if (bd.stateFrames >= 18) {
+              bd.state = bd.carrying ? 'reel' : 'retract';
+              bd.stateFrames = 0;
+            }
+          } else if (bd.state === 'reel') {
+            // Reel cargo back to bandit hand over 12 frames, then flee.
+            const t = Math.min(1, bd.stateFrames / 12);
+            const newLen = Math.max(0, bd.hookLen * (1 - t));
+            bd.hookTipX = bd.x + bd.hookDirX * newLen;
+            bd.hookTipY = bd.y + bd.hookDirY * newLen;
+            bd.x += bd.vx * 0.3;
+            if (cargo && cargo.banditGrabbed && !cargo.lost) {
+              cargo.x = bd.hookTipX;
+              cargo.y = bd.hookTipY;
+              cargo.vy = 0;
+            }
+            if (bd.stateFrames >= 12) {
+              bd.state = 'flee';
+              bd.stateFrames = 0;
+              bd.hookLen = 0;
+            }
+          } else if (bd.state === 'retract') {
+            // No grab — retract empty hook over 12 frames
+            const t = Math.min(1, bd.stateFrames / 12);
+            const newLen = Math.max(0, 90 * (1 - t));
+            bd.hookTipX = bd.x + bd.hookDirX * newLen;
+            bd.hookTipY = bd.y + bd.hookDirY * newLen;
+            bd.x += bd.vx * 0.5;
+            if (bd.stateFrames >= 12) {
+              bd.state = 'flee';
+              bd.stateFrames = 0;
+              bd.hookLen = 0;
+            }
+          } else if (bd.state === 'flee') {
+            // Accelerate away from rig
+            bd.vx = bd.vx > 0 ? Math.min(bd.vx + 0.10, 5)
+                              : Math.max(bd.vx - 0.10, -5);
+            bd.vy *= 0.94;
+            bd.x += bd.vx;
+            bd.y += bd.vy;
+            if (bd.carrying && cargo && cargo.banditGrabbed && !cargo.lost) {
+              cargo.x = bd.x;
+              cargo.y = bd.y + 8;
+              cargo.vy = 0;
+            }
+            if (bd.x < -80 || bd.x > W + 80) {
+              if (bd.carrying) {
+                triggerCargoTheft(bd.x, bd.y);
+              }
+              dailyDlxBandits.splice(i, 1);
               continue;
             }
           }
@@ -24664,12 +24814,14 @@ const DLX_BUILD = 'v390';
       drawDailySporeClouds();
       drawDailyDrones();
       drawDailyLavaBalls();
+      drawDailyBandits();        // bandit body + sled (lit by cone, BEFORE mask)
       drawCargoBond();
       drawDailyCargo();
     }
     if (isDaily) drawDailyFlashlight();         // cave-theme darkness mask
     if (isDaily) drawDailyGlowBats();           // additive bat silhouette ABOVE the mask
     if (isDaily) drawDailyGlowSalamanders();    // additive lime salamander above the mask
+    if (isDaily) drawDailyBanditHalos();        // bandit headlamp + taillight ABOVE the mask
     drawExhaust();
     drawSparks();
     drawPickupSparks();
@@ -25025,6 +25177,217 @@ const DLX_BUILD = 'v390';
         ctx.moveTo(hx, hy);
         ctx.lineTo(hx + 2, hy - 5);
         ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+  // ---------- DLX bandits (Glow Chamber — Ship C) -----------------
+  // Two-pass render:
+  //   drawDailyBandits     — full body + sled + thrusters + grappling
+  //                          hook + cable. Drawn BEFORE the flashlight
+  //                          mask so the bandit's outfit + sled detail
+  //                          only resolve when the rig's headlight cone
+  //                          actually catches them.
+  //   drawDailyBanditHalos — headlamp + tail running light, drawn AFTER
+  //                          the mask via additive blend so the lights
+  //                          pierce the dark and the player sees them
+  //                          approaching before the bandit's silhouette
+  //                          resolves.
+  function drawDailyBandits() {
+    if (!isDaily || !dailyDlxBandits.length) return;
+    for (const bd of dailyDlxBandits) {
+      const fc = bd.facing;        // -1 faces RIGHT, +1 faces LEFT
+      ctx.save();
+      ctx.translate(Math.round(bd.x), Math.round(bd.y));
+      // Mirror body for facing direction so all coordinates can be
+      // written assuming "facing right" (forward = +x).
+      ctx.scale(-fc, 1);
+
+      // ---- SLED PLATFORM — chunky horizontal slab
+      ctx.fillStyle = '#3a3a40';
+      ctx.fillRect(-15, 0, 30, 7);
+      // Lit top edge
+      ctx.fillStyle = 'rgba(180, 200, 220, 0.55)';
+      ctx.fillRect(-15, 0, 30, 1.5);
+      // Hazard-stripe band around the bottom of the sled
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(-15, 5, 30, 2);
+      ctx.fillStyle = '#ffd040';
+      for (let off = 0; off < 30; off += 6) {
+        ctx.beginPath();
+        ctx.moveTo(-15 + off,     5);
+        ctx.lineTo(-15 + off + 3, 5);
+        ctx.lineTo(-15 + off + 5, 7);
+        ctx.lineTo(-15 + off + 2, 7);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Underside fin (small triangle hanging down — hover-skid)
+      ctx.fillStyle = '#1a2030';
+      ctx.beginPath();
+      ctx.moveTo(-6, 7);
+      ctx.lineTo(6, 7);
+      ctx.lineTo(0, 11);
+      ctx.closePath();
+      ctx.fill();
+
+      // ---- TWIN THRUSTERS at the back (left side, since facing
+      //      right in local coords). Animated flame.
+      const flame = (Math.sin(bd.flapPhase * 2.0) + 1) * 0.5;
+      // Thruster nozzles
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(-19, 1, 5, 2);
+      ctx.fillRect(-19, 4, 5, 2);
+      // Outer flame
+      ctx.fillStyle = '#ff6020';
+      ctx.beginPath();
+      ctx.moveTo(-19, 1);
+      ctx.lineTo(-25 - flame * 4, 2);
+      ctx.lineTo(-19, 3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-19, 4);
+      ctx.lineTo(-25 - flame * 4, 5);
+      ctx.lineTo(-19, 6);
+      ctx.closePath();
+      ctx.fill();
+      // Inner bright flame
+      ctx.fillStyle = '#ffd040';
+      ctx.beginPath();
+      ctx.arc(-21, 2, 1.4 + flame * 0.4, 0, Math.PI * 2);
+      ctx.arc(-21, 5, 1.4 + flame * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // ---- HEADLAMP at the front of the sled (visible front lamp)
+      ctx.fillStyle = '#3a4453';
+      ctx.fillRect(13, 0, 4, 5);
+      ctx.fillStyle = '#ffd040';
+      ctx.beginPath();
+      ctx.arc(16, 2.5, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // ---- BANDIT BODY — humanoid in DLX-knockoff hauler outfit
+      // Torso (red vest with hazard band)
+      ctx.fillStyle = '#a52a2a';
+      ctx.fillRect(-3, -10, 6, 9);
+      ctx.fillStyle = '#ffd040';
+      ctx.fillRect(-3, -8, 6, 1);
+      // Belt
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(-3, -2, 6, 1);
+      // Shoulders
+      ctx.fillStyle = '#7a1a1a';
+      ctx.fillRect(-4, -10, 8, 1.5);
+      // Head — skin
+      ctx.fillStyle = '#d4a577';
+      ctx.beginPath();
+      ctx.arc(0, -14, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      // Bandit MASK across the eyes (thin black band)
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(-3, -15, 6, 1.6);
+      // White eye-holes in the mask
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(-2, -14.6, 1, 0.8);
+      ctx.fillRect( 1, -14.6, 1, 0.8);
+      // Trucker CAP — flat-topped with a forward bill, DLX accent
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(-3.4, -18, 6.8, 1.8);
+      ctx.fillRect(0, -16.8, 5, 1);   // forward brim
+      ctx.fillStyle = '#ffd040';
+      ctx.fillRect(-3.4, -17.6, 6.8, 0.5);
+      // ARM — forward, holding the grappling-hook gun
+      ctx.strokeStyle = '#a52a2a';
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = 'round';
+      const armReachX = (bd.state === 'fire' || bd.state === 'reel'
+                         || bd.state === 'retract') ? 9 : 6;
+      const armReachY = (bd.state === 'fire' || bd.state === 'reel'
+                         || bd.state === 'retract') ? -8 : -6;
+      ctx.beginPath();
+      ctx.moveTo(0, -8);
+      ctx.lineTo(armReachX, armReachY);
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+      // Grappling-hook GUN in hand (always drawn — it's their tool)
+      ctx.fillStyle = '#3a3a40';
+      ctx.fillRect(armReachX - 1, armReachY - 1, 5, 3);
+      ctx.fillStyle = 'rgba(180, 200, 220, 0.55)';
+      ctx.fillRect(armReachX - 1, armReachY - 1, 5, 0.7);
+
+      ctx.restore();
+
+      // ---- GRAPPLING HOOK CABLE + TIP (drawn outside the scaled
+      //      transform so cable extends in world coords toward
+      //      hookTipX/Y). Active during fire/reel/retract.
+      if (bd.state === 'fire' || bd.state === 'reel'
+          || bd.state === 'retract') {
+        // Anchor at the gun barrel — slightly forward + up of bandit
+        const anchorX = bd.x + (-fc) * 13;
+        const anchorY = bd.y - 9;
+        ctx.strokeStyle = '#3a3a40';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(anchorX, anchorY);
+        ctx.lineTo(bd.hookTipX, bd.hookTipY);
+        ctx.stroke();
+        // Hook claw tip — small triangle + center dot
+        ctx.fillStyle = '#3a3a40';
+        ctx.beginPath();
+        ctx.arc(bd.hookTipX, bd.hookTipY, 2.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffd040';
+        ctx.beginPath();
+        ctx.arc(bd.hookTipX, bd.hookTipY, 1.0, 0, Math.PI * 2);
+        ctx.fill();
+        // Tiny claw prongs at the tip
+        ctx.strokeStyle = '#3a3a40';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(bd.hookTipX, bd.hookTipY);
+        ctx.lineTo(bd.hookTipX - bd.hookDirY * 3, bd.hookTipY + bd.hookDirX * 3);
+        ctx.moveTo(bd.hookTipX, bd.hookTipY);
+        ctx.lineTo(bd.hookTipX + bd.hookDirY * 3, bd.hookTipY - bd.hookDirX * 3);
+        ctx.stroke();
+      }
+    }
+  }
+  function drawDailyBanditHalos() {
+    if (!isDaily || !dailyDlxBandits.length) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const bd of dailyDlxBandits) {
+      const fc = bd.facing;
+      // HEADLAMP halo — bright amber forward-facing
+      const lampX = bd.x + (-fc) * 16;
+      const lampY = bd.y + 2;
+      const lampHalo = ctx.createRadialGradient(lampX, lampY, 0,
+                                                  lampX, lampY, 16);
+      lampHalo.addColorStop(0, 'rgba(255, 220, 120, 0.75)');
+      lampHalo.addColorStop(1, 'rgba(255, 220, 120, 0)');
+      ctx.fillStyle = lampHalo;
+      ctx.beginPath();
+      ctx.arc(lampX, lampY, 16, 0, Math.PI * 2);
+      ctx.fill();
+      // TAIL running light — red, blinks on a slow cycle so the
+      // bandit reads as a vehicle with running lights.
+      const tailBlink = ((frame * 0.05 + bd.x * 0.01) % 1) < 0.55;
+      if (tailBlink) {
+        const tailX = bd.x + fc * 18;
+        const tailY = bd.y + 2;
+        const tailHalo = ctx.createRadialGradient(tailX, tailY, 0,
+                                                    tailX, tailY, 10);
+        tailHalo.addColorStop(0, 'rgba(255, 60, 60, 0.7)');
+        tailHalo.addColorStop(1, 'rgba(255, 60, 60, 0)');
+        ctx.fillStyle = tailHalo;
+        ctx.beginPath();
+        ctx.arc(tailX, tailY, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 100, 100, 0.95)';
+        ctx.beginPath();
+        ctx.arc(tailX, tailY, 1.6, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
     ctx.restore();
@@ -25593,6 +25956,8 @@ const DLX_BUILD = 'v390';
     dailyNextGlowBatAt = frame + 540;    // first bat wave ~9s after launch
     dailyGlowSalamanders = [];
     dailyNextSalamanderAt = frame + 360; // first salamander spawn ~6s in
+    dailyDlxBandits = [];
+    dailyNextBanditAt = frame + 480;     // first bandit ~8s after launch
     dailyMirrorPairs = [];
     dailyNextMirrorPairAt = frame + 720; // first mirror parasite pair ~12s in
     dailyPressureBubbles = [];
@@ -26102,9 +26467,9 @@ const DLX_BUILD = 'v390';
       cargoFlavor: null,
       // Cave levels suppress every existing obstacle and route the
       // air-obstacle slot through the cave-column branch instead.
-      // Bats + salamanders disabled in v388 — being replaced by
-      // DLX bandits (humanoid jet-skiff thieves) in Ship C of the
-      // redesign so the critters fit the DLX trucker theme.
+      // Bats + salamanders disabled in v388. Ship C added DLX
+      // bandits in v391 — humanoid jet-skiff thieves who fire a
+      // grappling hook at the cargo from off-screen.
       obstacleSet: {
         drones: false, thieves: false, groundOps: false,
         lavaBalls: false, scrapTowers: false, airWrecks: false,
@@ -26112,6 +26477,7 @@ const DLX_BUILD = 'v390';
         caveColumns: true,
         glowBats: false,
         glowSalamanders: false,
+        dlxBandits: true,
       },
       obstacleTheme: 'cave',
       // Flashlight cone — Ship 1 hook. The rig has a forward-pointing
@@ -26170,6 +26536,16 @@ const DLX_BUILD = 'v390';
   // the lime glow shows even outside the flashlight cone.
   let dailyGlowSalamanders = [];
   let dailyNextSalamanderAt = 0;
+  // DLX bandits (Glow Chamber only — Ship C). Humanoid thieves
+  // riding small jet-skiff sleds, firing a grappling hook at the
+  // cargo from off-screen. Each entry: { x, y, vx, vy, state,
+  // stateFrames, hookLen, hookDirX, hookDirY, hookTipX, hookTipY,
+  // carrying, facing }. Body painted in normal color BEFORE the
+  // flashlight mask (only visible inside the cone); their head-
+  // lamp + tail light painted additively AFTER the mask so the
+  // approaching lights pierce the dark before the bandit resolves.
+  let dailyDlxBandits = [];
+  let dailyNextBanditAt = 0;
   // Mirror parasites (Leviathan only). Each entry is a PAIR: a floor
   // parasite + a ceiling parasite that emerge at the same worldX,
   // lunge toward each other through the air, and grab the cargo
