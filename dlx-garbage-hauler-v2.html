@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v405';
+const DLX_BUILD = 'v406';
 
 (function() {
   // ---------- Device detection ----------
@@ -7660,13 +7660,33 @@ const DLX_BUILD = 'v405';
           bird.y = dailyIntroStartY + (dailyIntroTargetY - dailyIntroStartY) * liftEase;
         }
         // Run cargo spring physics so the cargo trails the rig the
-        // whole time — taxi AND liftoff
+        // whole time — taxi AND liftoff. Glow Chamber gets a launch
+        // CINEMATIC for the first 30 % of the intro: the cargo
+        // crate descends from the gantry crane HOOK altitude down
+        // onto the rig (so the player sees the crate being loaded
+        // by the crane). After 30 % the standard spring tether
+        // takes over.
         if (cargo && cargo.attached && !cargo.lost) {
-          const tx = bird.x - 32;
-          const ty = bird.y - 4 + Math.sin(frame * 0.18) * 1.2;
-          cargo.x += (tx - cargo.x) * 0.30;
-          cargo.y += (ty - cargo.y) * 0.30;
-          cargo.vy = 0;
+          const isLaunchCinematic =
+              currentDeliveryLevel.obstacleTheme === 'cave'
+              && t < 0.30;
+          if (isLaunchCinematic) {
+            const cinT = t / 0.30;
+            const ease = 1 - Math.pow(1 - cinT, 2);
+            // Hook altitude is below the carriage (gantryTop + 4)
+            // matching the crane render's cable-tip math.
+            const cineTopY  = PLAY_H / 2 + 28 - 136 + 14;   // hook start
+            const cineEndY  = bird.y - 4;                    // tether final
+            cargo.x = bird.x - 32;
+            cargo.y = cineTopY + (cineEndY - cineTopY) * ease;
+            cargo.vy = 0;
+          } else {
+            const tx = bird.x - 32;
+            const ty = bird.y - 4 + Math.sin(frame * 0.18) * 1.2;
+            cargo.x += (tx - cargo.x) * 0.30;
+            cargo.y += (ty - cargo.y) * 0.30;
+            cargo.vy = 0;
+          }
         }
         // Ramp the world scroll up over the intro so the hangar slides
         // left past the rig — sells the takeoff momentum
@@ -15605,25 +15625,30 @@ const DLX_BUILD = 'v405';
     let cinematicGrip = false;
     if (typeof dailyIntroFrames !== 'undefined' && dailyIntroFrames > 0) {
       const introProgress = 1 - dailyIntroFrames / 75;        // 0 → 1
-      // Carriage tracks the rig's screen X (with a tiny lead so
-      // the cable hangs from slightly ahead of the rig — feels
-      // like the crane just released the rig and lifts away.)
+      // Carriage tracks the rig (and therefore the cargo crate
+      // being lowered onto the rig) horizontally throughout the
+      // cinematic so the cable always hangs straight down to the
+      // crate.
       carriageX = bird.x;
-      // Hook position phases — cable tip lands JUST ABOVE the rig
-      // (bird.y - BIRD_R - 14) so the entire J-hook is visible
-      // above the rig sprite. Otherwise the rig draws on top of
-      // the hook and the cinematic reads as just a long cable.
-      const hookGripY = bird.y - BIRD_R - 14;
-      const rigCableLen = hookGripY - (carriageY + 10);
-      if (introProgress < 0.20) {
-        cableTipY = carriageY + 10 + Math.max(20, rigCableLen);
+      // PHASE 1 (0 → 30 %): cable tip is anchored JUST ABOVE the
+      //   cargo crate, which is itself descending from hook
+      //   altitude onto the rig (handled in the intro update).
+      //   This is what the player sees as "the crane lowers the
+      //   CRATE onto the rig."
+      // PHASE 2 (30 → 65 %): cargo has landed; hook releases and
+      //   retracts up to the carriage with eased acceleration.
+      // PHASE 3 (65 % +): idle drift.
+      if (introProgress < 0.30 && cargo && !cargo.lost) {
+        cableTipY = cargo.y - 11;       // just above the crate
         cinematicGrip = true;
-      } else if (introProgress < 0.55) {
-        const retractT = (introProgress - 0.20) / 0.35;
+      } else if (introProgress < 0.65) {
+        const retractT = (introProgress - 0.30) / 0.35;
         const ease = 1 - Math.pow(1 - retractT, 2);
-        cableTipY = carriageY + 10 + Math.max(20, rigCableLen) * (1 - ease);
+        const startTip = (cargo ? cargo.y - 11 : carriageY + 80);
+        const endTip   = carriageY + 32;
+        cableTipY = startTip + (endTip - startTip) * ease;
       } else {
-        cableTipY = carriageY + 10 + 22 + Math.sin(frame * 0.020) * 4;
+        cableTipY = carriageY + 32 + Math.sin(frame * 0.020) * 4;
       }
     } else {
       // Idle drift (post-launch / non-launch frames)
