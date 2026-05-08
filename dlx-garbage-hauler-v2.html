@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v415';
+const DLX_BUILD = 'v416';
 
 (function() {
   // ---------- Device detection ----------
@@ -8000,9 +8000,15 @@ const DLX_BUILD = 'v415';
               if (o.kind === 'tunnel') {
                 noStart = o.worldX - 80;
                 noEnd   = o.worldX + o.length + 200;
-              } else if (o.kind === 'scrapTower' || o.kind === 'airWreck') {
+              } else if (o.kind === 'scrapTower' || o.kind === 'airWreck'
+                         || o.kind === 'carTower') {
                 noStart = o.worldX - 100;
                 noEnd   = o.worldX + 100;
+              } else if (o.kind === 'conveyor') {
+                // Conveyor occupies a wide horizontal band — give it
+                // enough breathing room for ambient placements.
+                noStart = o.worldX - 80;
+                noEnd   = o.worldX + (o.length || 280) + 80;
               } else {
                 continue;
               }
@@ -8106,6 +8112,24 @@ const DLX_BUILD = 'v415';
             kind = 'scrapTower';
           } else {
             kind = 'airWreck';
+          }
+          // Scrapyard theme override — remap the generic Sunset
+          // obstacle kinds to scrapyard-native ones BEFORE the
+          // suppression cascade fires (otherwise tunnel/airWreck
+          // would fall through to scrapTower → carTower for every
+          // slot). Spawn cascade weights are preserved (each Sunset
+          // slot becomes its scrapyard equivalent), so pacing matches
+          // Sunset but mechanics + visuals are different:
+          //   scrapTower → carTower  (crushed cars + tumble)
+          //   airWreck   → conveyor  (moving cargo on a belt)
+          // Tunnels in scrapyard stay kind='tunnel' but get tagged
+          // with o.gantry=true at spawn — they reuse all tunnel
+          // infrastructure (layout, collision, ground render) and
+          // dispatch to drawGantryArch for the visual + spark cascade
+          // mechanic.
+          if (currentDeliveryLevel.obstacleTheme === 'scrapyard') {
+            if      (kind === 'scrapTower' && currentDeliveryLevel.obstacleSet.carTowers) kind = 'carTower';
+            else if (kind === 'airWreck'   && currentDeliveryLevel.obstacleSet.conveyors) kind = 'conveyor';
           }
           // Suppress kinds the active level doesn't allow. We force-fall
           // back to scrapTower because every level whitelists it (and
@@ -8267,6 +8291,68 @@ const DLX_BUILD = 'v415';
                 orbitSpeed: 0,
               });
             }
+            // ---- SCRAPYARD GANTRY-ARCH UPGRADE ----
+            // In Scrapyard, every tunnel is a steel I-beam gantry: same
+            // passage geometry but the visual dispatches to drawGantryArch
+            // and a spark-cascade mechanic adds 1-2 timed kill bands inside
+            // the gap. The tunnel infrastructure (layout, collision walls,
+            // ramp dipping, ground band) is reused as-is.
+            if (currentDeliveryLevel.obstacleTheme === 'scrapyard' && !o.isPipe) {
+              o.gantry = true;
+              const cascadeCount = 1 + (o.seed % 2);
+              o.sparkBands = [];
+              for (let s = 0; s < cascadeCount; s++) {
+                const slotPos = ((s + 0.5) / cascadeCount) * o.length;
+                o.sparkBands.push({
+                  relX:       slotPos + (Math.random() - 0.5) * 60,
+                  phase:      'idle',          // idle → telegraph → active → cooldown
+                  phaseFrame: 0,
+                  cycleAt:    30 + Math.floor(Math.random() * 60),
+                });
+              }
+            }
+          } else if (kind === 'carTower') {
+            // ---- SCRAPYARD CRUSHED-CAR TOWER ----
+            // Same gap geometry as scrapTower (always paired stacks).
+            // ~35% of car towers have an unstable top car that tumbles
+            // after the rig clears the tower's left edge — a "look-back"
+            // hazard so drifting low after a pass can still catch you.
+            const skyFloor = PLAY_H - 152;
+            const gap = dailyCurrentStage >= 2 ? 130 + Math.random() * 30
+                                                : 160 + Math.random() * 30;
+            o.top = 60 + Math.random() * Math.max(40, skyFloor - 60 - gap);
+            o.gap = gap;
+            if (Math.random() < 0.35) {
+              o.canTumble        = true;
+              o.tumbleArmed      = false;     // arms when bird passes
+              o.tumblePhase      = 'idle';    // idle | wobble | falling | done
+              o.tumblePhaseFrame = 0;
+              o.tumbleDX         = 0;         // x offset of falling car (relative to tower center)
+              o.tumbleDY         = 0;         // y offset down from tower top edge
+              o.tumbleVy         = 0;
+            }
+          } else if (kind === 'conveyor') {
+            // ---- SCRAPYARD OVERHEAD CONVEYOR BELT ----
+            // Steel I-beam belt at one of three altitude bands. Cargo
+            // pieces drift LEFT relative to the belt frame, so threading
+            // the belt is timing-based: the safe gap between cargo
+            // slides past the rig over time.
+            o.length = 280;
+            const altPick = Math.random();
+            o.alt = altPick < 0.34 ? (110 + Math.random() * 40)
+                  : altPick < 0.67 ? (220 + Math.random() * 40)
+                  :                  (330 + Math.random() * 40);
+            o.cargo = [];
+            const slotW = o.length / 4;
+            for (let i = 0; i < 4; i++) {
+              o.cargo.push({
+                offsetX: i * slotW + Math.random() * (slotW * 0.35),
+                kind:    Math.floor(Math.random() * 4),         // 0=car 1=appliance 2=cube 3=barrel
+                seed:    Math.floor(Math.random() * 9999),
+              });
+            }
+            // Belt phase advances every frame in the update loop.
+            o.beltScroll = Math.random() * o.length;
           } else {
             // Floating wreck altitude — anywhere mid-air
             o.alt = 80 + Math.random() * (PLAY_H * 0.55);
@@ -8284,6 +8370,10 @@ const DLX_BUILD = 'v415';
           let spawnAdvance = baseGap + Math.floor(Math.random() * 200);
           if (o.kind === 'tunnel') {
             spawnAdvance = Math.max(spawnAdvance, o.length + 240);
+          } else if (o.kind === 'conveyor') {
+            // Belt occupies a 280-px band at fixed altitude — give the
+            // next obstacle some recovery room after a timing pass.
+            spawnAdvance = Math.max(spawnAdvance, o.length + 120);
           }
           dailyNextAirObstacleX += spawnAdvance;
         }
@@ -9300,6 +9390,83 @@ const DLX_BUILD = 'v415';
             }
           }
         }
+
+        // ---- SCRAPYARD CAR-TOWER TUMBLE / CONVEYOR / GANTRY SPARKS ----
+        // Per-frame state machines for the three scrapyard-native
+        // air-obstacle kinds. Walk dailyAirObstacles once and tick
+        // whichever subsystem applies. Cheap when the level isn't
+        // scrapyard since none of these kinds will be present.
+        if (currentDeliveryLevel.obstacleTheme === 'scrapyard') {
+          for (const ob of dailyAirObstacles) {
+            // ---- CAR TOWER tumble state ----
+            if (ob.kind === 'carTower' && ob.canTumble) {
+              const sxOb = ob.worldX - dailyScrollX;
+              const towerW = 36;
+              if (ob.tumblePhase === 'idle') {
+                // Arm once the rig has cleared the tower's RIGHT edge.
+                if (!ob.tumbleArmed && bird.x > sxOb + towerW + 6) {
+                  ob.tumbleArmed = true;
+                  ob.tumblePhase = 'wobble';
+                  ob.tumblePhaseFrame = 0;
+                }
+              } else if (ob.tumblePhase === 'wobble') {
+                ob.tumblePhaseFrame++;
+                if (ob.tumblePhaseFrame >= 28) {
+                  ob.tumblePhase = 'falling';
+                  ob.tumblePhaseFrame = 0;
+                  ob.tumbleVy = 0.6;
+                  playSound('boom');
+                }
+              } else if (ob.tumblePhase === 'falling') {
+                ob.tumbleVy += 0.42;
+                ob.tumbleDY += ob.tumbleVy;
+                ob.tumblePhaseFrame++;
+                // Smash on the floor (or after 90 frames if it ranged off).
+                // Falling-car y is anchored at the top of the bottom stack
+                // (top + gap), so smash when its center reaches the ground.
+                const groundY = terrainHeightAt(ob.worldX);
+                const carCy = ob.top + ob.gap + ob.tumbleDY;
+                if (carCy > groundY - 6 || ob.tumblePhaseFrame > 90) {
+                  ob.tumblePhase = 'done';
+                }
+              }
+            }
+            // ---- CONVEYOR belt cargo scroll ----
+            else if (ob.kind === 'conveyor') {
+              ob.beltScroll = (ob.beltScroll + 0.65) % ob.length;
+            }
+            // ---- GANTRY ARCH spark cascade timers ----
+            // (Scrapyard tunnels carry o.gantry=true and o.sparkBands.)
+            else if (ob.kind === 'tunnel' && ob.gantry && ob.sparkBands) {
+              for (const sb of ob.sparkBands) {
+                sb.phaseFrame++;
+                if (sb.phase === 'idle') {
+                  if (sb.phaseFrame >= sb.cycleAt) {
+                    sb.phase = 'telegraph';
+                    sb.phaseFrame = 0;
+                  }
+                } else if (sb.phase === 'telegraph') {
+                  if (sb.phaseFrame >= 20) {
+                    sb.phase = 'active';
+                    sb.phaseFrame = 0;
+                  }
+                } else if (sb.phase === 'active') {
+                  if (sb.phaseFrame >= 24) {
+                    sb.phase = 'cooldown';
+                    sb.phaseFrame = 0;
+                  }
+                } else if (sb.phase === 'cooldown') {
+                  if (sb.phaseFrame >= 60) {
+                    sb.phase = 'idle';
+                    sb.phaseFrame = 0;
+                    sb.cycleAt = 60 + Math.floor(Math.random() * 60);
+                  }
+                }
+              }
+            }
+          }
+        }
+
         // ---- WATERFALLS + PRIORITY CRATES (Glow Chamber only) -----
         // Spawn a waterfall ahead of the rig at periodic intervals.
         // Behind each waterfall sits a special PRIORITY crate worth
@@ -10235,6 +10402,30 @@ const DLX_BUILD = 'v415';
       //   * SCRAP TOWERS = the "obstacle wall" — the field does NOT
       //     protect, only tunnel zone does. Player must thread the gap.
       //   * AIR WRECKS = floating debris — pass through with field.
+      //   * GANTRY ARCH (tunnel + gantry flag) = active spark cascades
+      //     are kinetic hazards INSIDE the tunnel, so the in-tunnel
+      //     pass-through doesn't save you — only ghost frames bypass.
+      if (ghostFrames === 0) {
+        for (const o of dailyAirObstacles) {
+          if (o.kind !== 'tunnel' || !o.gantry || !o.sparkBands) continue;
+          const sxG = o.worldX - dailyScrollX;
+          if (sxG > W + 40 || sxG + o.length < -40) continue;
+          for (const sb of o.sparkBands) {
+            if (sb.phase !== 'active') continue;
+            const bandCx  = sxG + sb.relX;
+            const bandHalfW = 11;
+            // Sparks rain from the ceiling DOWN through the lower 70%
+            // of the gap; safe to fly along the very top.
+            const ceilingY = terrainHeightAt(o.worldX + sb.relX) + TUNNEL_CEILING_OFFSET;
+            const floorY   = tunnelFloorY(o);
+            const killTop  = ceilingY + (floorY - ceilingY) * 0.30;
+            if (Math.abs(bird.x - bandCx) < r + bandHalfW
+                && bird.y + r > killTop && bird.y - r < floorY + 4) {
+              return true;
+            }
+          }
+        }
+      }
       for (const o of dailyAirObstacles) {
         const sx = o.worldX - dailyScrollX;
         if (o.kind === 'tunnel' && o.isPipe) {
@@ -10260,6 +10451,43 @@ const DLX_BUILD = 'v415';
           const tw = 36;
           if (bird.x + r > sx && bird.x - r < sx + tw) {
             if (bird.y - r < o.top || bird.y + r > o.top + o.gap) return true;
+          }
+        } else if (o.kind === 'carTower') {
+          // Same gap walls as scrapTower (carTower visual is a stack
+          // of crushed cars on a steel pillar).
+          if (inTunnelZone) continue;
+          const tw = 36;
+          if (bird.x + r > sx && bird.x - r < sx + tw) {
+            if (bird.y - r < o.top || bird.y + r > o.top + o.gap) return true;
+          }
+          // Falling tumble car — checked even with shield because it's
+          // a kinetic projectile that's already detached from the wall.
+          // Anchored at the TOP of the bottom stack so it drops into
+          // the gap the rig just flew through.
+          if (o.canTumble && o.tumblePhase === 'falling') {
+            const carCx = sx + tw / 2;
+            const carCy = o.top + o.gap + o.tumbleDY;
+            if (Math.abs(bird.x - carCx) < r + 14
+                && Math.abs(bird.y - carCy) < r + 10) {
+              return true;
+            }
+          }
+        } else if (o.kind === 'conveyor') {
+          // Each cargo piece riding the belt is a hit zone. Belt frame
+          // itself is non-lethal (it's at fixed altitude — flying around
+          // it is the route choice). The HAZARD is the moving cargo.
+          if (passThrough) continue;             // field passes through cargo
+          if (bird.x + r > sx && bird.x - r < sx + (o.length || 280)) {
+            const beltY = o.alt;
+            const cargoR = 18;                   // half-extent of each cargo
+            const cargoH = 14;
+            for (const c of (o.cargo || [])) {
+              const cx = sx + ((c.offsetX - o.beltScroll + o.length) % o.length);
+              if (Math.abs(bird.x - cx) < r + cargoR
+                  && Math.abs(bird.y - (beltY - 6)) < r + cargoH) {
+                return true;
+              }
+            }
           }
         } else if (o.kind === 'caveColumn') {
           // Full-height cave column — solid stone except in the
@@ -18692,6 +18920,8 @@ const DLX_BUILD = 'v415';
       if (o.kind === 'scrapTower') drawScrapTower(sx, o.top, o.gap, o.seed);
       else if (o.kind === 'airWreck') drawAirWreck(sx, o.alt, o.seed);
       else if (o.kind === 'caveColumn') drawCaveColumn(sx, o);
+      else if (o.kind === 'carTower') drawCarTower(sx, o);
+      else if (o.kind === 'conveyor') drawConveyor(sx, o);
     }
     for (const o of dailyAirObstacles) {
       if (o.kind !== 'tunnel') continue;
@@ -18948,6 +19178,10 @@ const DLX_BUILD = 'v415';
       drawTunnelOrgan(t, sx);
       return;
     }
+    if (t.gantry) {
+      drawGantryArch(t, sx);
+      return;
+    }
     const len = t.length;
     const wxStart = t.worldX;
     const wxEnd   = t.worldX + len;
@@ -19164,6 +19398,444 @@ const DLX_BUILD = 'v415';
       ctx.fillStyle = 'rgba(255, 130, 180, 0.65)';
       ctx.fillRect(screenEnd - 0.5, innerTop, 1, innerBot - innerTop);
       ctx.shadowBlur = 0;
+    }
+  }
+
+
+  // ---- SCRAPYARD: CRUSHED-CAR TOWER ----
+  // Stack of crushed cars with a navigable gap. Same gap geometry as
+  // scrapTower but the visual is unmistakably automotive — different
+  // from sunset's hammered rust shapes. Optional tumble: top car of
+  // the bottom stack wobbles + falls into the gap after the rig passes.
+  function drawCarTower(sx, o) {
+    const tw = 36;
+    const cx = sx + tw / 2;
+    ctx.save();
+    // Concrete base pillars on top + bottom stacks (heavy industrial)
+    drawCarStack(cx, 0, o.top, o.seed, true, false, null);
+    // Bottom stack — pass tumble state so the topmost car can shake
+    // (wobble phase) or be omitted (falling/done phase).
+    drawCarStack(cx, o.top + o.gap, PLAY_H - (o.top + o.gap),
+                 o.seed + 13.7, false, o.canTumble, o);
+    // Hazard tape band on each gap edge — black/yellow stripes,
+    // stronger contrast than scrapTower's so it reads as factory.
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(sx - 2, o.top - 3, tw + 4, 4);
+    ctx.fillRect(sx - 2, o.top + o.gap - 1, tw + 4, 4);
+    ctx.fillStyle = '#1a0408';
+    for (let s = 0; s < 7; s++) {
+      ctx.fillRect(sx - 1 + s * 6, o.top - 3, 3, 4);
+      ctx.fillRect(sx - 1 + s * 6, o.top + o.gap - 1, 3, 4);
+    }
+    ctx.restore();
+
+    // Render the FALLING TUMBLE CAR on top of everything (kinetic
+    // projectile after detachment).
+    if (o.canTumble && (o.tumblePhase === 'falling')) {
+      const carCx = sx + tw / 2;
+      const carCy = o.top + o.gap + o.tumbleDY;
+      const tilt  = Math.min(1, o.tumblePhaseFrame / 30) * 0.6;
+      drawCrushedCar(carCx, carCy, o.seed + 7.1, tilt, true);
+    }
+  }
+
+  // Vertical column of stacked crushed cars filling startY..startY+length.
+  // isWobbleStack=true allows the topmost car (closest to gap) to shake
+  // during wobble phase or be omitted during falling/done. Cars are
+  // ~30 px wide, ~18 px tall, palette deterministic from seed.
+  function drawCarStack(cx, startY, length, seed, isTopHalf, hasTumble, tumbleObj) {
+    if (length <= 0) return;
+    const carW = 30, carH = 18;
+    const gapDir = isTopHalf ? 1 : -1;     // +1 = stack grows DOWN toward gap; -1 = grows UP toward gap
+    // Concrete plinth: 14px slab at the FAR end (away from gap), gives
+    // each tower a heavy industrial base.
+    const plinthH = Math.min(14, length);
+    const plinthY = isTopHalf ? startY : startY + length - plinthH;
+    ctx.fillStyle = '#3a2a1a';
+    ctx.fillRect(cx - 18, plinthY, 36, plinthH);
+    ctx.fillStyle = '#221608';
+    ctx.fillRect(cx - 18, plinthY, 36, 2);
+    ctx.fillStyle = '#5c4426';
+    ctx.fillRect(cx - 18, plinthY + plinthH - 2, 36, 1);
+    // Stack cars in the remaining length.
+    const carAreaStart = isTopHalf ? startY + plinthH : startY;
+    const carAreaEnd   = isTopHalf ? startY + length    : startY + length - plinthH;
+    const cars = Math.floor((carAreaEnd - carAreaStart) / carH);
+    for (let i = 0; i < cars; i++) {
+      // Top half: bottommost car (closest to gap) is i = cars-1
+      // Bottom half: topmost car (closest to gap) is i = 0
+      const carY = isTopHalf
+        ? carAreaStart + i * carH
+        : carAreaStart + i * carH;
+      const isClosestToGap = isTopHalf ? (i === cars - 1) : (i === 0);
+      // Wobble / tumble handling: only on the bottom-stack topmost car.
+      let shakeX = 0, omit = false;
+      if (!isTopHalf && isClosestToGap && hasTumble && tumbleObj) {
+        if (tumbleObj.tumblePhase === 'wobble') {
+          const tt = tumbleObj.tumblePhaseFrame;
+          shakeX = Math.sin(tt * 0.8) * Math.min(3, tt / 6);
+          // Also a couple of dust puffs near the seam
+          if (tt > 12 && (tt % 6) === 0) {
+            ctx.fillStyle = 'rgba(120, 90, 60, 0.55)';
+            ctx.beginPath();
+            ctx.arc(cx - 12 + Math.random() * 24, carY + carH * 0.5, 1.6, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (tumbleObj.tumblePhase === 'falling' || tumbleObj.tumblePhase === 'done') {
+          omit = true;
+        }
+      }
+      if (omit) continue;
+      const palIdx = (Math.floor(seed + i * 1.7)) % 6;
+      drawCrushedCar(cx + shakeX, carY + carH * 0.5,
+                     seed + i * 0.31, 0, false, palIdx);
+    }
+    // Vertical retaining cable / I-beam down the back of the stack
+    ctx.fillStyle = 'rgba(40, 26, 14, 0.7)';
+    ctx.fillRect(cx + 17, carAreaStart, 1, carAreaEnd - carAreaStart);
+    ctx.fillRect(cx - 18, carAreaStart, 1, carAreaEnd - carAreaStart);
+  }
+
+  // One crushed car silhouette — squashed flat with windows and wheels
+  // showing through the dent. Used inside towers AND for the falling
+  // tumble projectile (with a tilt).
+  function drawCrushedCar(cx, cy, seed, tilt, isFalling, palIdxOverride) {
+    const palettes = [
+      { body: '#7a2418', dark: '#3c0f08', hi: '#c44a2a' },   // rust red
+      { body: '#1f3a5a', dark: '#0c1a2c', hi: '#3a6a90' },   // faded blue
+      { body: '#a88820', dark: '#4a3a0c', hi: '#dab94a' },   // taxi yellow
+      { body: '#2a2a2a', dark: '#0c0c0c', hi: '#5a5a5a' },   // black
+      { body: '#7c7464', dark: '#3a3428', hi: '#a89878' },   // beige
+      { body: '#3a5a2a', dark: '#162810', hi: '#5a7a3a' },   // olive
+    ];
+    const palIdx = palIdxOverride != null ? palIdxOverride
+                 : Math.floor(seed * 1.7) % palettes.length;
+    const pal = palettes[palIdx];
+    const W = 30, H = 14;
+    ctx.save();
+    ctx.translate(cx, cy);
+    if (tilt) ctx.rotate(tilt);
+    // Body — flattened ellipse-ish via three rects
+    ctx.fillStyle = pal.body;
+    ctx.fillRect(-W / 2, -H / 2 + 2, W, H - 4);
+    ctx.fillRect(-W / 2 + 3, -H / 2, W - 6, H);
+    // Dark underbody
+    ctx.fillStyle = pal.dark;
+    ctx.fillRect(-W / 2, H / 2 - 4, W, 4);
+    // Windshield — narrow flattened band toward the top
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(-W / 2 + 6, -H / 2 + 1, 7, 3);
+    ctx.fillRect( W / 2 - 13, -H / 2 + 1, 7, 3);
+    // Hood / trunk seam
+    ctx.fillStyle = pal.dark;
+    ctx.fillRect(-W / 2 + 4, -1, W - 8, 1);
+    // Roof-crush dent — diagonal bright streak
+    ctx.fillStyle = pal.hi;
+    ctx.fillRect(-W / 2 + 4, -H / 2 + 1, W - 8, 1);
+    // Wheels — visible stubs at the bottom corners
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(-W / 2 + 2, H / 2 - 2, 5, 3);
+    ctx.fillRect( W / 2 - 7, H / 2 - 2, 5, 3);
+    // Falling car gets a sparks-and-debris outline
+    if (isFalling) {
+      ctx.fillStyle = 'rgba(255, 200, 120, 0.6)';
+      for (let s = 0; s < 4; s++) {
+        const sa = Math.random() * Math.PI * 2;
+        const sr = 12 + Math.random() * 8;
+        ctx.beginPath();
+        ctx.arc(Math.cos(sa) * sr, Math.sin(sa) * sr, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // ---- SCRAPYARD: OVERHEAD CONVEYOR BELT ----
+  // Heavy steel I-beam frame at fixed altitude with cargo riding it
+  // RIGHT-to-LEFT (opposite world scroll) — threading the belt is a
+  // timing pass. Belt is 280 px wide; cargo cycles within the frame.
+  function drawConveyor(sx, o) {
+    const beltY  = o.alt;
+    const beltL  = o.length || 280;
+    ctx.save();
+    // Steel I-beam frame: top chord at beltY-12, bottom chord at beltY+10
+    ctx.fillStyle = '#3a3a40';
+    ctx.fillRect(sx - 4, beltY - 14, beltL + 8, 4);    // top chord
+    ctx.fillStyle = '#26262a';
+    ctx.fillRect(sx - 4, beltY - 10, beltL + 8, 2);    // top chord shadow
+    ctx.fillStyle = '#3a3a40';
+    ctx.fillRect(sx - 4, beltY + 8, beltL + 8, 4);     // bottom chord
+    ctx.fillStyle = '#26262a';
+    ctx.fillRect(sx - 4, beltY + 12, beltL + 8, 1);
+    // Diagonal hazard stripes on the top chord
+    ctx.fillStyle = '#ffd83d';
+    for (let bx = -8; bx < beltL + 8; bx += 12) {
+      ctx.beginPath();
+      ctx.moveTo(sx + bx,     beltY - 14);
+      ctx.lineTo(sx + bx + 5, beltY - 14);
+      ctx.lineTo(sx + bx + 9, beltY - 10);
+      ctx.lineTo(sx + bx + 4, beltY - 10);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // End-cap pulleys (large rusty wheels)
+    ctx.fillStyle = '#1a1418';
+    ctx.beginPath(); ctx.arc(sx,        beltY, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sx + beltL, beltY, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#5a3018';
+    ctx.beginPath(); ctx.arc(sx,        beltY, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sx + beltL, beltY, 6, 0, Math.PI * 2); ctx.fill();
+    // Rotating spoke — animates so the pulley reads as turning
+    ctx.strokeStyle = '#1a0a08';
+    ctx.lineWidth = 1.4;
+    const spinPhase = (frame * 0.18) % (Math.PI * 2);
+    for (let p = 0; p < 2; p++) {
+      const cx = sx + (p === 0 ? 0 : beltL);
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(spinPhase) * 5, beltY + Math.sin(spinPhase) * 5);
+      ctx.lineTo(cx - Math.cos(spinPhase) * 5, beltY - Math.sin(spinPhase) * 5);
+      ctx.stroke();
+    }
+    // Belt surface — black rubber band wrapping around the pulleys
+    ctx.fillStyle = '#0c0c0c';
+    ctx.fillRect(sx, beltY - 3, beltL, 6);
+    // Belt tread marks scrolling with beltScroll
+    ctx.fillStyle = '#262626';
+    const treadStep = 8;
+    const treadOff  = (-o.beltScroll) % treadStep;
+    for (let bx = treadOff; bx < beltL; bx += treadStep) {
+      if (bx < 0) continue;
+      ctx.fillRect(sx + bx, beltY - 1, 3, 2);
+    }
+    // Cargo riding the belt
+    for (const c of (o.cargo || [])) {
+      const lx = (c.offsetX - o.beltScroll + beltL) % beltL;
+      const cx = sx + lx;
+      drawConveyorCargo(cx, beltY - 3, c.kind, c.seed);
+    }
+    ctx.restore();
+  }
+
+  // One cargo piece on the belt. Kinds: 0=crushed car, 1=appliance,
+  // 2=scrap cube, 3=oil barrel.
+  function drawConveyorCargo(cx, beltTopY, kind, seed) {
+    if (kind === 0) {
+      // Crushed car (smaller version of drawCrushedCar)
+      drawCrushedCar(cx, beltTopY - 7, seed * 0.13, 0, false);
+    } else if (kind === 1) {
+      // Appliance (washing machine / fridge silhouette)
+      ctx.fillStyle = '#a8a8b0';
+      ctx.fillRect(cx - 11, beltTopY - 18, 22, 18);
+      ctx.fillStyle = '#5a5a64';
+      ctx.fillRect(cx - 11, beltTopY - 18, 22, 2);
+      // Door porthole
+      ctx.fillStyle = '#1a1a22';
+      ctx.beginPath();
+      ctx.arc(cx, beltTopY - 9, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#3a3a42';
+      ctx.beginPath();
+      ctx.arc(cx, beltTopY - 9, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      // Dent shadow on the side
+      ctx.fillStyle = 'rgba(20, 20, 30, 0.45)';
+      ctx.fillRect(cx + 7, beltTopY - 16, 3, 14);
+    } else if (kind === 2) {
+      // Scrap cube — dense compressed metal
+      ctx.fillStyle = '#5a4a30';
+      ctx.fillRect(cx - 10, beltTopY - 16, 20, 16);
+      ctx.fillStyle = '#3c2e18';
+      ctx.fillRect(cx - 10, beltTopY - 16, 20, 2);
+      ctx.fillStyle = '#7a6240';
+      ctx.fillRect(cx - 10, beltTopY - 16, 20, 1);
+      // Random rebar / wire fragments poking out
+      ctx.fillStyle = '#1a0e08';
+      for (let w = 0; w < 4; w++) {
+        const wx = cx - 8 + ((seed + w * 0.7) * 17 % 16);
+        const wy = beltTopY - 16 + ((seed + w * 1.3) * 13 % 12);
+        ctx.fillRect(wx, wy, 1, 3);
+      }
+    } else {
+      // Oil barrel (kind 3)
+      ctx.fillStyle = '#7a2418';
+      ctx.fillRect(cx - 7, beltTopY - 18, 14, 18);
+      ctx.fillStyle = '#3c0f08';
+      ctx.fillRect(cx - 7, beltTopY - 18, 14, 2);
+      ctx.fillStyle = '#a8421a';
+      ctx.fillRect(cx - 7, beltTopY - 18, 14, 1);
+      // Hoop bands
+      ctx.fillStyle = 'rgba(20, 8, 4, 0.65)';
+      ctx.fillRect(cx - 7, beltTopY - 13, 14, 1);
+      ctx.fillRect(cx - 7, beltTopY -  6, 14, 1);
+    }
+  }
+
+  // ---- SCRAPYARD: STEEL GANTRY ARCH (re-skinned tunnel) ----
+  // Same passage geometry as a desert tunnel but rendered as a steel
+  // I-beam frame with hazard stripes, hanging chains, warning strobes,
+  // and welding-spark cascades. The tunnel ground silhouette is still
+  // painted by drawDailyTerrain via tunnelLayoutAt; this function
+  // adds the industrial dressing + spark mechanic.
+  function drawGantryArch(t, sx) {
+    const len = t.length;
+    const wxStart = t.worldX;
+    const wxEnd   = t.worldX + len;
+    const bodyStart = wxStart + TUNNEL_ENTRANCE_RAMP;
+    const bodyEnd   = wxEnd   - TUNNEL_EXIT_RAMP;
+    const fY = t.floorY != null ? t.floorY : (PLAY_H - 8);
+    const ceilingY = terrainHeightAt(wxStart + len * 0.5) + TUNNEL_CEILING_OFFSET;
+
+    // Floor plate — steel grating instead of masonry
+    ctx.fillStyle = '#2c2c30';
+    ctx.fillRect(bodyStart - dailyScrollX, fY - 5,
+                 (bodyEnd - bodyStart), 5);
+    ctx.fillStyle = '#0a0a0c';
+    for (let bx = bodyStart; bx < bodyEnd; bx += 6) {
+      ctx.fillRect(bx - dailyScrollX, fY - 5, 1, 5);
+    }
+    ctx.fillStyle = '#5a5a64';
+    ctx.fillRect(bodyStart - dailyScrollX, fY - 5,
+                 (bodyEnd - bodyStart), 1);
+
+    // Top I-beam runner — heavy steel chord above the ceiling line,
+    // with diagonal hazard stripes.
+    const beamY = ceilingY - 4;
+    ctx.fillStyle = '#3a3a40';
+    ctx.fillRect(bodyStart - dailyScrollX, beamY, (bodyEnd - bodyStart), 4);
+    ctx.fillStyle = '#1a1a1e';
+    ctx.fillRect(bodyStart - dailyScrollX, beamY + 4, (bodyEnd - bodyStart), 1);
+    // Hazard stripes along the runner
+    ctx.fillStyle = '#ffd83d';
+    for (let bx = bodyStart; bx < bodyEnd; bx += 14) {
+      const x = bx - dailyScrollX;
+      ctx.beginPath();
+      ctx.moveTo(x,     beamY);
+      ctx.lineTo(x + 6, beamY);
+      ctx.lineTo(x + 10, beamY + 4);
+      ctx.lineTo(x + 4, beamY + 4);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Hanging chains every ~50 px from the top runner — purely
+    // decorative but sells "active industrial workspace".
+    const chainStep = 52;
+    const seedI = Math.floor(t.seed || 0);
+    for (let bx = bodyStart + 18; bx < bodyEnd - 18; bx += chainStep) {
+      const cxScreen = bx - dailyScrollX;
+      const linkN = 4 + ((seedI + bx) % 3);
+      const sway = Math.sin(frame * 0.04 + (seedI + bx) * 0.13) * 1.2;
+      ctx.strokeStyle = '#1a1418';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cxScreen, beamY + 5);
+      for (let lk = 0; lk < linkN; lk++) {
+        const ly = beamY + 7 + lk * 5;
+        const lx = cxScreen + sway * (lk / linkN);
+        ctx.lineTo(lx, ly);
+      }
+      ctx.stroke();
+      ctx.lineWidth = 1.0;
+      // Hook on the bottom link
+      ctx.fillStyle = '#5a3018';
+      ctx.beginPath();
+      ctx.arc(cxScreen + sway, beamY + 6 + linkN * 5, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Warning STROBES at entrance + exit mouths — flash on a fast cycle
+    const strobeOn = (frame % 20) < 10;
+    for (const xMouth of [wxStart + 6, wxEnd - 6]) {
+      const sxM = xMouth - dailyScrollX;
+      const yM  = terrainHeightAt(xMouth) - TUNNEL_MOUTH_CORRIDOR - 6;
+      ctx.fillStyle = strobeOn ? '#ff5040' : '#601810';
+      ctx.beginPath();
+      ctx.arc(sxM, yM, 3, 0, Math.PI * 2);
+      ctx.fill();
+      if (strobeOn) {
+        ctx.fillStyle = 'rgba(255, 140, 80, 0.45)';
+        ctx.beginPath();
+        ctx.arc(sxM, yM, 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // ---- SPARK CASCADE BANDS — visual + hazard tell ----
+    if (t.sparkBands) {
+      for (const sb of t.sparkBands) {
+        const bandWX = wxStart + sb.relX;
+        const bandSx = bandWX - dailyScrollX;
+        if (bandSx < -20 || bandSx > W + 20) continue;
+        const localCeilingY = terrainHeightAt(bandWX) + TUNNEL_CEILING_OFFSET;
+        const localFloorY   = fY;
+        if (sb.phase === 'telegraph') {
+          // Welding-arc glow at the ceiling — bright pulsing point that
+          // tells the player "sparks are coming HERE."
+          const glow = 0.4 + 0.6 * Math.abs(Math.sin(sb.phaseFrame * 0.5));
+          ctx.fillStyle = 'rgba(255, 220, 120, ' + glow + ')';
+          ctx.beginPath();
+          ctx.arc(bandSx, localCeilingY + 2, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255, 160, 60, ' + (glow * 0.5) + ')';
+          ctx.beginPath();
+          ctx.arc(bandSx, localCeilingY + 2, 8, 0, Math.PI * 2);
+          ctx.fill();
+          // Tiny pre-sparks falling
+          if ((sb.phaseFrame % 4) === 0) {
+            ctx.fillStyle = 'rgba(255, 200, 80, 0.85)';
+            for (let s = 0; s < 2; s++) {
+              const sx2 = bandSx + (Math.random() - 0.5) * 6;
+              const sy  = localCeilingY + 4 + Math.random() * 8;
+              ctx.fillRect(sx2, sy, 1, 2);
+            }
+          }
+        } else if (sb.phase === 'active') {
+          // Full spark cascade — bright vertical band
+          const t01 = sb.phaseFrame / 24;
+          const killTop = localCeilingY + (localFloorY - localCeilingY) * 0.30;
+          // Hot core (tight bright band)
+          ctx.fillStyle = 'rgba(255, 240, 160, 0.75)';
+          ctx.fillRect(bandSx - 2, killTop, 4, localFloorY - killTop);
+          // Outer glow
+          ctx.fillStyle = 'rgba(255, 160, 50, 0.42)';
+          ctx.fillRect(bandSx - 6, killTop - 2, 12, localFloorY - killTop + 4);
+          // Spark particles raining down
+          ctx.fillStyle = '#ffe080';
+          for (let s = 0; s < 8; s++) {
+            const px = bandSx + (Math.random() - 0.5) * 10;
+            const py = killTop + Math.random() * (localFloorY - killTop);
+            ctx.fillRect(px, py, 1, 2 + Math.random() * 2);
+          }
+          // Floor splash sparks
+          ctx.fillStyle = 'rgba(255, 200, 80, ' + (0.8 - t01 * 0.4) + ')';
+          for (let s = 0; s < 6; s++) {
+            const px = bandSx + (Math.random() - 0.5) * 18;
+            ctx.fillRect(px, localFloorY - 2 - Math.random() * 3, 2, 1);
+          }
+        } else if (sb.phase === 'cooldown') {
+          // Smoldering aftermath — faint glow at the ceiling
+          const fade = 1 - (sb.phaseFrame / 60);
+          ctx.fillStyle = 'rgba(180, 80, 30, ' + (fade * 0.45) + ')';
+          ctx.beginPath();
+          ctx.arc(bandSx, localCeilingY + 2, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // Entry / exit arrow telegraph (same UX as drawTunnel — pulses
+    // "fly in here" above each mouth so the entry reads cleanly).
+    const arrowPulse = 0.55 + 0.45 * Math.sin(frame * 0.18);
+    for (const xMouth of [wxStart, wxEnd]) {
+      const sxA = xMouth - dailyScrollX;
+      const yA  = terrainHeightAt(xMouth) - TUNNEL_MOUTH_CORRIDOR - 18;
+      ctx.fillStyle = 'rgba(255, 200, 80, ' + arrowPulse + ')';
+      ctx.beginPath();
+      ctx.moveTo(sxA, yA + 6);
+      ctx.lineTo(sxA - 4, yA);
+      ctx.lineTo(sxA + 4, yA);
+      ctx.closePath();
+      ctx.fill();
     }
   }
 
@@ -29206,16 +29878,23 @@ const DLX_BUILD = 'v415';
         'Hot-rod chrome · 80 spark plugs · a steering wheel signed by Dumplord',
         'Recycled fenders · stripped wire · one mystery crate stamped DO NOT OPEN',
       ],
-      // Ship 1+ obstacle set — keeps existing scrap-flavored
-      // obstacles (towers, tunnels, air wrecks). Ship 2 wires
-      // scrapMagnets (magnetic crane theft); Ship 3 wires
-      // compactorJaws (timed crush hazards).
+      // Scrapyard-native obstacle set — the two Sunset shapes that
+      // recycled cleanly (scrapTower / airWreck) are OFF; the spawn
+      // cascade remaps each slot to its scrapyard equivalent so the
+      // level plays with different mechanics, not just different art:
+      //   carTowers  — stacked crushed cars; top car can tumble
+      //   conveyors  — overhead belt with moving cargo (timing pass)
+      // Tunnels stay ON but get re-skinned + spark-cascade mechanic
+      // via the o.gantry flag set at spawn. scrapMagnets +
+      // compactorJaws stay on — both scrapyard-native.
       obstacleSet: {
         drones: false, thieves: false, groundOps: false,
-        lavaBalls: false, scrapTowers: true, airWrecks: true,
+        lavaBalls: false, scrapTowers: false, airWrecks: false,
         tunnels: true, tentacles: false,
         scrapMagnets: true,
         compactorJaws: true,
+        carTowers: true,
+        conveyors: true,
       },
       obstacleTheme: 'scrapyard',
     },
