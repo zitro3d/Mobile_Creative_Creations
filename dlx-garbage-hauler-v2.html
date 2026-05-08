@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v416';
+const DLX_BUILD = 'v417';
 
 (function() {
   // ---------- Device detection ----------
@@ -9431,9 +9431,42 @@ const DLX_BUILD = 'v416';
                 }
               }
             }
-            // ---- CONVEYOR belt cargo scroll ----
+            // ---- CONVEYOR belt cargo scroll + PICKUP collection ----
+            // Cargo riding the belt is collectible (the rig is a
+            // GARBAGE HAULER — picking up scrap is the whole job).
+            // Touch a piece, it drops off the belt onto your run as
+            // bonus score. Premium pieces (oil barrels: kind 3) are
+            // worth more.
             else if (ob.kind === 'conveyor') {
               ob.beltScroll = (ob.beltScroll + 0.65) % ob.length;
+              const sxOb = ob.worldX - dailyScrollX;
+              const beltY = ob.alt;
+              const sparkMult = rigPerk('magnetRange') || 1.0;
+              const hitR = 22 * sparkMult;
+              for (let ci = ob.cargo.length - 1; ci >= 0; ci--) {
+                const c = ob.cargo[ci];
+                const cxScreen = sxOb + ((c.offsetX - ob.beltScroll + ob.length) % ob.length);
+                const cyScreen = beltY - 9;
+                const dx = bird.x - cxScreen;
+                const dy = bird.y - cyScreen;
+                if (dx * dx + dy * dy < hitR * hitR) {
+                  // Reward varies by cargo kind. Oil barrels are premium.
+                  const isPremium = (c.kind === 3);
+                  const reward = isPremium ? 25 : 8;
+                  grantScore(reward);
+                  addCombo();
+                  scorePulse = 1;
+                  burstFrames = isPremium ? 16 : 10;
+                  emitPickupSparks(cxScreen, cyScreen,
+                                   isPremium ? '#ff8030' : '#ffd060',
+                                   isPremium ? 16 : 10);
+                  emitScoreFloater(cxScreen, cyScreen - 8, reward,
+                                   isPremium ? '#ff8030' : '#ffd060');
+                  safeVibrate(isPremium ? 14 : 8);
+                  playSound(isPremium ? 'gold' : 'pickup');
+                  ob.cargo.splice(ci, 1);
+                }
+              }
             }
             // ---- GANTRY ARCH spark cascade timers ----
             // (Scrapyard tunnels carry o.gantry=true and o.sparkBands.)
@@ -10473,22 +10506,9 @@ const DLX_BUILD = 'v416';
             }
           }
         } else if (o.kind === 'conveyor') {
-          // Each cargo piece riding the belt is a hit zone. Belt frame
-          // itself is non-lethal (it's at fixed altitude — flying around
-          // it is the route choice). The HAZARD is the moving cargo.
-          if (passThrough) continue;             // field passes through cargo
-          if (bird.x + r > sx && bird.x - r < sx + (o.length || 280)) {
-            const beltY = o.alt;
-            const cargoR = 18;                   // half-extent of each cargo
-            const cargoH = 14;
-            for (const c of (o.cargo || [])) {
-              const cx = sx + ((c.offsetX - o.beltScroll + o.length) % o.length);
-              if (Math.abs(bird.x - cx) < r + cargoR
-                  && Math.abs(bird.y - (beltY - 6)) < r + cargoH) {
-                return true;
-              }
-            }
-          }
+          // Conveyor cargo is a PICKUP (collected in the scrapyard
+          // update loop); the belt frame itself is non-lethal scenery.
+          // No collision branch needed here.
         } else if (o.kind === 'caveColumn') {
           // Full-height cave column — solid stone except in the
           // navigable gap. Same shield rule as scrap towers: this
