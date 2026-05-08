@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v417';
+const DLX_BUILD = 'v418';
 
 (function() {
   // ---------- Device detection ----------
@@ -9431,12 +9431,17 @@ const DLX_BUILD = 'v417';
                 }
               }
             }
-            // ---- CONVEYOR belt cargo scroll + PICKUP collection ----
-            // Cargo riding the belt is collectible (the rig is a
-            // GARBAGE HAULER — picking up scrap is the whole job).
-            // Touch a piece, it drops off the belt onto your run as
-            // bonus score. Premium pieces (oil barrels: kind 3) are
-            // worth more.
+            // ---- CONVEYOR belt cargo scroll + DROP-OFF / PICKUP swap ----
+            // Conveyors are CARGO SWAP STATIONS. Touch a belt cargo
+            // piece while carrying cargo: you DROP your current cargo
+            // onto the belt for immediate partial-delivery credit, AND
+            // PICK UP the belt cargo for the rest of the run. Premium
+            // pieces (oil barrels: kind 3) carry the priority-delivery
+            // bonus into the truck stop (cargo.hasBonus = true);
+            // swapping to a standard piece RESETS the bonus to false
+            // (so a premium → standard swap costs you the bonus).
+            // If your cargo is currently LOST (theft), touching belt
+            // cargo restores it instead of swapping.
             else if (ob.kind === 'conveyor') {
               ob.beltScroll = (ob.beltScroll + 0.65) % ob.length;
               const sxOb = ob.worldX - dailyScrollX;
@@ -9449,23 +9454,48 @@ const DLX_BUILD = 'v417';
                 const cyScreen = beltY - 9;
                 const dx = bird.x - cxScreen;
                 const dy = bird.y - cyScreen;
-                if (dx * dx + dy * dy < hitR * hitR) {
-                  // Reward varies by cargo kind. Oil barrels are premium.
-                  const isPremium = (c.kind === 3);
-                  const reward = isPremium ? 25 : 8;
-                  grantScore(reward);
+                if (dx * dx + dy * dy >= hitR * hitR) continue;
+                const isPremium = (c.kind === 3);
+                const dropoffPts = isPremium ? 60 : 30;
+                const tone = isPremium ? '#ff8030' : '#ffd060';
+                if (cargo && cargo.lost) {
+                  // ---- LOST CARGO RECOVERY ----
+                  // Belt cargo restores the lost cargo. Premium also
+                  // grants the priority bonus.
+                  cargo.lost = false;
+                  cargo.attached = true;
+                  cargo.banditGrabbed = false;
+                  cargo.banditRef = null;
+                  cargo.scrapMagnetGrabbed = false;
+                  cargo.scrapMagnetRef = null;
+                  cargo.x = bird.x - 32;
+                  cargo.y = bird.y - 4;
+                  cargo.vy = 0;
+                  cargo.hasBonus = isPremium;
+                  grantScore(dropoffPts);
                   addCombo();
                   scorePulse = 1;
-                  burstFrames = isPremium ? 16 : 10;
-                  emitPickupSparks(cxScreen, cyScreen,
-                                   isPremium ? '#ff8030' : '#ffd060',
-                                   isPremium ? 16 : 10);
-                  emitScoreFloater(cxScreen, cyScreen - 8, reward,
-                                   isPremium ? '#ff8030' : '#ffd060');
-                  safeVibrate(isPremium ? 14 : 8);
+                  burstFrames = isPremium ? 22 : 16;
+                  emitPickupSparks(bird.x, bird.y, tone, 24);
+                  emitScoreFloater(cxScreen, cyScreen - 8, dropoffPts, tone);
+                  safeVibrate(isPremium ? 16 : 12);
+                  playSound('cargoRestore');
+                } else if (cargo && cargo.attached) {
+                  // ---- TRUE SWAP: DROP-OFF + PICKUP ----
+                  grantScore(dropoffPts);
+                  addCombo();
+                  scorePulse = 1;
+                  burstFrames = isPremium ? 18 : 12;
+                  emitPickupSparks(cxScreen, cyScreen, tone, isPremium ? 18 : 12);
+                  emitScoreFloater(cxScreen, cyScreen - 8, dropoffPts, tone);
+                  safeVibrate(isPremium ? 14 : 10);
                   playSound(isPremium ? 'gold' : 'pickup');
-                  ob.cargo.splice(ci, 1);
+                  // Premium carries hasBonus into delivery; standard
+                  // resets it (you traded the priority cargo away).
+                  cargo.hasBonus = isPremium;
                 }
+                ob.cargo.splice(ci, 1);
+                break;       // only one swap per frame per belt
               }
             }
             // ---- GANTRY ARCH spark cascade timers ----
