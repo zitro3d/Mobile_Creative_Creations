@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v411';
+const DLX_BUILD = 'v412';
 
 (function() {
   // ---------- Device detection ----------
@@ -12310,7 +12310,83 @@ const DLX_BUILD = 'v411';
     if (!isDaily) return;
     ctx.save();
 
-    if (currentDeliveryLevel.horizonStyle === 'cave') {
+    if (currentDeliveryLevel.horizonStyle === 'scrapyard') {
+      // ---- SCRAPYARD HORIZON — smokestacks + crushed-car stacks ---
+      // Three-layer parallax: tall smokestacks in the back belching
+      // smoke columns, crushed-car cube stacks in the mid layer, and
+      // junk-pile dunes in the front. The whole thing reads as an
+      // active polluted industrial pit.
+
+      // BACK LAYER — tall smokestacks
+      const stackY = PLAY_H * 0.62;
+      const stackScroll = dailyScrollX * 0.06;
+      const stackPattern = 240;
+      const sStart = Math.floor((stackScroll - 60) / stackPattern) - 1;
+      const sEnd   = Math.floor((stackScroll + W + 60) / stackPattern) + 1;
+      for (let b = sStart; b <= sEnd; b++) {
+        const seed = b * 0.5933 + 4.11;
+        if (srand(seed) < 0.30) continue;
+        const groupX = b * stackPattern - stackScroll;
+        const stackH = 60 + Math.floor(srand(seed + 1.1) * 60);
+        const stackW = 14 + Math.floor(srand(seed + 1.7) * 6);
+        // Smokestack body
+        ctx.fillStyle = 'rgba(40, 22, 10, 0.92)';
+        ctx.fillRect(groupX, stackY - stackH, stackW, stackH);
+        // Top rim band (lighter)
+        ctx.fillStyle = 'rgba(120, 70, 30, 0.95)';
+        ctx.fillRect(groupX - 2, stackY - stackH, stackW + 4, 4);
+        // Smoke column rising — soft brown puffs animated upward
+        for (let p = 0; p < 4; p++) {
+          const puffPhase = (frame * 0.4 + b * 23 + p * 18) % 120;
+          const puffY = stackY - stackH - 6 - puffPhase * 1.4;
+          const puffR = 8 + (puffPhase / 120) * 14;
+          const puffA = (1 - puffPhase / 120) * 0.45;
+          ctx.fillStyle = 'rgba(80, 50, 28, ' + puffA + ')';
+          ctx.beginPath();
+          ctx.arc(groupX + stackW * 0.5
+                  + Math.sin(puffPhase * 0.05 + b) * 4,
+                  puffY, puffR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // MID LAYER — crushed-car cube stacks
+      const cubeY = PLAY_H * 0.74;
+      const cubeScroll = dailyScrollX * 0.18;
+      const cubePattern = 170;
+      const cStart = Math.floor((cubeScroll - 60) / cubePattern) - 1;
+      const cEnd   = Math.floor((cubeScroll + W + 60) / cubePattern) + 1;
+      for (let b = cStart; b <= cEnd; b++) {
+        const seed = b * 0.7311 + 9.31;
+        if (srand(seed) < 0.20) continue;
+        const groupX = b * cubePattern - cubeScroll;
+        const stackH = 1 + Math.floor(srand(seed + 1.3) * 4);    // 1-4 cubes
+        for (let r = 0; r < stackH; r++) {
+          const cw = 26 + Math.floor(srand(seed + r * 1.7) * 6);
+          const ch = 14 + Math.floor(srand(seed + r * 2.1) * 4);
+          const offX = (r % 2 === 0 ? 0 : 4);
+          const cx = groupX + offX;
+          const cy = cubeY - (r + 1) * ch + r * 1.5;
+          // Crushed car body — rust palette
+          const tone = (r % 2 === 0)
+            ? 'rgba(120, 50, 24, 0.88)'
+            : 'rgba(90, 40, 18, 0.88)';
+          ctx.fillStyle = tone;
+          ctx.fillRect(cx, cy, cw, ch);
+          // Top edge highlight
+          ctx.fillStyle = 'rgba(255, 180, 100, 0.35)';
+          ctx.fillRect(cx, cy, cw, 1.4);
+          // Stripe (caution)
+          if (r === stackH - 1 && srand(seed + 5.1) < 0.5) {
+            ctx.fillStyle = 'rgba(255, 200, 60, 0.55)';
+            ctx.fillRect(cx, cy + ch * 0.45, cw, 2);
+          }
+        }
+      }
+
+      // FRONT LAYER — junk-pile dune ridges fall through to the
+      // standard dune render below (skipping the early-return).
+    } else if (currentDeliveryLevel.horizonStyle === 'cave') {
       // ---- CAVE BACKDROP — distant rock walls for depth -----------
       // Two parallax layers BEHIND the foreground ceiling/floor so
       // the cave reads as a 3D space, not a flat silhouette band.
@@ -13650,6 +13726,10 @@ const DLX_BUILD = 'v411';
       drawLandmarkCaveCliffDock(x, y);
       return;
     }
+    if (currentDeliveryLevel.obstacleTheme === 'scrapyard') {
+      drawLandmarkScrapyardSmeltWorks(x, y);
+      return;
+    }
     ctx.save();
     // Match the warehouse runway altitude so the rig docks at the same
     // height it launched from
@@ -14456,6 +14536,10 @@ const DLX_BUILD = 'v411';
     }
     if (currentDeliveryLevel.obstacleTheme === 'cave') {
       drawLandmarkCaveMouth(x, y);
+      return;
+    }
+    if (currentDeliveryLevel.obstacleTheme === 'scrapyard') {
+      drawLandmarkScrapyardSalvagePit(x, y);
       return;
     }
     ctx.save();
@@ -15901,6 +15985,444 @@ const DLX_BUILD = 'v411';
       ctx.arc(beaconX, beaconY - 2, 2.6, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.restore();
+  }
+
+  // ==================================================================
+  // DLX SCRAPYARD LANDMARKS
+  // SALVAGE PIT (launch) and SMELT WORKS (delivery dock).
+  // Both at the standard pad altitude (PLAY_H/2 + 28) so the existing
+  // dock-approach + finalize logic still aligns.
+  // ==================================================================
+
+  // SALVAGE PIT — launch is a forklift-loaded scrap-pit dispatch.
+  // Big rusted scrap heap behind, conveyor belt feeding the pit, a
+  // parked forklift, hazard-stripe loading deck, DLX banner above.
+  function drawLandmarkScrapyardSalvagePit(x, y) {
+    ctx.save();
+    const floorY = PLAY_H / 2 + 28;
+    const deckTop = floorY - 6;
+
+    // ---- 1. SCRAP HEAP backdrop — pile of crushed cars + junk
+    ctx.fillStyle = '#3a1a08';
+    ctx.beginPath();
+    ctx.moveTo(x - 200, floorY);
+    ctx.lineTo(x - 200, floorY - 60);
+    ctx.lineTo(x - 160, floorY - 100);
+    ctx.lineTo(x - 100, floorY - 140);
+    ctx.lineTo(x - 40,  floorY - 160);
+    ctx.lineTo(x + 30,  floorY - 150);
+    ctx.lineTo(x + 80,  floorY - 110);
+    ctx.lineTo(x + 130, floorY - 70);
+    ctx.lineTo(x + 170, floorY - 40);
+    ctx.lineTo(x + 200, floorY);
+    ctx.closePath();
+    ctx.fill();
+    // Lit highlights along the heap silhouette
+    ctx.strokeStyle = 'rgba(255, 180, 100, 0.55)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(x - 200, floorY - 60);
+    ctx.lineTo(x - 160, floorY - 100);
+    ctx.lineTo(x - 100, floorY - 140);
+    ctx.lineTo(x - 40,  floorY - 160);
+    ctx.lineTo(x + 30,  floorY - 150);
+    ctx.lineTo(x + 80,  floorY - 110);
+    ctx.lineTo(x + 130, floorY - 70);
+    ctx.stroke();
+    // Scattered crushed-car cubes embedded in the heap
+    const cubes = [
+      [x - 130, floorY - 90, 24, 14],
+      [x - 70,  floorY - 130, 22, 12],
+      [x - 14,  floorY - 100, 26, 14],
+      [x + 50,  floorY - 80, 22, 12],
+      [x + 100, floorY - 50, 24, 12],
+    ];
+    for (const c of cubes) {
+      ctx.fillStyle = '#5a2818';
+      ctx.fillRect(c[0], c[1], c[2], c[3]);
+      ctx.strokeStyle = 'rgba(20, 8, 4, 0.8)';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(c[0], c[1], c[2], c[3]);
+      // Top edge highlight
+      ctx.fillStyle = 'rgba(255, 180, 100, 0.45)';
+      ctx.fillRect(c[0], c[1], c[2], 1);
+    }
+    // Smoke plume rising from the back of the heap
+    for (let p = 0; p < 4; p++) {
+      const puffPhase = (frame * 0.5 + p * 18) % 100;
+      const puffY = floorY - 160 - puffPhase * 1.2;
+      const puffR = 8 + (puffPhase / 100) * 12;
+      const puffA = (1 - puffPhase / 100) * 0.45;
+      ctx.fillStyle = 'rgba(80, 50, 28, ' + puffA + ')';
+      ctx.beginPath();
+      ctx.arc(x + 8 + Math.sin(puffPhase * 0.05) * 4,
+              puffY, puffR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ---- 2. CONVEYOR BELT feeding the pit (back-left)
+    {
+      const cbL = x - 180, cbR = x - 60;
+      const cbY = deckTop - 18;
+      // Frame
+      ctx.fillStyle = '#3a3a40';
+      ctx.fillRect(cbL, cbY, cbR - cbL, 6);
+      ctx.strokeStyle = '#1a0e05';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(cbL, cbY, cbR - cbL, 6);
+      // Roller pulleys at each end (circles)
+      ctx.fillStyle = '#1a0e05';
+      ctx.beginPath();
+      ctx.arc(cbL, cbY + 3, 5, 0, Math.PI * 2);
+      ctx.arc(cbR, cbY + 3, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#a85838';
+      ctx.beginPath();
+      ctx.arc(cbL, cbY + 3, 2.4, 0, Math.PI * 2);
+      ctx.arc(cbR, cbY + 3, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Belt animation — moving stripes
+      const beltOff = (frame * 1.4) % 12;
+      ctx.strokeStyle = 'rgba(140, 80, 30, 0.65)';
+      ctx.lineWidth = 1;
+      for (let bx = cbL + beltOff; bx < cbR; bx += 12) {
+        ctx.beginPath();
+        ctx.moveTo(bx,     cbY + 1);
+        ctx.lineTo(bx + 4, cbY + 5);
+        ctx.stroke();
+      }
+      // Support legs
+      ctx.fillStyle = '#3a3a40';
+      ctx.fillRect(cbL + 8,        cbY + 6, 3, deckTop - cbY - 6);
+      ctx.fillRect(cbR - 11,       cbY + 6, 3, deckTop - cbY - 6);
+      // Junk on the belt — small dropped scrap
+      ctx.fillStyle = '#a85838';
+      const junkX1 = cbL + 30 + ((beltOff * 3) % 60);
+      const junkX2 = cbL + 70 + ((beltOff * 3) % 60);
+      ctx.fillRect(junkX1, cbY - 3, 5, 4);
+      ctx.fillRect(junkX2, cbY - 3, 4, 4);
+    }
+
+    // ---- 3. PARKED FORKLIFT (back-right of deck)
+    {
+      const fx = x + 110, fy = deckTop;
+      // Tracks/wheels
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(fx - 4, fy - 6, 32, 6);
+      ctx.fillStyle = '#3a3a40';
+      ctx.beginPath();
+      ctx.arc(fx + 2, fy - 3, 3.5, 0, Math.PI * 2);
+      ctx.arc(fx + 22, fy - 3, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      // Body — yellow forklift cab
+      ctx.fillStyle = '#d4a020';
+      ctx.fillRect(fx + 4, fy - 24, 22, 18);
+      ctx.strokeStyle = '#1a0e05';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(fx + 4, fy - 24, 22, 18);
+      // Cabin window
+      ctx.fillStyle = '#3a3a40';
+      ctx.fillRect(fx + 8, fy - 22, 14, 8);
+      ctx.fillStyle = 'rgba(140, 220, 255, 0.3)';
+      ctx.fillRect(fx + 8, fy - 22, 14, 8);
+      // Hazard band on cabin bottom
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(fx + 4, fy - 10, 22, 2);
+      ctx.fillStyle = '#ffd040';
+      for (let off = 0; off < 22; off += 3) {
+        ctx.beginPath();
+        ctx.moveTo(fx + 4 + off,     fy - 10);
+        ctx.lineTo(fx + 4 + off + 1, fy - 10);
+        ctx.lineTo(fx + 4 + off + 2, fy - 8);
+        ctx.lineTo(fx + 4 + off + 1, fy - 8);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Forklift forks (extending forward)
+      ctx.fillStyle = '#3a3a40';
+      ctx.fillRect(fx - 18, fy - 4, 22, 1.5);
+      ctx.fillRect(fx - 18, fy - 1, 22, 1.5);
+      // Vertical mast
+      ctx.fillStyle = '#3a3a40';
+      ctx.fillRect(fx + 1, fy - 28, 2, 22);
+      ctx.fillRect(fx + 5, fy - 28, 2, 22);
+    }
+
+    // ---- 4. INDUSTRIAL LOADING DECK (where the rig launches)
+    const deckL = x - 100, deckR = x + 100;
+    ctx.fillStyle = '#28303c';
+    ctx.fillRect(deckL, deckTop, deckR - deckL, 8);
+    ctx.fillStyle = 'rgba(180, 200, 220, 0.55)';
+    ctx.fillRect(deckL, deckTop, deckR - deckL, 1.5);
+    // Hazard chevrons on deck
+    ctx.fillStyle = '#ffd040';
+    for (let chx = deckL + 6; chx < deckR - 12; chx += 18) {
+      ctx.beginPath();
+      ctx.moveTo(chx,      deckTop + 2);
+      ctx.lineTo(chx + 8,  deckTop + 2);
+      ctx.lineTo(chx + 12, deckTop + 6);
+      ctx.lineTo(chx + 4,  deckTop + 6);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Front lip + rail posts
+    ctx.fillStyle = '#1a2030';
+    ctx.fillRect(deckL, deckTop + 8, deckR - deckL, 2);
+    ctx.fillStyle = '#3a4453';
+    ctx.fillRect(deckL + 2, deckTop - 12, 3, 14);
+    ctx.fillRect(deckR - 5, deckTop - 12, 3, 14);
+
+    // ---- 5. AMBER WARNING LIGHTS on the deck ends
+    const blink = ((frame * 0.04) % 1) < 0.55;
+    if (blink) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const px of [deckL + 4, deckR - 4]) {
+        const halo = ctx.createRadialGradient(px, deckTop - 14, 0,
+                                               px, deckTop - 14, 12);
+        halo.addColorStop(0, 'rgba(255, 180, 60, 0.8)');
+        halo.addColorStop(1, 'rgba(255, 180, 60, 0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(px, deckTop - 14, 12, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      for (const px of [deckL + 4, deckR - 4]) {
+        ctx.fillStyle = 'rgba(255, 220, 120, 0.95)';
+        ctx.beginPath();
+        ctx.arc(px, deckTop - 14, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // ---- 6. DLX HAZARD BANNER above the heap
+    const bannerY = floorY - 200;
+    // Top hazard stripe
+    ctx.fillStyle = '#1a0e05';
+    ctx.fillRect(x - 80, bannerY - 16, 160, 6);
+    ctx.fillStyle = '#ffd040';
+    for (let sxh = -80; sxh < 80; sxh += 8) {
+      ctx.beginPath();
+      ctx.moveTo(x + sxh,     bannerY - 16);
+      ctx.lineTo(x + sxh + 4, bannerY - 16);
+      ctx.lineTo(x + sxh + 8, bannerY - 10);
+      ctx.lineTo(x + sxh + 4, bannerY - 10);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = '#1a2030';
+    ctx.fillRect(x - 80, bannerY - 10, 160, 20);
+    ctx.strokeStyle = '#ffd040';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(x - 80, bannerY - 10, 160, 20);
+    ctx.fillStyle = '#ffd040';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DLX · SALVAGE PIT', x, bannerY - 1);
+    // Bottom hazard stripe
+    ctx.fillStyle = '#1a0e05';
+    ctx.fillRect(x - 80, bannerY + 10, 160, 4);
+    ctx.fillStyle = '#ffd040';
+    for (let sxh = -80; sxh < 80; sxh += 8) {
+      ctx.beginPath();
+      ctx.moveTo(x + sxh,     bannerY + 10);
+      ctx.lineTo(x + sxh + 4, bannerY + 10);
+      ctx.lineTo(x + sxh + 8, bannerY + 14);
+      ctx.lineTo(x + sxh + 4, bannerY + 14);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // SMELT WORKS — delivery dock at the END of the route. Tall
+  // smelter tower with a glowing red core, pour-spout dripping
+  // molten slag into a slag pit below the landing pad. DLX
+  // banner up top.
+  function drawLandmarkScrapyardSmeltWorks(x, y) {
+    ctx.save();
+    const padY = PLAY_H / 2 + 28;
+    const padTopY = padY - 6;
+
+    // ---- 1. SMELTER TOWER backdrop (back-right of pad)
+    const towerL = x + 60, towerR = x + 160;
+    ctx.fillStyle = '#3a1a08';
+    ctx.fillRect(towerL, padY - 200, towerR - towerL, 200);
+    ctx.strokeStyle = 'rgba(255, 180, 100, 0.55)';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(towerL, padY - 200, towerR - towerL, 200);
+    // Tower bands (horizontal rivets / rings)
+    ctx.fillStyle = 'rgba(20, 8, 4, 0.8)';
+    for (let by = padY - 188; by < padY; by += 26) {
+      ctx.fillRect(towerL, by, towerR - towerL, 3);
+    }
+    // GLOWING CORE — vertical magma slot in the tower
+    const coreL = towerL + 32, coreR = towerR - 32;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const coreGrad = ctx.createLinearGradient(0, padY - 190, 0, padY - 30);
+    coreGrad.addColorStop(0,   'rgba(255, 100, 30, 0.55)');
+    coreGrad.addColorStop(0.5, 'rgba(255, 200, 80, 0.85)');
+    coreGrad.addColorStop(1,   'rgba(255, 100, 30, 0.55)');
+    ctx.fillStyle = coreGrad;
+    ctx.fillRect(coreL, padY - 190, coreR - coreL, 160);
+    ctx.restore();
+    // Bright inner core
+    ctx.fillStyle = 'rgba(255, 240, 180, 0.8)';
+    ctx.fillRect(coreL + 8, padY - 180, coreR - coreL - 16, 4);
+    ctx.fillRect(coreL + 6, padY - 100, coreR - coreL - 12, 6);
+
+    // ---- 2. SMOKESTACK on top of tower
+    {
+      const sx = (towerL + towerR) * 0.5;
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(sx - 10, padY - 232, 20, 36);
+      ctx.fillStyle = '#3a1a08';
+      ctx.fillRect(sx - 12, padY - 232, 24, 4);
+      // Smoke plume rising
+      for (let p = 0; p < 4; p++) {
+        const puffPhase = (frame * 0.45 + p * 22) % 110;
+        const puffY = padY - 232 - puffPhase * 1.4;
+        const puffR = 8 + (puffPhase / 110) * 14;
+        const puffA = (1 - puffPhase / 110) * 0.5;
+        ctx.fillStyle = 'rgba(60, 40, 20, ' + puffA + ')';
+        ctx.beginPath();
+        ctx.arc(sx + Math.sin(puffPhase * 0.04) * 4, puffY, puffR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // ---- 3. POUR-SPOUT dripping molten slag (down toward slag pit)
+    const spoutX = towerL - 6;
+    const spoutY = padY - 80;
+    ctx.fillStyle = '#3a1a08';
+    ctx.fillRect(spoutX - 14, spoutY, 18, 8);
+    // Molten drip — animated falling
+    const dripPhase = (frame * 0.5) % 60;
+    const dripY = spoutY + 8 + dripPhase;
+    if (dripY < padY - 12) {
+      ctx.fillStyle = '#ff8830';
+      ctx.beginPath();
+      ctx.arc(spoutX - 6, dripY, 2 + dripPhase * 0.04, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const dripHalo = ctx.createRadialGradient(spoutX - 6, dripY, 0,
+                                                  spoutX - 6, dripY, 8);
+      dripHalo.addColorStop(0, 'rgba(255, 180, 80, 0.7)');
+      dripHalo.addColorStop(1, 'rgba(255, 180, 80, 0)');
+      ctx.fillStyle = dripHalo;
+      ctx.beginPath();
+      ctx.arc(spoutX - 6, dripY, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // ---- 4. SLAG PIT below the dock — glowing orange pool
+    const pitL = x - 120, pitR = x - 40;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const pitHalo = ctx.createRadialGradient(spoutX - 6, padY - 4, 0,
+                                              spoutX - 6, padY - 4, 30);
+    pitHalo.addColorStop(0, 'rgba(255, 140, 40, 0.65)');
+    pitHalo.addColorStop(1, 'rgba(255, 140, 40, 0)');
+    ctx.fillStyle = pitHalo;
+    ctx.beginPath();
+    ctx.arc(spoutX - 6, padY - 4, 30, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // Slag pool surface
+    ctx.fillStyle = '#ff7028';
+    ctx.beginPath();
+    ctx.ellipse(spoutX - 6, padY - 2, 22, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255, 220, 140, 0.7)';
+    ctx.beginPath();
+    ctx.ellipse(spoutX - 8, padY - 3, 14, 1.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ---- 5. STONE LANDING PLATFORM (where the rig docks)
+    const padL = x - 240, padR = x + 60;
+    ctx.fillStyle = '#28303c';
+    ctx.fillRect(padL, padTopY, padR - padL, 12);
+    ctx.fillStyle = 'rgba(180, 200, 220, 0.55)';
+    ctx.fillRect(padL, padTopY, padR - padL, 1.5);
+    ctx.fillStyle = '#0a0e16';
+    ctx.fillRect(padL, padTopY + 12, padR - padL, 4);
+    // Hazard chevrons
+    ctx.fillStyle = '#ffd040';
+    for (let chx = padL + 8; chx < padR - 12; chx += 18) {
+      ctx.beginPath();
+      ctx.moveTo(chx,      padTopY + 2);
+      ctx.lineTo(chx + 8,  padTopY + 2);
+      ctx.lineTo(chx + 12, padTopY + 6);
+      ctx.lineTo(chx + 4,  padTopY + 6);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // ---- 6. RECEIVING CRATES at the back of the dock
+    const crates = [
+      [padL + 14, padTopY - 16, 22, 18],
+      [padL + 38, padTopY - 16, 22, 18],
+      [padL + 26, padTopY - 36, 22, 18],
+    ];
+    for (const cr of crates) {
+      ctx.fillStyle = '#3a3a40';
+      ctx.fillRect(cr[0], cr[1], cr[2], cr[3]);
+      ctx.strokeStyle = 'rgba(255, 180, 100, 0.55)';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(cr[0], cr[1], cr[2], cr[3]);
+      ctx.fillStyle = '#ffd040';
+      ctx.font = 'bold 7px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('DLX', cr[0] + cr[2] / 2, cr[1] + cr[3] / 2);
+    }
+
+    // ---- 7. DLX HAZARD BANNER above the platform
+    const bannerCx = padL + 80, bannerY = padTopY - 70;
+    ctx.save();
+    ctx.fillStyle = '#1a0e05';
+    ctx.fillRect(bannerCx - 70, bannerY - 22, 140, 6);
+    ctx.fillStyle = '#ffd040';
+    for (let sxh = -70; sxh < 70; sxh += 8) {
+      ctx.beginPath();
+      ctx.moveTo(bannerCx + sxh,     bannerY - 22);
+      ctx.lineTo(bannerCx + sxh + 4, bannerY - 22);
+      ctx.lineTo(bannerCx + sxh + 8, bannerY - 16);
+      ctx.lineTo(bannerCx + sxh + 4, bannerY - 16);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = '#1a2030';
+    ctx.fillRect(bannerCx - 70, bannerY - 16, 140, 22);
+    ctx.strokeStyle = '#ffd040';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(bannerCx - 70, bannerY - 16, 140, 22);
+    ctx.fillStyle = '#ffd040';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DLX · SMELT WORKS', bannerCx, bannerY - 5);
+    ctx.fillStyle = '#1a0e05';
+    ctx.fillRect(bannerCx - 70, bannerY + 6, 140, 4);
+    ctx.fillStyle = '#ffd040';
+    for (let sxh = -70; sxh < 70; sxh += 8) {
+      ctx.beginPath();
+      ctx.moveTo(bannerCx + sxh,     bannerY + 6);
+      ctx.lineTo(bannerCx + sxh + 4, bannerY + 6);
+      ctx.lineTo(bannerCx + sxh + 8, bannerY + 10);
+      ctx.lineTo(bannerCx + sxh + 4, bannerY + 10);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.fillStyle = '#28303c';
+    ctx.fillRect(bannerCx - 1, bannerY + 12, 2, 22);
     ctx.restore();
   }
 
@@ -27733,6 +28255,59 @@ const DLX_BUILD = 'v411';
         // rig with a top-mounted headlight.
         aimRad:   0.05,
       },
+    },
+    scrapyard: {
+      label: 'DLX SCRAPYARD',
+      // Smoky industrial scrap pit. Dirty copper sky never clears —
+      // smokestacks belching haze keep the whole route in a perma-
+      // sunset orange + brown soot. Reads as "polluted factory floor
+      // + junkyard" not Sunset Wastes' clean-air highway.
+      skyPalette: [
+        { stop: 0,    color: '#3a1f0c' },
+        { stop: 0.40, color: '#6a3a18' },
+        { stop: 0.70, color: '#a8602a' },
+        { stop: 1,    color: '#5a2c12' },
+      ],
+      skyMoons: 'none',                 // smoke would hide them
+      hazeStripeColor: 'rgba(40, 18, 6, 0.22)',     // soot bands
+      // Ember motes — cinder/spark drift from the smelter
+      dustMoteColor: 'rgba(255, 180, 80, 0.55)',
+      dustEmberStart: [255, 200, 90],
+      dustEmberEnd:   [220, 110, 30],
+      groundBand: '#3a1808',
+      horizonStyle: 'scrapyard',
+      horizonDuneFarColor: 'rgba(80, 40, 18, 0.85)',
+      horizonDuneMidColor: 'rgba(120, 60, 24, 0.96)',
+      horizonDuneHighlight: 'rgba(255, 200, 100, 0.50)',
+      // Earth gradient — rusty top, dark muck below.
+      earthPalette: [
+        { stop: 0,    color: '#a85838' },
+        { stop: 0.35, color: '#6a3018' },
+        { stop: 0.75, color: '#3a1808' },
+        { stop: 1,    color: '#1a0a04' },
+      ],
+      ambientField: null,
+      pulseTintColor: null,
+      pulseTintAmp: 0,
+      pulsePeriodFrames: 0,
+      dispatchLabel: 'DLX SALVAGE PIT',
+      dockLabel: 'DLX SMELT WORKS',
+      cargoFlavor: [
+        '12 chrome bumpers · 6 fuel cells · one (1) crushed Cadillac',
+        'Salvaged radiators · scrap copper · DLX collector\'s edition mudflap',
+        'Stripped engine block · 3 transmissions · half a school bus',
+        'Hot-rod chrome · 80 spark plugs · a steering wheel signed by Dumplord',
+        'Recycled fenders · stripped wire · one mystery crate stamped DO NOT OPEN',
+      ],
+      // Ship 1 obstacle set — keeps existing scrap-flavored obstacles
+      // (towers, tunnels, air wrecks). Magnetic-crane theft + scrapyard-
+      // specific hazards land in Ship 2+.
+      obstacleSet: {
+        drones: false, thieves: false, groundOps: false,
+        lavaBalls: false, scrapTowers: true, airWrecks: true,
+        tunnels: true, tentacles: false,
+      },
+      obstacleTheme: 'scrapyard',
     },
   };
   // The level currently driving the daily-mode renderers. Every daily
