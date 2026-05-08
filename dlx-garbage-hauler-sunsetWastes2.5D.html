@@ -4051,6 +4051,9 @@ const DLX_BUILD = 'v415';
   try { muted = localStorage.getItem('dlx_muted_v2') === '1'; } catch (e) {}
 
   let bird, pipes, sparks, exhaust, score, best, frame, flashAlpha, burstFrames, shakeFrames, scorePulse, thrusterFrames, flapCount, pipeSpawnCount;
+  // 2.5D depth oscillator — Sunset Wastes biome only (v2.5D file).
+  // Drives ship scale, Y shift, parallax multipliers, and BG fog.
+  let shipZ = 0;
   // Pro-tier ship feedback (v329):
   //   kickbackFrames: small 2px camera shake fired by the Freighter on
   //     each flap, ~100ms (6 frames at 60fps). Independent of the bigger
@@ -7324,6 +7327,10 @@ const DLX_BUILD = 'v415';
   function update() {
     if (state === STATE_PAUSED || state === STATE_VICTORY) return;
     frame++;
+    // 2.5D depth oscillator for Sunset Wastes (slow ~4-sec sine).
+    // 240 frames at 60fps = 4 sec, so frame * PI / 120 gives a
+    // full cycle every 240 frames. shipZ ranges 0..1.
+    shipZ = (Math.sin(frame * Math.PI / 120) + 1) * 0.5;
 
     updateStars();
     updateDust();
@@ -12790,6 +12797,15 @@ const DLX_BUILD = 'v415';
     }
 
     if (currentDeliveryLevel.horizonStyle === 'citadel') {
+      // 2.5D parallax — background layers vary 0.3..0.5 with shipZ;
+      // midground 0.7..1.0. When shipZ is low (ship feels far) the
+      // background layer fades to 0.85 alpha for subtle depth fog.
+      const _zBg = 0.3 + shipZ * 0.2;
+      const _zMg = 0.7 + shipZ * 0.3;
+      // Wrap the citadel + smoke + vulture render in a globalAlpha
+      // band so the deep background fogs out when ship feels far.
+      ctx.save();
+      ctx.globalAlpha = 0.85 + shipZ * 0.15;        // 0.85 → 1.0
       // ---- Citadel silhouette layer (deepest, slowest parallax) ----
       // Repeating chunks of tall sandstone industrial blocks across the
       // horizon, with smoke columns and oxidized-copper roof bands. Most
@@ -12797,7 +12813,7 @@ const DLX_BUILD = 'v415';
       // through the haze every few hundred world-units so the skyline has
       // a clear focal point instead of a uniform wall.
       const citY = PLAY_H * 0.62;
-      const citScroll = dailyScrollX * 0.06;
+      const citScroll = dailyScrollX * _zBg;
       const citPattern = 220;       // world-units per repeating citadel block
       const startB = Math.floor((citScroll - 60) / citPattern) - 1;
       const endB   = Math.floor((citScroll + W + 60) / citPattern) + 1;
@@ -12849,6 +12865,9 @@ const DLX_BUILD = 'v415';
         const ox = o * outPattern - outScroll + Math.floor(srand(oseed + 0.3) * 60);
         drawDailyOutpost(ox, outY, oseed);
       }
+      // Close the 2.5D depth-fog wrap opened above. Dunes draw at
+      // full opacity so the foreground stays crisp.
+      ctx.restore();
 
     } else if (currentDeliveryLevel.horizonStyle === 'cavern') {
       // ---- BACK PARALLAX LAYER: tiny bioluminescent pinpoints scattered
@@ -12950,8 +12969,14 @@ const DLX_BUILD = 'v415';
     }
 
     // ---- Far dunes — palette per level, soft low-frequency curves ----
+    // Sunset Wastes (citadel horizon): far dunes count as background
+    // for the 2.5D depth illusion, so they scroll at the shipZ-driven
+    // BG multiplier 0.3..0.5 instead of the fixed 0.14. Other biomes
+    // keep the original parallax depth.
+    const _isCitadel = currentDeliveryLevel.horizonStyle === 'citadel';
+    const _farMul = _isCitadel ? (0.3 + shipZ * 0.2) : 0.14;
     const farY = PLAY_H * 0.74;
-    const farScroll = dailyScrollX * 0.14;
+    const farScroll = dailyScrollX * _farMul;
     ctx.fillStyle = currentDeliveryLevel.horizonDuneFarColor;
     ctx.beginPath();
     ctx.moveTo(-4, farY);
@@ -12967,8 +12992,11 @@ const DLX_BUILD = 'v415';
     ctx.fill();
 
     // ---- Mid dunes — palette per level, bigger curves ----
+    // Sunset Wastes mid dunes ride the shipZ-driven midground
+    // multiplier 0.7..1.0 (was fixed 0.28). Other biomes unchanged.
+    const _midMul = _isCitadel ? (0.7 + shipZ * 0.3) : 0.28;
     const midY = PLAY_H * 0.84;
-    const midScroll = dailyScrollX * 0.28;
+    const midScroll = dailyScrollX * _midMul;
     ctx.fillStyle = currentDeliveryLevel.horizonDuneMidColor;
     ctx.beginPath();
     ctx.moveTo(-4, midY);
@@ -26028,7 +26056,17 @@ const DLX_BUILD = 'v415';
     // pixel-art crispness of the rest of the scene.
     const wobbleX = (Math.random() - 0.5) * 1.4;
     const wobbleY = (Math.random() - 0.5) * 1.4;
-    ctx.translate(Math.round(bird.x + wobbleX), Math.round(bird.y + wobbleY));
+    // 2.5D depth — scale + Y shift gated on Sunset Wastes biome.
+    // bird.x/.y are NOT modified (collision math stays exact); we
+    // only adjust the render transform.
+    const _isSunset2_5D = isDaily
+      && currentDeliveryLevel
+      && currentDeliveryLevel.obstacleTheme === 'desert';
+    const _zScale  = _isSunset2_5D ? (0.85 + shipZ * 0.30) : 1;
+    const _zYShift = _isSunset2_5D ? ((shipZ - 0.5) * 16)   : 0;
+    ctx.translate(Math.round(bird.x + wobbleX),
+                  Math.round(bird.y + wobbleY + _zYShift));
+    if (_isSunset2_5D) ctx.scale(_zScale, _zScale);
 
     // Base tilt from velocity, clamped to ±20°
     // Base tilt from velocity (Sunset behavior).
