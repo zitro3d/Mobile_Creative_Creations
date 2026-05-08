@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v414';
+const DLX_BUILD = 'v415';
 
 (function() {
   // ---------- Device detection ----------
@@ -9138,6 +9138,168 @@ const DLX_BUILD = 'v414';
             }
           }
         }
+        // ---- SCRAP MAGNETIC CRANES (Scrapyard only) ----------------
+        // A giant crane swings in from above, sweeping a wide
+        // electromagnet across the screen at the cargo's altitude.
+        // If the cargo enters the magnet's pull radius, magnetic
+        // field engages and yanks the cargo up to the magnet head.
+        // Crane retracts off-screen with cargo. Force-field shield
+        // deflects the magnet harmlessly.
+        if (currentDeliveryLevel.obstacleSet
+            && currentDeliveryLevel.obstacleSet.scrapMagnets
+            && cargo && cargo.attached && !cargo.lost
+            && !dailyDelivered
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
+            && frame >= dailyNextScrapMagnetAt
+            && dailyScrapMagnets.length < 1) {
+          // Spawn from off-screen RIGHT, descend down to cargo
+          // altitude, then sweep LEFT across the play space.
+          dailyScrapMagnets.push({
+            x: W + 36,
+            y: -40,
+            targetSweepY: cargo.y,
+            state: 'descend',
+            stateFrames: 0,
+            carrying: false,
+          });
+          dailyNextScrapMagnetAt = frame + 720 + Math.floor(Math.random() * 480);
+        }
+        for (let i = dailyScrapMagnets.length - 1; i >= 0; i--) {
+          const mg = dailyScrapMagnets[i];
+          mg.stateFrames++;
+          if (mg.state === 'descend') {
+            // 36-frame descent from y = -40 down to targetSweepY
+            const t = Math.min(1, mg.stateFrames / 36);
+            const ease = 1 - Math.pow(1 - t, 2);
+            mg.y = -40 + (mg.targetSweepY - (-40)) * ease;
+            if (mg.stateFrames >= 36) {
+              mg.state = 'sweep';
+              mg.stateFrames = 0;
+            }
+          } else if (mg.state === 'sweep') {
+            // Sweep left across the screen at constant rate
+            mg.x -= 1.8;
+            // Bob altitude slightly to feel like a real swing
+            mg.y = mg.targetSweepY + Math.sin(mg.stateFrames * 0.06) * 6;
+            // Magnetic field check — if cargo within pull radius
+            // AND no force field, engage the magnet
+            if (cargo && cargo.attached && !cargo.lost && !mg.carrying
+                && forceFieldFrames === 0) {
+              const ddx = mg.x - cargo.x;
+              const ddy = mg.y - cargo.y;
+              const distSq = ddx * ddx + ddy * ddy;
+              if (distSq < 60 * 60) {
+                // Engage — pull cargo toward magnet
+                mg.engaging = true;
+                const pullStrength = 0.18;
+                cargo.x += (mg.x - cargo.x) * pullStrength;
+                cargo.y += (mg.y - cargo.y) * pullStrength;
+                cargo.vy = 0;
+                // If cargo close enough, FULLY GRAB
+                if (distSq < 18 * 18) {
+                  mg.carrying = true;
+                  cargo.attached = false;
+                  cargo.scrapMagnetGrabbed = true;
+                  cargo.scrapMagnetRef = mg;
+                  breakCombo();
+                  if (cargo.hasBonus) {
+                    cargo.hasBonus = false;
+                    playSound('specialLost');
+                  }
+                  emitPickupSparks(cargo.x, cargo.y, '#ffd040', 18);
+                  playSound('tongueGrab');
+                  mg.state = 'retract';
+                  mg.stateFrames = 0;
+                }
+              } else {
+                mg.engaging = false;
+              }
+            } else {
+              mg.engaging = false;
+            }
+            // Force-field deflection sparks if shield active
+            if (forceFieldFrames > 0) {
+              const ddx = mg.x - bird.x;
+              const ddy = mg.y - bird.y;
+              if (ddx * ddx + ddy * ddy < 60 * 60) {
+                emitPickupSparks(mg.x, mg.y, '#a0e8ff', 4);
+              }
+            }
+            // Despawn if swept off the left edge without grabbing
+            if (mg.x < -60) {
+              dailyScrapMagnets.splice(i, 1);
+              continue;
+            }
+          } else if (mg.state === 'retract') {
+            // Magnet retracts upward off-screen, dragging cargo
+            mg.y -= 3.4;
+            if (mg.carrying && cargo && cargo.scrapMagnetGrabbed && !cargo.lost) {
+              cargo.x = mg.x;
+              cargo.y = mg.y + 4;
+              cargo.vy = 0;
+            }
+            if (mg.y < -80) {
+              if (mg.carrying) {
+                triggerCargoTheft(mg.x, mg.y);
+              }
+              dailyScrapMagnets.splice(i, 1);
+              continue;
+            }
+          }
+        }
+
+        // ---- COMPACTOR JAWS (Scrapyard only) -----------------------
+        // Floor-mounted compactor pit. Two heavy iron jaws sit
+        // open on the floor, telegraph (warning lights flash) for
+        // 60 frames, then SLAM CLOSED for 24 frames (kill zone),
+        // then re-open over 30 frames. Player must time their pass
+        // OR fly above the jaw range.
+        if (currentDeliveryLevel.obstacleSet
+            && currentDeliveryLevel.obstacleSet.compactorJaws
+            && !dailyDelivered
+            && dailyScrollX < TRUCK_STOP_NO_SPAWN_AFTER
+            && frame >= dailyNextCompactorAt
+            && dailyCompactorJaws.length < 3) {
+          dailyCompactorJaws.push({
+            worldX: dailyScrollX + W + 80 + Math.random() * 120,
+            phase: 'idle',           // idle → telegraph → slam → reopen → idle
+            phaseFrame: 0,
+            cycleAt: frame + 90 + Math.floor(Math.random() * 90),
+          });
+          dailyNextCompactorAt = frame + 540 + Math.floor(Math.random() * 360);
+        }
+        for (let i = dailyCompactorJaws.length - 1; i >= 0; i--) {
+          const cj = dailyCompactorJaws[i];
+          cj.phaseFrame++;
+          // Despawn off-screen left
+          if (cj.worldX - dailyScrollX < -60) {
+            dailyCompactorJaws.splice(i, 1);
+            continue;
+          }
+          if (cj.phase === 'idle') {
+            if (frame >= cj.cycleAt) {
+              cj.phase = 'telegraph';
+              cj.phaseFrame = 0;
+            }
+          } else if (cj.phase === 'telegraph') {
+            if (cj.phaseFrame >= 60) {
+              cj.phase = 'slam';
+              cj.phaseFrame = 0;
+              playSound('boom');
+            }
+          } else if (cj.phase === 'slam') {
+            if (cj.phaseFrame >= 24) {
+              cj.phase = 'reopen';
+              cj.phaseFrame = 0;
+            }
+          } else if (cj.phase === 'reopen') {
+            if (cj.phaseFrame >= 30) {
+              cj.phase = 'idle';
+              cj.phaseFrame = 0;
+              cj.cycleAt = frame + 60 + Math.floor(Math.random() * 90);
+            }
+          }
+        }
         // ---- WATERFALLS + PRIORITY CRATES (Glow Chamber only) -----
         // Spawn a waterfall ahead of the rig at periodic intervals.
         // Behind each waterfall sits a special PRIORITY crate worth
@@ -9982,6 +10144,25 @@ const DLX_BUILD = 'v414';
           && forceFieldFrames === 0) {
         const ceilingY = caveCeilingAt(wxRig);
         if (bird.y - r <= ceilingY) return true;
+      }
+      // Scrapyard COMPACTOR JAWS — slam phase = kill zone on the
+      // floor between the two jaws. Force-field bypasses; GHOST
+      // perk bypasses (handled by ghostFrames check below).
+      if (currentDeliveryLevel.obstacleTheme === 'scrapyard'
+          && ghostFrames === 0
+          && forceFieldFrames === 0
+          && dailyCompactorJaws && dailyCompactorJaws.length) {
+        for (const cj of dailyCompactorJaws) {
+          if (cj.phase !== 'slam') continue;
+          const sx = cj.worldX - dailyScrollX;
+          const cjGroundY = terrainHeightAt(cj.worldX);
+          // Slam zone — kill if rig is within the jaw width AND
+          // below the cargo-top altitude (jaws reach ~50 px up).
+          if (Math.abs(bird.x - sx) < 28
+              && bird.y + r > cjGroundY - 50) {
+            return true;
+          }
+        }
       }
       const L = tunnelLayoutAt(wxRig);
       // FLOOR — every state has one. Rig dies hitting it. Inside the
@@ -16008,6 +16189,119 @@ const DLX_BUILD = 'v414';
     const floorY = PLAY_H / 2 + 28;
     const deckTop = floorY - 6;
 
+    // ---- 0. JUNK PILE FOUNDATION — the deck sits embedded in
+    //         a chunky pile of crushed cars + scrap reaching down
+    //         to the visible play floor. Visually distinct from
+    //         Black Route's clean rebar tower — leans into the
+    //         scrapyard fiction (the dispatch is BUILT INTO the
+    //         scrap pile, not on stilts).
+    {
+      const fdTopL = x - 110, fdTopR = x + 110;
+      // Irregular jagged pile silhouette flaring outward as it
+      // descends — wider at the bottom like a real junk pile.
+      ctx.fillStyle = '#3a1808';
+      ctx.beginPath();
+      ctx.moveTo(fdTopL,         deckTop + 8);
+      ctx.lineTo(fdTopL - 14,    deckTop + 36);
+      ctx.lineTo(fdTopL - 6,     deckTop + 70);
+      ctx.lineTo(fdTopL - 22,    deckTop + 110);
+      ctx.lineTo(fdTopL - 10,    PLAY_H + 4);
+      ctx.lineTo(fdTopR + 10,    PLAY_H + 4);
+      ctx.lineTo(fdTopR + 22,    deckTop + 110);
+      ctx.lineTo(fdTopR + 6,     deckTop + 70);
+      ctx.lineTo(fdTopR + 14,    deckTop + 36);
+      ctx.lineTo(fdTopR,         deckTop + 8);
+      ctx.closePath();
+      ctx.fill();
+      // Lit highlights along the top + side edges (catches the
+      // smoky orange ambient)
+      ctx.strokeStyle = 'rgba(255, 180, 100, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(fdTopL,         deckTop + 8);
+      ctx.lineTo(fdTopL - 14,    deckTop + 36);
+      ctx.lineTo(fdTopL - 6,     deckTop + 70);
+      ctx.lineTo(fdTopL - 22,    deckTop + 110);
+      ctx.moveTo(fdTopR,         deckTop + 8);
+      ctx.lineTo(fdTopR + 14,    deckTop + 36);
+      ctx.lineTo(fdTopR + 6,     deckTop + 70);
+      ctx.lineTo(fdTopR + 22,    deckTop + 110);
+      ctx.stroke();
+      // Embedded crushed-car cubes (different palette + sizes
+      // from the rear heap so the foundation reads as its own pile).
+      const fdCars = [
+        { px: x - 80, py: deckTop + 30, w: 26, h: 13, tone: '#5a2818' },
+        { px: x + 50, py: deckTop + 32, w: 22, h: 11, tone: '#4a2010' },
+        { px: x - 30, py: deckTop + 56, w: 28, h: 14, tone: '#6a3018' },
+        { px: x + 12, py: deckTop + 64, w: 24, h: 13, tone: '#4a2010' },
+        { px: x - 70, py: deckTop + 82, w: 22, h: 11, tone: '#5a2818' },
+        { px: x + 30, py: deckTop + 92, w: 26, h: 14, tone: '#6a3018' },
+        { px: x - 18, py: deckTop + 110,w: 24, h: 12, tone: '#4a2010' },
+      ];
+      for (const c of fdCars) {
+        if (c.py > PLAY_H) continue;
+        ctx.fillStyle = c.tone;
+        ctx.fillRect(c.px, c.py, c.w, c.h);
+        ctx.strokeStyle = 'rgba(20, 8, 4, 0.85)';
+        ctx.lineWidth = 0.7;
+        ctx.strokeRect(c.px, c.py, c.w, c.h);
+        ctx.fillStyle = 'rgba(255, 180, 100, 0.4)';
+        ctx.fillRect(c.px, c.py, c.w, 1);
+        // Window slot
+        ctx.fillStyle = 'rgba(20, 10, 5, 0.85)';
+        ctx.fillRect(c.px + 4, c.py + 3, c.w - 8, 3);
+      }
+      // Scrap pieces sticking out (pipes, springs, twisted metal)
+      ctx.strokeStyle = '#6a3018';
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = 'round';
+      const stickPieces = [
+        [x - 96, deckTop + 50, x - 110, deckTop + 64],
+        [x + 92, deckTop + 56, x + 108, deckTop + 44],
+        [x - 88, deckTop + 96, x - 102, deckTop + 110],
+        [x + 78, deckTop + 100, x + 96, deckTop + 88],
+        [x - 18, deckTop + 132, x + 8, deckTop + 144],
+      ];
+      for (const sp of stickPieces) {
+        ctx.beginPath();
+        ctx.moveTo(sp[0], sp[1]);
+        ctx.lineTo(sp[2], sp[3]);
+        ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
+      // Coiled-spring zigzags scattered through
+      ctx.strokeStyle = '#3a3a40';
+      ctx.lineWidth = 1.2;
+      const springSpots = [
+        [x - 50, deckTop + 50],
+        [x + 58, deckTop + 86],
+        [x - 6,  deckTop + 130],
+      ];
+      for (const sp of springSpots) {
+        ctx.beginPath();
+        ctx.moveTo(sp[0], sp[1]);
+        for (let k = 1; k <= 5; k++) {
+          ctx.lineTo(sp[0] + (k % 2 === 0 ? 3 : -3), sp[1] + k * 1.6);
+        }
+        ctx.stroke();
+      }
+      // Top hazard-stripe lip where the pile meets the deck (so
+      // the deck reads as DLX-marked, anchored to the pile).
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(fdTopL + 4, deckTop + 8, fdTopR - fdTopL - 8, 4);
+      ctx.fillStyle = '#ffd040';
+      const hzL = fdTopL + 4, hzR = fdTopR - 4;
+      for (let off = 0; off < hzR - hzL; off += 7) {
+        ctx.beginPath();
+        ctx.moveTo(hzL + off,     deckTop + 8);
+        ctx.lineTo(hzL + off + 3, deckTop + 8);
+        ctx.lineTo(hzL + off + 7, deckTop + 12);
+        ctx.lineTo(hzL + off + 4, deckTop + 12);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
     // ---- 1. CHAIN-LINK FENCE BACKDROP — runs across the back at
     //         mid-screen height. Diagonal cross-hatch suggests
     //         "this is a fenced industrial yard."
@@ -17132,6 +17426,10 @@ const DLX_BUILD = 'v414';
     // Cave-theme debris is rendered separately by drawCaveDebris.
     if (currentDeliveryLevel.obstacleTheme === 'cave') {
       drawCaveDebris();
+      return;
+    }
+    if (currentDeliveryLevel.obstacleTheme === 'scrapyard') {
+      drawScrapyardDebris();
       return;
     }
     // Cacti / skulls / trash / rocks / brush are wasteland flavor — only
@@ -26645,6 +26943,8 @@ const DLX_BUILD = 'v414';
       drawDailyLavaBalls();
       drawDailyBandits();        // bandit body + sled (lit by cone, BEFORE mask)
       drawDailyWaterfalls();     // waterfalls + priority crates (BEFORE mask)
+      drawDailyCompactorJaws();  // scrapyard floor compactor crush hazards
+      drawDailyScrapMagnets();   // scrapyard magnetic-crane theft
       drawDailyPowerUps();       // mid-flight mod capsules (campaign parity)
     }
     if (isDaily) drawDailyFlashlight();         // cave-theme darkness mask
@@ -27242,6 +27542,362 @@ const DLX_BUILD = 'v414';
       }
     }
     ctx.restore();
+  }
+  // ---------- Scrapyard MAGNETIC CRANES + COMPACTOR JAWS ----------
+  function drawDailyScrapMagnets() {
+    if (!isDaily || !dailyScrapMagnets.length) return;
+    for (const mg of dailyScrapMagnets) {
+      // Cable from top of screen down to magnet
+      ctx.strokeStyle = '#1a0e05';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(mg.x, -8);
+      ctx.lineTo(mg.x, mg.y - 4);
+      ctx.stroke();
+      // Cable highlight
+      ctx.strokeStyle = 'rgba(140, 80, 40, 0.55)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(mg.x - 1, -8);
+      ctx.lineTo(mg.x - 1, mg.y - 4);
+      ctx.stroke();
+      // Magnet base (rectangular bracket on top of magnet head)
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(mg.x - 18, mg.y - 4, 36, 6);
+      ctx.fillStyle = '#3a4453';
+      ctx.fillRect(mg.x - 18, mg.y - 4, 36, 1.5);
+      // Hazard band on magnet rim
+      ctx.fillStyle = '#ffd040';
+      for (let off = 0; off < 36; off += 4) {
+        ctx.beginPath();
+        ctx.moveTo(mg.x - 18 + off,     mg.y);
+        ctx.lineTo(mg.x - 18 + off + 2, mg.y);
+        ctx.lineTo(mg.x - 18 + off + 4, mg.y + 2);
+        ctx.lineTo(mg.x - 18 + off + 2, mg.y + 2);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Magnet HEAD (semicircle below the bracket)
+      ctx.fillStyle = '#3a4453';
+      ctx.beginPath();
+      ctx.arc(mg.x, mg.y + 2, 16, 0, Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 180, 100, 0.8)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      // Glowing core (additive, brighter when engaging)
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const coreSize = mg.engaging ? 28 : 18;
+      const coreA = mg.engaging ? 0.85 : 0.55;
+      const coreHalo = ctx.createRadialGradient(mg.x, mg.y + 4, 0,
+                                                 mg.x, mg.y + 4, coreSize);
+      coreHalo.addColorStop(0,    'rgba(255, 180, 60, ' + coreA + ')');
+      coreHalo.addColorStop(0.55, 'rgba(255, 180, 60, ' + (coreA * 0.45) + ')');
+      coreHalo.addColorStop(1,    'rgba(255, 180, 60, 0)');
+      ctx.fillStyle = coreHalo;
+      ctx.beginPath();
+      ctx.arc(mg.x, mg.y + 4, coreSize, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // Bright center pulse
+      ctx.fillStyle = mg.engaging
+        ? 'rgba(255, 240, 160, 0.95)'
+        : 'rgba(255, 220, 120, 0.85)';
+      ctx.beginPath();
+      ctx.arc(mg.x, mg.y + 4, mg.engaging ? 5 : 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      // Electrical arcs when engaging
+      if (mg.engaging) {
+        ctx.strokeStyle = 'rgba(255, 220, 120, 0.85)';
+        ctx.lineWidth = 1;
+        for (let a = 0; a < 4; a++) {
+          const ang = (frame * 0.4 + a * Math.PI * 0.5) % (Math.PI * 2);
+          const r1 = 6, r2 = 16 + Math.random() * 4;
+          ctx.beginPath();
+          ctx.moveTo(mg.x + Math.cos(ang) * r1, mg.y + 4 + Math.sin(ang) * r1);
+          ctx.lineTo(mg.x + Math.cos(ang) * r2, mg.y + 4 + Math.sin(ang) * r2);
+          ctx.stroke();
+        }
+        // Magnetic field beam to cargo
+        if (cargo && !cargo.lost && !mg.carrying) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.strokeStyle = 'rgba(255, 180, 60, 0.55)';
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(mg.x, mg.y + 4);
+          ctx.lineTo(cargo.x, cargo.y);
+          ctx.stroke();
+          ctx.lineWidth = 1.4;
+          ctx.strokeStyle = 'rgba(255, 240, 180, 0.85)';
+          ctx.beginPath();
+          ctx.moveTo(mg.x, mg.y + 4);
+          ctx.lineTo(cargo.x, cargo.y);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+  }
+  function drawDailyCompactorJaws() {
+    if (!isDaily || !dailyCompactorJaws.length) return;
+    for (const cj of dailyCompactorJaws) {
+      const sx = cj.worldX - dailyScrollX;
+      if (sx < -40 || sx > W + 40) continue;
+      const cjGroundY = terrainHeightAt(cj.worldX);
+      // Compactor pit base (dark slab on the floor)
+      ctx.fillStyle = '#1a0e05';
+      ctx.fillRect(sx - 32, cjGroundY - 4, 64, 8);
+      ctx.fillStyle = '#3a3a40';
+      ctx.fillRect(sx - 32, cjGroundY - 4, 64, 1.5);
+      // Hazard-stripe band on the base
+      ctx.fillStyle = '#ffd040';
+      for (let off = 0; off < 64; off += 5) {
+        ctx.beginPath();
+        ctx.moveTo(sx - 32 + off,     cjGroundY - 1);
+        ctx.lineTo(sx - 32 + off + 2, cjGroundY - 1);
+        ctx.lineTo(sx - 32 + off + 4, cjGroundY + 1);
+        ctx.lineTo(sx - 32 + off + 2, cjGroundY + 1);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Two iron jaws — left and right halves. Their angle/position
+      // varies by phase: idle (open + tilted out), telegraph (open +
+      // pulsing red), slam (closed + flat at top), reopen (re-opening
+      // smoothly).
+      let jawOpenT = 1;             // 1 = fully open, 0 = closed
+      let warningFlash = 0;
+      if (cj.phase === 'idle') {
+        jawOpenT = 1;
+      } else if (cj.phase === 'telegraph') {
+        jawOpenT = 1;
+        warningFlash = (cj.phaseFrame % 12) < 6 ? 1 : 0;
+      } else if (cj.phase === 'slam') {
+        jawOpenT = 0;
+      } else if (cj.phase === 'reopen') {
+        const t = Math.min(1, cj.phaseFrame / 30);
+        jawOpenT = t;
+      }
+      // Jaw heights — open jaws stand up to 50 px tall, closed
+      // jaws meet in the middle as a solid platform.
+      const jawH = 50;
+      const jawW = 28;
+      const jawSpread = 30 * jawOpenT;       // how far apart the tips are
+      // Left jaw — chunky angled iron block
+      ctx.save();
+      ctx.translate(sx - jawSpread / 2, cjGroundY - 4);
+      ctx.fillStyle = warningFlash ? '#ffa040' : '#3a3a40';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-jawW, 0);
+      ctx.lineTo(-jawW + 6, -jawH);
+      ctx.lineTo(0, -jawH * 0.3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 180, 100, 0.65)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Teeth on top edge
+      ctx.fillStyle = '#1a0e05';
+      for (let t = 0; t < 4; t++) {
+        const tx = -jawW + 6 + t * 6;
+        const ty = -jawH * (0.95 - t * 0.05);
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(tx + 4, ty);
+        ctx.lineTo(tx + 2, ty + 5);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+      // Right jaw — mirror of left
+      ctx.save();
+      ctx.translate(sx + jawSpread / 2, cjGroundY - 4);
+      ctx.fillStyle = warningFlash ? '#ffa040' : '#3a3a40';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(jawW, 0);
+      ctx.lineTo(jawW - 6, -jawH);
+      ctx.lineTo(0, -jawH * 0.3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 180, 100, 0.65)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = '#1a0e05';
+      for (let t = 0; t < 4; t++) {
+        const tx = jawW - 6 - t * 6;
+        const ty = -jawH * (0.95 - t * 0.05);
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(tx - 4, ty);
+        ctx.lineTo(tx - 2, ty + 5);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+      // Warning lights on the base — blink during telegraph
+      if (cj.phase === 'telegraph') {
+        const blink = (cj.phaseFrame % 12) < 6;
+        if (blink) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          for (const lx of [sx - 26, sx + 26]) {
+            const halo = ctx.createRadialGradient(lx, cjGroundY - 8, 0,
+                                                    lx, cjGroundY - 8, 12);
+            halo.addColorStop(0, 'rgba(255, 60, 60, 0.85)');
+            halo.addColorStop(1, 'rgba(255, 60, 60, 0)');
+            ctx.fillStyle = halo;
+            ctx.beginPath();
+            ctx.arc(lx, cjGroundY - 8, 12, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+          ctx.fillStyle = 'rgba(255, 100, 100, 0.95)';
+          ctx.beginPath();
+          ctx.arc(sx - 26, cjGroundY - 8, 2.4, 0, Math.PI * 2);
+          ctx.arc(sx + 26, cjGroundY - 8, 2.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+  }
+  // ---------- Scrapyard FLOOR DEBRIS ------------------------------
+  // Scattered junk along the cave floor: rusted oil barrels, stacked
+  // tires, broken-down cars, wrecked hubcaps. Drawn as scenery so
+  // the floor reads as actively used DLX scrapyard not bare dirt.
+  function drawScrapyardDebris() {
+    if (!isDaily) return;
+    if (currentDeliveryLevel.horizonStyle !== 'scrapyard') return;
+    const step = 100;
+    const startI = Math.floor(dailyScrollX / step) - 1;
+    const endI   = Math.floor((dailyScrollX + W) / step) + 1;
+    for (let i = startI; i <= endI; i++) {
+      const seed = i * 0.5731 + 13.07;
+      if (srand(seed) < 0.45) continue;
+      const wx = i * step + Math.floor(srand(seed + 1.1) * 70);
+      const sx = Math.round(wx - dailyScrollX);
+      if (sx < -24 || sx > W + 24) continue;
+      const gy = Math.round(terrainHeightAt(wx));
+      const kind = Math.floor(srand(seed + 2.7) * 4);
+      if      (kind === 0) drawScrapyardBarrel(sx, gy, seed);
+      else if (kind === 1) drawScrapyardTireStack(sx, gy, seed);
+      else if (kind === 2) drawScrapyardWreckedCar(sx, gy, seed);
+      else                 drawScrapyardScrapPile(sx, gy, seed);
+    }
+  }
+  function drawScrapyardBarrel(sx, gy, seed) {
+    const tilt = (srand(seed + 7.1) - 0.5) * 0.5;
+    const flipped = srand(seed + 7.7) < 0.4;
+    ctx.save();
+    ctx.translate(sx, gy - 7);
+    ctx.rotate(tilt);
+    if (flipped) ctx.rotate(Math.PI * 0.5);
+    const grad = ctx.createLinearGradient(-7, 0, 7, 0);
+    grad.addColorStop(0,   '#5a2410');
+    grad.addColorStop(0.5, '#a85838');
+    grad.addColorStop(1,   '#5a2410');
+    ctx.fillStyle = grad;
+    ctx.fillRect(-7, -7, 14, 14);
+    ctx.fillStyle = '#3a1808';
+    ctx.fillRect(-7, -7, 14, 1.4);
+    ctx.fillRect(-7,  5.6, 14, 1.4);
+    ctx.fillStyle = '#1a0e05';
+    ctx.fillRect(-7, -1, 14, 2.5);
+    ctx.fillStyle = '#c0a020';
+    for (let off = 0; off < 14; off += 3.5) {
+      ctx.beginPath();
+      ctx.moveTo(-7 + off,     -1);
+      ctx.lineTo(-7 + off + 2, -1);
+      ctx.lineTo(-7 + off + 3, 1.5);
+      ctx.lineTo(-7 + off + 1, 1.5);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(220, 230, 240, 0.45)';
+    ctx.font = 'bold 4px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DLX', 0, -4);
+    ctx.strokeStyle = '#1a0e05';
+    ctx.lineWidth = 0.9;
+    ctx.strokeRect(-7, -7, 14, 14);
+    ctx.restore();
+  }
+  function drawScrapyardTireStack(sx, gy, seed) {
+    const stackH = 2 + Math.floor(srand(seed + 13.1) * 2);
+    for (let s = 0; s < stackH; s++) {
+      const ty = gy - 4 - s * 7;
+      const offset = (s % 2 === 0 ? 0 : 1.6);
+      ctx.fillStyle = '#0a0e16';
+      ctx.beginPath();
+      ctx.ellipse(sx + offset, ty, 9, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#5a3018';
+      ctx.beginPath();
+      ctx.ellipse(sx + offset, ty, 4, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#1a0e05';
+      ctx.beginPath();
+      ctx.arc(sx + offset, ty, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  function drawScrapyardWreckedCar(sx, gy, seed) {
+    const cw = 28 + Math.floor(srand(seed + 9.1) * 8);
+    const ch = 12 + Math.floor(srand(seed + 9.7) * 4);
+    const tilt = (srand(seed + 10.3) - 0.5) * 0.18;
+    ctx.save();
+    ctx.translate(sx, gy - ch / 2);
+    ctx.rotate(tilt);
+    // Body
+    ctx.fillStyle = '#5a2818';
+    ctx.fillRect(-cw / 2, -ch / 2, cw, ch);
+    ctx.fillStyle = 'rgba(255, 180, 100, 0.45)';
+    ctx.fillRect(-cw / 2, -ch / 2, cw, 1.2);
+    ctx.strokeStyle = 'rgba(20, 8, 4, 0.85)';
+    ctx.lineWidth = 0.9;
+    ctx.strokeRect(-cw / 2, -ch / 2, cw, ch);
+    // Window
+    ctx.fillStyle = '#1a0e05';
+    ctx.fillRect(-cw / 2 + 3, -ch / 2 + 2, cw - 6, 3);
+    // Wheels (broken / missing — just dark dots at base)
+    ctx.fillStyle = '#1a0e05';
+    ctx.beginPath();
+    ctx.arc(-cw / 2 + 5,  ch / 2 - 1, 2.6, 0, Math.PI * 2);
+    ctx.arc( cw / 2 - 5,  ch / 2 - 1, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawScrapyardScrapPile(sx, gy, seed) {
+    ctx.fillStyle = '#3a1a08';
+    ctx.beginPath();
+    ctx.moveTo(sx - 12, gy);
+    ctx.lineTo(sx + 12, gy);
+    ctx.lineTo(sx + 8, gy - 6);
+    ctx.lineTo(sx + 2, gy - 9);
+    ctx.lineTo(sx - 6, gy - 7);
+    ctx.lineTo(sx - 10, gy - 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 180, 100, 0.5)';
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(sx - 10, gy - 4);
+    ctx.lineTo(sx - 6, gy - 7);
+    ctx.lineTo(sx + 2, gy - 9);
+    ctx.lineTo(sx + 8, gy - 6);
+    ctx.stroke();
+    // Sticking-out scrap
+    ctx.strokeStyle = '#6a3018';
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(sx + 4, gy - 8);
+    ctx.lineTo(sx + 10, gy - 14);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
   }
   // ---------- Waterfalls + PRIORITY crates (Glow Chamber) ---------
   // Vertical streaming water column from cave ceiling to cave floor.
@@ -27963,6 +28619,10 @@ const DLX_BUILD = 'v414';
     dailyNextSalamanderAt = frame + 360; // first salamander spawn ~6s in
     dailyDlxBandits = [];
     dailyNextBanditAt = frame + 480;     // first bandit ~8s after launch
+    dailyScrapMagnets = [];
+    dailyNextScrapMagnetAt = frame + 720;   // first crane ~12s in
+    dailyCompactorJaws = [];
+    dailyNextCompactorAt = frame + 540;     // first compactor ~9s in
     dailyMirrorPairs = [];
     dailyNextMirrorPairAt = frame + 720; // first mirror parasite pair ~12s in
     dailyPressureBubbles = [];
@@ -28546,13 +29206,16 @@ const DLX_BUILD = 'v414';
         'Hot-rod chrome · 80 spark plugs · a steering wheel signed by Dumplord',
         'Recycled fenders · stripped wire · one mystery crate stamped DO NOT OPEN',
       ],
-      // Ship 1 obstacle set — keeps existing scrap-flavored obstacles
-      // (towers, tunnels, air wrecks). Magnetic-crane theft + scrapyard-
-      // specific hazards land in Ship 2+.
+      // Ship 1+ obstacle set — keeps existing scrap-flavored
+      // obstacles (towers, tunnels, air wrecks). Ship 2 wires
+      // scrapMagnets (magnetic crane theft); Ship 3 wires
+      // compactorJaws (timed crush hazards).
       obstacleSet: {
         drones: false, thieves: false, groundOps: false,
         lavaBalls: false, scrapTowers: true, airWrecks: true,
         tunnels: true, tentacles: false,
+        scrapMagnets: true,
+        compactorJaws: true,
       },
       obstacleTheme: 'scrapyard',
     },
@@ -28603,6 +29266,18 @@ const DLX_BUILD = 'v414';
   // approaching lights pierce the dark before the bandit resolves.
   let dailyDlxBandits = [];
   let dailyNextBanditAt = 0;
+  // Scrapyard MAGNETIC CRANES (Scrapyard only). A giant crane
+  // descends from the top of the screen, sweeps an electromagnet
+  // across the play space, and yanks the cargo upward with a
+  // magnetic field. Each entry: { x, y, vx, vy, state, stateFrames,
+  // sweepDir, carrying }.
+  let dailyScrapMagnets = [];
+  let dailyNextScrapMagnetAt = 0;
+  // Scrapyard COMPACTOR JAWS (Scrapyard only). Floor-mounted
+  // compactor pits along the run that telegraph + close timed
+  // crush zones. Each entry: { worldX, phase, phaseFrame }.
+  let dailyCompactorJaws = [];
+  let dailyNextCompactorAt = 0;
   // Waterfalls + PRIORITY special crates (Glow Chamber). Each
   // waterfall hides one bonus crate behind it. Picking up the
   // bonus marks cargo.hasBonus = true. If a bandit then steals
