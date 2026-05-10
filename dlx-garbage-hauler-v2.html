@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v423';
+const DLX_BUILD = 'v424';
 
 (function() {
   // ---------- Device detection ----------
@@ -2792,44 +2792,68 @@ const DLX_BUILD = 'v423';
       return { kind: 'neoncity', baseY: baseY, far: far, near: near, drones: drones, crane: crane };
     }
     if (selectedTheme === 'bonepile') {
-      // Truck graveyard. Foreground silhouettes of dead rigs piled
-      // along the road — chassis blocks, tipped cabs, exhaust stacks.
-      // Broken billboard at one slot for the diegetic touch. Vultures
-      // wheel overhead as the moving element (drawn separately with
-      // their own animation phase).
+      // Truck graveyard. Wreck silhouettes are deliberately TALL and
+      // detailed — at proportions comparable to neoncity's 110-px
+      // crane, not sub-dune lumps — so they read as actual dead rigs
+      // from a glance. Mix of profiles (upright cab+trailer, tipped
+      // on side, just chassis/exposed frame) breaks visual repetition.
+      // Vultures sized to be visible against the sky, not lost in haze.
       const wrecks = [];
-      const slots = 7;
-      for (let i = 0; i < slots; i++) {
-        const baseX = (W / slots) * i + ((i * 11) % 16);
-        // Each wreck is a stack of 2-3 chassis blocks. Width / height
-        // vary by seed so the silhouette feels piled, not regular.
-        const blocks = [];
-        const stackH = 2 + ((i * 7 + 3) % 2);     // 2..3 blocks tall
-        let by = 0;
-        for (let b = 0; b < stackH; b++) {
-          const w = 22 + ((i * 13 + b * 7) % 14);  // 22..36 wide
-          const h = 10 + ((i * 5 + b * 11) % 8);   // 10..18 tall
-          blocks.push({ dx: ((b * 4) % 6) - 2, w: w, h: h, dy: by });
-          by += h - 2;
-        }
-        wrecks.push({ x: baseX, blocks: blocks, totalH: by });
-      }
-      // Broken billboard — single placement at a midground slot
-      const billboard = {
-        x: W * 0.52, h: 38, w: 36,
-        crackPhase: 0.7,
-      };
-      // 5 vultures circling at staggered phases
-      const vultures = [];
-      for (let i = 0; i < 5; i++) {
-        vultures.push({
-          baseX: W * (0.18 + i * 0.16) + ((i * 23) % 28) - 14,
-          baseY: 30 + ((i * 17) % 18),
-          radius: 14 + ((i * 5) % 8),
-          phase: i * 1.3,
+      // 5 wreck stations across the horizon at varying depths.
+      // Each has a 'profile' that controls which silhouette type
+      // gets drawn — keeps the row from feeling like clones.
+      const profiles = ['upright', 'tipped', 'chassis', 'upright', 'half'];
+      const xSlots   = [0.10, 0.28, 0.46, 0.66, 0.86];
+      for (let i = 0; i < profiles.length; i++) {
+        wrecks.push({
+          x: W * xSlots[i] + ((i * 13) % 14) - 7,
+          profile: profiles[i],
+          // Per-wreck size variation so even same-profile pairs don't
+          // match exactly. Heights here are FOREGROUND elements
+          // (60-90px territory), not background dunes.
+          h: 56 + ((i * 17 + 7) % 24),       // 56..80 tall
+          w: 52 + ((i * 11 + 3) % 18),       // 52..70 wide
+          tilt: profiles[i] === 'tipped' ? (-0.55 + ((i * 7) % 6) * 0.04) : 0,
+          rustSeed: i * 0.7,
         });
       }
-      return { kind: 'bonepile', baseY: baseY, wrecks: wrecks, billboard: billboard, vultures: vultures };
+      // Broken billboard — bigger and clearly framed. Sized comparable
+      // to wrecks so it doesn't get lost.
+      const billboard = {
+        x: W * 0.38, h: 70, w: 58,
+      };
+      // Distant ridge of low mesas behind the wrecks — back layer
+      // breaks the sky so the scene reads as three-deep, not flat.
+      const farMesa = [];
+      for (let i = 0; i <= 12; i++) {
+        farMesa.push({
+          x: (W / 12) * i,
+          h: 14 + Math.abs(Math.sin(i * 1.9) * 18) + (i % 2) * 4,
+        });
+      }
+      // 3 vultures (less is more — bigger silhouettes, better visible)
+      const vultures = [];
+      for (let i = 0; i < 3; i++) {
+        vultures.push({
+          baseX: W * (0.22 + i * 0.30),
+          baseY: 36 + ((i * 19) % 14),
+          radius: 22 + ((i * 7) % 8),    // wider orbits
+          wingSpan: 16,                   // doubled vs v423 (was 10)
+          phase: i * 1.9,
+        });
+      }
+      // Scattered foreground debris (tires, axles, radiators) sitting
+      // on the ground in front of the wrecks. Tiny cosmetic shapes,
+      // help anchor the scale of the big wreck silhouettes.
+      const debris = [];
+      for (let i = 0; i < 8; i++) {
+        debris.push({
+          x: W * (0.06 + i * 0.12) + ((i * 19) % 16) - 8,
+          kind: (i % 3),                  // 0 tire, 1 axle, 2 radiator
+          size: 5 + ((i * 5) % 4),
+        });
+      }
+      return { kind: 'bonepile', baseY: baseY, wrecks: wrecks, billboard: billboard, vultures: vultures, farMesa: farMesa, debris: debris };
     }
     if (selectedTheme === 'highwall') {
       // Alpine cliffside highway. Three depth layers + roadside chrome:
@@ -4110,45 +4134,44 @@ const DLX_BUILD = 'v423';
       obstacleTypes: ['cargo', 'junk'],
     },
     bonepile: {
-      // The truck graveyard. Past the open dunes of Sunset Wastes,
-      // before the urban scrap of Rust City. Dustier and browner than
-      // Sunset, with a horizon piled with the chassis of dead rigs
-      // and vultures circling overhead. Same desert-family palette so
-      // the L1 → L2 transition reads as "deeper into the wasteland."
+      // The truck graveyard. NOT sunset-with-rust — the palette has to
+      // pull hard toward dust-brown and ash-grey or it reads as a clone
+      // of L1. Sun is paler and dustier; ground is cracked-clay tan;
+      // ridges are charcoal so the wreck silhouettes punch against the
+      // background. The narrative is "deeper into the dead zone after
+      // the open dunes" — visually it should feel meaner.
       label: 'THE BONEPILE',
-      sky: ['#1a0a08', '#3a160e', '#6a2a18', '#9a4520', '#c2702a', '#1f0e08'],
-      sunInner: 'rgba(245, 195, 130, 0.85)',
-      sunMid:   'rgba(210, 95, 40, 0.72)',
-      sunEdge:  'rgba(140, 30, 10, 0)',
-      nebA: 'rgba(70, 40, 25, 0.32)',
-      nebB: 'rgba(45, 25, 15, 0.22)',
-      nebC: 'rgba(25, 12, 8, 0.12)',
-      nebWisp: 'rgba(200, 100, 50, 0.16)',
-      starBack: '110, 70, 45',
-      starMid:  '180, 120, 70',
-      starFront:'235, 200, 150',
-      starGlow: 'rgba(240, 170, 100, 0.85)',
-      dust: '230, 180, 130',
-      ridge: 'rgba(20, 10, 6, 0.92)',          // hard ground silhouette
-      groundA: '#2a1408',                       // rust-baked dirt
-      groundB: '#120804',
-      horizon: 'rgba(220, 90, 30, 0.85)',
-      horizonGlow: '#e85020',
-      crackColor: 'rgba(60, 25, 12, 0.65)',
+      sky: ['#0e0a06', '#241810', '#3e2818', '#5a3a20', '#785030', '#0e0a06'],
+      sunInner: 'rgba(200, 170, 120, 0.55)',  // paler, hazier sun
+      sunMid:   'rgba(140, 80, 40, 0.45)',
+      sunEdge:  'rgba(60, 30, 10, 0)',
+      nebA: 'rgba(90, 60, 38, 0.32)',         // dust haze in the sky
+      nebB: 'rgba(60, 38, 22, 0.22)',
+      nebC: 'rgba(34, 20, 10, 0.12)',
+      nebWisp: 'rgba(170, 120, 70, 0.16)',
+      starBack: '90, 60, 40',
+      starMid:  '150, 110, 70',
+      starFront:'215, 180, 130',
+      starGlow: 'rgba(220, 160, 90, 0.70)',
+      dust: '210, 175, 130',                  // dust motes (heavy)
+      ridge: 'rgba(14, 8, 5, 0.95)',          // very dark chassis silhouette
+      groundA: '#2d1c10',                     // cracked baked clay
+      groundB: '#0e0805',
+      horizon: 'rgba(180, 90, 40, 0.78)',     // dustier orange band
+      horizonGlow: '#a85020',
+      crackColor: 'rgba(80, 40, 18, 0.75)',
       cargo: {
-        // Slightly more weathered than Sunset Wastes — same family,
-        // a season further into the rot.
-        grad: ['#7a5a3a', '#3a2e1e', '#4c3a26', '#2e2417'],
-        edge: '#120804', rivet: '#1c1c1c',
-        hazardA: '#ffc230', hazardB: '#0e0a06',
-        rust: 'rgba(150, 65, 25, 0.78)',
-        weather: 'rgba(50, 24, 10, 0.78)',
+        grad: ['#6a4a30', '#2e2418', '#3e2e1c', '#1e1610'],
+        edge: '#0e0805', rivet: '#1a1a1a',
+        hazardA: '#dca830', hazardB: '#0a0604',
+        rust: 'rgba(165, 70, 28, 0.85)',
+        weather: 'rgba(40, 22, 10, 0.85)',
       },
       junk: {
-        grad: ['#544540', '#352620', '#221814'],
-        outline: '#241208', rim: 'rgba(12, 6, 4, 0.80)',
-        rust: 'rgba(140, 55, 20, 0.85)', bolt: '#1a1208',
-        antennaMetal: '#7a6e64', antennaLed: '#c54028',
+        grad: ['#4a3a32', '#2a2018', '#180e08'],
+        outline: '#180a04', rim: 'rgba(10, 6, 4, 0.85)',
+        rust: 'rgba(155, 60, 22, 0.92)', bolt: '#160e08',
+        antennaMetal: '#665850', antennaLed: '#b03020',
       },
       debrisSet: ['burger','fries','headphones','toilet','duck','tv','pizza','bottle','shoe'],
       obstacleTypes: ['cargo', 'junk'],
@@ -12088,90 +12111,304 @@ const DLX_BUILD = 'v423';
   }
 
   function drawBonepileHorizon() {
-    // Wreck silhouettes pile the foreground; broken billboard at mid-
-    // ground for diegesis; vultures wheel above against the dusty sky.
-    // Drawn after the back-glow gradients (which buildBgCache renders)
-    // so the silhouettes read as solid against the sunset haze.
+    // Three-layer scene that has to read INSTANTLY as a truck
+    // graveyard:
+    //  1. Far mesa silhouette — distant brown ridge of low dunes / dry
+    //     mesa formations, breaks the sky so wrecks read against
+    //     a darkening backdrop, not directly against the orange haze.
+    //  2. Vultures — wheel in the upper sky against the dust haze.
+    //     Sized to be visible (16-px wingspan), drawn BETWEEN mesa and
+    //     wrecks so they're occluded as a wreck passes underneath.
+    //  3. Wreck row — large detailed truck silhouettes at the
+    //     foreground, multiple profile types (upright / tipped /
+    //     chassis-only / half-buried), each with cab + windshield +
+    //     wheels + exhaust + trailer detail so the truck identity is
+    //     unambiguous.
+    //  4. Foreground debris — tires, axles, radiators scattered on
+    //     the road in front of the wrecks. Anchors the scale.
+    //  5. Billboard at the mid slot — DLX BONEPILE NEXT EXIT.
     const layout = bgCache.horizon;
     if (!layout || layout.kind !== 'bonepile') return;
     const baseY = layout.baseY;
     const t = theme();
     ctx.save();
 
-    // --- Vultures (drawn first so they sit BEHIND the wrecks) ---
-    // Slow elliptical orbit per vulture. Two-line wing silhouette.
-    ctx.fillStyle = 'rgba(20, 10, 6, 0.72)';
+    // --- Layer 1: distant mesa ridge ---
+    // Low, hazy, warm brown so it reads as "haze sand on the horizon."
+    ctx.fillStyle = 'rgba(90, 55, 30, 0.72)';
+    ctx.beginPath();
+    ctx.moveTo(0, baseY);
+    for (const m of layout.farMesa) {
+      ctx.lineTo(m.x, baseY - m.h);
+    }
+    ctx.lineTo(W, baseY);
+    ctx.closePath();
+    ctx.fill();
+
+    // --- Layer 2: vultures (above the mesa, against the sky) ---
+    // Larger silhouette: 16-px wingspan with explicit head + tail
+    // so they read clearly as birds, not specks.
+    ctx.fillStyle = 'rgba(8, 4, 2, 0.82)';
     for (const v of layout.vultures) {
-      const t1 = frame * 0.009 + v.phase;
+      const t1 = frame * 0.0085 + v.phase;
       const vx = v.baseX + Math.cos(t1) * v.radius;
-      const vy = v.baseY + Math.sin(t1 * 0.7) * 4;
-      // Wing flap phase
-      const flap = Math.sin(t1 * 3.5) * 0.4;
+      const vy = v.baseY + Math.sin(t1 * 0.6) * 5;
+      // Wing flap — slow, gliding bird not a sparrow
+      const flap = Math.sin(t1 * 2.2) * 1.2;
+      const ws = v.wingSpan;
+      // Body
+      ctx.fillRect(vx - 1, vy - 1, 2, 2.5);
+      // Head bump
+      ctx.fillRect(vx - 0.6, vy - 2.5, 1.2, 1.5);
+      // Wings (V-shape with flap)
       ctx.beginPath();
-      ctx.moveTo(vx - 5, vy);
-      ctx.quadraticCurveTo(vx - 2, vy - 2 - flap, vx, vy);
-      ctx.quadraticCurveTo(vx + 2, vy - 2 + flap, vx + 5, vy);
-      ctx.lineTo(vx + 5, vy + 0.8);
-      ctx.quadraticCurveTo(vx + 2, vy - 1.2 + flap, vx, vy + 0.8);
-      ctx.quadraticCurveTo(vx - 2, vy - 1.2 - flap, vx - 5, vy + 0.8);
+      ctx.moveTo(vx - 1, vy);
+      ctx.quadraticCurveTo(vx - ws * 0.5, vy - flap - 1, vx - ws, vy + 1.5 - flap * 0.5);
+      ctx.lineTo(vx - ws * 0.7, vy + 1.5);
+      ctx.quadraticCurveTo(vx - ws * 0.3, vy + 0.5 - flap * 0.3, vx - 0.5, vy + 1.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(vx + 1, vy);
+      ctx.quadraticCurveTo(vx + ws * 0.5, vy - flap - 1, vx + ws, vy + 1.5 - flap * 0.5);
+      ctx.lineTo(vx + ws * 0.7, vy + 1.5);
+      ctx.quadraticCurveTo(vx + ws * 0.3, vy + 0.5 - flap * 0.3, vx + 0.5, vy + 1.2);
       ctx.closePath();
       ctx.fill();
     }
 
-    // --- Truck wreck silhouettes (foreground piles) ---
+    // --- Layer 3: truck wreck silhouettes ---
+    // Each profile renders an unambiguous "this is a truck" shape.
+    // Drawn AFTER mesa + vultures so wrecks occlude both — gives depth.
     ctx.fillStyle = t.ridge;
     for (const w of layout.wrecks) {
-      // Draw each chassis block from the bottom up
-      for (let bi = w.blocks.length - 1; bi >= 0; bi--) {
-        const b = w.blocks[bi];
-        const bx = w.x + b.dx;
-        const by = baseY - b.dy - b.h;
-        ctx.fillRect(bx - b.w / 2, by, b.w, b.h);
-        // Rust highlight at the top edge for texture
-        ctx.fillStyle = 'rgba(120, 45, 18, 0.55)';
-        ctx.fillRect(bx - b.w / 2, by, b.w, 1.5);
-        ctx.fillStyle = t.ridge;
-      }
-      // Exhaust stack on the top block (only some wrecks have them)
-      const top = w.blocks[w.blocks.length - 1];
-      if (w.blocks.length >= 2 && (w.x | 0) % 3 !== 0) {
-        const sx = w.x + top.dx + top.w * 0.32;
-        const sy = baseY - w.totalH;
-        ctx.fillStyle = t.ridge;
-        ctx.fillRect(sx - 1.4, sy - 9, 2.8, 9);
-      }
+      if      (w.profile === 'upright')  drawWreckUpright(w, baseY);
+      else if (w.profile === 'tipped')   drawWreckTipped(w, baseY);
+      else if (w.profile === 'chassis')  drawWreckChassis(w, baseY);
+      else if (w.profile === 'half')     drawWreckHalfBuried(w, baseY);
     }
 
-    // --- Broken billboard ---
+    // --- Layer 4: billboard ---
+    // Larger and cleaner than v423. Two stout legs, full sign panel
+    // with torn corner, faded DLX BONEPILE NEXT EXIT text.
     if (layout.billboard) {
       const bb = layout.billboard;
-      // Two support legs
-      ctx.fillStyle = 'rgba(30, 14, 8, 0.92)';
-      ctx.fillRect(bb.x - bb.w / 2 + 3, baseY - bb.h * 0.55, 2, bb.h * 0.55);
-      ctx.fillRect(bb.x + bb.w / 2 - 5, baseY - bb.h * 0.55, 2, bb.h * 0.55);
-      // Sign panel (with a torn / missing corner)
-      ctx.fillStyle = 'rgba(100, 50, 20, 0.85)';
+      const legY = baseY - bb.h * 0.45;
+      // Legs
+      ctx.fillStyle = 'rgba(18, 10, 5, 0.94)';
+      ctx.fillRect(bb.x - bb.w / 2 + 6, legY, 3, baseY - legY);
+      ctx.fillRect(bb.x + bb.w / 2 - 9, legY, 3, baseY - legY);
+      // Sign back panel (darker for shadow)
+      ctx.fillStyle = 'rgba(40, 22, 10, 0.95)';
+      ctx.fillRect(bb.x - bb.w / 2 - 1, baseY - bb.h - 1, bb.w + 2, bb.h * 0.55 + 2);
+      // Sign face — torn lower-right corner
+      ctx.fillStyle = 'rgba(120, 60, 25, 0.95)';
       ctx.beginPath();
       ctx.moveTo(bb.x - bb.w / 2, baseY - bb.h);
       ctx.lineTo(bb.x + bb.w / 2, baseY - bb.h);
-      ctx.lineTo(bb.x + bb.w / 2, baseY - bb.h * 0.55);
-      ctx.lineTo(bb.x + bb.w * 0.18, baseY - bb.h * 0.55);
-      ctx.lineTo(bb.x + bb.w * 0.10, baseY - bb.h * 0.62);   // tear
-      ctx.lineTo(bb.x - bb.w / 2, baseY - bb.h * 0.55);
+      ctx.lineTo(bb.x + bb.w / 2, baseY - bb.h * 0.62);
+      ctx.lineTo(bb.x + bb.w * 0.20, baseY - bb.h * 0.55);
+      ctx.lineTo(bb.x + bb.w * 0.05, baseY - bb.h * 0.62);
+      ctx.lineTo(bb.x - bb.w / 2, baseY - bb.h * 0.45);
       ctx.closePath();
       ctx.fill();
-      // Faded DLX dispatch text on the sign
-      ctx.fillStyle = 'rgba(220, 180, 110, 0.55)';
-      ctx.font = 'bold 8px Impact, "Arial Black", sans-serif';
+      // Faded dispatch text on sign
+      ctx.fillStyle = 'rgba(230, 195, 130, 0.75)';
+      ctx.font = 'bold 14px Impact, "Arial Black", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('DLX', bb.x, baseY - bb.h + 8);
-      ctx.font = 'bold 5.5px "Courier New", monospace';
-      ctx.fillStyle = 'rgba(180, 140, 90, 0.45)';
-      ctx.fillText('NEXT EXIT', bb.x - 2, baseY - bb.h + 17);
+      ctx.fillText('DLX', bb.x - bb.w * 0.15, baseY - bb.h + 12);
+      ctx.font = 'bold 9px Impact, "Arial Black", sans-serif';
+      ctx.fillStyle = 'rgba(210, 170, 110, 0.70)';
+      ctx.fillText('BONEPILE', bb.x, baseY - bb.h + 26);
+      ctx.font = 'bold 6px "Courier New", monospace';
+      ctx.fillStyle = 'rgba(180, 140, 95, 0.55)';
+      ctx.fillText('NEXT EXIT — 0 MI', bb.x - bb.w * 0.05, baseY - bb.h + 38);
+    }
+
+    // --- Layer 5: foreground debris on the road ---
+    ctx.fillStyle = 'rgba(10, 6, 3, 0.92)';
+    for (const d of layout.debris) {
+      const dy = baseY - d.size;
+      if (d.kind === 0) {
+        // Tire — circle
+        ctx.beginPath();
+        ctx.arc(d.x, dy + d.size / 2, d.size * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (d.kind === 1) {
+        // Axle — horizontal rod
+        ctx.fillRect(d.x - d.size, dy + d.size * 0.5, d.size * 2, 1.5);
+        ctx.fillRect(d.x - d.size, dy + d.size * 0.3, 2, d.size * 0.4);
+        ctx.fillRect(d.x + d.size - 2, dy + d.size * 0.3, 2, d.size * 0.4);
+      } else {
+        // Radiator — small grille rectangle
+        ctx.fillRect(d.x - d.size * 0.7, dy + d.size * 0.2, d.size * 1.4, d.size * 0.7);
+      }
     }
 
     ctx.restore();
+  }
+
+  // === Wreck silhouette profile renderers ===
+  // Each one draws an unambiguous truck shape (cab + windshield +
+  // wheels + features) at the position/size given. theme().ridge is
+  // the dominant fill color, set by the caller; rust/highlight colors
+  // are added per-profile to break up the silhouette.
+
+  function drawWreckUpright(w, baseY) {
+    // Profile: full cab + box trailer, upright, slightly listing.
+    const cabW = w.w * 0.42, cabH = w.h * 0.65;
+    const trailerW = w.w * 0.62, trailerH = w.h * 0.70;
+    const wheelR = Math.max(3.5, w.w * 0.07);
+    const groundY = baseY;
+    // Trailer (drawn first so cab sits on top)
+    const trailerX = w.x - w.w * 0.05;
+    ctx.fillRect(trailerX - trailerW / 2, groundY - trailerH, trailerW, trailerH);
+    // Trailer side ribs (vertical lines)
+    ctx.strokeStyle = 'rgba(40, 20, 10, 0.92)';
+    ctx.lineWidth = 0.8;
+    for (let r = 1; r < 4; r++) {
+      const rx = trailerX - trailerW / 2 + (trailerW * r / 4);
+      ctx.beginPath();
+      ctx.moveTo(rx, groundY - trailerH + 2);
+      ctx.lineTo(rx, groundY - 4);
+      ctx.stroke();
+    }
+    // Cab body (in front of trailer, lower-right corner overlap)
+    const cabX = w.x + w.w * 0.30;
+    ctx.fillStyle = theme().ridge;
+    ctx.fillRect(cabX - cabW / 2, groundY - cabH, cabW, cabH);
+    // Windshield — slightly lighter rectangle near the top of the cab
+    ctx.fillStyle = 'rgba(90, 50, 25, 0.85)';
+    ctx.fillRect(cabX - cabW / 2 + 2, groundY - cabH + 3, cabW - 4, cabH * 0.32);
+    // Cab door line
+    ctx.strokeStyle = 'rgba(30, 16, 8, 0.9)';
+    ctx.lineWidth = 1;
+    const doorX = cabX - cabW / 2 + cabW * 0.38;
+    ctx.beginPath();
+    ctx.moveTo(doorX, groundY - cabH + cabH * 0.42);
+    ctx.lineTo(doorX, groundY - 2);
+    ctx.stroke();
+    // Exhaust stack (vertical pipe behind cab)
+    ctx.fillStyle = theme().ridge;
+    ctx.fillRect(cabX - cabW * 0.42, groundY - cabH - 12, 2.6, 14);
+    // Wheels — two under trailer, one under cab front
+    ctx.beginPath();
+    ctx.arc(trailerX - trailerW * 0.30, groundY - 1, wheelR, 0, Math.PI * 2);
+    ctx.arc(trailerX + trailerW * 0.25, groundY - 1, wheelR, 0, Math.PI * 2);
+    ctx.arc(cabX + cabW * 0.30,         groundY - 1, wheelR, 0, Math.PI * 2);
+    ctx.fill();
+    // Rust streak on trailer top
+    ctx.fillStyle = 'rgba(160, 60, 24, 0.55)';
+    ctx.fillRect(trailerX - trailerW / 2, groundY - trailerH, trailerW, 1.5);
+  }
+
+  function drawWreckTipped(w, baseY) {
+    // Profile: cab tipped on its side, exposed undercarriage.
+    // Rotate the whole drawing by w.tilt for visual variety.
+    const groundY = baseY;
+    ctx.save();
+    ctx.translate(w.x, groundY);
+    ctx.rotate(w.tilt);
+    const bodyW = w.w * 0.95;
+    const bodyH = w.h * 0.42;
+    // Tipped body (longer-than-tall now)
+    ctx.fillStyle = theme().ridge;
+    ctx.fillRect(-bodyW / 2, -bodyH, bodyW, bodyH);
+    // Windshield rectangle near one end of the body
+    ctx.fillStyle = 'rgba(90, 50, 25, 0.8)';
+    ctx.fillRect(-bodyW / 2 + 3, -bodyH + 2, bodyW * 0.30, bodyH - 4);
+    // Wheels rotated up to face the sky (exposed undercarriage)
+    ctx.fillStyle = theme().ridge;
+    const wheelR = w.w * 0.08;
+    ctx.beginPath();
+    ctx.arc(-bodyW * 0.25, -bodyH - wheelR, wheelR, 0, Math.PI * 2);
+    ctx.arc(bodyW * 0.20,  -bodyH - wheelR, wheelR, 0, Math.PI * 2);
+    ctx.fill();
+    // Frame ribs visible on exposed undercarriage
+    ctx.strokeStyle = 'rgba(30, 14, 6, 0.9)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-bodyW * 0.35, -bodyH - 1);
+    ctx.lineTo(bodyW * 0.35,  -bodyH - 1);
+    ctx.stroke();
+    ctx.restore();
+    // Sand pile at the base where it tipped
+    ctx.fillStyle = 'rgba(70, 45, 22, 0.75)';
+    ctx.beginPath();
+    ctx.moveTo(w.x - w.w * 0.55, groundY);
+    ctx.lineTo(w.x - w.w * 0.10, groundY - w.h * 0.18);
+    ctx.lineTo(w.x + w.w * 0.50, groundY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawWreckChassis(w, baseY) {
+    // Profile: cab missing, just exposed frame + wheels remaining.
+    // Reads as "stripped for parts."
+    const groundY = baseY;
+    const frameW = w.w * 0.95;
+    const frameH = Math.max(6, w.h * 0.12);
+    const frameY = groundY - w.h * 0.35;
+    // Frame rails — two horizontal beams
+    ctx.fillStyle = theme().ridge;
+    ctx.fillRect(w.x - frameW / 2, frameY,           frameW, frameH);
+    ctx.fillRect(w.x - frameW / 2, frameY + frameH + 4, frameW, frameH);
+    // Cross members
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = theme().ridge;
+    for (let i = 0; i < 5; i++) {
+      const cx = w.x - frameW / 2 + (frameW * i / 4);
+      ctx.beginPath();
+      ctx.moveTo(cx, frameY + frameH);
+      ctx.lineTo(cx, frameY + frameH + 4);
+      ctx.stroke();
+    }
+    // Wheels — front + rear pair
+    const wheelR = w.w * 0.08;
+    ctx.beginPath();
+    ctx.arc(w.x - frameW * 0.32, groundY - 1, wheelR, 0, Math.PI * 2);
+    ctx.arc(w.x + frameW * 0.10, groundY - 1, wheelR, 0, Math.PI * 2);
+    ctx.arc(w.x + frameW * 0.35, groundY - 1, wheelR, 0, Math.PI * 2);
+    ctx.fill();
+    // Bent steering column rising from one end
+    ctx.fillRect(w.x - frameW * 0.42, frameY - 8, 2, 8);
+    // Heavy rust on whole frame
+    ctx.fillStyle = 'rgba(170, 70, 28, 0.45)';
+    ctx.fillRect(w.x - frameW / 2, frameY, frameW, 1);
+  }
+
+  function drawWreckHalfBuried(w, baseY) {
+    // Profile: cab visible above ground, lower half buried in sand.
+    // Sand piled around it to ground-level + a bit higher on sides.
+    const groundY = baseY;
+    const cabW = w.w * 0.70;
+    const cabH = w.h * 0.55;
+    const cabY = groundY - cabH;
+    // Cab body
+    ctx.fillStyle = theme().ridge;
+    ctx.fillRect(w.x - cabW / 2, cabY, cabW, cabH);
+    // Windshield (broken — diagonal jagged crack)
+    ctx.fillStyle = 'rgba(70, 40, 20, 0.85)';
+    ctx.fillRect(w.x - cabW / 2 + 3, cabY + 3, cabW - 6, cabH * 0.42);
+    ctx.strokeStyle = 'rgba(220, 200, 170, 0.4)';
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(w.x - cabW * 0.30, cabY + 4);
+    ctx.lineTo(w.x + cabW * 0.10, cabY + cabH * 0.35);
+    ctx.lineTo(w.x + cabW * 0.30, cabY + cabH * 0.20);
+    ctx.stroke();
+    // Roof rust line
+    ctx.fillStyle = 'rgba(155, 60, 22, 0.55)';
+    ctx.fillRect(w.x - cabW / 2, cabY, cabW, 1.5);
+    // Sand mound piled around the cab base (buries lower 25%)
+    ctx.fillStyle = 'rgba(80, 50, 24, 0.92)';
+    ctx.beginPath();
+    ctx.moveTo(w.x - cabW * 0.95, groundY);
+    ctx.quadraticCurveTo(w.x - cabW * 0.3, groundY - cabH * 0.32, w.x, groundY - cabH * 0.28);
+    ctx.quadraticCurveTo(w.x + cabW * 0.4, groundY - cabH * 0.30, w.x + cabW * 0.9, groundY);
+    ctx.closePath();
+    ctx.fill();
   }
 
   function drawNeonCityHorizon() {
