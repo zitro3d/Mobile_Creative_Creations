@@ -2374,7 +2374,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v418';
+const DLX_BUILD = 'v419';
 
 (function() {
   // ---------- Device detection ----------
@@ -2397,6 +2397,10 @@ const DLX_BUILD = 'v418';
   // debugging / free-play. Public visitors see only the ship picker and
   // experience each biome as a surprise on reaching its score threshold.
   const IS_DEV_MODE = /(?:^|[?&])dev=1(?:&|$)/.test(window.location.search);
+
+  // Wind shear gate: ?wind=1 enables the wind_shear hazard rotation for
+  // dev preview. Future campaign Highwall (L22) will set this on per-level.
+  const windShearEnabled = /(?:^|[?&])wind=1(?:&|$)/.test(window.location.search);
   if (!IS_DEV_MODE) {
     // Remove the theme picker from the DOM entirely in public mode so it
     // can never be reached, and wipe any dev-mode leftover so the next
@@ -4783,7 +4787,11 @@ const DLX_BUILD = 'v418';
   // Each hazard has a telegraph phase (warning banner + flashing border) so
   // the player can react before the active phase lands.
   const HAZARD_CFG = {
-    wind_shear:   { telegraph: 90, duration: 8,   label: '⚠ WIND SHEAR' },
+    // wind_shear — 1.5s telegraph, then 0.5s sustained vertical nudge.
+    // Per-frame force * direction is added to bird.vy during the active
+    // phase, so the player can flap to counter (instead of the original
+    // 7-velocity one-shot slap that was unrecoverable).
+    wind_shear:   { telegraph: 90, duration: 30,  label: '⚠ WIND SHEAR', force: 0.42 },
     debris_storm: { telegraph: 90, duration: 180, label: '⚠ DEBRIS STORM' },
   };
   function hazardEligible() {
@@ -4798,10 +4806,13 @@ const DLX_BUILD = 'v418';
     if (hazard) return;
     if (hazardCooldown > 0) { hazardCooldown--; return; }
     if (!hazardEligible()) return;
-    // Wind shear removed across the whole game per playtest feedback.
-    // Only debris storm is in the rotation now.
     if (Math.random() < 0.0035) {                     // ~once every ~5s on average
-      spawnHazard('debris_storm');
+      // Wind shear is gated behind ?wind=1 URL param for now.
+      // Future campaign Highwall (L22) will opt this on per-level. The
+      // original vertical-slap implementation was removed per playtest;
+      // this rebuild is a sustained nudge the player can flap against.
+      const useWind = windShearEnabled && Math.random() < 0.45;
+      spawnHazard(useWind ? 'wind_shear' : 'debris_storm');
     }
   }
   function spawnHazard(type) {
@@ -4823,8 +4834,8 @@ const DLX_BUILD = 'v418';
       hazard.phase = 'active';
       hazard.frames = 0;
       if (hazard.type === 'wind_shear') {
-        // Single sharp impulse — pushes bird up or down depending on direction
-        bird.vy += hazard.direction * 7;
+        // No one-shot impulse here. Force is applied per-frame during
+        // the active phase below so the player can flap to counter.
       } else if (hazard.type === 'debris_storm') {
         // Pick a SAFE LANE Y — generous clear corridor so the storm
         // reads as a puzzle with an obvious entrance and exit. Should
@@ -4862,6 +4873,14 @@ const DLX_BUILD = 'v418';
       }
     }
     if (hazard.phase === 'active') {
+      if (hazard.type === 'wind_shear') {
+        // Sustained per-frame nudge in the chosen direction. The
+        // player can flap (which adds opposite vy) to counter, so a
+        // strong gust feels like wrestling the rig — not a slap.
+        if (frozenFrames === 0) {
+          bird.vy += hazard.cfg.force * hazard.direction;
+        }
+      }
       if (hazard.type === 'debris_storm') {
         for (let i = hazard.debris.length - 1; i >= 0; i--) {
           const d = hazard.debris[i];
