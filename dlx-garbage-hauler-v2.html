@@ -1894,6 +1894,7 @@
         <div id="themeLabel">Theme</div>
         <div id="themePicker">
           <button class="themeBtn selected" data-theme="sunset">SUNSET WASTES</button>
+          <button class="themeBtn" data-theme="bonepile">THE BONEPILE</button>
           <button class="themeBtn" data-theme="city">RUST CITY</button>
           <button class="themeBtn" data-theme="volcano">CINDER BELT</button>
           <button class="themeBtn" data-theme="underwater">TENTACLE TRENCH</button>
@@ -2375,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v422';
+const DLX_BUILD = 'v423';
 
 (function() {
   // ---------- Device detection ----------
@@ -2790,6 +2791,46 @@ const DLX_BUILD = 'v422';
       }
       return { kind: 'neoncity', baseY: baseY, far: far, near: near, drones: drones, crane: crane };
     }
+    if (selectedTheme === 'bonepile') {
+      // Truck graveyard. Foreground silhouettes of dead rigs piled
+      // along the road — chassis blocks, tipped cabs, exhaust stacks.
+      // Broken billboard at one slot for the diegetic touch. Vultures
+      // wheel overhead as the moving element (drawn separately with
+      // their own animation phase).
+      const wrecks = [];
+      const slots = 7;
+      for (let i = 0; i < slots; i++) {
+        const baseX = (W / slots) * i + ((i * 11) % 16);
+        // Each wreck is a stack of 2-3 chassis blocks. Width / height
+        // vary by seed so the silhouette feels piled, not regular.
+        const blocks = [];
+        const stackH = 2 + ((i * 7 + 3) % 2);     // 2..3 blocks tall
+        let by = 0;
+        for (let b = 0; b < stackH; b++) {
+          const w = 22 + ((i * 13 + b * 7) % 14);  // 22..36 wide
+          const h = 10 + ((i * 5 + b * 11) % 8);   // 10..18 tall
+          blocks.push({ dx: ((b * 4) % 6) - 2, w: w, h: h, dy: by });
+          by += h - 2;
+        }
+        wrecks.push({ x: baseX, blocks: blocks, totalH: by });
+      }
+      // Broken billboard — single placement at a midground slot
+      const billboard = {
+        x: W * 0.52, h: 38, w: 36,
+        crackPhase: 0.7,
+      };
+      // 5 vultures circling at staggered phases
+      const vultures = [];
+      for (let i = 0; i < 5; i++) {
+        vultures.push({
+          baseX: W * (0.18 + i * 0.16) + ((i * 23) % 28) - 14,
+          baseY: 30 + ((i * 17) % 18),
+          radius: 14 + ((i * 5) % 8),
+          phase: i * 1.3,
+        });
+      }
+      return { kind: 'bonepile', baseY: baseY, wrecks: wrecks, billboard: billboard, vultures: vultures };
+    }
     if (selectedTheme === 'highwall') {
       // Alpine cliffside highway. Three depth layers + roadside chrome:
       //  - farPeaks: distant snow-capped mountain range (hazy, pale)
@@ -2914,6 +2955,7 @@ const DLX_BUILD = 'v422';
     // Used as the campaign-wide soundtrack for most zones; underwater
     // and icecave have their own composer-delivered tracks.
     sunset:     { file: 'audio/sunset-ambient-v2.m4a', volume: 0.56 },
+    bonepile:   { file: 'audio/sunset-ambient-v2.m4a', volume: 0.56 },
     city:       { file: 'audio/sunset-ambient-v2.m4a', volume: 0.56 },
     volcano:    { file: 'audio/sunset-ambient-v2.m4a', volume: 0.56 },
     swamp:      { file: 'audio/sunset-ambient-v2.m4a', volume: 0.56 },
@@ -4067,6 +4109,50 @@ const DLX_BUILD = 'v422';
       debrisSet: ['popsicle','snowglobe','frozen_fish','fishbone'],
       obstacleTypes: ['cargo', 'junk'],
     },
+    bonepile: {
+      // The truck graveyard. Past the open dunes of Sunset Wastes,
+      // before the urban scrap of Rust City. Dustier and browner than
+      // Sunset, with a horizon piled with the chassis of dead rigs
+      // and vultures circling overhead. Same desert-family palette so
+      // the L1 → L2 transition reads as "deeper into the wasteland."
+      label: 'THE BONEPILE',
+      sky: ['#1a0a08', '#3a160e', '#6a2a18', '#9a4520', '#c2702a', '#1f0e08'],
+      sunInner: 'rgba(245, 195, 130, 0.85)',
+      sunMid:   'rgba(210, 95, 40, 0.72)',
+      sunEdge:  'rgba(140, 30, 10, 0)',
+      nebA: 'rgba(70, 40, 25, 0.32)',
+      nebB: 'rgba(45, 25, 15, 0.22)',
+      nebC: 'rgba(25, 12, 8, 0.12)',
+      nebWisp: 'rgba(200, 100, 50, 0.16)',
+      starBack: '110, 70, 45',
+      starMid:  '180, 120, 70',
+      starFront:'235, 200, 150',
+      starGlow: 'rgba(240, 170, 100, 0.85)',
+      dust: '230, 180, 130',
+      ridge: 'rgba(20, 10, 6, 0.92)',          // hard ground silhouette
+      groundA: '#2a1408',                       // rust-baked dirt
+      groundB: '#120804',
+      horizon: 'rgba(220, 90, 30, 0.85)',
+      horizonGlow: '#e85020',
+      crackColor: 'rgba(60, 25, 12, 0.65)',
+      cargo: {
+        // Slightly more weathered than Sunset Wastes — same family,
+        // a season further into the rot.
+        grad: ['#7a5a3a', '#3a2e1e', '#4c3a26', '#2e2417'],
+        edge: '#120804', rivet: '#1c1c1c',
+        hazardA: '#ffc230', hazardB: '#0e0a06',
+        rust: 'rgba(150, 65, 25, 0.78)',
+        weather: 'rgba(50, 24, 10, 0.78)',
+      },
+      junk: {
+        grad: ['#544540', '#352620', '#221814'],
+        outline: '#241208', rim: 'rgba(12, 6, 4, 0.80)',
+        rust: 'rgba(140, 55, 20, 0.85)', bolt: '#1a1208',
+        antennaMetal: '#7a6e64', antennaLed: '#c54028',
+      },
+      debrisSet: ['burger','fries','headphones','toilet','duck','tv','pizza','bottle','shoe'],
+      obstacleTypes: ['cargo', 'junk'],
+    },
   };
   let selectedTheme = 'sunset';
   function theme() { return THEMES[selectedTheme]; }
@@ -4386,14 +4472,18 @@ const DLX_BUILD = 'v422';
   let loot          = [];  // collectible items revealed by missile destruction
 
   // ---------- Campaign progression ----------
-  // HIGHWALL deliberately NOT in LEVEL_ORDER yet — adding it caused
-  // icecave (Frostfall Pass) to mid-run transition into HIGHWALL when
-  // the icecave score threshold was hit, swapping the art mid-flight.
-  // HIGHWALL remains accessible via the dev-mode theme picker, but the
-  // campaign rotation stops at icecave (terminal VICTORY zone) until
-  // HIGHWALL is wired into a proper chapter-5 progression with its own
-  // boss + completion trigger.
-  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'underwater', 'neoncity', 'canyon', 'swamp', 'icecave'];
+  // Campaign rotation. 'bonepile' is the Chapter-1 echo level —
+  // inserts as L2 between Sunset Wastes and Rust City. Truck-graveyard
+  // theme, same desert family, slightly tighter difficulty as the
+  // master complement to L1's "learn flight" intro.
+  //
+  // HIGHWALL deliberately NOT in LEVEL_ORDER yet — adding it earlier
+  // caused icecave (Frostfall Pass) to mid-run transition into HIGHWALL
+  // when the icecave score threshold was hit. HIGHWALL remains
+  // accessible via dev-mode theme picker; will rejoin LEVEL_ORDER once
+  // chapter-5 is fully built (Frost Approach → HIGHWALL → Glacier Gate
+  // → Whiteout → Frostfall boss).
+  const LEVEL_ORDER = ['sunset', 'bonepile', 'city', 'volcano', 'underwater', 'neoncity', 'canyon', 'swamp', 'icecave'];
   // Score gap required to leave each level (level i → level i+1).
   //   sunset     → city       : 50
   //   city       → volcano    : 60
@@ -4403,7 +4493,12 @@ const DLX_BUILD = 'v422';
   //   canyon     → swamp      : 90   (pirate respawns; score ramp advances)
   //   swamp      → icecave    : 80   (boss sinks on transition; score ramp advances)
   //   icecave    → (final)    : 0    (wraith = VICTORY)
-  const LEVEL_GAPS  = [50, 60, 70, 60, 60, 90, 80, 0];
+  // Score gap (per-level) to advance to the next level. Indices align
+  // 1:1 with LEVEL_ORDER. Final entry is 0 because icecave is terminal.
+  //   sunset 50  → bonepile 60  → city 60  → volcano 70  → underwater 60
+  //   → neoncity 60 → canyon 90 → swamp 80 → icecave (boss)
+  // Cumulative total to reach Frostfall: 530 (was 470 pre-bonepile).
+  const LEVEL_GAPS  = [50, 60, 60, 70, 60, 60, 90, 80, 0];
   // Per-level difficulty multipliers stack on top of the score-based ramp.
   // Values travel with the theme (each biome keeps its own pace/gap feel)
   // rather than strictly following position.
@@ -11789,6 +11884,7 @@ const DLX_BUILD = 'v422';
     if (selectedTheme === 'neoncity')   return drawNeonCityHorizon();
     if (selectedTheme === 'icecave')    return drawIceCaveHorizon();
     if (selectedTheme === 'highwall')   return drawHighwallHorizon();
+    if (selectedTheme === 'bonepile')   return drawBonepileHorizon();
     return drawSunsetMountains();
   }
 
@@ -11986,6 +12082,93 @@ const DLX_BUILD = 'v422';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(s.label, s.x, baseY - s.h + 4);
+    }
+
+    ctx.restore();
+  }
+
+  function drawBonepileHorizon() {
+    // Wreck silhouettes pile the foreground; broken billboard at mid-
+    // ground for diegesis; vultures wheel above against the dusty sky.
+    // Drawn after the back-glow gradients (which buildBgCache renders)
+    // so the silhouettes read as solid against the sunset haze.
+    const layout = bgCache.horizon;
+    if (!layout || layout.kind !== 'bonepile') return;
+    const baseY = layout.baseY;
+    const t = theme();
+    ctx.save();
+
+    // --- Vultures (drawn first so they sit BEHIND the wrecks) ---
+    // Slow elliptical orbit per vulture. Two-line wing silhouette.
+    ctx.fillStyle = 'rgba(20, 10, 6, 0.72)';
+    for (const v of layout.vultures) {
+      const t1 = frame * 0.009 + v.phase;
+      const vx = v.baseX + Math.cos(t1) * v.radius;
+      const vy = v.baseY + Math.sin(t1 * 0.7) * 4;
+      // Wing flap phase
+      const flap = Math.sin(t1 * 3.5) * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(vx - 5, vy);
+      ctx.quadraticCurveTo(vx - 2, vy - 2 - flap, vx, vy);
+      ctx.quadraticCurveTo(vx + 2, vy - 2 + flap, vx + 5, vy);
+      ctx.lineTo(vx + 5, vy + 0.8);
+      ctx.quadraticCurveTo(vx + 2, vy - 1.2 + flap, vx, vy + 0.8);
+      ctx.quadraticCurveTo(vx - 2, vy - 1.2 - flap, vx - 5, vy + 0.8);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // --- Truck wreck silhouettes (foreground piles) ---
+    ctx.fillStyle = t.ridge;
+    for (const w of layout.wrecks) {
+      // Draw each chassis block from the bottom up
+      for (let bi = w.blocks.length - 1; bi >= 0; bi--) {
+        const b = w.blocks[bi];
+        const bx = w.x + b.dx;
+        const by = baseY - b.dy - b.h;
+        ctx.fillRect(bx - b.w / 2, by, b.w, b.h);
+        // Rust highlight at the top edge for texture
+        ctx.fillStyle = 'rgba(120, 45, 18, 0.55)';
+        ctx.fillRect(bx - b.w / 2, by, b.w, 1.5);
+        ctx.fillStyle = t.ridge;
+      }
+      // Exhaust stack on the top block (only some wrecks have them)
+      const top = w.blocks[w.blocks.length - 1];
+      if (w.blocks.length >= 2 && (w.x | 0) % 3 !== 0) {
+        const sx = w.x + top.dx + top.w * 0.32;
+        const sy = baseY - w.totalH;
+        ctx.fillStyle = t.ridge;
+        ctx.fillRect(sx - 1.4, sy - 9, 2.8, 9);
+      }
+    }
+
+    // --- Broken billboard ---
+    if (layout.billboard) {
+      const bb = layout.billboard;
+      // Two support legs
+      ctx.fillStyle = 'rgba(30, 14, 8, 0.92)';
+      ctx.fillRect(bb.x - bb.w / 2 + 3, baseY - bb.h * 0.55, 2, bb.h * 0.55);
+      ctx.fillRect(bb.x + bb.w / 2 - 5, baseY - bb.h * 0.55, 2, bb.h * 0.55);
+      // Sign panel (with a torn / missing corner)
+      ctx.fillStyle = 'rgba(100, 50, 20, 0.85)';
+      ctx.beginPath();
+      ctx.moveTo(bb.x - bb.w / 2, baseY - bb.h);
+      ctx.lineTo(bb.x + bb.w / 2, baseY - bb.h);
+      ctx.lineTo(bb.x + bb.w / 2, baseY - bb.h * 0.55);
+      ctx.lineTo(bb.x + bb.w * 0.18, baseY - bb.h * 0.55);
+      ctx.lineTo(bb.x + bb.w * 0.10, baseY - bb.h * 0.62);   // tear
+      ctx.lineTo(bb.x - bb.w / 2, baseY - bb.h * 0.55);
+      ctx.closePath();
+      ctx.fill();
+      // Faded DLX dispatch text on the sign
+      ctx.fillStyle = 'rgba(220, 180, 110, 0.55)';
+      ctx.font = 'bold 8px Impact, "Arial Black", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('DLX', bb.x, baseY - bb.h + 8);
+      ctx.font = 'bold 5.5px "Courier New", monospace';
+      ctx.fillStyle = 'rgba(180, 140, 90, 0.45)';
+      ctx.fillText('NEXT EXIT', bb.x - 2, baseY - bb.h + 17);
     }
 
     ctx.restore();
