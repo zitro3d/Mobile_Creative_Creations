@@ -1901,6 +1901,7 @@
           <button class="themeBtn" data-theme="canyon">BANDIT CANYON</button>
           <button class="themeBtn" data-theme="swamp">TOXIC FEN</button>
           <button class="themeBtn" data-theme="icecave">FROSTFALL PASS</button>
+          <button class="themeBtn" data-theme="highwall">HIGHWALL</button>
         </div>
         <button id="playBtnLg">PUNCH IT</button>
       </div>
@@ -2374,7 +2375,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v419';
+const DLX_BUILD = 'v420';
 
 (function() {
   // ---------- Device detection ----------
@@ -2890,6 +2891,7 @@ const DLX_BUILD = 'v419';
     underwater: { file: 'audio/TENTACLE.m4a',          volume: 0.56 },
     neoncity:   { file: 'audio/sunset-ambient-v2.m4a', volume: 0.56 },
     icecave:    { file: 'audio/DLX_SHREDD.m4a',        volume: 0.56 },
+    highwall:   { file: 'audio/DLX_SHREDD.m4a',        volume: 0.56 },
     /* Synth fallbacks (unused while every biome points at the file):
        sunset:     { layers: [ { type: 'sine',     freq: 220, gain: 0.020, lfoFreq: 0.3,  lfoDepth: 4 },
                                 { type: 'triangle', freq: 110, gain: 0.016 },
@@ -3992,6 +3994,49 @@ const DLX_BUILD = 'v419';
       debrisSet: ['popsicle','snowglobe','frozen_fish','fishbone'],
       obstacleTypes: ['icicle', 'icepillar', 'plowblade'],
     },
+    highwall: {
+      // Cliffside highway above a deep alpine gorge. Open daytime sky
+      // (NOT a cave like icecave), pale dawn light, jagged peaks at the
+      // horizon, snow-dusted rock underfoot, blowing flakes throughout.
+      // Marquee mechanic: wind shear (auto-enabled in this theme).
+      label: 'HIGHWALL',
+      sky: ['#0a1828', '#1a2a40', '#3a5070', '#6a8aa8', '#b0c8dc', '#1a1f28'],
+      sunInner: 'rgba(232, 240, 250, 0.85)', // washed-out high-altitude sun
+      sunMid:   'rgba(160, 190, 220, 0.55)',
+      sunEdge:  'rgba(60, 100, 140, 0)',
+      nebA: 'rgba(140, 170, 200, 0.18)',     // thin alpine cloud
+      nebB: 'rgba(90, 120, 160, 0.12)',
+      nebC: 'rgba(50, 80, 120, 0.08)',
+      nebWisp: 'rgba(220, 235, 250, 0.20)',  // snow squall haze
+      starBack: '180, 200, 220',
+      starMid:  '210, 225, 240',
+      starFront:'240, 248, 255',
+      starGlow: 'rgba(220, 240, 255, 0.85)',
+      dust: '230, 240, 250',                 // blowing flakes
+      ridge: 'rgba(20, 32, 48, 0.92)',       // jagged peak silhouette
+      groundA: '#3a4858',                    // snow-dusted dark rock
+      groundB: '#0a1422',
+      horizon: 'rgba(190, 215, 235, 0.88)',
+      horizonGlow: '#a0c0d8',
+      crackColor: 'rgba(140, 170, 200, 0.45)',
+      cargo: {
+        // Weathered steel + ice rime — reads colder than icecave's
+        // frosted chrome (more industrial, less pretty).
+        grad: ['#7a8a98', '#3a4858', '#566878', '#1a242e'],
+        edge: '#0a1422', rivet: '#d8e4f0',
+        hazardA: '#ffd060', hazardB: '#0a1422',
+        rust: 'rgba(140, 170, 200, 0.7)',
+        weather: 'rgba(220, 235, 250, 0.85)',
+      },
+      junk: {
+        grad: ['#4a5868', '#1a2838', '#0a1422'],
+        outline: '#040810', rim: 'rgba(180, 210, 235, 0.30)',
+        rust: 'rgba(150, 180, 210, 0.55)', bolt: '#0a1422',
+        antennaMetal: '#7a8a98', antennaLed: '#ff8060',
+      },
+      debrisSet: ['popsicle','snowglobe','frozen_fish','fishbone'],
+      obstacleTypes: ['cargo', 'junk'],
+    },
   };
   let selectedTheme = 'sunset';
   function theme() { return THEMES[selectedTheme]; }
@@ -4311,7 +4356,7 @@ const DLX_BUILD = 'v419';
   let loot          = [];  // collectible items revealed by missile destruction
 
   // ---------- Campaign progression ----------
-  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'underwater', 'neoncity', 'canyon', 'swamp', 'icecave'];
+  const LEVEL_ORDER = ['sunset', 'city', 'volcano', 'underwater', 'neoncity', 'canyon', 'swamp', 'icecave', 'highwall'];
   // Score gap required to leave each level (level i → level i+1).
   //   sunset     → city       : 50
   //   city       → volcano    : 60
@@ -4807,11 +4852,14 @@ const DLX_BUILD = 'v419';
     if (hazardCooldown > 0) { hazardCooldown--; return; }
     if (!hazardEligible()) return;
     if (Math.random() < 0.0035) {                     // ~once every ~5s on average
-      // Wind shear is gated behind ?wind=1 URL param for now.
-      // Future campaign Highwall (L22) will opt this on per-level. The
-      // original vertical-slap implementation was removed per playtest;
-      // this rebuild is a sustained nudge the player can flap against.
-      const useWind = windShearEnabled && Math.random() < 0.45;
+      // Wind shear is on in two cases:
+      //   1. ?wind=1 URL param (dev preview, any theme)
+      //   2. selectedTheme === 'highwall' — wind is HIGHWALL's marquee
+      //      mechanic, so it always fires there at higher density.
+      const inHighwall = selectedTheme === 'highwall';
+      const windOn = inHighwall || windShearEnabled;
+      const windRoll = inHighwall ? 0.7 : 0.45;       // wind dominates Highwall
+      const useWind = windOn && Math.random() < windRoll;
       spawnHazard(useWind ? 'wind_shear' : 'debris_storm');
     }
   }
