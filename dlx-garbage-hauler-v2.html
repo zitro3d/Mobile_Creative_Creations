@@ -2375,7 +2375,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v420';
+const DLX_BUILD = 'v421';
 
 (function() {
   // ---------- Device detection ----------
@@ -2789,6 +2789,36 @@ const DLX_BUILD = 'v420';
         });
       }
       return { kind: 'neoncity', baseY: baseY, far: far, near: near, drones: drones, crane: crane };
+    }
+    if (selectedTheme === 'highwall') {
+      // Alpine cliffside highway. Three depth layers + roadside chrome:
+      //  - farPeaks: distant snow-capped mountain range (hazy, pale)
+      //  - midRidge: closer jagged cliffside (sharp, dark)
+      //  - posts:    foreground highway guardrail running into distance
+      //  - sign:     a weathered DLX MILE marker at one of the post slots
+      const farPeaks = [];
+      for (let i = 0; i <= 8; i++) {
+        farPeaks.push({
+          x: (W / 8) * i,
+          h: 52 + Math.abs(Math.sin(i * 1.4 + 0.3) * 34) + (i % 3) * 6,
+        });
+      }
+      const midRidge = [];
+      const midCount = 18;
+      for (let i = 0; i <= midCount; i++) {
+        const x = (W / midCount) * i;
+        const h = 22 + Math.abs(Math.cos(i * 2.1) * 20) + (i % 2) * 5;
+        midRidge.push({ x: x, h: h });
+      }
+      const posts = [];
+      for (let i = 0; i < 5; i++) {
+        posts.push({
+          x: W * (0.08 + i * 0.21) + ((i * 13) % 14) - 7,
+          h: 14 + (i % 3) * 3,
+        });
+      }
+      const sign = { x: W * 0.74, h: 30, label: 'DLX MILE 437' };
+      return { kind: 'highwall', baseY: baseY, farPeaks: farPeaks, midRidge: midRidge, posts: posts, sign: sign };
     }
     // sunset — simple peak profile + a few rusted oil derricks and one
     // roadside DLX-MILE-0 sign poking up off the wasteland horizon.
@@ -11747,6 +11777,7 @@ const DLX_BUILD = 'v420';
     if (selectedTheme === 'underwater') return drawUnderwaterHorizon();
     if (selectedTheme === 'neoncity')   return drawNeonCityHorizon();
     if (selectedTheme === 'icecave')    return drawIceCaveHorizon();
+    if (selectedTheme === 'highwall')   return drawHighwallHorizon();
     return drawSunsetMountains();
   }
 
@@ -11835,6 +11866,117 @@ const DLX_BUILD = 'v420';
       }
       ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  function drawHighwallHorizon() {
+    // Alpine cliffside highway. Three depth layers (far peaks → mid
+    // ridge → guardrail posts) read as recession; snow caps on the
+    // far peaks anchor the cold-mountain identity; mile-marker sign
+    // adds the trucker / highway diegesis that separates this from
+    // icecave's pure-cavern feel.
+    const layout = bgCache.horizon;
+    if (!layout || layout.kind !== 'highwall') return;
+    const baseY = layout.baseY;
+    const t = theme();
+    ctx.save();
+
+    // --- Layer 1: far peaks (hazy distance, pale blue-grey) ---
+    ctx.fillStyle = 'rgba(80, 105, 140, 0.78)';
+    ctx.beginPath();
+    ctx.moveTo(0, baseY);
+    for (const p of layout.farPeaks) {
+      ctx.lineTo(p.x, baseY - p.h);
+    }
+    ctx.lineTo(W, baseY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Snow caps on the tall far peaks — small triangular wedges on the
+    // upper slope where the silhouette breaks above the snowline.
+    ctx.fillStyle = 'rgba(225, 238, 252, 0.78)';
+    for (let i = 0; i < layout.farPeaks.length - 1; i++) {
+      const p = layout.farPeaks[i];
+      const next = layout.farPeaks[i + 1];
+      if (p.h < 60) continue;        // only the meaningful peaks
+      const py = baseY - p.h;
+      // Triangle hugging the peak, sloping toward the next valley
+      ctx.beginPath();
+      ctx.moveTo(p.x, py);
+      ctx.lineTo(p.x - 9, py + 14);
+      ctx.lineTo(p.x + 10, py + 12);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // --- Layer 2: mid ridge (sharp, darker, closer) ---
+    ctx.fillStyle = t.ridge;
+    ctx.beginPath();
+    ctx.moveTo(0, baseY);
+    for (const p of layout.midRidge) {
+      ctx.lineTo(p.x, baseY - p.h);
+    }
+    ctx.lineTo(W, baseY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Mid-ridge highlight edge — thin top stroke so the ridge reads
+    // crisp against the hazy far peaks behind it.
+    ctx.strokeStyle = 'rgba(170, 200, 230, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < layout.midRidge.length; i++) {
+      const p = layout.midRidge[i];
+      if (i === 0) ctx.moveTo(p.x, baseY - p.h);
+      else ctx.lineTo(p.x, baseY - p.h);
+    }
+    ctx.stroke();
+
+    // --- Layer 3: foreground guardrail posts + cable ---
+    // Posts are short steel verticals. A thin cable arcs between them
+    // at about 70% of post height — reads as wire guardrail.
+    if (layout.posts.length > 1) {
+      ctx.strokeStyle = 'rgba(60, 80, 105, 0.85)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (let i = 0; i < layout.posts.length; i++) {
+        const p = layout.posts[i];
+        const cy = baseY - p.h * 0.65;
+        if (i === 0) ctx.moveTo(p.x, cy);
+        else         ctx.lineTo(p.x, cy);
+      }
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#1a2438';
+    ctx.strokeStyle = '#4a5868';
+    ctx.lineWidth = 0.6;
+    for (const p of layout.posts) {
+      ctx.fillRect(p.x - 1.6, baseY - p.h, 3.2, p.h);
+      ctx.strokeRect(p.x - 1.6, baseY - p.h, 3.2, p.h);
+      // Cap
+      ctx.fillRect(p.x - 3.5, baseY - p.h - 2.5, 7, 2.5);
+    }
+
+    // --- Mile marker sign — diegetic trucker chrome ---
+    if (layout.sign) {
+      const s = layout.sign;
+      // Post
+      ctx.fillStyle = '#2a3848';
+      ctx.fillRect(s.x - 1.2, baseY - s.h, 2.4, s.h);
+      // Sign plate
+      ctx.fillStyle = '#3a5070';
+      ctx.fillRect(s.x - 17, baseY - s.h - 3, 34, 13);
+      ctx.strokeStyle = '#0a1422';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(s.x - 17, baseY - s.h - 3, 34, 13);
+      // Label
+      ctx.fillStyle = '#ffd060';
+      ctx.font = 'bold 7px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(s.label, s.x, baseY - s.h + 4);
+    }
+
     ctx.restore();
   }
 
