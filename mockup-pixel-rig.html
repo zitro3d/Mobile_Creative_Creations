@@ -268,27 +268,67 @@ function drawRig(ctx, ox, oy) {
   ctx.imageSmoothingEnabled = false;
   const x = ox | 0, y = oy | 0;
 
-  // ── Engine pod (back-bottom — drawn first, body sits on top) ──
-  ctx.fillStyle = COL.outline;
-  ctx.fillRect(x + 2, y + 22, 26, 14);     // pod shadow / outline
-  ctx.fillStyle = COL.podGrey;
-  ctx.fillRect(x + 4, y + 24, 22, 10);     // pod main block
-  ctx.fillStyle = COL.podBlack;
-  ctx.fillRect(x + 4, y + 32, 22,  2);     // pod under-rim
-  // Glow vents (3 across)
-  ctx.fillStyle = COL.podGlow;
-  ctx.fillRect(x +  8, y + 30, 3, 4);
-  ctx.fillRect(x + 14, y + 30, 3, 4);
-  ctx.fillRect(x + 20, y + 30, 3, 4);
-  // Engine pod side struts
+  // ── Engine pod (UNDER FRONT of body — jet-engine pod, chunky) ──
+  // User feedback: engine is "under the car towards the front" and
+  // "looks like an airplane engine," not a back-bottom block. Pod
+  // hangs from the front-bottom of the body via a short strut. Air
+  // intake on the right (forward) face, exhaust nozzle on the left
+  // (rear) face — that's where the flame propels out from.
+  //
+  // Strut connecting engine pod up to the body underside
   ctx.fillStyle = COL.armorDark;
-  ctx.fillRect(x +  2, y + 26,  2, 8);
-  ctx.fillRect(x + 26, y + 26,  2, 8);
-  // Rear exhaust nozzle (the BACK of the engine, where flame exits)
+  ctx.fillRect(x + 36, y + 24, 4, 4);
+  ctx.fillStyle = COL.podDark;
+  ctx.fillRect(x + 36, y + 27, 4, 1);
+  //
+  // Pod silhouette outline
+  ctx.fillStyle = COL.outline;
+  ctx.fillRect(x + 26, y + 27, 34, 13);
+  // Pod main body (chunky cylinder side-view)
+  ctx.fillStyle = COL.podGrey;
+  ctx.fillRect(x + 28, y + 28, 30, 11);
+  // Top highlight band (catches light from above)
+  ctx.fillStyle = COL.armorMid;
+  ctx.fillRect(x + 30, y + 28, 26, 1);
+  // Bottom shadow band
+  ctx.fillStyle = COL.podDark;
+  ctx.fillRect(x + 28, y + 37, 30, 2);
+  //
+  // Front intake (right end — circular dark opening with fan blades)
   ctx.fillStyle = COL.podBlack;
-  ctx.fillRect(x +  2, y + 28, 4, 6);
+  ctx.fillRect(x + 54, y + 29, 4, 9);
+  ctx.fillStyle = COL.podDark;
+  ctx.fillRect(x + 55, y + 30, 3, 7);
+  // Fan blade hints (small dark slits)
+  ctx.fillStyle = COL.armorDark;
+  ctx.fillRect(x + 55, y + 31, 2, 1);
+  ctx.fillRect(x + 55, y + 33, 2, 1);
+  ctx.fillRect(x + 55, y + 35, 2, 1);
+  //
+  // Rear exhaust nozzle (left end — where flame trails out)
+  ctx.fillStyle = COL.podBlack;
+  ctx.fillRect(x + 24, y + 30, 5, 7);
   ctx.fillStyle = COL.podGlow;
-  ctx.fillRect(x +  3, y + 30, 2, 3);
+  ctx.fillRect(x + 25, y + 32, 4, 3);
+  ctx.fillStyle = COL.flameCore;
+  ctx.fillRect(x + 26, y + 33, 2, 1);  // hot core right at nozzle lip
+  //
+  // Turbine vents along the side (chunky 16-bit detail)
+  ctx.fillStyle = COL.podBlack;
+  ctx.fillRect(x + 34, y + 31, 1, 5);
+  ctx.fillRect(x + 40, y + 31, 1, 5);
+  ctx.fillRect(x + 46, y + 31, 1, 5);
+  ctx.fillRect(x + 50, y + 31, 1, 5);
+  //
+  // Yellow caution stripe on pod
+  ctx.fillStyle = COL.yellow;
+  ctx.fillRect(x + 30, y + 35, 22, 1);
+  ctx.fillStyle = COL.yellowDeep;
+  ctx.fillRect(x + 30, y + 36, 22, 1);
+  //
+  // Pod centerline rib (3D solidity hint)
+  ctx.fillStyle = COL.armorDark;
+  ctx.fillRect(x + 28, y + 33, 30, 1);
 
   // ── Main body outline ──
   ctx.fillStyle = COL.outline;
@@ -544,53 +584,52 @@ function drawFlame(ctx, ox, oy, frame) {
   // Per-frame flicker
   const flick = Math.floor(Math.sin(frame * 0.45) * 1.5);
   const flick2 = Math.floor(Math.cos(frame * 0.32) * 1);
-  const drift = Math.floor(Math.sin(frame * 0.55) * 0.8);
 
-  // Direction: flame exits the REAR nozzle and trails BACK + DOWN.
-  // Each row of the flame shifts slightly LEFT (back) and DOWN as it
-  // extends. Pixel-art-faithful: integer offsets per row.
-  const dx = -0.7;   // leftward (rearward) per row
-  const dy = 1.1;    // downward per row
+  // Direction: HORIZONTAL trailing LEFT (rearward thrust).
+  // Each "step" is a vertical column at x - i, with column heights
+  // tapering from large near the nozzle to 1 at the tail. Centered
+  // on y so the flame reads as a horizontal jet, not vertical.
 
-  // ── Outer flame (deep blue, biggest) ──
+  // Outer flame (deep blue — biggest, longest tail)
   ctx.fillStyle = COL.flameOuter;
-  for (let i = 0; i < 11; i++) {
-    const w = Math.max(2, 12 - i + flick);
-    const px = x + Math.floor(i * dx);
-    const py = y + Math.floor(i * dy);
-    ctx.fillRect(px - (w >> 1), py, w, 1);
+  for (let i = 0; i < 18; i++) {
+    const h = Math.max(1, 9 - Math.floor(i * 0.55) + flick);
+    const px = x - i;
+    const py = y - (h >> 1) + flick2;
+    ctx.fillRect(px, py, 1, h);
   }
 
-  // ── Mid flame (light cyan) ──
+  // Mid flame (light cyan)
   ctx.fillStyle = COL.flameMid;
+  for (let i = 0; i < 14; i++) {
+    const h = Math.max(1, 6 - Math.floor(i * 0.5) + (flick >> 1));
+    const px = x - i;
+    const py = y - (h >> 1);
+    ctx.fillRect(px, py, 1, h);
+  }
+
+  // Hot inner cyan
+  ctx.fillStyle = COL.flameHot;
   for (let i = 0; i < 9; i++) {
-    const w = Math.max(2, 9 - i + (flick >> 1));
-    const px = x + Math.floor(i * dx);
-    const py = y + Math.floor(i * dy);
-    ctx.fillRect(px - (w >> 1), py, w, 1);
+    const h = Math.max(1, 4 - Math.floor(i * 0.5));
+    const px = x - i;
+    const py = y - (h >> 1);
+    ctx.fillRect(px, py, 1, h);
   }
 
-  // ── Hot inner cyan ──
-  ctx.fillStyle = COL.flameHot;
-  for (let i = 0; i < 7; i++) {
-    const w = Math.max(2, 6 - Math.floor(i / 2) + Math.floor(Math.sin(frame * 0.6 + 1)));
-    const px = x + Math.floor(i * dx);
-    const py = y + Math.floor(i * dy);
-    ctx.fillRect(px - (w >> 1), py, w, 1);
-  }
-
-  // ── White-hot core (right at nozzle) ──
+  // White-hot core (right at nozzle, narrow trailing streak)
   ctx.fillStyle = COL.flameCore;
-  ctx.fillRect(x - 1 + drift, y, 3, 3);
-  ctx.fillRect(x - 1 + drift + Math.floor(2 * dx), y + Math.floor(2 * dy), 2, 2);
+  ctx.fillRect(x,     y - 1, 3, 3);
+  ctx.fillRect(x - 3, y - 0, 2, 2);
+  ctx.fillRect(x - 5, y,     1, 1);
 
-  // ── Sparks / particles trailing the flame ──
+  // Sparks trailing in the flame's wake (leftward + scattered)
   ctx.fillStyle = COL.flameHot;
-  for (let i = 0; i < 3; i++) {
-    const angle = frame * 0.05 + i * 2.1;
-    const dist = 6 + Math.sin(frame * 0.3 + i) * 2;
-    const sx = (x + Math.floor(4 * dx) + Math.cos(angle) * dist * 0.6) | 0;
-    const sy = (y + Math.floor(4 * dy) + Math.abs(Math.sin(angle)) * 6) | 0;
+  for (let i = 0; i < 4; i++) {
+    const angle = frame * 0.05 + i * 1.8;
+    const dist = 4 + Math.sin(frame * 0.3 + i) * 2;
+    const sx = (x - 14 - Math.floor(Math.abs(Math.sin(angle)) * dist)) | 0;
+    const sy = (y + Math.floor(Math.cos(angle) * 3)) | 0;
     ctx.fillRect(sx, sy, 1, 1);
   }
 }
@@ -608,29 +647,27 @@ function makeRenderer(canvasId, layout) {
   };
 }
 
-// Rig anchors (v4):
+// Rig anchors (v5):
 //   chain attaches at (rigX + 2,  rigY + 19)  ← chain anchor port
-//                                                glow point
-//   flame exits      at (rigX + 4,  rigY + 34) ← REAR nozzle of engine
-//                                                (was center-bottom)
+//   flame exits      at (rigX + 26, rigY + 33) ← REAR of jet engine
+//                                                pod (now under the
+//                                                FRONT of the body)
 const renderBig = makeRenderer('big', (ctx, frame) => {
   const rigX = 180, rigY = 28;
-  // Cargo positioned with MORE spacing from the rig per user feedback
   drawCargo(ctx, 110, rigY + 10);
-  // Chain runs from cargo to chain anchor port on the rig's back
   drawChain(ctx, 132, rigY + 20, rigX + 2, rigY + 19, frame);
-  // Rig (drawn AFTER chain so anchor port covers the last bead)
+  // Flame drawn BEFORE rig so the rig's engine pod nozzle covers the
+  // flame's source pixel cleanly (flame appears to emerge FROM nozzle)
+  drawFlame(ctx, rigX + 26, rigY + 33, frame);
   drawRig(ctx, rigX, rigY);
-  // Flame exits the REAR nozzle of the engine pod, trails back+down
-  drawFlame(ctx, rigX + 4, rigY + 34, frame);
 });
 
 const renderMini = makeRenderer('mini', (ctx, frame) => {
   const rigX = 105, rigY = 16;
   drawCargo(ctx, 56, rigY + 10);
   drawChain(ctx, 78, rigY + 20, rigX + 2, rigY + 19, frame);
+  drawFlame(ctx, rigX + 26, rigY + 33, frame);
   drawRig(ctx, rigX, rigY);
-  drawFlame(ctx, rigX + 4, rigY + 34, frame);
 });
 
 const renderCRig   = makeRenderer('cRig',   (ctx) => drawRig(ctx, 0, 0));
