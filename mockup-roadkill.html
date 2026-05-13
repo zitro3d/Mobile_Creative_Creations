@@ -223,7 +223,7 @@ const C = {
 // All shapes drawn with fillRect for crisp pixel edges.
 // Native 200×80, displayed scaled with image-rendering: pixelated.
 // ═════════════════════════════════════════════════════════
-function pxRig(ctx, ox, oy) {
+function pxRig(ctx, ox, oy, frame) {
   ctx.imageSmoothingEnabled = false;
   const x = ox | 0, y = oy | 0;
 
@@ -287,11 +287,35 @@ function pxRig(ctx, ox, oy) {
     ctx.fillRect(wX, wTop, 1, wBase - wTop + 1);
   }
 
-  // ── ANTENNA (back-right, restored from v1) ──
-  ctx.fillStyle = C.chromeDark;
-  ctx.fillRect(x + 32, y +  4, 1, 8);
-  ctx.fillStyle = C.podGlow;
-  ctx.fillRect(x + 32, y +  3, 1, 1);
+  // ── ANTENNA (rooted to body, animated sway per user v7) ──
+  // Previously floated unattached. Now anchored at the body top
+  // (y+22) and extends up to y+2. Each pixel bends slightly more
+  // than the one below it (quadratic), with a phase delay along the
+  // length so a wave visibly travels up the rod like wind catching
+  // a flag. Cyan bead at the tip catches the most sway.
+  {
+    const antX = x + 32;            // rooted column on the body
+    const antBot = y + 22;          // base at body top
+    const antTop = y + 2;           // tip in the sky
+    const antLen = antBot - antTop; // 20
+    const wPhase = frame * 0.05;    // slow sway speed
+    const wMax = 2;                 // max lateral offset in px
+    for (let i = 0; i < antLen; i++) {
+      const segY = antBot - i;
+      const t = i / (antLen - 1);                 // 0 at base, 1 at tip
+      const sway = Math.round(
+        Math.sin(wPhase + i * 0.20) * t * t * wMax
+      );
+      ctx.fillStyle = C.chromeDark;
+      ctx.fillRect(antX + sway, segY, 1, 1);
+    }
+    // Cyan glow bead at the tip — same sway as the top segment
+    const tipSway = Math.round(
+      Math.sin(wPhase + (antLen - 1) * 0.20) * wMax
+    );
+    ctx.fillStyle = C.podGlow;
+    ctx.fillRect(antX + tipSway, antTop - 1, 1, 1);
+  }
 
   // ── BUBBLE COCKPIT (back-center dome, restored from v1) ──
   ctx.fillStyle = C.outline;
@@ -530,7 +554,7 @@ function renderPixel(frame) {
   pxCargo(ctx, 44, rigY + 14);
   pxChain(ctx, 76, rigY + 28, rigX + 4, rigY + 28, frame);
   pxFlame(ctx, rigX + 18, rigY + 44, frame);
-  pxRig(ctx, rigX, rigY);
+  pxRig(ctx, rigX, rigY, frame);
 }
 
 // ═════════════════════════════════════════════════════════
