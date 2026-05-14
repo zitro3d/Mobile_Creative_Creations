@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>ROAD KILL — Sprite Sheet</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Helvetica Neue', system-ui, sans-serif;
+    background:
+      radial-gradient(ellipse at 50% 0%, #1d1330 0%, #120a18 60%, #050308 100%);
+    color: #f4e8d8;
+    min-height: 100vh;
+    padding: 26px 16px 40px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage { max-width: 1100px; margin: 0 auto; }
+  .pageHeader { text-align: center; margin-bottom: 22px; }
+  .pageHeader .kicker {
+    font-size: 10px; letter-spacing: 4px; font-weight: 800;
+    color: #ff9050; margin-bottom: 6px;
+  }
+  .pageHeader h1 {
+    font-family: Impact, sans-serif;
+    font-size: 26px; letter-spacing: 5px; color: #ffd060;
+    margin-bottom: 4px;
+  }
+  .pageHeader .note {
+    font-size: 11px; line-height: 1.55; color: #c0a890;
+    max-width: 580px; margin: 8px auto 0;
+  }
+  .panel {
+    background: linear-gradient(180deg, #160e22 0%, #0a0612 100%);
+    border: 1.5px solid #3a2a4a;
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  .canvasWrap {
+    background: linear-gradient(180deg, #0a1428 0%, #1a0810 50%, #2a0a18 100%);
+    border: 1px solid #2a1a30;
+    border-radius: 8px;
+    overflow: hidden;
+    padding: 12px;
+    display: flex;
+    justify-content: center;
+  }
+  canvas.sheet {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    display: block;
+    width: 100%;
+    max-width: 960px;
+    height: auto;
+  }
+  .controls {
+    display: flex; align-items: center; gap: 14px;
+    margin-top: 14px; padding-top: 12px;
+    border-top: 1px solid #2a1a30;
+  }
+  button.btn {
+    background: linear-gradient(180deg,#f06030 0%,#c52a18 100%);
+    border: 2px solid #1a0a06;
+    color: #ffd83d;
+    font-family: Impact, sans-serif;
+    font-size: 13px; letter-spacing: 2px;
+    padding: 8px 16px; border-radius: 6px;
+    cursor: pointer;
+    box-shadow: 0 3px 0 #5a2010;
+  }
+  .controls .status {
+    font-size: 11px; color: #806a90;
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <div class="pageHeader">
+    <div class="kicker">ROAD KILL · ANIMATED SPRITE SHEET</div>
+    <h1>ALL PARTS · ONE SHEET</h1>
+    <p class="note">
+      Each animated element is rendered in its own panel side-by-side:
+      RIG (antenna sway), CARGO (static — included for reference),
+      CHAIN (pulsing beads), FLAME (flickering thrust). All animate
+      simultaneously. Hit DOWNLOAD GIF to save as one looping file.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="canvasWrap">
+      <canvas id="sheet" width="500" height="120" class="sheet"></canvas>
+    </div>
+    <div class="controls">
+      <button id="recordBtn" class="btn">DOWNLOAD GIF</button>
+      <span id="status" class="status">3 sec @ 30fps, upscaled 2× = 1000×240 output GIF.</span>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
+<script>
+// ─────────────────────────────────────────────────────────
+// Palette (matches mockup-roadkill v11)
+// ─────────────────────────────────────────────────────────
+const C = {
+  hullCore:'#3aa8b8', hullLight:'#7ed4dc', hullDark:'#1c5e6e', hullDeep:'#0a3038',
+  yellow:'#ffc628', yellowDeep:'#a06820',
+  rust:'#c83828', rustDark:'#7a1a10',
+  domeFrame:'#909488', domeShadow:'#787c70',
+  glassDark:'#142028', glassLit:'#7eddeb',
+  chrome:'#9a9aa0', chromeLight:'#cfd2d4', chromeDark:'#48484e',
+  podGrey:'#28282e', podBlack:'#0c0c10', podGlow:'#7eddeb',
+  cargoOuter:'#2a221a', cargoFrame:'#08060a', cargoInner:'#a0822a',
+  cargoHi:'#ffd454', cargoRivet:'#7a6028',
+  chainCore:'#ffffff', chainGlow:'#3090ff', chainDark:'#1850c0',
+  flameCore:'#ffffff', flameHot:'#bcecff', flameMid:'#3090ff',
+  flameOuter:'#1060e0', flameDeep:'#0838a0',
+  outline:'#04060a',
+};
+
+// ─────────────────────────────────────────────────────────
+// Rig (v11 — copied from mockup-roadkill.html)
+// ─────────────────────────────────────────────────────────
+function pxRig(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox | 0, y = oy | 0;
+  ctx.fillStyle = C.outline; ctx.fillRect(x+8, y+22, 70, 14);
+  ctx.fillStyle = C.hullDeep; ctx.fillRect(x+8, y+32, 70, 4);
+  ctx.fillStyle = C.hullDark; ctx.fillRect(x+8, y+28, 70, 4);
+  ctx.fillStyle = C.hullCore; ctx.fillRect(x+8, y+23, 70, 6);
+  ctx.fillStyle = C.hullLight; ctx.fillRect(x+10, y+23, 66, 2);
+  ctx.fillStyle = C.yellow; ctx.fillRect(x+10, y+31, 66, 1);
+  ctx.fillStyle = C.yellowDeep; ctx.fillRect(x+10, y+32, 66, 1);
+  ctx.fillStyle = C.rust; ctx.fillRect(x+24, y+25, 4, 2); ctx.fillRect(x+50, y+27, 5, 2);
+  ctx.fillStyle = C.rustDark; ctx.fillRect(x+25, y+27, 2, 1);
+  // Single tail fin
+  {
+    const wX=x+12, wTop=y+6, wBase=y+22, wCols=16;
+    for (let i=0; i<wCols; i++) {
+      const cx=wX+i, cTop=wTop+i;
+      if (cTop>wBase) break;
+      ctx.fillStyle=C.outline; ctx.fillRect(cx, cTop, 1, 1);
+      if (cTop+1<wBase) { ctx.fillStyle=C.hullDark; ctx.fillRect(cx, cTop+1, 1, wBase-cTop-1); }
+      if (i>0 && cTop+1<wBase) { ctx.fillStyle=C.hullCore; ctx.fillRect(cx, cTop+1, 1, 1); }
+      if (i>1 && i<wCols-3 && cTop+2<wBase-4) { ctx.fillStyle=C.hullLight; ctx.fillRect(cx, cTop+2, 1, 1); }
+      ctx.fillStyle=C.hullDeep; ctx.fillRect(cx, wBase-1, 1, 1);
+      ctx.fillStyle=C.outline; ctx.fillRect(cx, wBase, 1, 1);
+    }
+    ctx.fillStyle=C.outline; ctx.fillRect(wX, wTop, 1, wBase-wTop+1);
+  }
+  // Animated antenna
+  {
+    const antX=x+32, antBot=y+22, antTop=y+2, antLen=antBot-antTop;
+    const wPhase=frame*0.05, wMax=2;
+    for (let i=0; i<antLen; i++) {
+      const segY=antBot-i, t=i/(antLen-1);
+      const sway=Math.round(Math.sin(wPhase+i*0.20)*t*t*wMax);
+      ctx.fillStyle=C.chromeDark; ctx.fillRect(antX+sway, segY, 1, 1);
+    }
+    const tipSway=Math.round(Math.sin(wPhase+(antLen-1)*0.20)*wMax);
+    ctx.fillStyle=C.podGlow; ctx.fillRect(antX+tipSway, antTop-1, 1, 1);
+  }
+  // Cockpit
+  ctx.fillStyle=C.outline; ctx.fillRect(x+36, y+10, 24, 13);
+  ctx.fillStyle=C.domeFrame;
+  ctx.fillRect(x+40, y+9, 16, 2); ctx.fillRect(x+38, y+11, 20, 3); ctx.fillRect(x+37, y+14, 22, 2);
+  ctx.fillStyle=C.glassDark; ctx.fillRect(x+39, y+14, 18, 7);
+  ctx.fillStyle='rgba(126,221,235,0.45)'; ctx.fillRect(x+40, y+14, 16, 1);
+  ctx.fillStyle='rgba(180,230,245,0.30)'; ctx.fillRect(x+42, y+15, 6, 1);
+  ctx.fillStyle='rgba(255,255,255,0.78)';
+  ctx.fillRect(x+41, y+14, 2, 1); ctx.fillRect(x+42, y+15, 2, 1);
+  ctx.fillRect(x+43, y+16, 2, 1); ctx.fillRect(x+44, y+17, 2, 1); ctx.fillRect(x+45, y+18, 2, 1);
+  ctx.fillStyle='rgba(255,255,255,0.55)';
+  ctx.fillRect(x+50, y+14, 1, 1); ctx.fillRect(x+51, y+15, 1, 1);
+  ctx.fillRect(x+52, y+16, 1, 1); ctx.fillRect(x+53, y+17, 1, 1);
+  ctx.fillStyle='#0a0a14'; ctx.fillRect(x+46, y+16, 5, 4);
+  ctx.fillStyle='#1a1a26'; ctx.fillRect(x+47, y+16, 3, 1);
+  ctx.fillStyle=C.podGlow;
+  ctx.fillRect(x+42, y+17, 1, 1); ctx.fillRect(x+44, y+17, 1, 1);
+  ctx.fillRect(x+42, y+19, 1, 1); ctx.fillRect(x+44, y+19, 1, 1);
+  ctx.fillRect(x+43, y+18, 1, 1);
+  ctx.fillStyle=C.domeShadow; ctx.fillRect(x+37, y+21, 22, 2);
+  // Front grille
+  ctx.fillStyle=C.outline; ctx.fillRect(x+62, y+22, 16, 9);
+  ctx.fillStyle=C.hullDark; ctx.fillRect(x+63, y+23, 14, 7);
+  ctx.fillStyle=C.hullCore; ctx.fillRect(x+63, y+23, 14, 1);
+  ctx.fillStyle=C.outline;
+  ctx.fillRect(x+65, y+24, 1, 5); ctx.fillRect(x+68, y+24, 1, 5);
+  ctx.fillRect(x+71, y+24, 1, 5); ctx.fillRect(x+74, y+24, 1, 5);
+  ctx.fillStyle=C.yellow;
+  ctx.fillRect(x+65, y+21, 2, 1); ctx.fillRect(x+68, y+21, 2, 1);
+  ctx.fillRect(x+71, y+21, 2, 1); ctx.fillRect(x+74, y+21, 2, 1);
+  ctx.fillStyle='#fff5a0';
+  ctx.fillRect(x+65, y+21, 1, 1); ctx.fillRect(x+68, y+21, 1, 1);
+  ctx.fillRect(x+71, y+21, 1, 1); ctx.fillRect(x+74, y+21, 1, 1);
+  // Engine pod
+  ctx.fillStyle=C.outline; ctx.fillRect(x+22, y+36, 18, 16);
+  ctx.fillStyle=C.podGrey; ctx.fillRect(x+23, y+37, 16, 14);
+  ctx.fillStyle=C.chromeDark; ctx.fillRect(x+23, y+37, 16, 1);
+  ctx.fillStyle=C.podBlack; ctx.fillRect(x+23, y+50, 16, 1);
+  ctx.fillStyle=C.outline; ctx.fillRect(x+40, y+38, 14, 12);
+  ctx.fillStyle=C.podGrey; ctx.fillRect(x+40, y+39, 14, 10);
+  ctx.fillStyle=C.chromeDark; ctx.fillRect(x+40, y+39, 14, 1);
+  ctx.fillStyle=C.podBlack; ctx.fillRect(x+40, y+48, 14, 1);
+  ctx.fillStyle=C.outline; ctx.fillRect(x+54, y+39, 10, 10);
+  ctx.fillStyle=C.podGrey; ctx.fillRect(x+55, y+40, 8, 8);
+  ctx.fillStyle=C.chromeDark; ctx.fillRect(x+55, y+40, 8, 1);
+  ctx.fillStyle=C.chromeDark; ctx.fillRect(x+44, y+34, 6, 3);
+  ctx.fillStyle=C.podBlack; ctx.fillRect(x+18, y+40, 5, 8);
+  ctx.fillStyle=C.podGlow; ctx.fillRect(x+19, y+42, 4, 5);
+  ctx.fillStyle=C.flameCore; ctx.fillRect(x+20, y+43, 2, 3);
+  ctx.fillStyle=C.podBlack;
+  ctx.fillRect(x+27, y+41, 1, 6); ctx.fillRect(x+31, y+41, 1, 6); ctx.fillRect(x+35, y+41, 1, 6);
+  ctx.fillRect(x+44, y+42, 1, 5); ctx.fillRect(x+49, y+42, 1, 5);
+  ctx.fillStyle=C.yellow; ctx.fillRect(x+24, y+47, 28, 1);
+  ctx.fillStyle=C.yellowDeep; ctx.fillRect(x+24, y+48, 28, 1);
+  ctx.fillStyle=C.podBlack; ctx.fillRect(x+60, y+41, 4, 7);
+  ctx.fillStyle='#1a1a1e'; ctx.fillRect(x+61, y+42, 3, 5);
+  ctx.fillStyle=C.chromeDark; ctx.fillRect(x+61, y+44, 3, 1);
+  // Chain anchor port
+  ctx.fillStyle=C.outline; ctx.fillRect(x+4, y+28, 6, 5);
+  ctx.fillStyle=C.podGrey; ctx.fillRect(x+5, y+29, 4, 3);
+  ctx.fillStyle=C.podGlow; ctx.fillRect(x+6, y+30, 1, 1);
+}
+
+function pxCargo(ctx, ox, oy) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox|0, y = oy|0;
+  ctx.fillStyle=C.cargoFrame; ctx.fillRect(x-1, y-1, 28, 28);
+  ctx.fillStyle=C.cargoOuter; ctx.fillRect(x, y, 26, 26);
+  ctx.fillStyle=C.cargoFrame; ctx.fillRect(x+5, y+5, 16, 16);
+  ctx.fillStyle=C.cargoInner; ctx.fillRect(x+6, y+6, 14, 14);
+  ctx.fillStyle=C.cargoHi; ctx.fillRect(x+7, y+7, 8, 3); ctx.fillRect(x+7, y+12, 4, 7);
+  ctx.fillStyle=C.cargoFrame;
+  ctx.fillRect(x, y+10, 5, 1); ctx.fillRect(x, y+16, 5, 1);
+  ctx.fillRect(x+21, y+10, 5, 1); ctx.fillRect(x+21, y+16, 5, 1);
+  ctx.fillStyle=C.cargoRivet;
+  ctx.fillRect(x+1, y+1, 3, 3); ctx.fillRect(x+22, y+1, 3, 3);
+  ctx.fillRect(x+1, y+22, 3, 3); ctx.fillRect(x+22, y+22, 3, 3);
+}
+
+function pxChain(ctx, x1, y1, x2, y2, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const linkCount = 5;
+  const dx = (x2-x1)/linkCount, dy = (y2-y1)/linkCount;
+  ctx.fillStyle = C.chainDark;
+  for (let t=0; t<1; t+=0.04) {
+    ctx.fillRect((x1+(x2-x1)*t)|0, (y1+(y2-y1)*t)|0, 1, 1);
+  }
+  for (let i=0; i<=linkCount; i++) {
+    const bx=(x1+dx*i)|0, by=(y1+dy*i)|0;
+    const pulse = (Math.sin(frame*0.16 + i*0.75)+1)*0.5;
+    const s = pulse > 0.6 ? 2 : 1;
+    ctx.fillStyle=C.chainGlow; ctx.fillRect(bx-s, by-s, s*2+1, s*2+1);
+    ctx.fillStyle=C.chainCore; ctx.fillRect(bx, by, 1, 1);
+  }
+}
+
+function pxFlame(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox|0, y = oy|0;
+  const flick = Math.floor(Math.sin(frame*0.45)*2);
+  const flick2 = Math.floor(Math.cos(frame*0.32)*1.5);
+  ctx.fillStyle = C.flameDeep;
+  for (let i=0; i<36; i++) {
+    const h = Math.max(1, 18 - Math.floor(i*0.5) + flick);
+    ctx.fillRect(x-i, y-(h>>1)+flick2, 1, h);
+  }
+  ctx.fillStyle = C.flameMid;
+  for (let i=0; i<28; i++) {
+    const h = Math.max(1, 14 - Math.floor(i*0.5) + (flick>>1));
+    ctx.fillRect(x-i, y-(h>>1), 1, h);
+  }
+  ctx.fillStyle = C.flameHot;
+  for (let i=0; i<20; i++) {
+    const h = Math.max(1, 10 - Math.floor(i*0.5));
+    ctx.fillRect(x-i, y-(h>>1), 1, h);
+  }
+  ctx.fillStyle = C.flameCore;
+  for (let i=0; i<12; i++) {
+    const h = Math.max(1, 6 - Math.floor(i*0.4));
+    ctx.fillRect(x-i, y-(h>>1), 1, h);
+  }
+  ctx.fillRect(x, y-3, 4, 6);
+  ctx.fillRect(x+1, y-4, 2, 8);
+  ctx.fillStyle = C.flameHot;
+  for (let i=0; i<5; i++) {
+    const a = frame*0.05 + i*1.5;
+    const d = 5 + Math.sin(frame*0.3+i)*3;
+    ctx.fillRect((x-22 - Math.floor(Math.abs(Math.sin(a))*d))|0,
+                 (y + Math.floor(Math.cos(a)*4))|0, 1, 1);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Sprite-sheet renderer — 4 panels in a row, each 125 wide.
+// Panel layout: RIG | CARGO | CHAIN | FLAME
+// Canvas: 500×120 native. Each panel 125×120. Labels at y=110.
+// ─────────────────────────────────────────────────────────
+const canvas = document.getElementById('sheet');
+const ctx = canvas.getContext('2d');
+
+function drawLabel(ctx, text, cx, cy) {
+  // Tiny pixel-art-ish label using monospace font. Smoothing on
+  // for the text so it's readable; off elsewhere for crisp pixels.
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.fillStyle = '#ffd060';
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, cx, cy);
+  ctx.restore();
+}
+
+function drawSeparator(ctx, x) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(126, 221, 235, 0.18)';
+  ctx.fillRect(x, 8, 1, 90);
+  ctx.restore();
+}
+
+function renderSheet(frame) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Soft background panels (just hint at separation)
+  ctx.fillStyle = 'rgba(8, 14, 32, 0.4)';
+  for (let i = 0; i < 4; i++) {
+    ctx.fillRect(i * 125 + 4, 4, 117, 100);
+  }
+  ctx.strokeStyle = 'rgba(58, 42, 74, 0.4)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    ctx.strokeRect(i * 125 + 4.5, 4.5, 116, 99);
+  }
+
+  // ─── Panel 1: RIG (with animated antenna) ───
+  pxRig(ctx, 25, 25, frame);
+  drawLabel(ctx, 'RIG', 62, 112);
+
+  // ─── Panel 2: CARGO (static) ───
+  pxCargo(ctx, 175, 38);
+  drawLabel(ctx, 'CARGO', 187, 112);
+
+  // ─── Panel 3: CHAIN (animated beads) ───
+  // Horizontal chain across the middle of the panel
+  pxChain(ctx, 270, 50, 360, 50, frame);
+  drawLabel(ctx, 'CHAIN', 312, 112);
+
+  // ─── Panel 4: FLAME (animated thrust) ───
+  // Anchored on the right side of the panel, flames out to the left
+  pxFlame(ctx, 472, 50, frame);
+  drawLabel(ctx, 'FLAME', 437, 112);
+}
+
+let frame = 0;
+function tick() {
+  frame++;
+  renderSheet(frame);
+  requestAnimationFrame(tick);
+}
+tick();
+
+// ─────────────────────────────────────────────────────────
+// GIF EXPORT — main-thread, upscaled 2×, 3 sec @ 30fps
+// ─────────────────────────────────────────────────────────
+(function () {
+  const btn = document.getElementById('recordBtn');
+  const status = document.getElementById('status');
+  if (!btn || !status) return;
+
+  btn.addEventListener('click', function () {
+    if (typeof GIF === 'undefined') {
+      status.textContent = 'GIF library failed to load.';
+      return;
+    }
+    btn.disabled = true;
+    btn.style.filter = 'grayscale(0.4)';
+    status.textContent = 'Capturing frames…';
+
+    const SCALE = 2;
+    const scaled = document.createElement('canvas');
+    scaled.width = canvas.width * SCALE;
+    scaled.height = canvas.height * SCALE;
+    const sctx = scaled.getContext('2d');
+    sctx.imageSmoothingEnabled = false;
+
+    const gif = new GIF({
+      workers: 0,
+      quality: 10,
+      width: scaled.width,
+      height: scaled.height
+    });
+
+    const totalFrames = 90;
+    const delayMs = 33;
+    let captured = 0;
+
+    const captureNext = () => {
+      sctx.clearRect(0, 0, scaled.width, scaled.height);
+      sctx.drawImage(canvas, 0, 0, scaled.width, scaled.height);
+      gif.addFrame(scaled, { delay: delayMs, copy: true });
+      captured++;
+      status.textContent = 'Recording ' + captured + ' / ' + totalFrames + '…';
+      if (captured >= totalFrames) {
+        status.textContent = 'Encoding GIF…';
+        try { gif.render(); } catch (e) {
+          console.error(e);
+          status.textContent = 'Error: ' + e.message;
+          btn.disabled = false; btn.style.filter = '';
+        }
+      } else {
+        setTimeout(captureNext, delayMs);
+      }
+    };
+
+    gif.on('progress', function (p) {
+      status.textContent = 'Encoding GIF: ' + Math.round(p * 100) + '%…';
+    });
+
+    gif.on('finished', function (blob) {
+      if (!blob || blob.size === 0) {
+        status.textContent = 'Encoding produced empty file.';
+        btn.disabled = false; btn.style.filter = '';
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'roadkill-sprite-sheet.gif';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      status.textContent = 'Downloaded (' + Math.round(blob.size / 1024) + ' KB). Click again for another.';
+      btn.disabled = false; btn.style.filter = '';
+    });
+
+    captureNext();
+  });
+})();
+</script>
+
+</body>
+</html>
