@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v446i-full-moon';
+const DLX_BUILD = 'v446j-moon-phase-fireball-zorder';
 
 (function() {
   // ---------- Device detection ----------
@@ -13428,42 +13428,52 @@ const DLX_BUILD = 'v446i-full-moon';
           pxFill(cx - dx, cy + dy, dx * 2 + 1, 1, color);
         }
       };
-      // ── MOON 1 — Big almost-full cream-white moon (left) ─────
-      // Lit disc offset upper-left leaves a 2-px shaded crescent
-      // on the lower-right edge (waxing-gibbous phase). NO sky-
-      // colored bite — the moon is nearly full, not a thin crescent.
+      // ── MOON 1 — Big almost-full waxing-gibbous moon (left) ──
+      // v446j FIX — old version had a uniform 2-px offset that
+      // looked like a DROP SHADOW. Real phase shadow is a CRESCENT
+      // on one side only. Lit disc offset purely LEFT (no Y offset)
+      // creates a curved-terminator crescent shadow on the right
+      // rim of the moon, no shadow on the top/bottom.
       const bcx = (W * 0.18) | 0;
       const bcy = (PLAY_H * 0.18) | 0;
       const moonR = 18;
-      // Shaded base disc
+      // Shaded base disc (this becomes the shadow crescent visible
+      // on the right side of the moon)
       disc(bcx, bcy, moonR, PX.moonShade);
-      // Lit face — offset (-2, -2) so a 2-px shaded crescent
-      // shows on the lower-right rim
-      disc(bcx - 2, bcy - 2, moonR - 1, PX.moonLit);
-      // Craters on the lit face (4 of them, scattered)
-      pxFill(bcx - 9, bcy - 4, 2, 2, PX.moonShade);
-      pxFill(bcx - 5, bcy + 4, 2, 1, PX.moonShade);
-      pxFill(bcx + 2, bcy - 6, 1, 1, PX.moonShade);
-      pxFill(bcx + 4, bcy + 2, 2, 2, PX.moonShade);
-      // Single bright specular pixel at the top-left
-      pxFill(bcx - 8, bcy - 6, 1, 1, '#ffffff');
+      // Lit face — offset LEFT (no Y shift) so the shadow appears
+      // as a 3-px crescent on the right edge, like a real waxing
+      // gibbous phase. Lit disc is also slightly larger so it
+      // covers the top + bottom rim fully.
+      disc(bcx - 3, bcy, moonR, PX.moonLit);
+      // Craters — asymmetric scatter (no symmetry = no face pattern)
+      // Bigger cluster off-center upper-left
+      pxFill(bcx - 8, bcy - 6, 3, 2, PX.moonShade);
+      pxFill(bcx - 10, bcy - 4, 1, 1, PX.moonShade);
+      // Lower-left small crater
+      pxFill(bcx - 6, bcy + 5, 2, 2, PX.moonShade);
+      // Single mid-right crater (avoids forming a face)
+      pxFill(bcx + 2, bcy - 1, 2, 1, PX.moonShade);
+      // Sub-pixel speck for added asymmetry
+      pxFill(bcx - 1, bcy + 8, 1, 1, PX.moonShade);
+      // Specular highlight pixel — top-left of lit face
+      pxFill(bcx - 10, bcy - 7, 1, 1, '#ffffff');
 
       // ── MOON 2 — Smaller cream-tone moon (right) ─────────────
-      // Bigger than the original r=5 (which was nearly invisible)
-      // but matched-palette to Moon 1, no purple tint.
+      // Same phase-shadow fix as Moon 1: lit disc offset LEFT only
+      // (no Y), creating a proper crescent shadow on the right rim.
+      // Asymmetric craters so it doesn't read as a face.
       const scx = (W * 0.78) | 0;
       const scy = (PLAY_H * 0.12) | 0;
       const m2r = 10;
       // Shaded base disc
       disc(scx, scy, m2r, PX.moonShade);
-      // Lit face (offset upper-left, leaving 1-px crescent shadow
-      // on the right side)
-      disc(scx - 1, scy - 1, m2r - 1, PX.moonLit);
-      // 2 small craters on the lit face
-      pxFill(scx - 3, scy - 2, 2, 2, PX.moonShade);
-      pxFill(scx + 2, scy + 1, 2, 1, PX.moonShade);
-      // 1-px specular highlight at top-left
-      pxFill(scx - 4, scy - 3, 1, 1, '#ffffff');
+      // Lit face — offset LEFT only (-2 px) for crescent phase
+      disc(scx - 2, scy, m2r, PX.moonLit);
+      // Asymmetric craters (no face pattern)
+      pxFill(scx - 4, scy - 3, 2, 1, PX.moonShade);
+      pxFill(scx + 1, scy + 3, 1, 1, PX.moonShade);
+      // Specular highlight at top-left
+      pxFill(scx - 5, scy - 4, 1, 1, '#ffffff');
     }
   }
 
@@ -31029,7 +31039,9 @@ const DLX_BUILD = 'v446i-full-moon';
       drawDailyPressureBubbles();
       drawDailySporeClouds();
       drawDailyDrones();
-      drawDailyLavaBalls();
+      // drawDailyLavaBalls moved AFTER drawBird so fireballs
+      // render IN FRONT of the rig (the threat needs to be visible
+      // when it's about to collide, not hidden behind the player).
       drawDailyBandits();        // bandit body + sled (lit by cone, BEFORE mask)
       drawDailyWaterfalls();     // waterfalls + priority crates (BEFORE mask)
       drawDailyCompactorJaws();  // scrapyard floor compactor crush hazards
@@ -31062,6 +31074,11 @@ const DLX_BUILD = 'v446i-full-moon';
     drawEmpStun();
     drawHazard();
     drawBird();
+    // Fireballs render AFTER drawBird so they appear IN FRONT of
+    // the rig (visible threat — the player needs to see the
+    // incoming fireball, not have it hidden behind their own
+    // sprite). Daily-mode-only.
+    if (isDaily) drawDailyLavaBalls();
     drawFog();              // mutator vignette — over world, under HUD
     drawScore();
     drawComboHud();
