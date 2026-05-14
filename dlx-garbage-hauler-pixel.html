@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v446d-fireball-comet';
+const DLX_BUILD = 'v446e-fireball-rasterized';
 
 (function() {
   // ---------- Device detection ----------
@@ -15030,11 +15030,14 @@ const DLX_BUILD = 'v446d-fireball-comet';
   // ═════════════════════════════════════════════════════════════════
 
   // ── PIXEL FIREBALL (lava ball projectile) ────────────────────────
-  // v446d — REWRITE to match user's reference: classic 4-frame
-  // teardrop/comet pixel-art fireball. Round head with a tapering
-  // flame tail behind it, where the TAIL LENGTH cycles through 4
-  // frames creating a pulsating breathe-in/breathe-out animation.
-  // Frame 4 sheds small ember sparks off the tail tip.
+  // v446e — RASTERIZED teardrop silhouette (was overlapping circles
+  // which read as a chain of balls). Now each color layer is drawn
+  // as one CONNECTED shape: round head + tapering point at the tail.
+  //
+  // For each row Y in the bounding box, compute the LEFT and RIGHT
+  // edges of the teardrop and fillRect that row. The outer-most
+  // layer covers the full silhouette; inner layers are shrunk
+  // versions stacked on top to make color bands.
   function drawPixelLavaBall(lb) {
     const cx = Math.round(lb.x);
     const cy = Math.round(lb.y);
@@ -15044,81 +15047,82 @@ const DLX_BUILD = 'v446d-fireball-comet';
     const speed = Math.sqrt(lb.vx * lb.vx + lb.vy * lb.vy) || 1;
     const fdx = lb.vx / speed;
     const fdy = lb.vy / speed;
-    const bdx = -fdx;
-    const bdy = -fdy;
+    // Perpendicular axis (rotate +90°) for the cross-product
+    const pdx = -fdy;
+    const pdy = fdx;
 
-    // 4-FRAME ANIMATION — tail length cycles 1.2r → 1.7r → 2.3r → 3r
-    // then loops. Each anim frame lasts 4 game frames (~15fps anim).
+    // 4-FRAME ANIMATION — tail length cycles
     const frameIdx = ((lb.life / 4) | 0) & 3;
     const tailFactors = [1.2, 1.7, 2.3, 3.0];
-    const tailLen = Math.max(1, (r * tailFactors[frameIdx]) | 0);
+    const baseTailLen = r * tailFactors[frameIdx];
 
-    // ── TAIL FIRST (head overdraws the base of the tail) ──
-    // Outer rim of the tail — deep red fading to dark at the tip.
-    for (let i = 1; i <= tailLen; i++) {
-      const tt = i / tailLen;
-      const tailR = Math.max(1, Math.round(r * (1 - tt * 0.85)));
-      const px = (cx + bdx * i) | 0;
-      const py = (cy + bdy * i) | 0;
-      let col;
-      if (tt < 0.18)      col = '#c84020';
-      else if (tt < 0.45) col = '#a02018';
-      else if (tt < 0.75) col = '#7a1a10';
-      else                col = '#3a1010';
-      drawPixelSmokePuff(px, py, tailR, col);
-    }
-    // Inner hot tail — orange running through the center
-    for (let i = 1; i <= tailLen; i++) {
-      const tt = i / tailLen;
-      const tailR = Math.max(1, Math.round((r - 1) * (1 - tt * 0.9)));
-      if (tailR <= 0) continue;
-      const px = (cx + bdx * i) | 0;
-      const py = (cy + bdy * i) | 0;
-      let col;
-      if (tt < 0.20)      col = '#ff9050';
-      else if (tt < 0.55) col = '#e87028';
-      else                col = '#c84020';
-      drawPixelSmokePuff(px, py, tailR, col);
-    }
-    // Bright yellow center — only first half of the tail (the hot part)
-    for (let i = 1; i <= (tailLen >> 1); i++) {
-      const tt = (2 * i) / tailLen;
-      const tailR = Math.max(1, Math.round((r - 2) * (1 - tt * 0.5)));
-      if (tailR <= 0) continue;
-      const px = (cx + bdx * i) | 0;
-      const py = (cy + bdy * i) | 0;
-      drawPixelSmokePuff(px, py, tailR, '#ffd060');
+    // Bounding box for the rasterizer
+    const boxR = Math.ceil(r + baseTailLen) + 2;
+
+    // Rasterize one teardrop layer at a given radius offset.
+    // Negative rDelta = inner (smaller) layer.
+    function rasterTeardrop(rDelta, color) {
+      const layerR = r + rDelta;
+      if (layerR <= 0) return;
+      // Tail length shrinks proportionally with the radius so inner
+      // layers look like nested teardrops, not weird shapes.
+      const layerTail = Math.max(1, baseTailLen + rDelta * 0.7);
+      for (let dy = -boxR; dy <= boxR; dy++) {
+        let runStart = null;
+        for (let dx = -boxR; dx <= boxR; dx++) {
+          // Project (dx, dy) onto the velocity axis
+          const proj = dx * fdx + dy * fdy;
+          const perp = Math.abs(dx * pdx + dy * pdy);
+          let inside = false;
+          if (proj >= 0) {
+            // HEAD — circle of radius layerR
+            inside = (proj * proj + perp * perp) <= layerR * layerR;
+          } else {
+            // TAIL — taper linearly from layerR at proj=0 to 0 at -layerTail
+            const t = -proj / layerTail;
+            if (t <= 1) {
+              const taperedR = layerR * (1 - t * 0.95);
+              inside = perp <= taperedR;
+            }
+          }
+          if (inside) {
+            if (runStart === null) runStart = dx;
+          } else if (runStart !== null) {
+            pxFill(cx + runStart, cy + dy, dx - runStart, 1, color);
+            runStart = null;
+          }
+        }
+        if (runStart !== null) {
+          pxFill(cx + runStart, cy + dy, boxR + 1 - runStart, 1, color);
+        }
+      }
     }
 
-    // ── HEAD — concentric layers, overdraws the tail base ──
-    drawPixelSmokePuff(cx, cy, r + 1, '#7a1a10');
-    drawPixelSmokePuff(cx, cy, r,     '#c84020');
-    drawPixelSmokePuff(cx, cy, r - 1, '#e87028');
-    drawPixelSmokePuff(cx, cy, r - 2, '#ff9050');
-    drawPixelSmokePuff(cx, cy, Math.max(1, r - 3), '#ffd060');
-    // White-hot core offset toward the leading edge
+    // ── COLOR LAYERS — outer rim → inner core ──
+    rasterTeardrop(+1, '#7a1a10');   // dim halo (1 px outside the body)
+    rasterTeardrop( 0, '#c84020');   // deep red rim
+    rasterTeardrop(-1, '#e87028');   // orange
+    rasterTeardrop(-2, '#ff9050');   // hot orange
+    rasterTeardrop(-3, '#ffd060');   // bright yellow
+    if (r >= 4) rasterTeardrop(-4, '#fff4d0');   // pale yellow
+
+    // ── HOT WHITE CORE — small disc offset toward leading edge ──
     if (r >= 4) {
-      const coreOffX = Math.round(fdx * 1);
-      const coreOffY = Math.round(fdy * 1);
-      drawPixelSmokePuff(cx + coreOffX, cy + coreOffY,
-                         Math.max(1, r - 4), '#fff4d0');
-    }
-    if (r >= 5) {
       const coreOffX = Math.round(fdx * 1.5);
       const coreOffY = Math.round(fdy * 1.5);
       drawPixelSmokePuff(cx + coreOffX, cy + coreOffY,
-                         Math.max(1, r - 5), '#ffffff');
+                         Math.max(1, r - 4), '#ffffff');
     }
 
-    // ── SPARKS shedding off the tail tip (frame 3+, more on frame 4)
+    // ── SPARKS shedding off the tail tip (frames 2-3) ──
     if (frameIdx >= 2) {
       const sparkCount = (frameIdx === 3) ? 4 : 2;
+      const bdx = -fdx, bdy = -fdy;
       for (let i = 0; i < sparkCount; i++) {
-        const sparkDist = tailLen + 1 + i * 2;
+        const sparkDist = baseTailLen + 1 + i * 2;
         const wob = Math.sin(lb.life * 0.4 + i * 1.7) * 1.8;
-        // perpendicular offset from the tail axis (cross-product trick)
-        const sx = (cx + bdx * sparkDist - fdy * wob) | 0;
-        const sy = (cy + bdy * sparkDist + fdx * wob) | 0;
+        const sx = (cx + bdx * sparkDist + pdx * wob) | 0;
+        const sy = (cy + bdy * sparkDist + pdy * wob) | 0;
         pxFill(sx, sy, 1, 1, i < 2 ? '#ffd060' : '#ff9050');
       }
     }
