@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v444e-tentacle-wine';
+const DLX_BUILD = 'v445-scrap-variants-ground-op';
 
 (function() {
   // ---------- Device detection ----------
@@ -15104,45 +15104,48 @@ const DLX_BUILD = 'v444e-tentacle-wine';
 
   // Renders a single scrap stack — vertical stack of distinct salvage
   // pieces (crushed cars, barrels, twisted girders, cab) filling
-  // height `h` from `yTop` downward. v444c FIX — cycles through the
-  // pieces list repeatedly until the full stack height is covered;
-  // previously only 52 px got rendered and the rest of the stack
-  // was invisible.
+  // height `h` from `yTop` downward.
+  // v444f — pieces are now ~50% larger AND each piece type picks 1 of
+  // 2-3 sub-variants per cycle so the stack doesn't read as repeating
+  // copies of the same piece. SHUFFLED order based on seed so two
+  // adjacent pillars don't have the same stacking sequence either.
   function drawPixelScrapStack(x, yTop, h, seed, inverted) {
     if (h <= 0) return;
+    // Bigger pieces (~50% taller — was 8/12/8/4/14/6 totaling 52)
     const pieces = [
-      { name: 'tires',   height: 8 },
-      { name: 'car',     height: 12 },
-      { name: 'barrels', height: 8 },
-      { name: 'girder',  height: 4 },
-      { name: 'cab',     height: 14 },
-      { name: 'plate',   height: 6 },
+      { name: 'tires',   height: 12 },
+      { name: 'car',     height: 18 },
+      { name: 'barrels', height: 12 },
+      { name: 'girder',  height: 6 },
+      { name: 'cab',     height: 20 },
+      { name: 'plate',   height: 8 },
     ];
+    // Shuffle starting index based on seed so adjacent pillars don't
+    // start with the same piece. srand returns 0..1 deterministically.
+    let pieceIdx = Math.floor(srand(seed + 0.13) * pieces.length);
     let cursor = inverted ? yTop : (yTop + h);
-    let pieceIdx = 0;
-    // Safety bound — at minimum 5 px per piece, can't fill more
-    // than h / 5 pieces, so cap iterations at h.
     for (let safety = 0; safety < h; safety++) {
       const p = pieces[pieceIdx % pieces.length];
       const yy = inverted ? cursor : (cursor - p.height);
+      // Per-cycle variant key — different sub-variant on each loop
+      // through the array so the same piece type doesn't repeat
+      // identically.
+      const variantSeed = seed + pieceIdx * 0.7;
       if (inverted) {
         if (yy + p.height > yTop + h) {
-          // Last piece doesn't fit — fill the leftover with a slim
-          // crushed-plate fragment so the stack has no empty gap.
           const left = (yTop + h) - cursor;
-          if (left > 1) drawScrapPiece(x, cursor, left, 'plate', seed + pieceIdx);
+          if (left > 1) drawScrapPiece(x, cursor, left, 'plate', variantSeed);
           break;
         }
-        drawScrapPiece(x, yy, p.height, p.name, seed + pieceIdx);
+        drawScrapPiece(x, yy, p.height, p.name, variantSeed);
         cursor += p.height;
       } else {
         if (yy < yTop) {
-          // Top of stack — fill the remaining gap above the last piece
           const left = cursor - yTop;
-          if (left > 1) drawScrapPiece(x, yTop, left, 'plate', seed + pieceIdx);
+          if (left > 1) drawScrapPiece(x, yTop, left, 'plate', variantSeed);
           break;
         }
-        drawScrapPiece(x, yy, p.height, p.name, seed + pieceIdx);
+        drawScrapPiece(x, yy, p.height, p.name, variantSeed);
         cursor -= p.height;
       }
       pieceIdx++;
@@ -15151,72 +15154,191 @@ const DLX_BUILD = 'v444e-tentacle-wine';
 
   function drawScrapPiece(x, y, h, name, seed) {
     const tw = 36;
+    // Stable pseudo-hash variant pick from the seed (0..1) → 0..2
+    const vSeed = (seed * 7919) % 1;
+    const variant = Math.abs(vSeed * 3) | 0;   // 0, 1, or 2
+
     if (name === 'tires') {
+      // 3 variants — different tire counts + rim styles
       pxFill(x, y, tw, h, PX.outline);
       pxFill(x + 1, y + 1, tw - 2, h - 2, '#1a0a06');
-      for (let i = 0; i < 4; i++) {
-        pxFill(x + 4 + i * 9, y + 2, 6, h - 4, '#3a2018');
-        pxFill(x + 6 + i * 9, y + 3, 2, h - 6, '#1a0a06');
+      if (variant === 0) {
+        // 4 tires in a row
+        for (let i = 0; i < 4; i++) {
+          pxFill(x + 4 + i * 9, y + 2, 6, h - 4, '#3a2018');
+          pxFill(x + 6 + i * 9, y + 3, 2, h - 6, '#1a0a06');
+        }
+      } else if (variant === 1) {
+        // 3 stacked rows of bigger tires
+        for (let i = 0; i < 3; i++) {
+          pxFill(x + 5 + i * 9, y + 2, 7, h - 4, '#3a2018');
+          pxFill(x + 7 + i * 9, y + 3, 3, h - 6, '#1a0a06');
+          pxFill(x + 8 + i * 9, y + 4, 1, h - 8, '#5a3020');
+        }
+        pxFill(x + 5, y + (h >> 1), tw - 10, 1, '#5a3020');
+      } else {
+        // Mixed — 2 big + 2 small
+        pxFill(x + 4, y + 2, 12, h - 4, '#3a2018');
+        pxFill(x + 7, y + 3, 6, h - 6, '#1a0a06');
+        pxFill(x + 19, y + 2, 12, h - 4, '#3a2018');
+        pxFill(x + 22, y + 3, 6, h - 6, '#1a0a06');
+        // Rim spokes
+        pxFill(x + 9, y + 4, 1, h - 8, '#5a3020');
+        pxFill(x + 24, y + 4, 1, h - 8, '#5a3020');
       }
+
     } else if (name === 'car') {
+      // 3 variants — different paint colors + window patterns
+      const carCols = [
+        { body: '#7a3018', dark: '#3a1408' },  // rust red
+        { body: '#3a4838', dark: '#1a2418' },  // army green
+        { body: '#5a3050', dark: '#28182a' },  // faded purple
+      ];
+      const c = carCols[variant];
       pxFill(x, y, tw, h, PX.outline);
-      pxFill(x + 1, y + 1, tw - 2, h - 2, '#7a3018');
-      // Smashed windshield
-      pxFill(x + 10, y + 2, 14, 3, '#1a0a06');
-      pxFill(x + 12, y + 3, 2, 1, '#7eb8c8');
-      pxFill(x + 18, y + 3, 3, 1, '#7eb8c8');
+      pxFill(x + 1, y + 1, tw - 2, h - 2, c.body);
+      pxFill(x + 1, y + h - 4, tw - 2, 2, c.dark);
+      // Roof rim
+      pxFill(x + 4, y + 1, tw - 8, 2, c.dark);
+      // Smashed windshield + window pattern varies
+      pxFill(x + 8, y + 3, 20, 6, '#1a0a06');
+      if (variant === 0) {
+        pxFill(x + 10, y + 4, 3, 1, '#7eb8c8');
+        pxFill(x + 16, y + 4, 4, 1, '#7eb8c8');
+        pxFill(x + 23, y + 5, 3, 1, '#7eb8c8');
+      } else if (variant === 1) {
+        pxFill(x + 9,  y + 5, 6, 1, '#7eb8c8');
+        pxFill(x + 19, y + 4, 8, 1, '#7eb8c8');
+      } else {
+        // Spider-web crack
+        pxFill(x + 12, y + 4, 1, 4, '#7eb8c8');
+        pxFill(x + 18, y + 4, 1, 4, '#7eb8c8');
+        pxFill(x + 8, y + 6, 20, 1, '#7eb8c8');
+      }
       // Rust streaks
-      pxFill(x + 6, y + 5, 1, h - 7, PX.rust);
-      pxFill(x + 26, y + 4, 1, h - 6, PX.rust);
-      // Wheel hint
-      pxFill(x + 4, y + h - 3, 4, 3, '#1a0a06');
-      pxFill(x + 28, y + h - 3, 4, 3, '#1a0a06');
+      pxFill(x + 6, y + 11, 1, h - 13, PX.rust);
+      pxFill(x + 26, y + 10, 1, h - 12, PX.rust);
+      // Door handle
+      pxFill(x + 14, y + h - 7, 3, 1, c.dark);
+      // Wheel hints (bigger)
+      pxFill(x + 3, y + h - 5, 6, 5, '#1a0a06');
+      pxFill(x + 5, y + h - 4, 2, 3, '#3a2018');
+      pxFill(x + 27, y + h - 5, 6, 5, '#1a0a06');
+      pxFill(x + 29, y + h - 4, 2, 3, '#3a2018');
+
     } else if (name === 'barrels') {
+      // 3 variants — different barrel colors + tip arrangement
       pxFill(x, y, tw, h, PX.outline);
       pxFill(x + 1, y + 1, tw - 2, h - 2, '#3a2018');
-      // 3 barrels side-by-side
+      // Color palettes per variant
+      const palettes = [
+        [PX.rust,     PX.yellow,  '#a01a0a'],     // rust / yellow / red
+        ['#3a5028',   '#a01a0a',  '#7a3018'],     // green / red / rust
+        [PX.yellow,   '#3a5028',  PX.rust],       // yellow / green / rust
+      ];
+      const cols = palettes[variant];
       for (let i = 0; i < 3; i++) {
         const bx = x + 2 + i * 11;
         pxFill(bx, y + 1, 9, h - 2, PX.outline);
         pxFill(bx + 1, y + 2, 7, h - 4, '#5a3020');
-        // Barrel bands
-        pxFill(bx + 1, y + 3, 7, 1, '#3a2018');
-        pxFill(bx + 1, y + h - 4, 7, 1, '#3a2018');
-        // Color stripe per-barrel
-        if (i === 0) pxFill(bx + 2, y + 4, 5, h - 8, PX.rust);
-        if (i === 1) pxFill(bx + 2, y + 4, 5, h - 8, PX.yellow);
-        if (i === 2) pxFill(bx + 2, y + 4, 5, h - 8, '#a01a0a');
+        // Variable band positions per variant
+        pxFill(bx + 1, y + 3 + variant, 7, 1, '#3a2018');
+        pxFill(bx + 1, y + h - 4 - variant, 7, 1, '#3a2018');
+        pxFill(bx + 2, y + 4, 5, h - 8, cols[i]);
+        // Drip mark
+        pxFill(bx + 4, y + h - 3, 1, 1, cols[i]);
       }
+
     } else if (name === 'girder') {
-      // I-beam girder
+      // 3 variants — straight / bent / fork-shaped girder
       pxFill(x + 2, y, tw - 4, h, PX.outline);
       pxFill(x + 3, y + 1, tw - 6, h - 2, '#3a2018');
       pxFill(x + 3, y + 1, tw - 6, 1, '#5a3020');
-      // Damage hole
-      pxFill(x + 14, y + 1, 4, h - 2, '#1a0a06');
-      pxFill(x + 14, y, 4, 1, PX.rust);
+      if (variant === 0) {
+        // Damage hole in the middle
+        pxFill(x + 14, y + 1, 4, h - 2, '#1a0a06');
+        pxFill(x + 14, y, 4, 1, PX.rust);
+      } else if (variant === 1) {
+        // Bent edges (kinked downward)
+        pxFill(x, y + (h >> 1), 4, h >> 1, PX.outline);
+        pxFill(x + 1, y + (h >> 1) + 1, 2, (h >> 1) - 2, '#3a2018');
+        pxFill(x + tw - 4, y + (h >> 1), 4, h >> 1, PX.outline);
+        pxFill(x + tw - 3, y + (h >> 1) + 1, 2, (h >> 1) - 2, '#3a2018');
+      } else {
+        // Multiple holes
+        pxFill(x + 8,  y + 1, 3, h - 2, '#1a0a06');
+        pxFill(x + 16, y + 1, 4, h - 2, '#1a0a06');
+        pxFill(x + 25, y + 1, 3, h - 2, '#1a0a06');
+      }
+      // Rust streak shared
+      pxFill(x + 5, y + 2, 1, h - 4, PX.rust);
+
     } else if (name === 'cab') {
-      // Truck cab on top
+      // 3 variants — different cab paint + window count + antenna style
+      const cabCols = ['#5a4838', '#4a3a5a', '#3a4858'];
+      const c = cabCols[variant];
       pxFill(x + 4, y, tw - 8, h, PX.outline);
-      pxFill(x + 5, y + 1, tw - 10, h - 2, '#5a4838');
-      // Window
-      pxFill(x + 7, y + 3, tw - 14, 5, '#1a0a06');
-      pxFill(x + 8, y + 4, 4, 1, '#7eb8c8');
-      pxFill(x + 14, y + 4, 6, 1, '#7eb8c8');
-      pxFill(x + 22, y + 4, 4, 1, '#7eb8c8');
+      pxFill(x + 5, y + 1, tw - 10, h - 2, c);
+      // Top accent rim
+      pxFill(x + 6, y + 1, tw - 12, 1, '#cfd2d4');
+      // Windshield — variant decides number of panes
+      pxFill(x + 7, y + 3, tw - 14, 8, '#1a0a06');
+      if (variant === 0) {
+        // Two large panes split by central divider
+        pxFill(x + 7,           y + 4, 7, 6, '#7eb8c8');
+        pxFill(x + 7 + 8,       y + 4, 7, 6, '#7eb8c8');
+        pxFill(x + 7 + 7,       y + 3, 1, 8, '#1a0a06');
+      } else if (variant === 1) {
+        // Three thin vertical panes
+        pxFill(x + 7,  y + 4, 4, 6, '#7eb8c8');
+        pxFill(x + 13, y + 4, 4, 6, '#7eb8c8');
+        pxFill(x + 19, y + 4, 4, 6, '#7eb8c8');
+      } else {
+        // Big single windshield with crack
+        pxFill(x + 7, y + 4, tw - 14, 6, '#7eb8c8');
+        pxFill(x + 14, y + 4, 1, 6, '#1a0a06');
+        pxFill(x + 15, y + 6, 4, 1, '#1a0a06');
+      }
       // Yellow hazard band
-      pxFill(x + 5, y + h - 4, tw - 10, 2, PX.yellow);
-      for (let i = 0; i < 6; i++) pxFill(x + 6 + i * 4, y + h - 4, 1, 2, PX.outline);
-      // Antenna
-      pxFill(x + 22, y - 4, 1, 4, PX.outline);
+      pxFill(x + 5, y + h - 5, tw - 10, 3, PX.yellow);
+      for (let i = 0; i < 6; i++) pxFill(x + 6 + i * 4, y + h - 5, 1, 3, PX.outline);
+      // Antenna varies
+      if (variant === 0) pxFill(x + 22, y - 5, 1, 5, PX.outline);
+      else if (variant === 1) {
+        pxFill(x + 10, y - 4, 1, 4, PX.outline);
+        pxFill(x + 24, y - 3, 1, 3, PX.outline);
+      } else {
+        pxFill(x + 18, y - 6, 1, 6, PX.outline);
+        pxFill(x + 18, y - 6, 3, 1, PX.outline);
+      }
+
     } else if (name === 'plate') {
-      // Twisted plate
+      // 3 variants — different damage patterns
       pxFill(x + 4, y, tw - 8, h, PX.outline);
       pxFill(x + 5, y + 1, tw - 10, h - 2, '#3a2418');
       pxFill(x + 5, y + 1, tw - 10, 1, '#5a3020');
-      // Yellow caution tag corner
-      pxFill(x + tw - 12, y + 1, 6, 3, PX.yellow);
-      pxFill(x + tw - 11, y + 2, 4, 1, PX.outline);
+      if (variant === 0) {
+        // Yellow caution tag corner
+        pxFill(x + tw - 12, y + 1, 6, 3, PX.yellow);
+        pxFill(x + tw - 11, y + 2, 4, 1, PX.outline);
+      } else if (variant === 1) {
+        // Stamped DLX text
+        pxFill(x + 8, y + 2, 1, 4, '#cfd2d4');
+        pxFill(x + 9, y + 2, 3, 1, '#cfd2d4');
+        pxFill(x + 9, y + 5, 3, 1, '#cfd2d4');
+        pxFill(x + 14, y + 2, 1, 4, '#cfd2d4');
+        pxFill(x + 15, y + 5, 3, 1, '#cfd2d4');
+        pxFill(x + 20, y + 2, 1, 1, '#cfd2d4');
+        pxFill(x + 22, y + 2, 1, 1, '#cfd2d4');
+        pxFill(x + 21, y + 3, 1, 2, '#cfd2d4');
+      } else {
+        // Bullet holes
+        pxFill(x + 10, y + 2, 2, 2, '#1a0a06');
+        pxFill(x + 18, y + 3, 2, 2, '#1a0a06');
+        pxFill(x + 26, y + 2, 2, 2, '#1a0a06');
+        pxFill(x + 11, y + 2, 1, 1, PX.rust);
+        pxFill(x + 19, y + 3, 1, 1, PX.rust);
+      }
     }
   }
 
@@ -15509,6 +15631,101 @@ const DLX_BUILD = 'v444e-tentacle-wine';
       drawPixelSmokePuff(tx, ty, 2, TENT_DARK);
       drawPixelSmokePuff(tx, ty, 1, TENT_SUCKER);
       if (((frame / 4) | 0) & 1) pxFill(tx, ty, 1, 1, '#ffffff');
+    }
+  }
+
+  // ── PIXEL GROUND OP (cargo-snatching rusted pickup) ─────────────
+  // Faces LEFT (chasing the rig that flies right). 36w × 24h truck
+  // with a telescoping hook mast on the bed that rises during the
+  // 'hook' state (op.hookY > 0) topped with a magnet head + glowing
+  // tip. Sits on the ground at (sx, gy).
+  function drawPixelGroundOp(sx, gy, op) {
+    sx = sx | 0; gy = gy | 0;
+    // Top-left corner of the 36×24 truck silhouette, anchored so
+    // wheels sit on the ground line.
+    const x = sx - 18;
+    const y = gy - 22;
+    // ── WHEELS ────────────────────────────────────────────────
+    pxFill(x + 4,  y + 18, 7, 5, PX.outline);
+    pxFill(x + 25, y + 18, 7, 5, PX.outline);
+    pxFill(x + 5,  y + 19, 5, 3, '#1a0a06');
+    pxFill(x + 26, y + 19, 5, 3, '#1a0a06');
+    // Hub + spokes
+    pxFill(x + 7,  y + 20, 2, 2, '#5a3020');
+    pxFill(x + 28, y + 20, 2, 2, '#5a3020');
+    // ── TRUCK BED (right side — flat platform) ───────────────
+    pxFill(x + 14, y + 11, 22, 8, PX.outline);
+    pxFill(x + 15, y + 12, 20, 6, '#7a3018');
+    // Hazard tape along the bed top
+    pxFill(x + 16, y + 12, 18, 2, PX.yellow);
+    for (let i = 0; i < 4; i++) pxFill(x + 17 + i * 4, y + 12, 1, 2, PX.outline);
+    // Rust streaks on the bed
+    pxFill(x + 20, y + 14, 1, 4, PX.rust);
+    pxFill(x + 30, y + 15, 1, 3, PX.rust);
+    // ── CAB (left side — rising tall) ────────────────────────
+    pxFill(x, y + 4, 16, 15, PX.outline);
+    pxFill(x + 1, y + 5, 14, 13, '#7a3018');
+    // Sloped roof corner (cut top-left)
+    pxFill(x, y + 4, 4, 1, '#c87040');   // sky color overwrite
+    pxFill(x, y + 5, 3, 1, '#c87040');
+    pxFill(x, y + 6, 2, 1, '#c87040');
+    pxFill(x, y + 7, 1, 1, '#c87040');
+    pxFill(x + 1, y + 4, 1, 1, PX.outline);  // diagonal step outline
+    pxFill(x + 2, y + 5, 1, 1, PX.outline);
+    pxFill(x + 3, y + 6, 1, 1, PX.outline);
+    pxFill(x + 4, y + 7, 1, 1, PX.outline);
+    // Roof rim (bright)
+    pxFill(x + 5, y + 4, 11, 1, '#c87040');
+    // Cab windshield
+    pxFill(x + 5, y + 7, 10, 5, '#1a0a06');
+    pxFill(x + 6, y + 8, 3, 1, '#7eb8c8');
+    pxFill(x + 11, y + 8, 3, 1, '#7eb8c8');
+    pxFill(x + 6, y + 10, 8, 1, '#7eb8c8');
+    // Driver silhouette
+    pxFill(x + 9, y + 9, 2, 2, '#1a0a06');
+    // Door
+    pxFill(x + 1, y + 12, 14, 1, '#3a1408');
+    pxFill(x + 8, y + 12, 1, 5, '#3a1408');
+    pxFill(x + 11, y + 14, 2, 1, '#5a3020');   // handle
+    // Side rim trim
+    pxFill(x + 1, y + 17, 14, 1, PX.yellow);
+    pxFill(x + 3, y + 17, 1, 1, PX.outline);
+    pxFill(x + 7, y + 17, 1, 1, PX.outline);
+    pxFill(x + 11, y + 17, 1, 1, PX.outline);
+    // Cab outline ridge
+    pxFill(x + 15, y + 5, 1, 13, PX.outline);
+    // Exhaust pipe behind cab (small puff if active)
+    pxFill(x + 16, y + 6, 1, 4, PX.outline);
+    if ((frame >> 2) & 1) {
+      pxFill(x + 17, y + 5, 2, 1, '#5a4838');
+      pxFill(x + 17, y + 4, 1, 1, '#7a5a4a');
+    }
+    // ── HOOK MAST on the bed — telescopes up when active ─────
+    if (op.hookY && op.hookY > 0) {
+      const mastBaseX = x + 26;       // bed-center anchor
+      const mastBaseY = y + 12;
+      const mastTopY  = mastBaseY - (op.hookY | 0);
+      // Vertical mast
+      pxFill(mastBaseX,     mastTopY, 1, mastBaseY - mastTopY, PX.outline);
+      pxFill(mastBaseX + 1, mastTopY, 1, mastBaseY - mastTopY, '#5a5a60');
+      pxFill(mastBaseX + 2, mastTopY, 1, mastBaseY - mastTopY, PX.outline);
+      // Magnet head
+      const mx = mastBaseX - 3;
+      const my = mastTopY - 5;
+      pxFill(mx, my, 7, 4, PX.outline);
+      pxFill(mx + 1, my + 1, 5, 2, '#3a3a44');
+      // Red + white magnet poles
+      pxFill(mx + 1, my + 1, 2, 2, '#a01a0a');
+      pxFill(mx + 4, my + 1, 2, 2, '#cfd2d4');
+      // Glowing yellow tip (pulses)
+      const tipHot = ((frame >> 3) & 1);
+      pxFill(mx + 2, my + 4, 3, 1, tipHot ? '#ffd060' : '#a06820');
+      if (tipHot) pxFill(mx + 3, my + 5, 1, 1, '#ffffff');
+      // Spark pixels around the magnet when reaching for cargo
+      if ((frame & 7) === 0) {
+        pxFill(mx - 1, my + 2, 1, 1, '#ffd060');
+        pxFill(mx + 7, my + 2, 1, 1, '#ffd060');
+      }
     }
   }
 
@@ -21401,6 +21618,16 @@ const DLX_BUILD = 'v444e-tentacle-wine';
   // the terrain so they ride the dune surface.
   function drawDailyGroundOps() {
     if (!isDaily || !dailyGroundOps.length) return;
+    // Pixel-art branch — rusted pickup with telescoping hook mast
+    if (isPixelHorizonLevel()) {
+      for (const op of dailyGroundOps) {
+        const sx = Math.round(op.worldX - dailyScrollX);
+        if (sx < -50 || sx > W + 50) continue;
+        const gy = Math.round(terrainHeightAt(sx + dailyScrollX));
+        drawPixelGroundOp(sx, gy, op);
+      }
+      return;
+    }
     for (const op of dailyGroundOps) {
       const sx = Math.round(op.worldX - dailyScrollX);
       if (sx < -50 || sx > W + 50) continue;
