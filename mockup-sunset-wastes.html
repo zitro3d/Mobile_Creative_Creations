@@ -157,22 +157,35 @@
 
   <!-- AMBIENT PROPS GRID -->
   <div class="panel">
-    <div class="panelLabel">AMBIENT PROPS · 64 × 64 each</div>
+    <div class="panelLabel">AMBIENT PROPS</div>
     <div class="panelSub">
       Surface-level scenery sprites. All at the same pixel scale as the
-      rig (1 native pixel = 1 game pixel). Same silhouettes as current
-      decor but rebuilt with hard edges + limited palettes.
+      rig (1 native pixel = 1 game pixel). Multiple rock variations so
+      no two outcroppings look identical.
     </div>
     <div id="propsGrid" class="spriteGrid"></div>
   </div>
 
+  <!-- STATIONS -->
+  <div class="panel">
+    <div class="panelLabel">STATIONS · BOOKEND LANDMARKS</div>
+    <div class="panelSub">
+      DLX Dispatch Center (where the rig takes off) and the Good Buddy
+      Diner (where the rig lands at the end of the run, greeted by the
+      6-armed alien dispatcher). Both pixelated to match the rest of
+      the art.
+    </div>
+    <div id="stationsGrid" class="spriteGrid" style="grid-template-columns: 1fr 1fr;"></div>
+  </div>
+
   <!-- OBSTACLES -->
   <div class="panel">
-    <div class="panelLabel">OBSTACLES</div>
+    <div class="panelLabel">OBSTACLES + HAZARDS</div>
     <div class="panelSub">
-      Scrap tower (top/bottom stacks), air wreck (charred silhouette
-      with ember cracks), magnet-recall box. Hazard stripes use pure
-      yellow + black checkers — no gradients.
+      Scrap tower, air wreck, magnet recall box, tunnel entrance + the
+      underground tunnel interior (with bones + collectibles), fireball
+      projectile, and the burrowing tentacle monster bursting from the
+      ground. All animated where motion sells the threat.
     </div>
     <div id="obstaclesGrid" class="spriteGrid"></div>
   </div>
@@ -188,6 +201,30 @@
       outlines.
     </div>
     <div id="rivalsGrid" class="spriteGrid"></div>
+  </div>
+
+  <!-- COLLECTIBLES -->
+  <div class="panel">
+    <div class="panelLabel">COLLECTIBLES + PICKUPS</div>
+    <div class="panelSub">
+      Everything the player grabs during a run — cargo crates, gems,
+      coins, fuel, badges, powerups (turbo / shield / magnet), score
+      popups. All animated where collection feedback matters.
+    </div>
+    <div id="collectiblesGrid" class="spriteGrid"></div>
+  </div>
+
+  <!-- PARTICLES -->
+  <div class="panel">
+    <div class="panelLabel">ENVIRONMENTAL PARTICLES</div>
+    <div class="panelSub">
+      Pixel-art versions of all environmental + feedback particles:
+      drifting dust motes (sky ambient), rising embers (heat sources),
+      collision spark bursts, sand spray (wheels), smoke wisps, damage
+      stars, cargo-loss puffs. All animated so the loops can be
+      reviewed.
+    </div>
+    <div id="particlesGrid" class="spriteGrid"></div>
   </div>
 
   <div class="footnote">
@@ -935,20 +972,186 @@ function drawBrush(ctx, ox, oy) {
 }
 
 function drawRock(ctx, ox, oy) {
+  // Small/medium rounded rock — 16w × 10h.
   const x = ox | 0, y = oy | 0;
-  // Outline block
   px(ctx, C.rockDark, x + 1, y + 4, 16, 8);
   px(ctx, C.rockDark, x + 3, y + 2, 12, 10);
-  // Core
   px(ctx, C.rockCore, x + 2, y + 5, 14, 6);
   px(ctx, C.rockCore, x + 4, y + 3, 10, 8);
-  // Sun-lit top-right
   px(ctx, C.rockLit, x + 6, y + 3, 6, 1);
   px(ctx, C.rockLit, x + 9, y + 4, 6, 1);
   px(ctx, C.rockLit, x + 11, y + 5, 5, 1);
-  // Crack
   px(ctx, C.rockDark, x + 6, y + 7, 1, 3);
   px(ctx, C.rockDark, x + 7, y + 9, 2, 1);
+}
+
+function drawRockBig(ctx, ox, oy) {
+  // Big boulder — 28w × 18h. Tall rounded silhouette with multiple
+  // strata bands, prominent cracks, sun-lit crown, dark shadow base.
+  const x = ox | 0, y = oy | 0;
+  // Silhouette outline (built row-by-row for organic rounded shape)
+  const rows = [
+    [10, 10, 1],   // [insetL, insetR, h]
+    [ 7,  8, 1],
+    [ 5,  6, 1],
+    [ 3,  4, 1],
+    [ 2,  3, 2],
+    [ 1,  2, 2],
+    [ 1,  1, 3],
+    [ 0,  1, 4],
+    [ 1,  0, 2],
+    [ 2,  1, 1],
+  ];
+  let cy = y;
+  for (const [insL, insR, rh] of rows) {
+    px(ctx, C.outline, x + insL, cy, 28 - insL - insR, rh);
+    cy += rh;
+  }
+  // Core fill (1 px inset from outline)
+  cy = y + 1;
+  for (let i = 0; i < rows.length; i++) {
+    const [insL, insR, rh] = rows[i];
+    const wL = (i === 0) ? insL + 1 : Math.max(insL, rows[Math.max(0, i - 1)][0]) + 1;
+    const wR = (i === 0) ? insR + 1 : Math.max(insR, rows[Math.max(0, i - 1)][1]) + 1;
+    px(ctx, C.rockCore, x + wL, cy, 28 - wL - wR, rh - 1);
+    cy += rh;
+  }
+  // Sun-lit crown (right-top diagonal band)
+  px(ctx, C.rockLit, x + 10, y + 1, 8, 1);
+  px(ctx, C.rockLit, x + 12, y + 2, 7, 1);
+  px(ctx, C.rockLit, x + 14, y + 3, 7, 1);
+  px(ctx, C.rockLit, x + 16, y + 4, 6, 1);
+  px(ctx, C.rockLit, x + 18, y + 5, 5, 1);
+  px(ctx, C.rockLit, x + 20, y + 6, 4, 1);
+  // Strata bands across the body
+  px(ctx, C.rockDark, x + 3, y + 8, 22, 1);
+  px(ctx, '#3a1408', x + 2, y + 12, 24, 1);
+  // Prominent crack down the front face
+  px(ctx, C.rockDark, x + 12, y + 5, 1, 8);
+  px(ctx, C.rockDark, x + 11, y + 9, 1, 2);
+  px(ctx, '#3a1408', x + 13, y + 7, 1, 2);
+  // Smaller crack on the right
+  px(ctx, C.rockDark, x + 19, y + 9, 1, 5);
+  // Shadow under the boulder (dirt contact)
+  px(ctx, '#1a0804', x + 1, y + 17, 26, 1);
+  // Lichen / moss spot (greenish patch)
+  px(ctx, '#5a6028', x + 4, y + 11, 2, 1);
+  px(ctx, '#5a6028', x + 5, y + 12, 1, 1);
+  // Pebble fallen off, sitting beside it
+  px(ctx, C.outline, x + 26, y + 16, 3, 2);
+  px(ctx, C.rockCore, x + 27, y + 17, 1, 1);
+}
+
+function drawRockSharp(ctx, ox, oy) {
+  // Sharp jagged rock — 18w × 14h. Angular silhouette with pointy
+  // peaks, deep shadow crevices, faceted highlights. Reads as a
+  // shattered piece of bedrock or volcanic rock.
+  const x = ox | 0, y = oy | 0;
+  // Outline silhouette — pointy peaks
+  // Tall left peak
+  px(ctx, C.outline, x + 1, y + 6, 1, 1);
+  px(ctx, C.outline, x + 2, y + 4, 1, 2);
+  px(ctx, C.outline, x + 3, y + 2, 1, 2);
+  px(ctx, C.outline, x + 4, y + 1, 1, 1);
+  px(ctx, C.outline, x + 5, y + 3, 1, 2);
+  px(ctx, C.outline, x + 6, y + 5, 1, 1);
+  // Notch (valley between peaks)
+  px(ctx, C.outline, x + 7, y + 7, 1, 1);
+  px(ctx, C.outline, x + 8, y + 6, 1, 1);
+  // Right peak (taller, primary)
+  px(ctx, C.outline, x + 9, y + 4, 1, 2);
+  px(ctx, C.outline, x + 10, y + 2, 1, 2);
+  px(ctx, C.outline, x + 11, y, 1, 2);
+  px(ctx, C.outline, x + 12, y + 2, 1, 2);
+  px(ctx, C.outline, x + 13, y + 4, 1, 2);
+  px(ctx, C.outline, x + 14, y + 6, 1, 1);
+  // Right-edge step-down
+  px(ctx, C.outline, x + 15, y + 7, 1, 1);
+  px(ctx, C.outline, x + 16, y + 8, 1, 2);
+  px(ctx, C.outline, x + 17, y + 10, 1, 2);
+  // Bottom edge
+  px(ctx, C.outline, x + 1, y + 11, 1, 1);
+  px(ctx, C.outline, x + 1, y + 12, 16, 1);
+  px(ctx, C.outline, x + 2, y + 13, 14, 1);
+
+  // Body fill — left peak
+  px(ctx, C.rockDark, x + 2, y + 6, 4, 1);
+  px(ctx, C.rockDark, x + 3, y + 4, 2, 2);
+  px(ctx, C.rockCore, x + 4, y + 2, 1, 2);
+  // Body fill — right peak (taller)
+  px(ctx, C.rockDark, x + 9, y + 6, 5, 1);
+  px(ctx, C.rockCore, x + 10, y + 4, 3, 2);
+  px(ctx, C.rockCore, x + 11, y + 2, 1, 2);
+  px(ctx, C.rockLit, x + 11, y + 1, 1, 1);  // sun-catch on peak tip
+  // Main body (under the peaks)
+  px(ctx, C.rockCore, x + 2, y + 7, 14, 4);
+  px(ctx, C.rockCore, x + 3, y + 11, 12, 1);
+  px(ctx, C.rockCore, x + 4, y + 12, 11, 1);
+  // Faceted right face — sun-lit
+  px(ctx, C.rockLit, x + 12, y + 5, 1, 1);
+  px(ctx, C.rockLit, x + 13, y + 7, 1, 1);
+  px(ctx, C.rockLit, x + 14, y + 8, 1, 2);
+  px(ctx, C.rockLit, x + 15, y + 10, 1, 1);
+  // Deep shadow crevices
+  px(ctx, '#1a0804', x + 7, y + 8, 1, 3);
+  px(ctx, '#1a0804', x + 8, y + 8, 1, 2);
+  px(ctx, '#3a1408', x + 5, y + 9, 1, 2);
+  // Cracks
+  px(ctx, '#3a1408', x + 11, y + 9, 1, 3);
+}
+
+function drawRockTwins(ctx, ox, oy) {
+  // Two rocks clustered — a medium boulder + a smaller pebble at its
+  // base. 22w × 12h. Reads as a "rock pair" — adds variety so the
+  // wasteland doesn't have every single rock look identical.
+  const x = ox | 0, y = oy | 0;
+
+  // ── LARGER (left) rock ──────────────────────────────────────
+  // Outline silhouette
+  px(ctx, C.outline, x + 1, y + 4, 1, 6);
+  px(ctx, C.outline, x + 2, y + 2, 1, 2);
+  px(ctx, C.outline, x + 3, y + 1, 4, 1);
+  px(ctx, C.outline, x + 7, y + 2, 1, 1);
+  px(ctx, C.outline, x + 8, y + 3, 1, 2);
+  px(ctx, C.outline, x + 9, y + 5, 1, 1);
+  px(ctx, C.outline, x + 10, y + 6, 1, 2);
+  px(ctx, C.outline, x + 11, y + 8, 1, 2);
+  px(ctx, C.outline, x + 1, y + 10, 11, 1);
+  // Core
+  px(ctx, C.rockCore, x + 2, y + 4, 6, 6);
+  px(ctx, C.rockCore, x + 3, y + 2, 4, 2);
+  px(ctx, C.rockCore, x + 8, y + 5, 2, 4);
+  px(ctx, C.rockCore, x + 10, y + 8, 1, 2);
+  // Sun-lit top
+  px(ctx, C.rockLit, x + 4, y + 2, 2, 1);
+  px(ctx, C.rockLit, x + 3, y + 3, 5, 1);
+  px(ctx, C.rockLit, x + 8, y + 4, 1, 1);
+  // Shadow on left
+  px(ctx, C.rockDark, x + 2, y + 5, 1, 5);
+  // Crack across face
+  px(ctx, C.rockDark, x + 5, y + 6, 1, 3);
+  px(ctx, C.rockDark, x + 6, y + 8, 1, 1);
+
+  // ── SMALLER (right) pebble — sits at the base of the big one ─
+  // Outline
+  px(ctx, C.outline, x + 13, y + 7, 1, 3);
+  px(ctx, C.outline, x + 14, y + 6, 1, 1);
+  px(ctx, C.outline, x + 15, y + 5, 3, 1);
+  px(ctx, C.outline, x + 18, y + 6, 1, 1);
+  px(ctx, C.outline, x + 19, y + 7, 1, 3);
+  px(ctx, C.outline, x + 14, y + 10, 5, 1);
+  // Core
+  px(ctx, C.rockCore, x + 14, y + 7, 5, 3);
+  px(ctx, C.rockCore, x + 15, y + 6, 3, 1);
+  // Sun-lit top
+  px(ctx, C.rockLit, x + 16, y + 6, 2, 1);
+  px(ctx, C.rockLit, x + 15, y + 7, 3, 1);
+  // Shadow side
+  px(ctx, C.rockDark, x + 14, y + 8, 1, 2);
+
+  // ── Tiny pebble scattered nearby ────────────────────────────
+  px(ctx, C.outline, x + 20, y + 10, 2, 1);
+  px(ctx, C.rockCore, x + 20, y + 9, 1, 1);
 }
 
 function drawSkull(ctx, ox, oy) {
@@ -2245,18 +2448,1505 @@ function drawTunnel(ctx, ox, oy, t) {
   px(ctx, C.outline, x + 42, y + 9, 1, 1);
 }
 
-function drawSpikes(ctx, ox, oy) {
-  // Ground spikes — 4 sharp peaks 24w × 10h
+// ═════════════════════════════════════════════════════════
+// COLLECTIBLES — pickups the player grabs during a run
+// ═════════════════════════════════════════════════════════
+
+function drawCargoCrate(ctx, ox, oy, t) {
+  // Yellow cargo crate — the main delivery pickup. Pulsing yellow
+  // edge glow + animated "DLX" stamp.
   const x = ox | 0, y = oy | 0;
-  const peaks = [0, 6, 12, 18];
-  for (const p of peaks) {
-    px(ctx, C.rockDark, x + p, y + 6, 6, 4);
-    px(ctx, C.rockCore, x + p + 1, y + 7, 4, 3);
-    // Tip
-    px(ctx, C.outline, x + p + 2, y, 2, 2);
-    px(ctx, C.rockCore, x + p + 2, y + 2, 2, 4);
-    px(ctx, C.rockLit, x + p + 3, y + 1, 1, 5);
+  t = t || 0;
+  const pulse = ((t / 6) | 0) & 1;
+  // Outer outline
+  px(ctx, C.outline, x, y, 16, 14);
+  // Wood body
+  px(ctx, '#a06820', x + 1, y + 1, 14, 12);
+  // Top sun-catch + bottom shade
+  px(ctx, C.yellow, x + 1, y + 1, 14, 1);
+  px(ctx, '#5a3020', x + 1, y + 12, 14, 1);
+  // X-frame planks (corner-to-corner)
+  px(ctx, '#5a3020', x + 1, y + 7, 14, 1);     // horizontal
+  px(ctx, '#5a3020', x + 7, y + 1, 1, 12);     // vertical
+  // Rivets at the corners
+  px(ctx, C.outline, x + 1, y + 1, 1, 1);
+  px(ctx, C.outline, x + 14, y + 1, 1, 1);
+  px(ctx, C.outline, x + 1, y + 12, 1, 1);
+  px(ctx, C.outline, x + 14, y + 12, 1, 1);
+  // Pulsing edge glow
+  if (pulse) {
+    px(ctx, '#ffd060', x - 1, y + 6, 1, 2);
+    px(ctx, '#ffd060', x + 16, y + 6, 1, 2);
   }
+  // DLX stamp (centered)
+  px(ctx, '#1a0a04', x + 3, y + 4, 1, 2);
+  px(ctx, '#1a0a04', x + 4, y + 4, 1, 1);
+  px(ctx, '#1a0a04', x + 4, y + 5, 1, 1);
+  px(ctx, '#1a0a04', x + 5, y + 4, 1, 2);
+  // L
+  px(ctx, '#1a0a04', x + 9, y + 4, 1, 2);
+  px(ctx, '#1a0a04', x + 10, y + 5, 1, 1);
+  // X
+  px(ctx, '#1a0a04', x + 12, y + 4, 1, 1);
+  px(ctx, '#1a0a04', x + 13, y + 5, 1, 1);
+  px(ctx, '#1a0a04', x + 12, y + 5, 1, 1);
+}
+
+function drawGemSmall(ctx, ox, oy, t) {
+  // Small cyan gem — common bonus pickup. Animated sparkle.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const sparkle = ((t / 5) | 0) & 1;
+  // Diamond outline
+  px(ctx, C.outline, x + 2, y, 4, 1);
+  px(ctx, C.outline, x + 1, y + 1, 1, 1);
+  px(ctx, C.outline, x + 6, y + 1, 1, 1);
+  px(ctx, C.outline, x, y + 2, 1, 2);
+  px(ctx, C.outline, x + 7, y + 2, 1, 2);
+  px(ctx, C.outline, x + 1, y + 4, 1, 1);
+  px(ctx, C.outline, x + 6, y + 4, 1, 1);
+  px(ctx, C.outline, x + 2, y + 5, 1, 1);
+  px(ctx, C.outline, x + 5, y + 5, 1, 1);
+  px(ctx, C.outline, x + 3, y + 6, 2, 1);
+  // Cyan fill
+  px(ctx, '#3090ff', x + 2, y + 1, 4, 1);
+  px(ctx, '#3090ff', x + 1, y + 2, 6, 2);
+  px(ctx, '#3090ff', x + 2, y + 4, 4, 1);
+  px(ctx, '#3090ff', x + 3, y + 5, 2, 1);
+  // Bright facet highlight
+  px(ctx, '#7eddeb', x + 3, y + 1, 2, 1);
+  px(ctx, '#7eddeb', x + 2, y + 2, 1, 2);
+  // White hot inner pulse
+  if (sparkle) {
+    px(ctx, '#ffffff', x + 3, y + 2, 1, 1);
+  }
+  // Outer sparkle pixel at random compass point
+  if (sparkle) {
+    px(ctx, '#ffffff', x + 3, y - 2, 1, 1);
+    px(ctx, '#ffffff', x + 8, y + 3, 1, 1);
+  } else {
+    px(ctx, '#ffffff', x - 1, y + 3, 1, 1);
+    px(ctx, '#ffffff', x + 4, y + 7, 1, 1);
+  }
+}
+
+function drawGemBig(ctx, ox, oy, t) {
+  // Big purple gem — rare bonus pickup. Bigger faceted shape with
+  // animated halo.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const pulse = ((t / 5) | 0) & 1;
+  // Hex outline
+  px(ctx, C.outline, x + 3, y, 6, 1);
+  px(ctx, C.outline, x + 2, y + 1, 1, 1);
+  px(ctx, C.outline, x + 9, y + 1, 1, 1);
+  px(ctx, C.outline, x + 1, y + 2, 1, 1);
+  px(ctx, C.outline, x + 10, y + 2, 1, 1);
+  px(ctx, C.outline, x, y + 3, 1, 4);
+  px(ctx, C.outline, x + 11, y + 3, 1, 4);
+  px(ctx, C.outline, x + 1, y + 7, 1, 1);
+  px(ctx, C.outline, x + 10, y + 7, 1, 1);
+  px(ctx, C.outline, x + 2, y + 8, 1, 1);
+  px(ctx, C.outline, x + 9, y + 8, 1, 1);
+  px(ctx, C.outline, x + 3, y + 9, 6, 1);
+  // Purple gem body
+  px(ctx, '#7c4abe', x + 3, y + 1, 6, 1);
+  px(ctx, '#7c4abe', x + 2, y + 2, 8, 1);
+  px(ctx, '#7c4abe', x + 1, y + 3, 10, 4);
+  px(ctx, '#7c4abe', x + 2, y + 7, 8, 1);
+  px(ctx, '#7c4abe', x + 3, y + 8, 6, 1);
+  // Bright facet
+  px(ctx, '#a07ade', x + 4, y + 1, 2, 1);
+  px(ctx, '#a07ade', x + 3, y + 2, 2, 1);
+  px(ctx, '#a07ade', x + 2, y + 3, 3, 2);
+  // Top sparkle
+  px(ctx, '#ffffff', x + 4, y + 2, 1, 1);
+  px(ctx, '#ffffff', x + 3, y + 3, 1, 1);
+  // Outer halo (pulse)
+  if (pulse) {
+    px(ctx, '#a07ade', x + 5, y - 2, 2, 1);
+    px(ctx, '#a07ade', x - 2, y + 4, 1, 2);
+    px(ctx, '#a07ade', x + 13, y + 4, 1, 2);
+    px(ctx, '#a07ade', x + 5, y + 11, 2, 1);
+  } else {
+    px(ctx, '#ffffff', x + 6, y - 2, 1, 1);
+    px(ctx, '#ffffff', x + 1, y + 10, 1, 1);
+  }
+}
+
+function drawCoin(ctx, ox, oy, t) {
+  // Gold coin — basic currency. Rotates by cycling through 4 width
+  // frames so it looks like a spinning disc.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const spin = ((t / 4) | 0) & 3;
+  // Spin frames: full circle, ellipse, line, ellipse-reverse
+  if (spin === 0) {
+    // Full coin
+    px(ctx, C.outline, x + 1, y, 6, 1);
+    px(ctx, C.outline, x, y + 1, 1, 6);
+    px(ctx, C.outline, x + 7, y + 1, 1, 6);
+    px(ctx, C.outline, x + 1, y + 7, 6, 1);
+    px(ctx, '#a06820', x + 1, y + 1, 6, 6);
+    px(ctx, '#ffd060', x + 2, y + 1, 4, 1);
+    px(ctx, '#ffd060', x + 1, y + 2, 1, 4);
+    px(ctx, '#ffffff', x + 2, y + 2, 1, 1);
+    // $ stamp
+    px(ctx, '#5a3020', x + 4, y + 3, 1, 3);
+  } else if (spin === 1) {
+    // Narrower ellipse
+    px(ctx, C.outline, x + 2, y, 4, 1);
+    px(ctx, C.outline, x + 1, y + 1, 1, 6);
+    px(ctx, C.outline, x + 6, y + 1, 1, 6);
+    px(ctx, C.outline, x + 2, y + 7, 4, 1);
+    px(ctx, '#a06820', x + 2, y + 1, 4, 6);
+    px(ctx, '#ffd060', x + 2, y + 2, 1, 4);
+    px(ctx, '#ffffff', x + 3, y + 2, 1, 1);
+  } else if (spin === 2) {
+    // Edge-on (vertical line)
+    px(ctx, C.outline, x + 3, y, 2, 1);
+    px(ctx, '#5a3020', x + 3, y + 1, 2, 6);
+    px(ctx, '#a06820', x + 3, y + 2, 1, 4);
+    px(ctx, C.outline, x + 3, y + 7, 2, 1);
+  } else {
+    // Narrow ellipse, other direction
+    px(ctx, C.outline, x + 2, y, 4, 1);
+    px(ctx, C.outline, x + 1, y + 1, 1, 6);
+    px(ctx, C.outline, x + 6, y + 1, 1, 6);
+    px(ctx, C.outline, x + 2, y + 7, 4, 1);
+    px(ctx, '#a06820', x + 2, y + 1, 4, 6);
+    px(ctx, '#ffd060', x + 5, y + 2, 1, 4);
+    px(ctx, '#ffffff', x + 4, y + 2, 1, 1);
+  }
+}
+
+function drawFuelCan(ctx, ox, oy, t) {
+  // Red fuel canister — refuel pickup. Pulsing flame indicator on
+  // the front + spout on top.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const blink = ((t / 6) | 0) & 1;
+  // Body
+  px(ctx, C.outline, x, y + 2, 10, 12);
+  px(ctx, '#a01a0a', x + 1, y + 3, 8, 10);
+  px(ctx, C.rust, x + 1, y + 3, 8, 1);
+  // Handle on top
+  px(ctx, C.outline, x + 2, y, 3, 3);
+  px(ctx, C.outline, x + 5, y, 1, 1);
+  px(ctx, '#3a2418', x + 3, y + 1, 1, 1);
+  // Spout
+  px(ctx, C.outline, x + 6, y + 1, 3, 2);
+  px(ctx, '#5a5a60', x + 7, y + 1, 1, 2);
+  // White label
+  px(ctx, '#f4e8d8', x + 1, y + 6, 8, 4);
+  px(ctx, C.outline, x + 1, y + 6, 8, 1);
+  px(ctx, C.outline, x + 1, y + 9, 8, 1);
+  // Flame icon on label (pulses)
+  px(ctx, blink ? C.yellow : C.orange, x + 4, y + 7, 2, 2);
+  px(ctx, '#ffffff', x + 4, y + 7, 1, 1);
+  // Cross-hatch metal panel detail
+  px(ctx, '#5a0808', x + 1, y + 11, 8, 1);
+}
+
+function drawBadgeMedal(ctx, ox, oy, t) {
+  // Achievement medal — gold star inside a circle, with ribbon
+  // tails hanging below. Pulsing star sparkle.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const sparkle = ((t / 6) | 0) & 1;
+  // Ribbon tails (2 strips)
+  px(ctx, '#c83828', x + 2, y + 10, 3, 4);
+  px(ctx, '#7a1a10', x + 2, y + 13, 3, 1);
+  px(ctx, '#c83828', x + 7, y + 10, 3, 4);
+  px(ctx, '#7a1a10', x + 7, y + 13, 3, 1);
+  // Notched bottoms of ribbon
+  px(ctx, C.outline, x + 3, y + 14, 1, 1);
+  px(ctx, C.outline, x + 8, y + 14, 1, 1);
+  // Medal disc
+  px(ctx, C.outline, x + 2, y + 1, 8, 1);
+  px(ctx, C.outline, x + 1, y + 2, 1, 1);
+  px(ctx, C.outline, x + 10, y + 2, 1, 1);
+  px(ctx, C.outline, x, y + 3, 1, 4);
+  px(ctx, C.outline, x + 11, y + 3, 1, 4);
+  px(ctx, C.outline, x + 1, y + 7, 1, 1);
+  px(ctx, C.outline, x + 10, y + 7, 1, 1);
+  px(ctx, C.outline, x + 2, y + 8, 8, 1);
+  // Gold body
+  px(ctx, '#a06820', x + 2, y + 2, 8, 1);
+  px(ctx, '#a06820', x + 1, y + 3, 10, 4);
+  px(ctx, '#a06820', x + 2, y + 7, 8, 1);
+  // Bright gold rim
+  px(ctx, C.yellow, x + 2, y + 2, 8, 1);
+  px(ctx, C.yellow, x + 1, y + 3, 1, 4);
+  // Star in the center
+  px(ctx, '#ffd060', x + 5, y + 3, 2, 1);
+  px(ctx, '#ffd060', x + 4, y + 4, 4, 2);
+  px(ctx, '#ffd060', x + 3, y + 5, 6, 1);
+  px(ctx, '#ffd060', x + 4, y + 6, 1, 1);
+  px(ctx, '#ffd060', x + 7, y + 6, 1, 1);
+  // White star sparkle (animated)
+  if (sparkle) {
+    px(ctx, '#ffffff', x + 5, y + 4, 2, 1);
+    px(ctx, '#ffffff', x + 4, y + 1, 1, 1);
+    px(ctx, '#ffffff', x + 8, y + 5, 1, 1);
+  }
+}
+
+function drawTurboBoost(ctx, ox, oy, t) {
+  // Turbo boost powerup — yellow chevron arrow in a black circle
+  // with cyan ring glow. Rotating chevrons.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const phase = ((t / 3) | 0) & 1;
+  // Outer ring (cyan glow, pulses)
+  drawSmokePuff(ctx, x + 7, y + 7, 7, phase ? '#3090ff' : '#1850c0');
+  // Black inner disc
+  drawSmokePuff(ctx, x + 7, y + 7, 5, '#1a0a04');
+  drawSmokePuff(ctx, x + 7, y + 7, 4, '#3a2418');
+  // Yellow chevron arrows pointing right (animated)
+  // Front chevron (always visible)
+  px(ctx, C.yellow, x + 5, y + 4, 1, 1);
+  px(ctx, C.yellow, x + 6, y + 5, 1, 1);
+  px(ctx, C.yellow, x + 7, y + 6, 1, 1);
+  px(ctx, C.yellow, x + 8, y + 7, 1, 1);
+  px(ctx, C.yellow, x + 7, y + 8, 1, 1);
+  px(ctx, C.yellow, x + 6, y + 9, 1, 1);
+  px(ctx, C.yellow, x + 5, y + 10, 1, 1);
+  px(ctx, '#ffffff', x + 8, y + 7, 1, 1);
+  // Back chevron (flashes)
+  if (phase) {
+    px(ctx, '#ffd060', x + 7, y + 4, 1, 1);
+    px(ctx, '#ffd060', x + 8, y + 5, 1, 1);
+    px(ctx, '#ffd060', x + 9, y + 6, 1, 1);
+    px(ctx, '#ffd060', x + 10, y + 7, 1, 1);
+    px(ctx, '#ffd060', x + 9, y + 8, 1, 1);
+    px(ctx, '#ffd060', x + 8, y + 9, 1, 1);
+    px(ctx, '#ffd060', x + 7, y + 10, 1, 1);
+  }
+}
+
+function drawShieldPowerup(ctx, ox, oy, t) {
+  // Shield powerup — blue shield emblem inside a circle.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const pulse = ((t / 5) | 0) & 1;
+  // Outer halo
+  drawSmokePuff(ctx, x + 7, y + 7, 7, pulse ? '#7eddeb' : '#3090ff');
+  drawSmokePuff(ctx, x + 7, y + 7, 6, '#1a0a04');
+  // Shield body
+  px(ctx, C.outline, x + 4, y + 3, 6, 1);
+  px(ctx, C.outline, x + 3, y + 4, 1, 5);
+  px(ctx, C.outline, x + 10, y + 4, 1, 5);
+  px(ctx, C.outline, x + 4, y + 9, 1, 1);
+  px(ctx, C.outline, x + 9, y + 9, 1, 1);
+  px(ctx, C.outline, x + 5, y + 10, 1, 1);
+  px(ctx, C.outline, x + 8, y + 10, 1, 1);
+  px(ctx, C.outline, x + 6, y + 11, 2, 1);
+  // Shield blue fill
+  px(ctx, '#3090ff', x + 4, y + 4, 6, 5);
+  px(ctx, '#3090ff', x + 5, y + 9, 4, 1);
+  px(ctx, '#3090ff', x + 6, y + 10, 2, 1);
+  // Lit edge
+  px(ctx, '#7eddeb', x + 4, y + 4, 6, 1);
+  px(ctx, '#7eddeb', x + 4, y + 4, 1, 4);
+  // Cross emblem on the shield
+  px(ctx, '#ffffff', x + 6, y + 5, 2, 4);
+  px(ctx, '#ffffff', x + 5, y + 6, 4, 1);
+}
+
+function drawMagnetPowerup(ctx, ox, oy, t) {
+  // Magnet powerup — horseshoe magnet emblem inside a circle.
+  // Animated pull-arrows around it.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const phase = ((t / 4) | 0) & 1;
+  // Outer halo
+  drawSmokePuff(ctx, x + 7, y + 7, 7, phase ? '#ff4090' : '#a01a0a');
+  drawSmokePuff(ctx, x + 7, y + 7, 6, '#1a0a04');
+  // Horseshoe magnet body
+  // Outer outline
+  px(ctx, C.outline, x + 3, y + 3, 8, 1);
+  px(ctx, C.outline, x + 3, y + 4, 1, 5);
+  px(ctx, C.outline, x + 10, y + 4, 1, 5);
+  px(ctx, C.outline, x + 4, y + 9, 2, 1);
+  px(ctx, C.outline, x + 8, y + 9, 2, 1);
+  // Red top half + dark bottom half (classic magnet colors)
+  px(ctx, '#a01a0a', x + 4, y + 4, 6, 3);
+  px(ctx, '#a01a0a', x + 4, y + 4, 1, 5);
+  px(ctx, '#a01a0a', x + 9, y + 4, 1, 5);
+  // White poles at the tips
+  px(ctx, '#ffffff', x + 4, y + 7, 1, 2);
+  px(ctx, '#ffffff', x + 9, y + 7, 1, 2);
+  // Inner gap (the "U" of the horseshoe)
+  px(ctx, '#1a0a04', x + 5, y + 5, 4, 4);
+  // Highlight
+  px(ctx, '#ff4090', x + 4, y + 4, 6, 1);
+  // Animated pull-arrows on either side (objects being pulled toward magnet)
+  if (phase) {
+    // Right-side arrow pointing LEFT toward magnet
+    px(ctx, '#ffd060', x + 13, y + 6, 2, 1);
+    px(ctx, '#ffd060', x + 13, y + 8, 2, 1);
+    px(ctx, '#ffd060', x + 12, y + 7, 1, 1);
+  }
+}
+
+function drawScorePopup(ctx, ox, oy, t) {
+  // Floating "+100" score popup — yellow numerals on a dark
+  // outlined background. Rises slowly + fades.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const phase = (t / 5) % 12;
+  const yOff = (phase * -0.5) | 0;
+  const fade = phase > 8;
+  const col = fade ? '#a06820' : '#ffd060';
+  const outl = fade ? '#5a3020' : C.outline;
+  // "+"
+  px(ctx, outl, x + 1, y + yOff + 2, 3, 1);
+  px(ctx, outl, x + 2, y + yOff + 1, 1, 3);
+  px(ctx, col, x + 1, y + yOff + 2, 3, 1);
+  px(ctx, col, x + 2, y + yOff + 1, 1, 3);
+  // "1"
+  px(ctx, outl, x + 6, y + yOff + 1, 2, 4);
+  px(ctx, col, x + 7, y + yOff + 1, 1, 4);
+  // "0"
+  px(ctx, outl, x + 9, y + yOff + 1, 3, 4);
+  px(ctx, col, x + 10, y + yOff + 2, 1, 2);
+  px(ctx, col, x + 11, y + yOff + 2, 1, 2);
+  // "0"
+  px(ctx, outl, x + 13, y + yOff + 1, 3, 4);
+  px(ctx, col, x + 14, y + yOff + 2, 1, 2);
+  px(ctx, col, x + 15, y + yOff + 2, 1, 2);
+}
+
+// ═════════════════════════════════════════════════════════
+// PARTICLES — ambient environmental effects + impact bursts
+// ═════════════════════════════════════════════════════════
+
+function drawDustMotes(ctx, ox, oy, t) {
+  // Drifting dust motes — sparse animated specks moving diagonally
+  // across the cell. Used for atmospheric depth in the sky / air.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const W = 32, H = 20;
+  // Background tint (subtle warm haze)
+  px(ctx, '#3a2410', x, y, W, H);
+  // 8 motes, each at a different drift speed + Y position
+  for (let i = 0; i < 8; i++) {
+    const speed = 0.3 + (i % 3) * 0.15;
+    const mx = ((t * speed + i * 7) % (W + 6)) - 3;
+    const my = ((i * 2.7) % H);
+    if (mx < 0 || mx >= W) continue;
+    // Mote brightness varies — closer ones brighter
+    const col = (i % 3 === 0) ? '#ffd0a0' : (i % 3 === 1) ? '#a88858' : '#5a4838';
+    px(ctx, col, x + (mx | 0), y + (my | 0), 1, 1);
+    // Faint trail behind brightest motes
+    if (i % 3 === 0 && mx > 0) {
+      px(ctx, '#5a4838', x + ((mx - 1) | 0), y + (my | 0), 1, 1);
+    }
+  }
+}
+
+function drawEmberParticles(ctx, ox, oy, t) {
+  // Hot embers rising — small yellow/orange specks drifting up
+  // with wobble. Used near fires / hot vents in the level.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const W = 32, H = 24;
+  // Dark background
+  px(ctx, '#1a0a04', x, y, W, H);
+  // 10 embers
+  for (let i = 0; i < 10; i++) {
+    const life = ((t * 0.5) + i * 5) % 20;
+    if (life > 18) continue;
+    const ey = H - 1 - (life | 0);
+    const ex = (W / 2 + Math.sin(life * 0.3 + i) * 6 + i - 5) | 0;
+    if (ex < 0 || ex >= W) continue;
+    // Hot when fresh, cools to orange/red as it rises
+    const hot = life < 6 ? C.yellow : life < 12 ? C.orange : C.rust;
+    px(ctx, hot, x + ex, y + ey, 1, 1);
+    // Brightest core
+    if (life < 4) px(ctx, '#ffffff', x + ex, y + ey, 1, 1);
+  }
+  // Hot vent at the bottom (source)
+  px(ctx, '#5a1a08', x + 12, y + H - 2, 8, 2);
+  px(ctx, C.orange, x + 14, y + H - 1, 4, 1);
+}
+
+function drawSparkBurst(ctx, ox, oy, t) {
+  // Spark burst — radial explosion of pixels from a center point.
+  // Used for collision impacts, grinding sparks. Loops every ~12
+  // frames.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const W = 28, H = 28;
+  const cx = x + (W >> 1), cy = y + (H >> 1);
+  px(ctx, '#1a0a04', x, y, W, H);
+  // Cycle phase
+  const phase = (t * 0.6) % 12;
+  // 8 radial sparks at compass points, each at its own animation
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2;
+    const dist = phase + i * 0.4;
+    if (dist > 11) continue;
+    const sx = (cx + Math.cos(ang) * dist) | 0;
+    const sy = (cy + Math.sin(ang) * dist) | 0;
+    // Color cools with distance
+    const col = dist < 3 ? '#ffffff' : dist < 7 ? C.yellow : dist < 9 ? C.orange : C.rust;
+    px(ctx, col, sx, sy, 1, 1);
+    // Trail behind spark
+    if (dist >= 2) {
+      const trx = (cx + Math.cos(ang) * (dist - 1)) | 0;
+      const trY = (cy + Math.sin(ang) * (dist - 1)) | 0;
+      px(ctx, C.rust, trx, trY, 1, 1);
+    }
+  }
+  // Central white-hot flash (fades quickly)
+  if (phase < 3) {
+    px(ctx, '#ffffff', cx - 1, cy, 3, 1);
+    px(ctx, '#ffffff', cx, cy - 1, 1, 3);
+    px(ctx, '#ffd060', cx - 2, cy, 5, 1);
+    px(ctx, '#ffd060', cx, cy - 2, 1, 5);
+  }
+}
+
+function drawSandSpray(ctx, ox, oy, t) {
+  // Sand spray — kicked-up dust trail behind wheels / impacts.
+  // Sand-colored particles arcing back from a source point.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const W = 36, H = 16;
+  px(ctx, '#1a0a04', x, y, W, H);
+  // Source at bottom-right (where rig would be)
+  const sx = x + W - 4;
+  const sy = y + H - 2;
+  px(ctx, C.outline, sx, sy, 2, 2);    // wheel hint
+  // Sand particles trailing back to the left
+  for (let i = 0; i < 12; i++) {
+    const life = ((t * 0.5) + i * 2.5) % 14;
+    const px_ = sx - (life | 0) - 2;
+    const arc = Math.sin(life * 0.4) * 2 - (life * 0.2) | 0;
+    const py_ = sy + arc;
+    if (px_ < x || py_ < y || py_ >= y + H) continue;
+    // Color: bright sand near the source, dim further back
+    const col = life < 3 ? '#e8a868' : life < 7 ? '#a85838' : life < 11 ? '#7a3018' : '#3a1408';
+    px(ctx, col, px_, py_, 1, 1);
+  }
+}
+
+function drawSmokeWisp(ctx, ox, oy, t) {
+  // Single drifting smoke wisp sample — uses drawSmokeColumn
+  // helper at smaller scale.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const W = 28, H = 32;
+  px(ctx, '#1a0a04', x, y, W, H);
+  // Ground source
+  px(ctx, '#3a2418', x + 10, y + H - 2, 8, 2);
+  px(ctx, C.rust, x + 12, y + H - 1, 4, 1);
+  // Smoke column rising from the source
+  drawSmokeColumn(ctx, x + 14, y + H - 4, t);
+}
+
+function drawDamageStars(ctx, ox, oy, t) {
+  // Damage stars — 3 little stars orbiting a hit point (the
+  // classic "ouch!" indicator that pops above damaged objects).
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const W = 28, H = 20;
+  const cx = x + (W >> 1), cy = y + (H >> 1) + 2;
+  px(ctx, '#1a0a04', x, y, W, H);
+  // Hit point (X mark in the middle)
+  px(ctx, C.outline, cx - 2, cy + 1, 5, 1);
+  px(ctx, '#5a3020', cx - 1, cy + 2, 3, 1);
+  // 3 stars orbiting
+  for (let i = 0; i < 3; i++) {
+    const ang = (i / 3 + t * 0.05) * Math.PI * 2;
+    const dist = 6;
+    const sx = (cx + Math.cos(ang) * dist) | 0;
+    const sy = (cy + Math.sin(ang) * dist) | 0;
+    // Star (4 points)
+    px(ctx, '#ffd060', sx - 1, sy, 3, 1);
+    px(ctx, '#ffd060', sx, sy - 1, 1, 3);
+    px(ctx, '#ffffff', sx, sy, 1, 1);
+  }
+}
+
+function drawCargoLossPuff(ctx, ox, oy, t) {
+  // Cargo loss puff — yellow + brown puffs when you drop a crate.
+  // Shows a few cargo fragments scattering.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const W = 36, H = 24;
+  const cx = x + (W >> 1), cy = y + (H >> 1);
+  px(ctx, '#1a0a04', x, y, W, H);
+  // Crate fragments scattering in 4 directions
+  const phase = (t * 0.4) % 12;
+  for (let i = 0; i < 4; i++) {
+    const ang = (i / 4 + 0.125) * Math.PI * 2;
+    const dist = phase * 0.8;
+    const sx = (cx + Math.cos(ang) * dist) | 0;
+    const sy = (cy + Math.sin(ang) * dist + (phase * phase * 0.06)) | 0;
+    if (sy >= y + H || sx < x || sx >= x + W) continue;
+    // Plank fragment (2px wide)
+    px(ctx, '#a06820', sx, sy, 2, 2);
+    px(ctx, C.yellow, sx, sy, 2, 1);
+  }
+  // Central dust cloud
+  drawSmokePuff(ctx, cx, cy, Math.max(0, 3 - (phase * 0.4 | 0)), '#a88858');
+  // Yellow sparkle bits
+  for (let i = 0; i < 3; i++) {
+    const ang = (i / 3) * Math.PI * 2 + phase * 0.2;
+    const px_ = (cx + Math.cos(ang) * 5) | 0;
+    const py_ = (cy + Math.sin(ang) * 5) | 0;
+    if (((t + i * 2) >> 1) & 1) px(ctx, C.yellow, px_, py_, 1, 1);
+  }
+}
+
+function drawTunnelInterior(ctx, ox, oy, t) {
+  // Underground tunnel CROSS-SECTION — the player is INSIDE the
+  // tunnel looking sideways. Rock ceiling at the top + rock floor
+  // at the bottom + open tunnel space in the middle. The floor is
+  // scattered with bones (skull + ribcage + half-buried skeleton)
+  // and collectible items (yellow cargo crate, glow gems, fuel
+  // canister). Animated ember glow from ceiling cracks + dust motes
+  // drifting through the warm light beams. 120w × 56h.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const flicker = (Math.sin(t * 0.30) + Math.sin(t * 0.51)) > 0.2;
+
+  // ── DARK TUNNEL AIR (background void) ──────────────────────
+  px(ctx, '#080406', x, y, 120, 56);
+
+  // ── ROCK CEILING (top band, irregular jagged bottom edge) ──
+  px(ctx, C.earth2, x, y, 120, 10);
+  // Stepped jagged ceiling underside
+  for (let i = 0; i < 120; i += 2) {
+    const dip = Math.round(
+      2 + Math.sin(i * 0.18) * 1.5 + Math.sin(i * 0.07 + 1.2) * 2
+    );
+    px(ctx, C.earth2, x + i, y + 10, 2, dip);
+    px(ctx, '#3a1408', x + i, y + 10 + dip, 2, 1);
+  }
+  // Highlight ridge on the ceiling top
+  px(ctx, C.earth1, x, y, 120, 1);
+  // Stalactites — pointed rock teeth hanging from the ceiling
+  const stalacAt = (sx, h) => {
+    for (let r = 0; r < h; r++) {
+      const hw = h - r - 1;
+      px(ctx, C.earth2, sx - hw, y + 10 + r, hw * 2 + 1, 1);
+      px(ctx, '#3a1408', sx - hw, y + 10 + r, 1, 1);
+      px(ctx, '#3a1408', sx + hw, y + 10 + r, 1, 1);
+    }
+    // Tip pixel
+    px(ctx, C.outline, sx, y + 10 + h, 1, 1);
+  };
+  stalacAt(x + 18, 5);
+  stalacAt(x + 52, 7);
+  stalacAt(x + 78, 4);
+  stalacAt(x + 102, 6);
+
+  // ── EMBER LIGHT SHAFTS coming through ceiling cracks ──────
+  // Two cracks above, each casts a warm light cone down into the
+  // tunnel air below. Animated alpha flicker.
+  const lightShaft = (sx, intensity) => {
+    // Crack in the ceiling
+    px(ctx, flicker ? C.orange : C.rust, sx, y + 2, 1, 6);
+    px(ctx, '#3a1408', sx - 1, y + 4, 1, 3);
+    px(ctx, '#3a1408', sx + 1, y + 4, 1, 3);
+    // Light cone widening downward (1 px per 4 rows)
+    if (!flicker && intensity < 0.8) return;
+    for (let r = 0; r < 24; r++) {
+      const hw = (r / 4) | 0;
+      const yy = y + 10 + r;
+      if (yy >= y + 46) continue;
+      // Use very faint warm color
+      const col = (r < 8) ? '#3a2410' : '#2a1808';
+      for (let dx = -hw; dx <= hw; dx++) {
+        // Sparse dithered fill
+        if (((dx + r + sx) & 3) === 0) {
+          px(ctx, col, sx + dx, yy, 1, 1);
+        }
+      }
+    }
+  };
+  lightShaft(x + 32, 1);
+  lightShaft(x + 88, 1);
+
+  // ── DRIFTING DUST MOTES in the light shafts (animated) ────
+  const mOff = (t * 0.5) | 0;
+  for (let i = 0; i < 6; i++) {
+    const lane = (i & 1) ? 32 : 88;
+    const my = (y + 14 + ((mOff + i * 5) % 30));
+    const mx = x + lane + ((Math.sin(t * 0.1 + i) * 4) | 0);
+    px(ctx, '#a88858', mx, my, 1, 1);
+  }
+
+  // ── ROCK FLOOR (bottom band) ──────────────────────────────
+  px(ctx, C.earth2, x, y + 44, 120, 12);
+  // Stepped jagged floor top edge
+  for (let i = 0; i < 120; i += 2) {
+    const bump = Math.round(
+      1 + Math.sin(i * 0.21 + 0.6) * 1 + Math.sin(i * 0.09 + 2.1) * 1.5
+    );
+    px(ctx, C.earth1, x + i, y + 44 - bump, 2, bump);
+    px(ctx, C.earth0, x + i, y + 44 - bump, 2, 1);
+  }
+  // Cracks in the floor
+  px(ctx, '#3a1408', x + 14, y + 47, 8, 1);
+  px(ctx, '#3a1408', x + 16, y + 48, 4, 1);
+  px(ctx, '#3a1408', x + 60, y + 49, 12, 1);
+  px(ctx, '#3a1408', x + 90, y + 47, 6, 1);
+
+  // ── STALAGMITES — pointing up from the floor ──────────────
+  const stalagAt = (sx, h) => {
+    for (let r = 0; r < h; r++) {
+      const hw = r;
+      px(ctx, C.earth2, sx - hw, y + 44 - r, hw * 2 + 1, 1);
+      px(ctx, C.earth1, sx, y + 44 - r, 1, 1);
+    }
+    // Pointed tip
+    px(ctx, C.outline, sx, y + 44 - h, 1, 1);
+  };
+  stalagAt(x + 38, 3);
+  stalagAt(x + 98, 4);
+
+  // ── BONES SCATTERED ON THE FLOOR ──────────────────────────
+  // 1) Skull lying on its side, near-center-left
+  {
+    const sx = x + 24, sy = y + 38;
+    px(ctx, C.boneDark, sx, sy, 8, 6);
+    px(ctx, C.boneLight, sx + 1, sy + 1, 6, 4);
+    px(ctx, C.boneShade, sx + 1, sy + 4, 6, 1);
+    // Eye socket (just 1 visible because lying sideways)
+    px(ctx, C.outline, sx + 3, sy + 2, 2, 2);
+    // Jaw (thrown to the side)
+    px(ctx, C.boneDark, sx + 8, sy + 4, 4, 2);
+    px(ctx, C.boneLight, sx + 9, sy + 4, 2, 1);
+  }
+  // 2) Ribcage half-buried in the floor (middle-right)
+  {
+    const sx = x + 64, sy = y + 41;
+    // Spine bone running horizontally
+    px(ctx, C.boneDark, sx, sy + 2, 14, 2);
+    px(ctx, C.boneLight, sx + 1, sy + 2, 12, 1);
+    // 5 ribs curving up
+    for (let i = 0; i < 5; i++) {
+      const rx = sx + 1 + i * 3;
+      px(ctx, C.boneDark, rx, sy, 2, 1);
+      px(ctx, C.boneLight, rx, sy, 1, 1);
+      px(ctx, C.boneDark, rx - 1, sy - 1, 1, 1);
+      px(ctx, C.boneDark, rx + 2, sy - 1, 1, 1);
+    }
+  }
+  // 3) Hand bones (5 finger pixels reaching up from the floor)
+  {
+    const sx = x + 46, sy = y + 42;
+    for (let i = 0; i < 4; i++) {
+      px(ctx, C.boneLight, sx + i * 2, sy, 1, 2);
+      px(ctx, C.boneDark, sx + i * 2, sy + 2, 1, 1);
+    }
+    // Palm/wrist
+    px(ctx, C.boneDark, sx - 1, sy + 3, 9, 1);
+  }
+  // 4) Full skull + spine to the right (with a crown of cracks)
+  {
+    const sx = x + 86, sy = y + 38;
+    // Skull
+    px(ctx, C.boneDark, sx, sy, 9, 7);
+    px(ctx, C.boneLight, sx + 1, sy + 1, 7, 5);
+    px(ctx, C.outline, sx + 2, sy + 3, 2, 2);    // eye
+    px(ctx, C.outline, sx + 5, sy + 3, 2, 2);    // eye
+    px(ctx, C.outline, sx + 4, sy + 6, 1, 1);    // nose
+    // Crack across the cranium
+    px(ctx, C.outline, sx + 3, sy + 1, 1, 2);
+    px(ctx, C.outline, sx + 4, sy + 2, 1, 1);
+    // Spine snaking right
+    for (let i = 0; i < 4; i++) {
+      px(ctx, C.boneLight, sx + 9 + i * 3, sy + 5, 2, 2);
+      px(ctx, C.boneDark, sx + 11 + i * 3, sy + 5, 1, 2);
+    }
+  }
+
+  // ── COLLECTIBLE ITEMS ─────────────────────────────────────
+  // 1) Yellow CARGO CRATE (the prize)
+  {
+    const sx = x + 10, sy = y + 36;
+    px(ctx, C.outline, sx, sy, 10, 8);
+    px(ctx, '#a06820', sx + 1, sy + 1, 8, 6);
+    px(ctx, C.yellow, sx + 1, sy + 1, 8, 1);
+    px(ctx, '#5a3020', sx + 4, sy + 1, 1, 6);
+    px(ctx, '#5a3020', sx + 1, sy + 4, 8, 1);
+    // Lock
+    px(ctx, C.outline, sx + 4, sy + 3, 2, 2);
+    // Glow halo around the crate
+    px(ctx, '#3a2410', sx - 1, sy + 3, 1, 3);
+    px(ctx, '#3a2410', sx + 10, sy + 3, 1, 3);
+  }
+  // 2) GLOW GEMS (cyan/blue collectibles — animated pulse)
+  const gemPulse = ((t / 6) | 0) & 1;
+  {
+    const sx = x + 70, sy = y + 34;
+    // Diamond shape (4-px tall)
+    px(ctx, C.outline, sx, sy + 2, 4, 2);
+    px(ctx, C.outline, sx + 1, sy + 1, 2, 4);
+    // Inner glow
+    px(ctx, gemPulse ? '#7eddeb' : '#3090ff', sx + 1, sy + 2, 2, 2);
+    px(ctx, '#ffffff', sx + 1, sy + 2, 1, 1);
+    // Sparkle pixel above the gem
+    if (gemPulse) px(ctx, '#ffffff', sx + 2, sy - 1, 1, 1);
+    // Light halo
+    px(ctx, '#1850c0', sx - 1, sy + 2, 1, 2);
+    px(ctx, '#1850c0', sx + 4, sy + 2, 1, 2);
+  }
+  // 3) Second gem cluster (further right)
+  {
+    const sx = x + 110, sy = y + 38;
+    px(ctx, C.outline, sx, sy + 1, 3, 2);
+    px(ctx, C.outline, sx + 1, sy, 1, 4);
+    px(ctx, !gemPulse ? '#7eddeb' : '#3090ff', sx + 1, sy + 1, 1, 2);
+    if (!gemPulse) px(ctx, '#ffffff', sx + 1, sy - 1, 1, 1);
+  }
+  // 4) FUEL CANISTER (red, with hazard label)
+  {
+    const sx = x + 56, sy = y + 35;
+    px(ctx, C.outline, sx, sy, 6, 9);
+    px(ctx, '#a01a0a', sx + 1, sy + 1, 4, 7);
+    px(ctx, C.rust, sx + 1, sy + 1, 4, 1);
+    // White label
+    px(ctx, '#f4e8d8', sx + 1, sy + 4, 4, 2);
+    px(ctx, C.outline, sx + 2, sy + 4, 1, 2);
+    // Spout cap
+    px(ctx, C.outline, sx + 1, sy - 1, 4, 1);
+    px(ctx, '#5a5a60', sx + 2, sy - 1, 2, 1);
+  }
+
+  // ── CHAINS hanging from the ceiling ───────────────────────
+  // Decorative — adds to the dungeon-y wasteland feel.
+  for (let r = 0; r < 8; r++) {
+    px(ctx, '#5a5a60', x + 44, y + 12 + r, 1, 1);
+    if (r & 1) px(ctx, '#9a9aa0', x + 44, y + 12 + r, 1, 1);
+  }
+  px(ctx, C.outline, x + 43, y + 20, 3, 1);  // hook at the end
+
+  // ── DISTANT TUNNEL VANISHING POINT (a hint of more tunnel) ─
+  // Small black opening in the far wall on the right edge.
+  px(ctx, '#040208', x + 116, y + 30, 4, 14);
+  // Faint ember glow at the far end
+  if (flicker) {
+    px(ctx, '#3a1408', x + 117, y + 36, 3, 2);
+    px(ctx, C.rust, x + 118, y + 37, 2, 1);
+  }
+}
+
+function drawTentacleMonster(ctx, ox, oy, t) {
+  // Animated tentacle monster bursting from the ground. Two thick
+  // tentacles arc up out of a cracked-earth crater, with smaller
+  // tentacle wisps to either side. Each tentacle WAVES side to
+  // side and has clear suction-cup spots on the inside curve. The
+  // largest tentacle has an OPEN MAW at the tip (eye + teeth, or
+  // glowing cyan suction-cup pulse). Cracks in the ground emit
+  // green slime. 80w × 56h, bottom-anchored.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+
+  // ── CRATER + CRACKED EARTH (base) ──────────────────────────
+  // Stepped earth lip at the bottom
+  px(ctx, C.outline, x, y + 50, 80, 6);
+  px(ctx, C.earth1, x + 1, y + 51, 78, 4);
+  px(ctx, C.earth0, x + 4, y + 50, 72, 1);
+  // Cracks radiating from where the tentacles erupt
+  const drawCrack = (sx, sy, dx, dy, len) => {
+    let cx = sx, cy = sy;
+    for (let i = 0; i < len; i++) {
+      px(ctx, '#1a0804', cx, cy, 1, 1);
+      cx += dx;
+      cy += dy;
+      // wobble
+      if ((i & 1) === 0) cx += (i & 2) ? 1 : -1;
+    }
+  };
+  drawCrack(x + 24, y + 49, -1, 0, 12);
+  drawCrack(x + 28, y + 50, 0, 1, 4);
+  drawCrack(x + 56, y + 49, 1, 0, 14);
+  drawCrack(x + 52, y + 50, 0, 1, 3);
+  // Glowing GREEN SLIME oozing out of the cracks (animated)
+  const slimePulse = (Math.sin(t * 0.2) + 1) * 0.5;
+  const slimeCol = slimePulse > 0.5 ? '#5a9028' : '#88b840';
+  px(ctx, slimeCol, x + 14, y + 49, 3, 1);
+  px(ctx, slimeCol, x + 44, y + 49, 4, 1);
+  px(ctx, slimeCol, x + 62, y + 49, 3, 1);
+
+  // ── TENTACLE DRAW HELPER ───────────────────────────────────
+  // Renders a tentacle as a curved series of segments. Each
+  // segment is filled with a small rect (1-3 wide depending on
+  // taper). Adds dark green outline + bright green core + olive
+  // highlight. Suction-cup pixels along the inside curve.
+  const drawTentacle = (baseX, baseY, baseAngle, length, baseWidth, phase) => {
+    const segments = 14;
+    const segLen = length / segments;
+    let cx = baseX, cy = baseY;
+    let ang = baseAngle;
+    const pts = [{x: cx, y: cy}];
+    for (let i = 1; i <= segments; i++) {
+      const tr = i / segments;
+      // Wave curve — sine wobble that shifts with phase (animation)
+      ang += Math.sin(phase + tr * 3.0) * 0.20;
+      cx += Math.cos(ang) * segLen;
+      cy += Math.sin(ang) * segLen;
+      pts.push({x: cx, y: cy});
+    }
+    // Draw thick body — for each consecutive pair of points,
+    // fill perpendicular rectangles to approximate a thick line.
+    for (let i = 1; i < pts.length; i++) {
+      const taper = 1 - (i / pts.length);
+      const w = Math.max(1, Math.round(baseWidth * taper + 0.5));
+      const mx = ((pts[i - 1].x + pts[i].x) * 0.5) | 0;
+      const my = ((pts[i - 1].y + pts[i].y) * 0.5) | 0;
+      // Outline (darker green)
+      px(ctx, '#243818', mx - w, my - w, w * 2 + 1, w * 2 + 1);
+      // Core
+      px(ctx, '#5a9028', mx - w + 1, my - w + 1, Math.max(1, w * 2 - 1), Math.max(1, w * 2 - 1));
+      // Top highlight (olive bright)
+      if (w >= 2) px(ctx, '#88b840', mx - w + 1, my - w + 1, Math.max(1, w * 2 - 1), 1);
+    }
+    // Suction-cup spots — every 2nd point, on the inside curve
+    for (let i = 2; i < pts.length - 1; i += 2) {
+      const sx = pts[i].x | 0;
+      const sy = (pts[i].y + 1) | 0;
+      px(ctx, '#243818', sx, sy, 1, 1);
+      px(ctx, '#a01a0a', sx + 1, sy, 1, 1);
+    }
+    return pts[pts.length - 1];
+  };
+
+  // Animation phases per tentacle — staggered so they don't move
+  // in lockstep.
+  const ph1 = t * 0.08;
+  const ph2 = t * 0.10 + 1.2;
+  const ph3 = t * 0.13 + 2.6;
+  const ph4 = t * 0.11 + 0.4;
+
+  // ── SMALLER TENTACLES first (so big ones overlap on top) ───
+  // Left wisp
+  drawTentacle(x + 14, y + 48, -Math.PI * 0.55, 22, 1, ph3);
+  // Right wisp
+  drawTentacle(x + 70, y + 48, -Math.PI * 0.40, 24, 1, ph4);
+
+  // ── MAIN LEFT TENTACLE (medium thickness) ─────────────────
+  const tip1 = drawTentacle(x + 26, y + 49, -Math.PI * 0.70, 38, 3, ph1);
+
+  // ── MAIN RIGHT TENTACLE (thickest, with monster mouth at tip)
+  const tip2 = drawTentacle(x + 54, y + 49, -Math.PI * 0.40, 42, 4, ph2);
+
+  // ── MAW at the right-tentacle tip ─────────────────────────
+  // Open monster maw — round head with eye, teeth, and a glowing
+  // cyan inner core that pulses.
+  const mawCx = tip2.x | 0;
+  const mawCy = tip2.y | 0;
+  // Head silhouette (round)
+  drawSmokePuff(ctx, mawCx, mawCy, 4, '#243818');
+  drawSmokePuff(ctx, mawCx, mawCy, 3, '#5a9028');
+  drawSmokePuff(ctx, mawCx, mawCy - 1, 2, '#88b840');
+  // Eye (glowing red)
+  const eyeHot = ((t / 4) | 0) & 1;
+  px(ctx, '#1a0a04', mawCx - 1, mawCy - 2, 3, 2);
+  px(ctx, eyeHot ? '#ff4020' : '#a01a0a', mawCx, mawCy - 2, 1, 1);
+  if (eyeHot) px(ctx, '#ffd060', mawCx, mawCy - 2, 1, 1);
+  // Open mouth — black gap with teeth
+  px(ctx, C.outline, mawCx - 2, mawCy + 1, 5, 3);
+  px(ctx, '#1a0a04', mawCx - 1, mawCy + 2, 3, 1);
+  // Teeth (white pixels)
+  px(ctx, '#ffffff', mawCx - 1, mawCy + 1, 1, 1);
+  px(ctx, '#ffffff', mawCx + 1, mawCy + 1, 1, 1);
+  px(ctx, '#ffffff', mawCx, mawCy + 3, 1, 1);
+  // Glowing cyan suction-cup pulse inside the maw
+  if (((t / 3) | 0) & 1) {
+    px(ctx, '#7eddeb', mawCx, mawCy + 2, 1, 1);
+  }
+
+  // ── SMALLER TIP on the left tentacle (glowing cyan cup) ────
+  const lx = tip1.x | 0, ly = tip1.y | 0;
+  drawSmokePuff(ctx, lx, ly, 2, '#243818');
+  drawSmokePuff(ctx, lx, ly, 1, '#3ad8ff');
+  if (((t / 4) | 0) & 1) px(ctx, '#ffffff', lx, ly, 1, 1);
+}
+
+function drawDispatchStation(ctx, ox, oy, t) {
+  // DLX DISPATCH CENTER — open-faced hangar (right wall removed)
+  // where the rig parks before takeoff. Sandstone walls, big
+  // terracotta roof beam, runway floor with yellow caution stripes
+  // extending out to the right, crate stacks inside, big yellow
+  // "DLX DISPATCH" sign on the roof with blinking dot. 120w × 80h.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const blink = ((t / 8) | 0) & 1;
+
+  // ── SKY BAND showing through the open right side (already
+  // dark in the cell — gives the silhouette context) ─────────
+  // (skip — cell background handles this)
+
+  // ── DARK HANGAR INTERIOR (back wall + ceiling cast shadow) ─
+  px(ctx, '#1a0a08', x, y + 18, 96, 50);
+
+  // ── BACK WALL (left side, sandstone) ──────────────────────
+  px(ctx, '#5a3018', x, y + 18, 14, 50);
+  px(ctx, '#3a1a08', x, y + 18, 4, 50);
+  px(ctx, '#7a3018', x, y + 18, 1, 50);
+  // Sandstone brick lines
+  for (let r = 0; r < 50; r += 6) {
+    px(ctx, '#3a1a08', x, y + 18 + r, 14, 1);
+  }
+  for (let r = 3; r < 50; r += 6) {
+    px(ctx, '#3a1a08', x + 7, y + 18 + r, 1, 3);
+  }
+
+  // ── CEILING / TERRACOTTA ROOF BEAM (full width) ───────────
+  px(ctx, '#d8421a', x, y + 12, 96, 6);
+  px(ctx, '#a82812', x, y + 18, 96, 2);
+  px(ctx, '#5a1a08', x, y + 20, 96, 1);
+  // Tile lines on the terracotta roof
+  for (let i = 0; i < 96; i += 6) {
+    px(ctx, '#a82812', x + i, y + 12, 1, 6);
+  }
+  // Roof support I-beams hanging down from the ceiling
+  for (let b = 0; b < 4; b++) {
+    const bx = x + 24 + b * 16;
+    px(ctx, '#3a2418', bx, y + 21, 2, 4);
+    // Triangular gusset
+    px(ctx, '#3a2418', bx - 2, y + 21, 1, 1);
+    px(ctx, '#3a2418', bx + 3, y + 21, 1, 1);
+  }
+
+  // ── BACK-WALL CRATE STACK (storage inside the hangar) ─────
+  {
+    // Big crate on the floor
+    const sx = x + 16, sy = y + 50;
+    px(ctx, C.outline, sx, sy, 16, 14);
+    px(ctx, '#a06820', sx + 1, sy + 1, 14, 12);
+    px(ctx, C.yellow, sx + 1, sy + 1, 14, 1);
+    px(ctx, '#5a3020', sx + 8, sy + 1, 1, 12);
+    px(ctx, '#5a3020', sx + 1, sy + 7, 14, 1);
+    // Lock
+    px(ctx, C.outline, sx + 7, sy + 4, 2, 2);
+    // Smaller crate stacked on top
+    px(ctx, C.outline, sx + 2, sy - 9, 10, 9);
+    px(ctx, '#a06820', sx + 3, sy - 8, 8, 7);
+    px(ctx, C.yellow, sx + 3, sy - 8, 8, 1);
+    px(ctx, '#5a3020', sx + 6, sy - 8, 1, 7);
+  }
+
+  // ── YELLOW CAUTION-X painted on the back wall ─────────────
+  px(ctx, '#ffd060', x + 4, y + 28, 1, 1);
+  px(ctx, '#ffd060', x + 5, y + 29, 1, 1);
+  px(ctx, '#ffd060', x + 6, y + 30, 1, 1);
+  px(ctx, '#ffd060', x + 7, y + 31, 1, 1);
+  px(ctx, '#ffd060', x + 8, y + 32, 1, 1);
+  px(ctx, '#ffd060', x + 9, y + 33, 1, 1);
+  px(ctx, '#ffd060', x + 10, y + 34, 1, 1);
+  px(ctx, '#ffd060', x + 4, y + 34, 1, 1);
+  px(ctx, '#ffd060', x + 5, y + 33, 1, 1);
+  px(ctx, '#ffd060', x + 6, y + 32, 1, 1);
+  px(ctx, '#ffd060', x + 8, y + 30, 1, 1);
+  px(ctx, '#ffd060', x + 9, y + 29, 1, 1);
+  px(ctx, '#ffd060', x + 10, y + 28, 1, 1);
+
+  // ── RUNWAY FLOOR (yellow caution stripes + dashes) ────────
+  // Runway extends from back wall right to the end of the cell.
+  // Concrete strip
+  px(ctx, '#3a2418', x + 14, y + 68, 106, 6);
+  // Yellow edge stripe (TOP of runway)
+  px(ctx, '#ffd060', x + 14, y + 67, 106, 1);
+  // Yellow edge stripe (BOTTOM of runway)
+  px(ctx, '#ffd060', x + 14, y + 73, 106, 2);
+  // Black hazard chunks on bottom stripe
+  for (let i = 0; i < 24; i++) {
+    px(ctx, C.outline, x + 16 + i * 4, y + 73, 2, 2);
+  }
+  // Centerline dashes
+  for (let s = 0; s < 12; s++) {
+    px(ctx, '#ffd060', x + 22 + s * 8, y + 70, 5, 1);
+  }
+
+  // ── ANTENNA / RADIO MAST on the roof ──────────────────────
+  px(ctx, '#3a2418', x + 80, y + 4, 1, 8);
+  px(ctx, '#3a2418', x + 81, y + 4, 1, 8);
+  // Antenna struts
+  px(ctx, '#5a3020', x + 78, y + 6, 5, 1);
+  px(ctx, '#5a3020', x + 78, y + 10, 5, 1);
+  // Blinking red beacon
+  px(ctx, blink ? '#ff4020' : '#7a1a10', x + 80, y + 2, 2, 2);
+
+  // ── BIG DLX DISPATCH SIGN on the front of the roof beam ────
+  // Yellow rectangle with black text behind it.
+  px(ctx, C.outline, x + 22, y + 6, 52, 8);
+  px(ctx, '#ffd060', x + 23, y + 7, 50, 6);
+  // "DLX" text in black pixels (very stylized)
+  // D
+  px(ctx, C.outline, x + 26, y + 8, 1, 4);
+  px(ctx, C.outline, x + 27, y + 8, 2, 1);
+  px(ctx, C.outline, x + 29, y + 9, 1, 2);
+  px(ctx, C.outline, x + 27, y + 11, 2, 1);
+  // L
+  px(ctx, C.outline, x + 31, y + 8, 1, 4);
+  px(ctx, C.outline, x + 32, y + 11, 2, 1);
+  // X
+  px(ctx, C.outline, x + 36, y + 8, 1, 1);
+  px(ctx, C.outline, x + 38, y + 8, 1, 1);
+  px(ctx, C.outline, x + 37, y + 9, 1, 1);
+  px(ctx, C.outline, x + 36, y + 10, 1, 1);
+  px(ctx, C.outline, x + 38, y + 10, 1, 1);
+  px(ctx, C.outline, x + 36, y + 11, 1, 1);
+  px(ctx, C.outline, x + 38, y + 11, 1, 1);
+  // "DISPATCH"
+  for (let i = 0; i < 8; i++) {
+    px(ctx, C.outline, x + 42 + i * 4, y + 8, 1, 4);
+    px(ctx, C.outline, x + 43 + i * 4, y + 9, 1, 1);
+    px(ctx, C.outline, x + 43 + i * 4, y + 11, 1, 1);
+  }
+
+  // ── FUEL PUMP on the right side of the runway ─────────────
+  {
+    const px_ = x + 96, py = y + 56;
+    px(ctx, C.outline, px_, py, 6, 12);
+    px(ctx, '#a04018', px_ + 1, py + 1, 4, 10);
+    // Display screen
+    px(ctx, '#1a0a04', px_ + 1, py + 2, 4, 3);
+    px(ctx, blink ? '#ffd060' : '#3a2410', px_ + 2, py + 3, 2, 1);
+    // Hose nozzle
+    px(ctx, C.outline, px_, py + 8, 1, 2);
+    px(ctx, '#3a2418', px_ - 2, py + 9, 2, 1);
+    // Side rim
+    px(ctx, '#ffd060', px_, py, 6, 1);
+  }
+
+  // ── PARKED-CARGO DRUMS at the back of the hangar ──────────
+  for (let i = 0; i < 3; i++) {
+    const bx = x + 38 + i * 8;
+    px(ctx, C.outline, bx, y + 52, 6, 12);
+    px(ctx, '#5a3020', bx + 1, y + 53, 4, 10);
+    px(ctx, C.rust, bx + 2, y + 56, 2, 2);
+    px(ctx, C.outline, bx + 1, y + 56, 4, 1);
+    px(ctx, C.outline, bx + 1, y + 60, 4, 1);
+  }
+
+  // ── EXHAUST PUFF rising from the rig parking area (animated)
+  // Just one little puff so the dispatch feels active.
+  const exhPhase = ((t * 0.3) | 0) % 12;
+  if (exhPhase < 10) {
+    drawSmokePuff(ctx, x + 60, y + 60 - exhPhase, 2, C.smokeLight);
+  }
+}
+
+function drawDockStation(ctx, ox, oy, t) {
+  // GOOD BUDDY DINER — landing pad at the end of the run. Floating
+  // anti-grav concrete pad with cyan haze underneath, classic
+  // streamlined diner on the right with red-white awning, neon
+  // "GOOD BUDDY DINER" sign towering above on a mast, fuel pumps,
+  // landed cargo crates, and a 4-armed/6-armed ALIEN GREETER
+  // waving multiple arms in welcome (the centerpiece). 140w × 96h.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+  const blink = ((t / 8) | 0) & 1;
+  const wave = Math.sin(t * 0.15);
+
+  // ── ANTI-GRAV HAZE under the platform (cyan ellipse) ──────
+  // Pixel ellipse — 2 rows
+  for (let i = -50; i <= 50; i++) {
+    if (Math.abs(i) > 48) continue;
+    px(ctx, '#3aa8b8', x + 70 + i, y + 78, 1, 1);
+  }
+  for (let i = -42; i <= 42; i++) {
+    if (Math.abs(i) > 40) continue;
+    px(ctx, '#7eddeb', x + 70 + i, y + 77, 1, 1);
+  }
+  // Anti-grav thruster nodes hanging under
+  for (const tx of [x + 30, x + 56, x + 84, x + 110]) {
+    px(ctx, C.outline, tx, y + 72, 4, 4);
+    px(ctx, '#3a2418', tx + 1, y + 73, 2, 2);
+    // Glowing cyan thruster output
+    px(ctx, blink ? '#7eddeb' : '#3090ff', tx + 1, y + 76, 2, 1);
+  }
+
+  // ── PLATFORM (concrete dock pad) ──────────────────────────
+  px(ctx, C.outline, x + 16, y + 64, 108, 10);
+  px(ctx, '#7a6a5a', x + 17, y + 65, 106, 6);
+  px(ctx, '#5a4a3a', x + 17, y + 71, 106, 2);
+  // Edge highlight on top of pad
+  px(ctx, '#a08868', x + 17, y + 65, 106, 1);
+  // Centerline dashes on the platform (approach path)
+  for (let s = 0; s < 7; s++) {
+    px(ctx, '#ffd060', x + 24 + s * 8, y + 67, 5, 1);
+  }
+
+  // ── DINER BUILDING (right side of pad) ────────────────────
+  {
+    const dx = x + 76, dy = y + 36;
+    const dw = 44, dh = 28;
+    // Outer outline
+    px(ctx, C.outline, dx, dy, dw, dh);
+    // Cream-white walls
+    px(ctx, '#f4e8d8', dx + 1, dy + 1, dw - 2, dh - 2);
+    // Aluminum trim along top + bottom
+    px(ctx, '#9a9aa0', dx + 1, dy + 1, dw - 2, 2);
+    px(ctx, '#cfd2d4', dx + 1, dy + 1, dw - 2, 1);
+    px(ctx, '#9a9aa0', dx + 1, dy + dh - 3, dw - 2, 2);
+    px(ctx, '#cfd2d4', dx + 1, dy + dh - 2, dw - 2, 1);
+    // RED + WHITE awning stripe band across the middle-top
+    for (let i = 0; i < dw - 2; i += 4) {
+      px(ctx, '#c83828', dx + 1 + i, dy + 4, 2, 3);
+      px(ctx, '#f4e8d8', dx + 3 + i, dy + 4, 2, 3);
+    }
+    // Big windows
+    px(ctx, C.outline, dx + 2, dy + 9, 22, 14);
+    px(ctx, '#7eddeb', dx + 3, dy + 10, 20, 12);
+    // Window frame divider
+    px(ctx, C.outline, dx + 12, dy + 10, 1, 12);
+    px(ctx, C.outline, dx + 3, dy + 16, 20, 1);
+    // Diner customer silhouette (head + shoulders behind the window)
+    px(ctx, '#3a2418', dx + 5, dy + 13, 3, 3);
+    px(ctx, '#3a2418', dx + 6, dy + 11, 1, 2);
+    px(ctx, '#3a2418', dx + 16, dy + 13, 3, 3);
+    px(ctx, '#3a2418', dx + 17, dy + 11, 1, 2);
+    // Door (right side)
+    px(ctx, C.outline, dx + 26, dy + 9, 10, 14);
+    px(ctx, '#3a2418', dx + 27, dy + 10, 8, 12);
+    // Door window
+    px(ctx, '#7eddeb', dx + 28, dy + 11, 6, 4);
+    px(ctx, C.outline, dx + 31, dy + 11, 1, 4);
+    // Door handle
+    px(ctx, '#ffd060', dx + 33, dy + 17, 1, 2);
+    // "EATS" small neon sign above the door
+    px(ctx, C.outline, dx + 28, dy + 5, 6, 3);
+    px(ctx, '#ff4020', dx + 29, dy + 6, 4, 1);
+  }
+
+  // ── BIG NEON "GOOD BUDDY DINER" SIGN on the mast ──────────
+  {
+    const mx = x + 86, my = y + 8;
+    // Sign mast
+    px(ctx, '#3a2418', mx + 16, my + 12, 2, 24);
+    // Sign panel
+    px(ctx, C.outline, mx, my, 36, 14);
+    px(ctx, '#1a0a04', mx + 1, my + 1, 34, 12);
+    // Neon GOOD BUDDY text — yellow blocky letters
+    const neonCol = blink ? '#ffd060' : '#a06820';
+    // "GOOD" - 4 letters compressed
+    for (let i = 0; i < 4; i++) {
+      px(ctx, neonCol, mx + 4 + i * 3, my + 3, 2, 4);
+    }
+    // "BUDDY" - separator + 5 letters
+    for (let i = 0; i < 5; i++) {
+      px(ctx, neonCol, mx + 18 + i * 3, my + 3, 2, 4);
+    }
+    // "DINER" sub-text below
+    px(ctx, '#ff4020', mx + 8, my + 9, 20, 2);
+    // Outer neon glow
+    if (blink) {
+      px(ctx, '#a06820', mx, my, 36, 1);
+      px(ctx, '#a06820', mx, my + 13, 36, 1);
+    }
+    // Star decorations on each side of sign
+    px(ctx, '#ffffff', mx - 2, my + 5, 1, 1);
+    px(ctx, '#ffffff', mx + 37, my + 5, 1, 1);
+    px(ctx, '#ffffff', mx - 1, my + 4, 1, 1);
+    px(ctx, '#ffffff', mx - 1, my + 6, 1, 1);
+    px(ctx, '#ffffff', mx + 36, my + 4, 1, 1);
+    px(ctx, '#ffffff', mx + 36, my + 6, 1, 1);
+  }
+
+  // ── 6-ARMED ALIEN GREETER on the left side of the pad ─────
+  // The four-to-six-armed alien guiding the rig in. Centerpiece
+  // of the welcome — torso + head + 6 arms waving (3 left, 3
+  // right), each at a different wave phase so they're not in
+  // lockstep.
+  {
+    const ax = x + 36, ay = y + 44;
+    // Lower body (skirt / robe)
+    px(ctx, C.outline, ax - 5, ay + 14, 10, 6);
+    px(ctx, '#7c4abe', ax - 4, ay + 15, 8, 4);
+    px(ctx, '#a07ade', ax - 4, ay + 15, 8, 1);
+    // Torso
+    px(ctx, C.outline, ax - 4, ay + 4, 8, 10);
+    px(ctx, '#9a5ad0', ax - 3, ay + 5, 6, 9);
+    px(ctx, '#7c4abe', ax - 3, ay + 12, 6, 2);
+    // Belt
+    px(ctx, '#ffd060', ax - 3, ay + 10, 6, 1);
+    px(ctx, '#a06820', ax - 1, ay + 10, 2, 1);
+    // Head — bulbous, big eyes
+    px(ctx, C.outline, ax - 4, ay - 4, 8, 9);
+    px(ctx, '#88b840', ax - 3, ay - 3, 6, 8);
+    px(ctx, '#5a9028', ax - 3, ay + 3, 6, 2);
+    // BIG ALIEN EYES (2 black eyes with cyan glow)
+    px(ctx, C.outline, ax - 3, ay - 1, 3, 3);
+    px(ctx, C.outline, ax + 1, ay - 1, 3, 3);
+    px(ctx, '#7eddeb', ax - 2, ay, 1, 1);
+    px(ctx, '#7eddeb', ax + 2, ay, 1, 1);
+    // Antenna stalks on the head
+    px(ctx, C.outline, ax - 2, ay - 6, 1, 2);
+    px(ctx, C.outline, ax + 2, ay - 6, 1, 2);
+    px(ctx, '#ff4020', ax - 2, ay - 7, 1, 1);
+    px(ctx, '#ff4020', ax + 2, ay - 7, 1, 1);
+    // Mouth (toothy grin)
+    px(ctx, C.outline, ax - 1, ay + 4, 3, 1);
+    px(ctx, '#ffffff', ax - 1, ay + 4, 1, 1);
+    px(ctx, '#ffffff', ax + 1, ay + 4, 1, 1);
+
+    // ── 6 ARMS — each with its own wave phase ──────────────
+    // Each arm: shoulder → elbow → hand, drawn as connected pixel
+    // segments. The HAND POSITION animates with sine offsets.
+    const drawArm = (sx, sy, phase, side) => {
+      // Phase 0..1, side: -1 = left, +1 = right
+      const w = Math.sin(phase) * 4;        // hand horizontal offset
+      const v = Math.cos(phase * 0.7) * 3;   // hand vertical offset
+      // Shoulder
+      px(ctx, '#7c4abe', sx, sy, 2, 2);
+      // Elbow
+      const ex = (sx + side * (3 + w * 0.4)) | 0;
+      const ey = (sy + 3 + v * 0.5) | 0;
+      px(ctx, '#9a5ad0', ex, ey, 2, 2);
+      // Hand
+      const hx = (ex + side * (4 + w * 0.6)) | 0;
+      const hy = (ey + 2 + v * 0.7 - 2) | 0;
+      px(ctx, '#88b840', hx, hy, 2, 2);
+      // Connect with 1-px segments (upper arm + forearm)
+      // Upper arm
+      const ux = ((sx + ex) * 0.5) | 0;
+      const uy = ((sy + ey) * 0.5) | 0;
+      px(ctx, '#7c4abe', ux + (side === 1 ? 1 : 0), uy, 1, 1);
+      px(ctx, '#7c4abe', ux + (side === 1 ? 0 : 1), uy + 1, 1, 1);
+      // Forearm
+      const fx = ((ex + hx) * 0.5) | 0;
+      const fy = ((ey + hy) * 0.5) | 0;
+      px(ctx, '#9a5ad0', fx + (side === 1 ? 1 : 0), fy, 1, 1);
+      px(ctx, '#9a5ad0', fx + (side === 1 ? 0 : 1), fy + 1, 1, 1);
+    };
+    // LEFT side arms (3 at different heights, each with own phase)
+    drawArm(ax - 4, ay + 5,  t * 0.18,        -1);
+    drawArm(ax - 4, ay + 8,  t * 0.18 + 1.0,  -1);
+    drawArm(ax - 4, ay + 11, t * 0.18 + 2.0,  -1);
+    // RIGHT side arms (3, mirrored phases)
+    drawArm(ax + 3, ay + 5,  t * 0.18 + 0.5,  1);
+    drawArm(ax + 3, ay + 8,  t * 0.18 + 1.5,  1);
+    drawArm(ax + 3, ay + 11, t * 0.18 + 2.5,  1);
+
+    // Tiny "WELCOME!" speech bubble above the alien
+    const bx = ax - 10, by = ay - 16;
+    if (blink) {
+      px(ctx, C.outline, bx, by, 18, 6);
+      px(ctx, '#f4e8d8', bx + 1, by + 1, 16, 4);
+      // Speech tail
+      px(ctx, C.outline, bx + 8, by + 6, 1, 2);
+      px(ctx, '#f4e8d8', bx + 8, by + 6, 1, 1);
+      // Tiny "HI!" letters
+      px(ctx, C.outline, bx + 4, by + 2, 1, 3);
+      px(ctx, C.outline, bx + 5, by + 3, 1, 1);
+      px(ctx, C.outline, bx + 6, by + 2, 1, 3);
+      px(ctx, C.outline, bx + 9, by + 2, 1, 3);
+      px(ctx, '#a01a0a', bx + 12, by + 2, 1, 3);
+      px(ctx, '#a01a0a', bx + 12, by + 4, 1, 1);
+    }
+  }
+
+  // ── CARGO CRATES leaning against diner left wall ──────────
+  for (let i = 0; i < 2; i++) {
+    const cx = x + 70 + i * 7;
+    const cy = y + 50 + (i % 2) * 4;
+    px(ctx, C.outline, cx, cy, 6, 14);
+    px(ctx, '#a06820', cx + 1, cy + 1, 4, 12);
+    px(ctx, C.yellow, cx + 1, cy + 1, 4, 1);
+    px(ctx, '#5a3020', cx + 3, cy + 1, 1, 12);
+  }
+
+  // ── FUEL PUMP island (between alien and diner) ─────────────
+  {
+    const pmx = x + 56, pmy = y + 52;
+    // Concrete base
+    px(ctx, C.outline, pmx - 2, pmy + 12, 12, 4);
+    px(ctx, '#5a4a3a', pmx - 1, pmy + 13, 10, 3);
+    // Pump body
+    px(ctx, C.outline, pmx, pmy, 8, 14);
+    px(ctx, '#a04018', pmx + 1, pmy + 1, 6, 12);
+    // Display screen
+    px(ctx, '#1a0a04', pmx + 1, pmy + 2, 6, 4);
+    px(ctx, blink ? '#ffd060' : '#3a2410', pmx + 2, pmy + 3, 4, 2);
+    // Nozzle hose
+    px(ctx, '#3a2418', pmx - 3, pmy + 6, 3, 1);
+    px(ctx, '#3a2418', pmx - 5, pmy + 7, 2, 4);
+    px(ctx, '#5a5a60', pmx - 5, pmy + 11, 2, 1);
+    // Brand logo
+    px(ctx, C.yellow, pmx + 1, pmy + 7, 6, 1);
+    px(ctx, '#ffd060', pmx, pmy, 8, 1);
+  }
+}
+
+function drawFireball(ctx, ox, oy, t) {
+  // Animated lava-ball projectile — white-hot core fading through
+  // pale yellow → bright orange → deep orange rim, wrapped in a
+  // dim halo and an offset hot center that tracks the direction of
+  // travel (LEFT in the mockup — fireballs come at the player from
+  // the right). Surrounded by a flickering trail of fading puffs,
+  // orbital ember sparks, and 4 flame tongues that rotate over time.
+  // ox, oy = top-left of the 56×24 bounding box.
+  const x = ox | 0, y = oy | 0;
+  t = t || 0;
+
+  // Center of ball — left-of-center of the bounding box so the
+  // trail can extend right (behind the projectile).
+  const cx = x + 16, cy = y + 12;
+
+  // Pulse — quick flicker so the orb feels alive
+  const pulse = Math.sin(t * 0.30) * 0.5 + 0.5;
+  const r = 5 + (pulse > 0.5 ? 1 : 0);
+
+  // ── TRAIL — fading puffs streaming behind (to the right) ────
+  for (let i = 1; i <= 6; i++) {
+    const phase = ((t * 0.5) + i * 2) % 12;
+    const tx = (cx + i * 4 + (phase * 0.3) | 0) | 0;
+    const ty = (cy + Math.sin(t * 0.18 + i * 1.1) * 2.5) | 0;
+    const tr = Math.max(1, 5 - i - ((phase / 5) | 0));
+    if (tr < 1) continue;
+    // Color progression: hot yellow at the head → orange → dim red tip
+    let outer, inner;
+    if (i === 1) { outer = '#ffd060'; inner = '#ffffff'; }
+    else if (i === 2) { outer = '#ff9050'; inner = '#ffd060'; }
+    else if (i === 3) { outer = '#e87028'; inner = '#ff9050'; }
+    else if (i === 4) { outer = '#c84020'; inner = '#e87028'; }
+    else if (i === 5) { outer = '#7a1a10'; inner = '#c84020'; }
+    else              { outer = '#3a1010'; inner = '#7a1a10'; }
+    drawSmokePuff(ctx, tx, ty, tr, outer);
+    if (tr >= 2) drawSmokePuff(ctx, tx, ty, tr - 1, inner);
+  }
+
+  // ── ORBITAL EMBER SPARKS — random hot pixels around the ball ─
+  for (let i = 0; i < 6; i++) {
+    const sa = (i / 6 + t * 0.04) * Math.PI * 2;
+    const sd = r + 3 + Math.sin(t * 0.10 + i) * 1.5;
+    const sx = (cx + Math.cos(sa) * sd) | 0;
+    const sy = (cy + Math.sin(sa) * sd) | 0;
+    px(ctx, (i & 1) ? '#ffffff' : '#ffd060', sx, sy, 1, 1);
+  }
+
+  // ── OUTER HALO (dim glow) ───────────────────────────────────
+  drawSmokePuff(ctx, cx, cy, r + 2, '#7a1a10');
+  drawSmokePuff(ctx, cx, cy, r + 1, '#c84020');
+
+  // ── BODY LAYERS (concentric, white-hot core offset to leading
+  //    edge so the brightest spot tracks the direction of travel)
+  drawSmokePuff(ctx, cx, cy, r,        '#e87028');   // deep orange rim
+  drawSmokePuff(ctx, cx, cy, r - 1,    '#ff9050');   // hot orange
+  drawSmokePuff(ctx, cx - 1, cy,       r - 2, '#ffd060'); // bright yellow (offset left)
+  drawSmokePuff(ctx, cx - 1, cy,       r - 3, '#fff4d0'); // pale yellow
+  drawSmokePuff(ctx, cx - 2, cy,       r - 4, '#ffffff'); // white-hot core
+
+  // ── FLAME TONGUES — 4 tongues poking out, rotating over time ─
+  const tongPhase = (t / 4) | 0;
+  for (let i = 0; i < 4; i++) {
+    const angIdx = (tongPhase + i * 2) & 7;
+    const angle = (angIdx / 8) * Math.PI * 2;
+    // Tongue base (just outside body)
+    const bx = (cx + Math.cos(angle) * (r + 1)) | 0;
+    const by = (cy + Math.sin(angle) * (r + 1)) | 0;
+    px(ctx, '#ffd060', bx, by, 1, 1);
+    // Tongue tip (further out)
+    const tx = (cx + Math.cos(angle) * (r + 2)) | 0;
+    const ty = (cy + Math.sin(angle) * (r + 2)) | 0;
+    px(ctx, '#ff9050', tx, ty, 1, 1);
+  }
+
+  // ── LEADING-EDGE WHITE FLICKER on the head of the ball ──────
+  // Only on alternating phases — makes the orb feel like it's
+  // shedding heat at the front edge.
+  if (((t / 2) | 0) & 1) {
+    px(ctx, '#ffffff', cx - r, cy, 1, 1);
+    px(ctx, '#fff4d0', cx - r - 1, cy, 1, 1);
+  }
+}
+
+function drawSpikes(ctx, ox, oy) {
+  // Big menacing iron-spike trap — 4 tall jagged spikes of VARIED
+  // heights (so they don't look like a uniform comb), each one
+  // ~6-8 wide × 18-26 tall. Rusted iron body, bone-white sharpened
+  // tips with blood-rust drip stains, embedded in a low dirt mound
+  // with rubble pixels. ~46w × 30h overall.
+  const x = ox | 0, y = oy | 0;
+
+  // ── DIRT MOUND BASE ─────────────────────────────────────────
+  // Stepped mound across the bottom so the spikes look anchored
+  // into the ground, not floating.
+  px(ctx, C.outline, x, y + 28, 46, 2);
+  px(ctx, C.earth1, x + 1, y + 28, 44, 1);
+  px(ctx, C.earth1, x + 2, y + 26, 42, 2);
+  px(ctx, C.earth0, x + 4, y + 25, 38, 1);
+  // Mound rises in the middle
+  px(ctx, C.earth1, x + 8, y + 24, 30, 1);
+  px(ctx, C.earth0, x + 12, y + 23, 22, 1);
+  // Scattered pebble debris
+  px(ctx, C.outline, x + 3, y + 27, 1, 1);
+  px(ctx, C.outline, x + 22, y + 27, 2, 1);
+  px(ctx, C.outline, x + 38, y + 27, 1, 1);
+
+  // ── SPIKE TEMPLATE ─────────────────────────────────────────
+  // Each spike: tapered triangle silhouette built row by row,
+  // widening from 1px at the tip down to a stout base. Rusted
+  // iron body (#5a3020 outside, #7a3018 core, #a85838 sun-lit
+  // edge), bone-white sharpened tip (top 3 rows), and blood-rust
+  // drip below the tip.
+  const drawSpike = (sx, baseY, h) => {
+    // Tip 1 px wide
+    px(ctx, '#ffffff', sx, baseY - h, 1, 1);
+    // Top 3 rows = bone-white sharpened tip
+    px(ctx, '#f4e8c0', sx, baseY - h + 1, 1, 2);
+    px(ctx, '#a88858', sx - 1, baseY - h + 2, 1, 1);
+    px(ctx, '#a88858', sx + 1, baseY - h + 2, 1, 1);
+    // Blood/rust streak at the base of the tip
+    px(ctx, '#a01a0a', sx, baseY - h + 3, 1, 1);
+    px(ctx, C.rust, sx + 1, baseY - h + 4, 1, 1);
+
+    // Body — row-by-row triangle widening, 1px per 2 rows.
+    // h = total spike height (including tip + body).
+    const bodyTop = baseY - h + 3;
+    const bodyH = h - 3;
+    for (let r = 0; r < bodyH; r++) {
+      // Half-width at this row — 0 at top, grows down
+      const hw = Math.min(1 + ((r / 2) | 0), 4);
+      const yy = bodyTop + r;
+      // Outline edges
+      px(ctx, C.outline, sx - hw, yy, 1, 1);
+      px(ctx, C.outline, sx + hw, yy, 1, 1);
+      // Core fill
+      if (hw >= 1) {
+        px(ctx, '#5a3020', sx - hw + 1, yy, 1, 1);     // shaded left
+        px(ctx, '#7a3018', sx, yy, 1, 1);              // core
+        px(ctx, '#a85838', sx + hw - 1, yy, 1, 1);     // sun-lit right
+      }
+      // Inner core for thicker rows
+      if (hw >= 2) {
+        px(ctx, '#7a3018', sx - hw + 2, yy, hw * 2 - 3, 1);
+        px(ctx, '#a85838', sx + 1, yy, hw - 1, 1);
+      }
+    }
+    // Rust streaks running down the spike body
+    px(ctx, '#3a1408', sx - 1, bodyTop + ((bodyH * 0.4) | 0), 1, (bodyH * 0.4) | 0);
+    px(ctx, C.rust, sx + 1, bodyTop + ((bodyH * 0.3) | 0), 1, (bodyH * 0.5) | 0);
+    // Embedded into the mound — extra shadow at the base
+    px(ctx, '#1a0804', sx - 2, baseY - 1, 5, 1);
+    px(ctx, C.outline, sx - 3, baseY, 7, 1);
+  };
+
+  // ── 4 SPIKES of varied heights (not a uniform comb) ─────────
+  // Tallest in the middle; shorter outer two. Slightly irregular
+  // spacing.
+  const baseY = y + 27;
+  drawSpike(x + 7,  baseY, 20);   // left — medium
+  drawSpike(x + 18, baseY, 26);   // left-center — TALLEST
+  drawSpike(x + 28, baseY, 22);   // right-center — tall
+  drawSpike(x + 38, baseY, 18);   // right — shortest
+
+  // ── DRIED BLOOD POOL around the base of the tallest spike ───
+  px(ctx, '#7a1a10', x + 14, y + 27, 8, 1);
+  px(ctx, '#a01a0a', x + 16, y + 26, 4, 1);
+  px(ctx, '#3a0a04', x + 13, y + 28, 1, 1);
+  px(ctx, '#3a0a04', x + 22, y + 28, 1, 1);
 }
 
 // ═════════════════════════════════════════════════════════
@@ -2290,25 +3980,31 @@ function drawScene(ctx, w, h, t) {
   drawDeadCactus(ctx, 270, terrainY - 18);
 
   // Mid-air obstacle hovering left side
-  drawScrapTower(ctx, 16, (h * 0.18) | 0);
+  drawScrapTower(ctx, 16, (h * 0.18) | 0, t);
 
   // Mid-air wreck
-  drawAirWreck(ctx, 200, (h * 0.30) | 0);
+  drawAirWreck(ctx, 200, (h * 0.30) | 0, t);
 
   // Magnet recall box
-  drawMagnetBox(ctx, 230, (h * 0.62) | 0);
+  drawMagnetBox(ctx, 230, (h * 0.62) | 0, t);
 
   // Ground rival on terrain
-  drawRivalHauler(ctx, 280, terrainY - 4);
+  drawRivalHauler(ctx, 280, terrainY - 4, t);
 
   // Drone hovering
-  drawDrone(ctx, 90, (h * 0.45) | 0);
+  drawDrone(ctx, 90, (h * 0.45) | 0, t);
 
   // Thief — sweeping in
-  drawThief(ctx, 160, (h * 0.10) | 0);
+  drawThief(ctx, 160, (h * 0.10) | 0, t);
 
-  // Spike cluster
-  drawSpikes(ctx, 50, terrainY + 4);
+  // FIREBALL — flying horizontally through the sky toward the player
+  drawFireball(ctx, 80, (h * 0.40) | 0, t);
+
+  // Big menacing spike cluster on the terrain
+  drawSpikes(ctx, 40, terrainY - 8);
+
+  // TENTACLE MONSTER bursting from the terrain (far right)
+  drawTentacleMonster(ctx, 240, terrainY - 36, t);
 }
 
 // ═════════════════════════════════════════════════════════
@@ -2388,32 +4084,84 @@ window.addEventListener('DOMContentLoaded', () => {
   // Props grid
   const props = document.getElementById('propsGrid');
   const PROPS = [
-    ['Cactus',      64, 32, 3, (c) => drawCactus(c, 24, 4)],
-    ['Saguaro',     64, 40, 3, (c) => drawSaguaro(c, 24, 2)],
-    ['Dead Cactus', 64, 32, 3, (c) => drawDeadCactus(c, 24, 6)],
-    ['Brush',       64, 16, 3, (c) => drawBrush(c, 24, 5)],
-    ['Rock',        64, 16, 3, (c) => drawRock(c, 22, 2)],
-    ['Skull',       64, 22, 3, (c) => drawSkull(c, 24, 3)],
-    ['Bones',       80, 32, 3, (c) => drawBones(c, 26, 3)],
-    ['Tumbleweed',  64, 20, 3, (c) => drawTumbleweed(c, 24, 3)],
-    ['Butte (mesa)',88, 36, 2, (c) => drawButte(c, 22, 2)],
-    ['Spikes',      64, 16, 3, (c) => drawSpikes(c, 20, 2)],
+    ['Cactus',         64, 32, 3, (c) => drawCactus(c, 24, 4)],
+    ['Saguaro',        64, 40, 3, (c) => drawSaguaro(c, 24, 2)],
+    ['Dead Cactus',    64, 32, 3, (c) => drawDeadCactus(c, 24, 6)],
+    ['Brush',          64, 16, 3, (c) => drawBrush(c, 24, 5)],
+    ['Rock · small',   64, 16, 3, (c) => drawRock(c, 22, 2)],
+    ['Rock · big',     64, 24, 3, (c) => drawRockBig(c, 18, 2)],
+    ['Rock · sharp',   64, 20, 3, (c) => drawRockSharp(c, 22, 2)],
+    ['Rock · twins',   64, 20, 3, (c) => drawRockTwins(c, 20, 4)],
+    ['Skull',          64, 22, 3, (c) => drawSkull(c, 24, 3)],
+    ['Bones',          80, 32, 3, (c) => drawBones(c, 26, 3)],
+    ['Tumbleweed',     64, 20, 3, (c) => drawTumbleweed(c, 24, 3)],
+    ['Butte (mesa)',   88, 36, 2, (c) => drawButte(c, 22, 2)],
+    ['Spikes',         80, 36, 3, (c) => drawSpikes(c, 16, 4)],
   ];
   for (const [label, w, h, scale, fn] of PROPS) {
     makeSpriteCell(props, label, w, h, scale, fn);
   }
 
+  // Stations grid
+  const stations = document.getElementById('stationsGrid');
+  const STATIONS = [
+    ['DLX Dispatch (takeoff)',         140, 96,  2, (c, t) => drawDispatchStation(c, 10, 8, t),  { animate: true }],
+    ['Good Buddy Diner (landing)',     160, 110, 2, (c, t) => drawDockStation(c, 8, 8, t),       { animate: true }],
+  ];
+  for (const entry of STATIONS) {
+    const [label, w, h, scale, fn, opts] = entry;
+    makeSpriteCell(stations, label, w, h, scale, fn, opts);
+  }
+
   // Obstacles grid
   const obs = document.getElementById('obstaclesGrid');
   const OBSTACLES = [
-    ['Scrap Tower', 56, 90, 2, (c, t) => drawScrapTower(c, 10, 4, t), { animate: true }],
-    ['Air Wreck',   84, 44, 3, (c, t) => drawAirWreck(c, 6,  6, t),   { animate: true }],
-    ['Magnet Box',  64, 48, 3, (c, t) => drawMagnetBox(c, 14, 8, t),  { animate: true }],
-    ['Tunnel',      80, 48, 2, (c, t) => drawTunnel(c, 8, 4, t),       { animate: true }],
+    ['Scrap Tower',         56, 90, 2, (c, t) => drawScrapTower(c, 10, 4, t),        { animate: true }],
+    ['Air Wreck',           84, 44, 3, (c, t) => drawAirWreck(c, 6,  6, t),          { animate: true }],
+    ['Magnet Box',          72, 56, 3, (c, t) => drawMagnetBox(c, 14, 8, t),         { animate: true }],
+    ['Tunnel · entrance',   80, 48, 2, (c, t) => drawTunnel(c, 8, 4, t),             { animate: true }],
+    ['Tunnel · interior',  128, 60, 2, (c, t) => drawTunnelInterior(c, 4, 2, t),     { animate: true }],
+    ['Fireball',            64, 28, 3, (c, t) => drawFireball(c, 4, 4, t),           { animate: true }],
+    ['Tentacle Monster',    88, 64, 2, (c, t) => drawTentacleMonster(c, 4, 6, t),    { animate: true }],
   ];
   for (const entry of OBSTACLES) {
     const [label, w, h, scale, fn, opts] = entry;
     makeSpriteCell(obs, label, w, h, scale, fn, opts);
+  }
+
+  // Collectibles grid
+  const coll = document.getElementById('collectiblesGrid');
+  const COLLECTIBLES = [
+    ['Cargo Crate',     64, 20, 3, (c, t) => drawCargoCrate(c, 24, 3, t),     { animate: true }],
+    ['Gem · small',     48, 16, 4, (c, t) => drawGemSmall(c, 20, 4, t),       { animate: true }],
+    ['Gem · big',       48, 20, 4, (c, t) => drawGemBig(c, 18, 4, t),         { animate: true }],
+    ['Coin',            40, 16, 4, (c, t) => drawCoin(c, 16, 4, t),           { animate: true }],
+    ['Fuel Canister',   48, 20, 4, (c, t) => drawFuelCan(c, 19, 3, t),        { animate: true }],
+    ['Badge / Medal',   48, 20, 4, (c, t) => drawBadgeMedal(c, 18, 3, t),     { animate: true }],
+    ['Turbo Boost',     56, 20, 4, (c, t) => drawTurboBoost(c, 20, 3, t),     { animate: true }],
+    ['Shield Powerup',  56, 20, 4, (c, t) => drawShieldPowerup(c, 20, 3, t),  { animate: true }],
+    ['Magnet Powerup',  56, 20, 4, (c, t) => drawMagnetPowerup(c, 18, 3, t),  { animate: true }],
+    ['Score Popup',     48, 20, 4, (c, t) => drawScorePopup(c, 14, 6, t),     { animate: true }],
+  ];
+  for (const entry of COLLECTIBLES) {
+    const [label, w, h, scale, fn, opts] = entry;
+    makeSpriteCell(coll, label, w, h, scale, fn, opts);
+  }
+
+  // Particles grid
+  const parts = document.getElementById('particlesGrid');
+  const PARTICLES = [
+    ['Dust Motes',       48, 28, 3, (c, t) => drawDustMotes(c, 8, 4, t),       { animate: true }],
+    ['Embers',           48, 32, 3, (c, t) => drawEmberParticles(c, 8, 4, t),  { animate: true }],
+    ['Spark Burst',      40, 36, 3, (c, t) => drawSparkBurst(c, 6, 4, t),      { animate: true }],
+    ['Sand Spray',       48, 24, 3, (c, t) => drawSandSpray(c, 6, 4, t),       { animate: true }],
+    ['Smoke Wisp',       40, 40, 3, (c, t) => drawSmokeWisp(c, 6, 4, t),       { animate: true }],
+    ['Damage Stars',     40, 28, 3, (c, t) => drawDamageStars(c, 6, 4, t),     { animate: true }],
+    ['Cargo Loss Puff',  48, 32, 3, (c, t) => drawCargoLossPuff(c, 6, 4, t),   { animate: true }],
+  ];
+  for (const entry of PARTICLES) {
+    const [label, w, h, scale, fn, opts] = entry;
+    makeSpriteCell(parts, label, w, h, scale, fn, opts);
   }
 
   // Rivals grid
