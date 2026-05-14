@@ -90,6 +90,23 @@
     color: #c0a890; text-transform: uppercase;
     text-align: center;
   }
+  .spriteCell .gifBtn {
+    margin-top: 6px;
+    background: linear-gradient(180deg,#f06030 0%,#c52a18 100%);
+    border: 1.5px solid #1a0a06;
+    color: #ffd83d;
+    font-family: Impact, 'Arial Black', sans-serif;
+    font-size: 10px; letter-spacing: 1.5px;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    box-shadow: 0 2px 0 #5a2010;
+  }
+  .spriteCell .gifBtn:hover { background: linear-gradient(180deg,#ff7038 0%,#d8321a 100%); }
+  .spriteCell .gifBtn:disabled {
+    background: #3a2a30; color: #806a70; cursor: wait;
+    box-shadow: none;
+  }
 
   .footnote {
     font-size: 12px; line-height: 1.65;
@@ -255,6 +272,8 @@
 
 </div>
 
+<!-- gif.js — client-side GIF encoder for the per-cell GIF buttons -->
+<script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
 <script>
 // ═════════════════════════════════════════════════════════
 // SHARED PALETTE — derived from the roadkill rig palette
@@ -4024,6 +4043,78 @@ function drawSkyDetail(ctx, w, h, t) {
 // SPRITE GRID HELPERS
 // ═════════════════════════════════════════════════════════
 const animatedRenderers = [];
+
+// Pre-fetch the gif.js worker as a same-origin blob URL so the GIF
+// encoder can spin up parallel workers without hitting the cross-
+// origin worker restriction. Fall back to single-thread encode if
+// the fetch fails.
+let gifWorkerBlobUrl = null;
+fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js')
+  .then(r => r.ok ? r.text() : Promise.reject(r.status))
+  .then(js => {
+    gifWorkerBlobUrl = URL.createObjectURL(
+      new Blob([js], { type: 'application/javascript' })
+    );
+  })
+  .catch(() => {
+    console.warn('[GIF] worker blob fetch failed — will encode on main thread');
+  });
+
+function recordCellGif(drawFn, w, h, scale, frames, delayMs) {
+  return new Promise((resolve, reject) => {
+    if (typeof GIF === 'undefined') {
+      reject(new Error('gif.js not loaded'));
+      return;
+    }
+    // Per-frame source canvas at NATIVE pixel res (so each pixel is
+    // 1 native pixel), and a destination canvas at display scale so
+    // the GIF shows the pixel art at the same chunky size you see
+    // on the page.
+    const srcCv = document.createElement('canvas');
+    srcCv.width = w; srcCv.height = h;
+    const srcCx = srcCv.getContext('2d');
+    srcCx.imageSmoothingEnabled = false;
+
+    const dstW = w * scale, dstH = h * scale;
+    const dstCv = document.createElement('canvas');
+    dstCv.width = dstW; dstCv.height = dstH;
+    const dstCx = dstCv.getContext('2d');
+    dstCx.imageSmoothingEnabled = false;
+
+    const gifOpts = {
+      quality: 10,
+      width: dstW, height: dstH,
+      dither: false,
+    };
+    if (gifWorkerBlobUrl) {
+      gifOpts.workers = 2;
+      gifOpts.workerScript = gifWorkerBlobUrl;
+    } else {
+      gifOpts.workers = 0;
+    }
+    const gif = new GIF(gifOpts);
+    gif.on('finished', (blob) => resolve(blob));
+    gif.on('abort', () => reject(new Error('GIF aborted')));
+
+    for (let f = 0; f < frames; f++) {
+      // Repaint checkerboard background (mirrors the live cell)
+      for (let yy = 0; yy < h; yy += 4) {
+        for (let xx = 0; xx < w; xx += 4) {
+          srcCx.fillStyle = ((xx ^ yy) & 4) ? '#101018' : '#1a1a24';
+          srcCx.fillRect(xx, yy, 4, 4);
+        }
+      }
+      drawFn(srcCx, f);
+      // Scale up to display res
+      dstCx.imageSmoothingEnabled = false;
+      dstCx.clearRect(0, 0, dstW, dstH);
+      dstCx.drawImage(srcCv, 0, 0, dstW, dstH);
+      gif.addFrame(dstCv, { copy: true, delay: delayMs });
+    }
+    gif.render();
+  });
+}
+
 function makeSpriteCell(parent, label, w, h, scale, drawFn, opts) {
   const animate = opts && opts.animate;
   const cell = document.createElement('div');
@@ -4052,6 +4143,46 @@ function makeSpriteCell(parent, label, w, h, scale, drawFn, opts) {
   lab.textContent = label;
   cell.appendChild(cv);
   cell.appendChild(lab);
+
+  // GIF download button — only for animated cells. Static sprites
+  // would just produce a 1-frame loop which isn't worth the click.
+  if (animate) {
+    const btn = document.createElement('button');
+    btn.className = 'gifBtn';
+    btn.type = 'button';
+    btn.textContent = 'DOWNLOAD GIF';
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'RECORDING…';
+      try {
+        // Render scale — cap so big sprites (stations) don't blow up
+        // to a multi-megabyte GIF. Native is fine for tiny cells.
+        const captureScale = Math.min(scale, Math.max(1, (240 / Math.max(w, h)) | 0));
+        const blob = await recordCellGif(drawFn, w, h, captureScale, 36, 70);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = label.toLowerCase()
+                          .replace(/[^a-z0-9]+/g, '-')
+                          .replace(/^-|-$/g, '') + '.gif';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Free the blob after the browser has had a moment to start
+        // the download.
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        btn.textContent = 'DONE ✓';
+        setTimeout(() => { btn.textContent = 'DOWNLOAD GIF'; }, 1500);
+      } catch (e) {
+        console.error(e);
+        btn.textContent = 'ERROR — RETRY';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    cell.appendChild(btn);
+  }
+
   parent.appendChild(cell);
 }
 
