@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v426-pixel';
+const DLX_BUILD = 'v427-pixel';
 
 (function() {
   // ---------- Device detection ----------
@@ -27424,246 +27424,130 @@ const DLX_BUILD = 'v426-pixel';
   };
 
   function pxRoadkillRig(ctx, ox, oy, frame) {
-    ctx.imageSmoothingEnabled = false;
-    const x = ox | 0, y = oy | 0;
+      ctx.imageSmoothingEnabled = false;
+      const x = ox | 0, y = oy | 0;
+      const C = PXC;
+      // v12 — body width 70 → 50, engine width 46 → 34, cockpit
+      // 24 → 20, grille 16 → 12. Total native ~58 wide × 52 tall
+      // (was 80 × 52). Reads as miniature/compact like original hauler.
   
-    // ── BODY (long horizontal teal hull) ──
-    // Outline silhouette
-    ctx.fillStyle = PXC.outline;
-    ctx.fillRect(x +  8, y + 22, 70, 14);
-    // Bottom shadow
-    ctx.fillStyle = PXC.hullDeep;
-    ctx.fillRect(x +  8, y + 32, 70,  4);
-    // Mid dark
-    ctx.fillStyle = PXC.hullDark;
-    ctx.fillRect(x +  8, y + 28, 70,  4);
-    // Core teal
-    ctx.fillStyle = PXC.hullCore;
-    ctx.fillRect(x +  8, y + 23, 70,  6);
-    // Top highlight
-    ctx.fillStyle = PXC.hullLight;
-    ctx.fillRect(x + 10, y + 23, 66,  2);
-    // Yellow caution stripe
-    ctx.fillStyle = PXC.yellow;
-    ctx.fillRect(x + 10, y + 31, 66,  1);
-    ctx.fillStyle = PXC.yellowDeep;
-    ctx.fillRect(x + 10, y + 32, 66,  1);
-    // Rust damage spots
-    ctx.fillStyle = PXC.rust;
-    ctx.fillRect(x + 24, y + 25, 4, 2);
-    ctx.fillRect(x + 50, y + 27, 5, 2);
-    ctx.fillStyle = PXC.rustDark;
-    ctx.fillRect(x + 25, y + 27, 2, 1);
+      // Body
+      ctx.fillStyle = C.outline; ctx.fillRect(x+6, y+22, 50, 14);
+      ctx.fillStyle = C.hullDeep; ctx.fillRect(x+6, y+32, 50, 4);
+      ctx.fillStyle = C.hullDark; ctx.fillRect(x+6, y+28, 50, 4);
+      ctx.fillStyle = C.hullCore; ctx.fillRect(x+6, y+23, 50, 6);
+      ctx.fillStyle = C.hullLight; ctx.fillRect(x+8, y+23, 46, 2);
+      ctx.fillStyle = C.yellow; ctx.fillRect(x+8, y+31, 46, 1);
+      ctx.fillStyle = C.yellowDeep; ctx.fillRect(x+8, y+32, 46, 1);
+      ctx.fillStyle = C.rust; ctx.fillRect(x+18, y+25, 3, 2); ctx.fillRect(x+34, y+27, 4, 2);
+      ctx.fillStyle = C.rustDark; ctx.fillRect(x+19, y+27, 1, 1);
   
-    // ── SINGLE TAIL FIN (triangular wedge, multi-shade teal) ──
-    // v6: only ONE fin per user. Removed wing 2; kept the larger
-    // back fin as the singular vertical stabilizer.
-    {
-      const wX = x + 12, wTop = y + 6, wBase = y + 22, wCols = 16;
-      for (let i = 0; i < wCols; i++) {
-        const cx = wX + i;
-        const cTop = wTop + i;
-        if (cTop > wBase) break;
-        ctx.fillStyle = PXC.outline;
-        ctx.fillRect(cx, cTop, 1, 1);
-        if (cTop + 1 < wBase) {
-          ctx.fillStyle = PXC.hullDark;
-          ctx.fillRect(cx, cTop + 1, 1, wBase - cTop - 1);
+      // Single fin (12-wide triangular wedge)
+      {
+        const wX = x+8, wTop = y+6, wBase = y+22, wCols = 12;
+        for (let i = 0; i < wCols; i++) {
+          const cx = wX+i, cTop = wTop+i;
+          if (cTop > wBase) break;
+          ctx.fillStyle = C.outline; ctx.fillRect(cx, cTop, 1, 1);
+          if (cTop+1 < wBase) { ctx.fillStyle = C.hullDark; ctx.fillRect(cx, cTop+1, 1, wBase-cTop-1); }
+          if (i > 0 && cTop+1 < wBase) { ctx.fillStyle = C.hullCore; ctx.fillRect(cx, cTop+1, 1, 1); }
+          if (i > 1 && i < wCols-3 && cTop+2 < wBase-4) { ctx.fillStyle = C.hullLight; ctx.fillRect(cx, cTop+2, 1, 1); }
+          ctx.fillStyle = C.hullDeep; ctx.fillRect(cx, wBase-1, 1, 1);
+          ctx.fillStyle = C.outline; ctx.fillRect(cx, wBase, 1, 1);
         }
-        if (i > 0 && cTop + 1 < wBase) {
-          ctx.fillStyle = PXC.hullCore;
-          ctx.fillRect(cx, cTop + 1, 1, 1);
-        }
-        if (i > 1 && i < wCols - 3 && cTop + 2 < wBase - 4) {
-          ctx.fillStyle = PXC.hullLight;
-          ctx.fillRect(cx, cTop + 2, 1, 1);
-        }
-        ctx.fillStyle = PXC.hullDeep;
-        ctx.fillRect(cx, wBase - 1, 1, 1);
-        ctx.fillStyle = PXC.outline;
-        ctx.fillRect(cx, wBase, 1, 1);
+        ctx.fillStyle = C.outline; ctx.fillRect(wX, wTop, 1, wBase-wTop+1);
       }
-      ctx.fillStyle = PXC.outline;
-      ctx.fillRect(wX, wTop, 1, wBase - wTop + 1);
-    }
   
-    // ── ANTENNA (rooted to body, animated sway per user v7) ──
-    // Previously floated unattached. Now anchored at the body top
-    // (y+22) and extends up to y+2. Each pixel bends slightly more
-    // than the one below it (quadratic), with a phase delay along the
-    // length so a wave visibly travels up the rod like wind catching
-    // a flag. Cyan bead at the tip catches the most sway.
-    {
-      const antX = x + 32;            // rooted column on the body
-      const antBot = y + 22;          // base at body top
-      const antTop = y + 2;           // tip in the sky
-      const antLen = antBot - antTop; // 20
-      const wPhase = frame * 0.05;    // slow sway speed
-      const wMax = 2;                 // max lateral offset in px
-      for (let i = 0; i < antLen; i++) {
-        const segY = antBot - i;
-        const t = i / (antLen - 1);                 // 0 at base, 1 at tip
-        const sway = Math.round(
-          Math.sin(wPhase + i * 0.20) * t * t * wMax
-        );
-        ctx.fillStyle = PXC.chromeDark;
-        ctx.fillRect(antX + sway, segY, 1, 1);
+      // Animated antenna (rooted to body)
+      {
+        const antX = x+22, antBot = y+22, antTop = y+2;
+        const antLen = antBot - antTop;
+        const wPhase = frame * 0.05, wMax = 2;
+        for (let i = 0; i < antLen; i++) {
+          const segY = antBot - i, t = i / (antLen-1);
+          const sway = Math.round(Math.sin(wPhase + i*0.20) * t*t * wMax);
+          ctx.fillStyle = C.chromeDark; ctx.fillRect(antX+sway, segY, 1, 1);
+        }
+        const tipSway = Math.round(Math.sin(wPhase + (antLen-1)*0.20) * wMax);
+        ctx.fillStyle = C.podGlow; ctx.fillRect(antX+tipSway, antTop-1, 1, 1);
       }
-      // Cyan glow bead at the tip — same sway as the top segment
-      const tipSway = Math.round(
-        Math.sin(wPhase + (antLen - 1) * 0.20) * wMax
-      );
-      ctx.fillStyle = PXC.podGlow;
-      ctx.fillRect(antX + tipSway, antTop - 1, 1, 1);
+  
+      // Bubble cockpit (20-wide, was 24)
+      ctx.fillStyle = C.outline; ctx.fillRect(x+22, y+10, 20, 13);
+      ctx.fillStyle = C.domeFrame;
+      ctx.fillRect(x+25, y+9, 14, 2); ctx.fillRect(x+24, y+11, 16, 3); ctx.fillRect(x+23, y+14, 18, 2);
+      ctx.fillStyle = C.glassDark; ctx.fillRect(x+24, y+14, 16, 7);
+      ctx.fillStyle = 'rgba(126,221,235,0.45)'; ctx.fillRect(x+24, y+14, 16, 1);
+      ctx.fillStyle = 'rgba(180,230,245,0.30)'; ctx.fillRect(x+26, y+15, 5, 1);
+      // Diagonal glass reflection
+      ctx.fillStyle = 'rgba(255,255,255,0.78)';
+      ctx.fillRect(x+25, y+14, 2, 1); ctx.fillRect(x+26, y+15, 2, 1);
+      ctx.fillRect(x+27, y+16, 2, 1); ctx.fillRect(x+28, y+17, 2, 1); ctx.fillRect(x+29, y+18, 2, 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fillRect(x+34, y+14, 1, 1); ctx.fillRect(x+35, y+15, 1, 1);
+      ctx.fillRect(x+36, y+16, 1, 1); ctx.fillRect(x+37, y+17, 1, 1);
+      // Driver
+      ctx.fillStyle = '#0a0a14'; ctx.fillRect(x+31, y+16, 5, 4);
+      ctx.fillStyle = '#1a1a26'; ctx.fillRect(x+32, y+16, 3, 1);
+      // Steering wheel ring
+      ctx.fillStyle = C.podGlow;
+      ctx.fillRect(x+27, y+17, 1, 1); ctx.fillRect(x+29, y+17, 1, 1);
+      ctx.fillRect(x+27, y+19, 1, 1); ctx.fillRect(x+29, y+19, 1, 1);
+      ctx.fillRect(x+28, y+18, 1, 1);
+      ctx.fillStyle = C.domeShadow; ctx.fillRect(x+23, y+21, 18, 2);
+  
+      // Front grille (12-wide, was 16)
+      ctx.fillStyle = C.outline; ctx.fillRect(x+44, y+22, 12, 9);
+      ctx.fillStyle = C.hullDark; ctx.fillRect(x+45, y+23, 10, 7);
+      ctx.fillStyle = C.hullCore; ctx.fillRect(x+45, y+23, 10, 1);
+      // 3 vertical slats (was 4)
+      ctx.fillStyle = C.outline;
+      ctx.fillRect(x+47, y+24, 1, 5); ctx.fillRect(x+50, y+24, 1, 5); ctx.fillRect(x+53, y+24, 1, 5);
+      // 3 yellow headlight dots (was 4)
+      ctx.fillStyle = C.yellow;
+      ctx.fillRect(x+47, y+21, 2, 1); ctx.fillRect(x+50, y+21, 2, 1); ctx.fillRect(x+53, y+21, 2, 1);
+      ctx.fillStyle = '#fff5a0';
+      ctx.fillRect(x+47, y+21, 1, 1); ctx.fillRect(x+50, y+21, 1, 1); ctx.fillRect(x+53, y+21, 1, 1);
+  
+      // Engine pod (34-wide total, was 46)
+      // Bell back (14×16, was 18×16)
+      ctx.fillStyle = C.outline; ctx.fillRect(x+12, y+36, 14, 16);
+      ctx.fillStyle = C.podGrey; ctx.fillRect(x+13, y+37, 12, 14);
+      ctx.fillStyle = C.chromeDark; ctx.fillRect(x+13, y+37, 12, 1);
+      ctx.fillStyle = C.podBlack; ctx.fillRect(x+13, y+50, 12, 1);
+      // Narrow waist (10×12, was 14×12)
+      ctx.fillStyle = C.outline; ctx.fillRect(x+26, y+38, 10, 12);
+      ctx.fillStyle = C.podGrey; ctx.fillRect(x+26, y+39, 10, 10);
+      ctx.fillStyle = C.chromeDark; ctx.fillRect(x+26, y+39, 10, 1);
+      ctx.fillStyle = C.podBlack; ctx.fillRect(x+26, y+48, 10, 1);
+      // Front nose (8×10, was 10×10)
+      ctx.fillStyle = C.outline; ctx.fillRect(x+36, y+39, 8, 10);
+      ctx.fillStyle = C.podGrey; ctx.fillRect(x+37, y+40, 6, 8);
+      ctx.fillStyle = C.chromeDark; ctx.fillRect(x+37, y+40, 6, 1);
+      // Strut
+      ctx.fillStyle = C.chromeDark; ctx.fillRect(x+28, y+34, 6, 3);
+      // Rear exhaust nozzle (4×8, was 5×8) — flame exits here
+      ctx.fillStyle = C.podBlack; ctx.fillRect(x+8, y+40, 4, 8);
+      ctx.fillStyle = C.podGlow; ctx.fillRect(x+9, y+42, 3, 5);
+      ctx.fillStyle = C.flameCore; ctx.fillRect(x+10, y+43, 2, 3);
+      // Bell turbine vents (3 vents at compressed spacing)
+      ctx.fillStyle = C.podBlack;
+      ctx.fillRect(x+16, y+41, 1, 6); ctx.fillRect(x+19, y+41, 1, 6); ctx.fillRect(x+22, y+41, 1, 6);
+      // Waist vents
+      ctx.fillRect(x+29, y+42, 1, 5); ctx.fillRect(x+33, y+42, 1, 5);
+      // Yellow caution stripe on engine
+      ctx.fillStyle = C.yellow; ctx.fillRect(x+14, y+47, 22, 1);
+      ctx.fillStyle = C.yellowDeep; ctx.fillRect(x+14, y+48, 22, 1);
+      // Front intake (4×7)
+      ctx.fillStyle = C.podBlack; ctx.fillRect(x+40, y+41, 4, 7);
+      ctx.fillStyle = '#1a1a1e'; ctx.fillRect(x+41, y+42, 3, 5);
+      ctx.fillStyle = C.chromeDark; ctx.fillRect(x+41, y+44, 3, 1);
+  
+      // Chain anchor port (back-bottom of body)
+      ctx.fillStyle = C.outline; ctx.fillRect(x+2, y+28, 5, 5);
+      ctx.fillStyle = C.podGrey; ctx.fillRect(x+3, y+29, 3, 3);
+      ctx.fillStyle = C.podGlow; ctx.fillRect(x+4, y+30, 1, 1);
     }
-  
-    // ── BUBBLE COCKPIT (back-center dome, restored from v1) ──
-    ctx.fillStyle = PXC.outline;
-    ctx.fillRect(x + 36, y + 10, 24, 13);
-    // Dome top — staircase rounded
-    ctx.fillStyle = PXC.domeFrame;
-    ctx.fillRect(x + 40, y +  9, 16,  2);
-    ctx.fillRect(x + 38, y + 11, 20,  3);
-    ctx.fillRect(x + 37, y + 14, 22,  2);
-    // Glass (dark base + horizontal top highlight + DIAGONAL reflection)
-    ctx.fillStyle = PXC.glassDark;
-    ctx.fillRect(x + 39, y + 14, 18,  7);
-    // Horizontal top highlight (kept from before)
-    ctx.fillStyle = 'rgba(126, 221, 235, 0.45)';
-    ctx.fillRect(x + 40, y + 14, 16, 1);
-    ctx.fillStyle = 'rgba(180, 230, 245, 0.30)';
-    ctx.fillRect(x + 42, y + 15,  6, 1);
-    // ── Diagonal reflection streaks (NEW v11 — "shiny glass" look) ──
-    // Big stripe — goes top-left to bottom-right across the visor
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
-    ctx.fillRect(x + 41, y + 14, 2, 1);
-    ctx.fillRect(x + 42, y + 15, 2, 1);
-    ctx.fillRect(x + 43, y + 16, 2, 1);
-    ctx.fillRect(x + 44, y + 17, 2, 1);
-    ctx.fillRect(x + 45, y + 18, 2, 1);
-    // Smaller parallel stripe further right (classic 2-stripe highlight)
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-    ctx.fillRect(x + 50, y + 14, 1, 1);
-    ctx.fillRect(x + 51, y + 15, 1, 1);
-    ctx.fillRect(x + 52, y + 16, 1, 1);
-    ctx.fillRect(x + 53, y + 17, 1, 1);
-    // Driver silhouette
-    ctx.fillStyle = '#0a0a14';
-    ctx.fillRect(x + 46, y + 16, 5, 4);
-    ctx.fillStyle = '#1a1a26';
-    ctx.fillRect(x + 47, y + 16, 3, 1);
-    // Steering wheel ring (3x3)
-    ctx.fillStyle = PXC.podGlow;
-    ctx.fillRect(x + 42, y + 17, 1, 1);
-    ctx.fillRect(x + 44, y + 17, 1, 1);
-    ctx.fillRect(x + 42, y + 19, 1, 1);
-    ctx.fillRect(x + 44, y + 19, 1, 1);
-    ctx.fillRect(x + 43, y + 18, 1, 1);
-    // Frame shadow under cockpit
-    ctx.fillStyle = PXC.domeShadow;
-    ctx.fillRect(x + 37, y + 21, 22, 2);
-  
-    // ── FRONT GRILLE (BODY-COLOR per user — not orange) ──
-    // User asked to RESTORE the grille feature but recolor it to match
-    // the cyan paint job. Same shape as v1's front, just teal not orange.
-    // Outer frame
-    ctx.fillStyle = PXC.outline;
-    ctx.fillRect(x + 62, y + 22, 16, 9);
-    // Grille panel body (cyan-dark, slightly darker than hull for depth)
-    ctx.fillStyle = PXC.hullDark;
-    ctx.fillRect(x + 63, y + 23, 14, 7);
-    // Grille top highlight
-    ctx.fillStyle = PXC.hullCore;
-    ctx.fillRect(x + 63, y + 23, 14, 1);
-    // Vertical grille slats (dark — reads as a real grille)
-    ctx.fillStyle = PXC.outline;
-    ctx.fillRect(x + 65, y + 24, 1, 5);
-    ctx.fillRect(x + 68, y + 24, 1, 5);
-    ctx.fillRect(x + 71, y + 24, 1, 5);
-    ctx.fillRect(x + 74, y + 24, 1, 5);
-    // 4 small yellow headlight dots stacked above grille
-    ctx.fillStyle = PXC.yellow;
-    ctx.fillRect(x + 65, y + 21, 2, 1);
-    ctx.fillRect(x + 68, y + 21, 2, 1);
-    ctx.fillRect(x + 71, y + 21, 2, 1);
-    ctx.fillRect(x + 74, y + 21, 2, 1);
-    // Lit centers (bright yellow)
-    ctx.fillStyle = '#fff5a0';
-    ctx.fillRect(x + 65, y + 21, 1, 1);
-    ctx.fillRect(x + 68, y + 21, 1, 1);
-    ctx.fillRect(x + 71, y + 21, 1, 1);
-    ctx.fillRect(x + 74, y + 21, 1, 1);
-  
-    // ── ENGINE POD (BIGGER, MOVED TO FRONT-MID-CENTER) per user v6 ──
-    // Scale up so the engine reads as the dominant feature. Pulled
-    // forward under the cabin area, no longer back-center. Bell
-    // exhaust on the left, narrow waist, intake on the right.
-    // Bell back (chunky, flame exits) — x+22 to x+40, y+36 to y+52
-    ctx.fillStyle = PXC.outline;
-    ctx.fillRect(x + 22, y + 36, 18, 16);
-    ctx.fillStyle = PXC.podGrey;
-    ctx.fillRect(x + 23, y + 37, 16, 14);
-    ctx.fillStyle = PXC.chromeDark;
-    ctx.fillRect(x + 23, y + 37, 16,  1);
-    ctx.fillStyle = PXC.podBlack;
-    ctx.fillRect(x + 23, y + 50, 16,  1);
-    // Narrow middle/waist section
-    ctx.fillStyle = PXC.outline;
-    ctx.fillRect(x + 40, y + 38, 14, 12);
-    ctx.fillStyle = PXC.podGrey;
-    ctx.fillRect(x + 40, y + 39, 14, 10);
-    ctx.fillStyle = PXC.chromeDark;
-    ctx.fillRect(x + 40, y + 39, 14,  1);
-    ctx.fillStyle = PXC.podBlack;
-    ctx.fillRect(x + 40, y + 48, 14,  1);
-    // Front nose section (slight taper)
-    ctx.fillStyle = PXC.outline;
-    ctx.fillRect(x + 54, y + 39, 10, 10);
-    ctx.fillStyle = PXC.podGrey;
-    ctx.fillRect(x + 55, y + 40, 8, 8);
-    ctx.fillStyle = PXC.chromeDark;
-    ctx.fillRect(x + 55, y + 40, 8, 1);
-    // Strut connecting engine to body
-    ctx.fillStyle = PXC.chromeDark;
-    ctx.fillRect(x + 44, y + 34, 6, 3);
-    ctx.fillStyle = PXC.podDark;
-    ctx.fillRect(x + 44, y + 36, 6, 1);
-    // Rear exhaust nozzle (left edge of bell — flame exits here)
-    ctx.fillStyle = PXC.podBlack;
-    ctx.fillRect(x + 18, y + 40, 5, 8);
-    ctx.fillStyle = PXC.podGlow;
-    ctx.fillRect(x + 19, y + 42, 4, 5);
-    ctx.fillStyle = PXC.flameCore;
-    ctx.fillRect(x + 20, y + 43, 2, 3);
-    // Bell turbine vents (vertical slits)
-    ctx.fillStyle = PXC.podBlack;
-    ctx.fillRect(x + 27, y + 41, 1, 6);
-    ctx.fillRect(x + 31, y + 41, 1, 6);
-    ctx.fillRect(x + 35, y + 41, 1, 6);
-    // Waist vents (smaller)
-    ctx.fillRect(x + 44, y + 42, 1, 5);
-    ctx.fillRect(x + 49, y + 42, 1, 5);
-    // Yellow caution stripe on engine
-    ctx.fillStyle = PXC.yellow;
-    ctx.fillRect(x + 24, y + 47, 28, 1);
-    ctx.fillStyle = PXC.yellowDeep;
-    ctx.fillRect(x + 24, y + 48, 28, 1);
-    // Front intake (right end — dark hole)
-    ctx.fillStyle = PXC.podBlack;
-    ctx.fillRect(x + 60, y + 41, 4, 7);
-    ctx.fillStyle = PXC.podDark;
-    ctx.fillRect(x + 61, y + 42, 3, 5);
-    ctx.fillStyle = PXC.chromeDark;
-    ctx.fillRect(x + 61, y + 44, 3, 1);
-  
-    // ── CHAIN ANCHOR PORT (back-bottom of body, where beam emerges) ──
-    ctx.fillStyle = PXC.outline;
-    ctx.fillRect(x +  4, y + 28, 6, 5);
-    ctx.fillStyle = PXC.podGrey;
-    ctx.fillRect(x +  5, y + 29, 4, 3);
-    ctx.fillStyle = PXC.podGlow;
-    ctx.fillRect(x +  6, y + 30, 1, 1);
-  }
 
   function drawBird() {
     // Asymmetrical boxy Garbage Hauler — rust, patches, and a struggling engine
@@ -27802,7 +27686,7 @@ const DLX_BUILD = 'v426-pixel';
     // bird.x/y from drawBird's ctx.translate).
     ctx.save();
     ctx.imageSmoothingEnabled = false;
-    pxRoadkillRig(ctx, -43, -29, frame);
+    pxRoadkillRig(ctx, -31, -29, frame);
     ctx.restore();
   }
 
