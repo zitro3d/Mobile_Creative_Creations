@@ -928,10 +928,11 @@ function renderSmooth(frame) {
 // Animation loop
 // ─────────────────────────────────────────────────────────
 let frame = 0;
+let smoothPaused = false;                          // GIF capture pauses smooth render
 function tick() {
   frame++;
-  renderPixel(frame);
-  renderSmooth(frame);
+  renderPixel(frame);                              // always animates (cheap)
+  if (!smoothPaused) renderSmooth(frame);          // heavy — skip during GIF encode
   requestAnimationFrame(tick);
 }
 tick();
@@ -945,7 +946,7 @@ tick();
   const status = document.getElementById('recordStatus');
   if (!btn || !status) return;
 
-  btn.addEventListener('click', function () {
+  btn.addEventListener('click', async function () {
     if (typeof GIF === 'undefined') {
       status.textContent = 'GIF library failed to load — check connection.';
       console.error('GIF global missing');
@@ -953,24 +954,38 @@ tick();
     }
     btn.disabled = true;
     btn.style.filter = 'grayscale(0.4)';
-    status.textContent = 'Capturing frames…';
+    status.textContent = 'Setting up encoder…';
+
+    // Pause the heavy smoothStage render while the encoder runs on
+    // the main thread — it was eating 300k+ pixels per frame and
+    // starving the GIF encoder of CPU time.
+    smoothPaused = true;
+    const finish = () => { smoothPaused = false; btn.disabled = false; btn.style.filter = ''; };
+
+    // Paint pause — let the browser show the disabled state before
+    // the encoder monopolizes the main thread.
+    await new Promise(r => setTimeout(r, 50));
 
     const canvas = document.getElementById('pixelStage');
-    const SCALE = 2;                          // 400×160 (was 800×320)
+    // Native canvas is 200×80 — pure 1× output (no upscale) keeps the
+    // encoder fast on the main thread. CSS scales the pixel art when
+    // played back, so the GIF can stay tight.
+    const SCALE = 1;
     const scaled = document.createElement('canvas');
     scaled.width = canvas.width * SCALE;
     scaled.height = canvas.height * SCALE;
     const sctx = scaled.getContext('2d');
     sctx.imageSmoothingEnabled = false;
 
-    // Run encoding in the main thread (workers: 0). Slower than
-    // worker-parallel but eliminates the cross-origin worker URL
-    // problem entirely. Frames block UI briefly while encoding.
+    // Run encoding in the main thread (workers: 0). dither: false
+    // skips Floyd-Steinberg pass — pixel art has flat colors so
+    // dithering adds work for no quality gain.
     const gif = new GIF({
       workers: 0,
-      quality: 20,                            // higher number = faster encode
+      quality: 20,
       width: scaled.width,
-      height: scaled.height
+      height: scaled.height,
+      dither: false
     });
 
     const totalFrames = 30;                   // 1 sec at 30fps — short, fast
@@ -994,7 +1009,7 @@ tick();
         } catch (e) {
           console.error('[GIF] render() threw:', e);
           status.textContent = 'Encoder threw: ' + e.message;
-          btn.disabled = false; btn.style.filter = '';
+          finish();
         }
       } else {
         setTimeout(captureNext, delayMs);
@@ -1013,14 +1028,14 @@ tick();
     gif.on('abort', function () {
       console.warn('[GIF] aborted');
       status.textContent = 'Encoding aborted — see console.';
-      btn.disabled = false; btn.style.filter = '';
+      finish();
     });
 
     gif.on('finished', function (blob) {
       console.log('[GIF] finished, blob size:', blob ? blob.size : 'null');
       if (!blob || blob.size === 0) {
         status.textContent = 'Encoding finished but file is empty.';
-        btn.disabled = false; btn.style.filter = '';
+        finish();
         return;
       }
       const url = URL.createObjectURL(blob);
@@ -1033,7 +1048,7 @@ tick();
       setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
       status.textContent = 'Downloaded roadkill-v7.gif (' +
         Math.round(blob.size / 1024) + ' KB). Click again to record another.';
-      btn.disabled = false; btn.style.filter = '';
+      finish();
     });
 
     captureNext();
