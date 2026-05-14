@@ -202,7 +202,7 @@ const C = {
   rust:        '#c83828',
   rustDark:    '#7a1a10',
   // Cabin / cockpit
-  domeFrame:   '#bcc0b4',
+  domeFrame:   '#a4a89c',
   domeShadow:  '#787c70',
   glassDark:   '#142028',
   glassLit:    '#7eddeb',
@@ -1047,22 +1047,7 @@ tick();
   const status = document.getElementById('recordStatus');
   if (!btn || !status) return;
 
-  // Cache the worker as a same-origin blob URL. gif.js's Web Worker
-  // can't be loaded directly from a cross-origin CDN in most modern
-  // browsers — workerScript needs to point at a same-origin URL.
-  // We fetch the worker text, wrap it in a Blob, and URL.createObjectURL.
-  let workerBlobUrl = null;
-  async function getWorkerUrl() {
-    if (workerBlobUrl) return workerBlobUrl;
-    const r = await fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js');
-    if (!r.ok) throw new Error('worker fetch ' + r.status);
-    const text = await r.text();
-    const blob = new Blob([text], { type: 'application/javascript' });
-    workerBlobUrl = URL.createObjectURL(blob);
-    return workerBlobUrl;
-  }
-
-  btn.addEventListener('click', async function () {
+  btn.addEventListener('click', function () {
     if (typeof GIF === 'undefined') {
       status.textContent = 'GIF library failed to load — check connection.';
       console.error('GIF global missing');
@@ -1070,53 +1055,46 @@ tick();
     }
     btn.disabled = true;
     btn.style.filter = 'grayscale(0.4)';
-    status.textContent = 'Loading encoder…';
-
-    let workerScript;
-    try {
-      workerScript = await getWorkerUrl();
-    } catch (e) {
-      console.error('Could not load gif worker:', e);
-      status.textContent = 'Failed to load encoder: ' + e.message;
-      btn.disabled = false;
-      btn.style.filter = '';
-      return;
-    }
+    status.textContent = 'Capturing frames…';
 
     const canvas = document.getElementById('pixelStage');
-    const SCALE = 4;                          // upscale the GIF 4x
+    const SCALE = 2;                          // 400×160 (was 800×320)
     const scaled = document.createElement('canvas');
     scaled.width = canvas.width * SCALE;
     scaled.height = canvas.height * SCALE;
     const sctx = scaled.getContext('2d');
-    sctx.imageSmoothingEnabled = false;       // crisp pixel scaling
+    sctx.imageSmoothingEnabled = false;
 
+    // Run encoding in the main thread (workers: 0). Slower than
+    // worker-parallel but eliminates the cross-origin worker URL
+    // problem entirely. Frames block UI briefly while encoding.
     const gif = new GIF({
-      workers: 2,
-      quality: 5,
+      workers: 0,
+      quality: 10,
       width: scaled.width,
-      height: scaled.height,
-      workerScript: workerScript               // same-origin blob URL
+      height: scaled.height
     });
 
-    const totalFrames = 90;                   // 3 sec at 30fps
+    const totalFrames = 60;                   // 2 sec at 30fps (was 90)
     const delayMs = 33;
     let captured = 0;
-    let aborted = false;
+    let lastProgress = -1;
+
+    console.log('[GIF] starting capture', { w: scaled.width, h: scaled.height, frames: totalFrames });
 
     const captureNext = () => {
-      if (aborted) return;
       sctx.clearRect(0, 0, scaled.width, scaled.height);
       sctx.drawImage(canvas, 0, 0, scaled.width, scaled.height);
       gif.addFrame(scaled, { delay: delayMs, copy: true });
       captured++;
       status.textContent = 'Recording ' + captured + ' / ' + totalFrames + ' frames…';
       if (captured >= totalFrames) {
-        status.textContent = 'Encoding GIF (this can take ~10 sec)…';
+        console.log('[GIF] capture done, starting render');
+        status.textContent = 'Encoding GIF…';
         try {
           gif.render();
         } catch (e) {
-          console.error('gif.render() threw:', e);
+          console.error('[GIF] render() threw:', e);
           status.textContent = 'Encoder threw: ' + e.message;
           btn.disabled = false; btn.style.filter = '';
         }
@@ -1126,20 +1104,24 @@ tick();
     };
 
     gif.on('progress', function (p) {
-      status.textContent = 'Encoding GIF: ' + Math.round(p * 100) + '%…';
+      const pct = Math.round(p * 100);
+      if (pct !== lastProgress) {
+        lastProgress = pct;
+        console.log('[GIF] progress', pct + '%');
+      }
+      status.textContent = 'Encoding GIF: ' + pct + '%…';
     });
 
     gif.on('abort', function () {
-      console.warn('GIF encoding aborted');
+      console.warn('[GIF] aborted');
       status.textContent = 'Encoding aborted — see console.';
-      aborted = true;
       btn.disabled = false; btn.style.filter = '';
     });
 
     gif.on('finished', function (blob) {
+      console.log('[GIF] finished, blob size:', blob ? blob.size : 'null');
       if (!blob || blob.size === 0) {
-        status.textContent = 'Encoding finished but blob is empty.';
-        console.error('Empty blob from gif.js');
+        status.textContent = 'Encoding finished but file is empty.';
         btn.disabled = false; btn.style.filter = '';
         return;
       }
@@ -1152,7 +1134,7 @@ tick();
       document.body.removeChild(a);
       setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
       status.textContent = 'Downloaded roadkill-v7.gif (' +
-        Math.round(blob.size / 1024) + ' KB). Click to record again.';
+        Math.round(blob.size / 1024) + ' KB). Click again to record another.';
       btn.disabled = false; btn.style.filter = '';
     });
 
