@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v444-pixel-obstacles';
+const DLX_BUILD = 'v444c-obstacle-fixes';
 
 (function() {
   // ---------- Device detection ----------
@@ -15018,71 +15018,56 @@ const DLX_BUILD = 'v444-pixel-obstacles';
   // ═════════════════════════════════════════════════════════════════
 
   // ── PIXEL FIREBALL (lava ball projectile) ────────────────────────
+  // v444b — pixelated version of the SMOOTH-art fireball design (the
+  // one the user liked). Same composition: 12-step trail of fading
+  // circles behind the ball, outer halo, concentric body layers,
+  // white-hot core OFFSET toward the leading edge.
   function drawPixelLavaBall(lb) {
-    const cx = lb.x | 0;
-    const cy = lb.y | 0;
-    // Pulse the radius so the orb feels alive.
+    // Pulsate radius (matches smooth)
     const pulse = 1 + 0.10 * Math.sin(lb.life * 0.45 + lb.seed);
-    const r = Math.max(3, Math.round(lb.r * pulse));
+    const baseR = Math.max(2, Math.round(lb.r * pulse));
+    const cx = Math.round(lb.x);
+    const cy = Math.round(lb.y);
 
-    // ── TRAIL — fading puffs streaming back along the velocity vector
-    // Normalize velocity for trail step direction
-    const speed = Math.sqrt(lb.vx * lb.vx + lb.vy * lb.vy) || 1;
-    const ux = -lb.vx / speed;
-    const uy = -lb.vy / speed;
-    for (let i = 1; i <= 6; i++) {
-      const phase = ((lb.life * 0.5) + i * 2) % 12;
-      const dist = i * (r * 0.9) + phase * 0.3;
-      const wob = Math.sin(lb.life * 0.18 + i * 1.1 + lb.seed) * 2.0;
-      const tx = (cx + ux * dist + uy * wob) | 0;
-      const ty = (cy + uy * dist - ux * wob) | 0;
-      const tr = Math.max(1, r - i - ((phase / 5) | 0));
-      if (tr < 1) continue;
-      let outer, inner;
-      if (i === 1)      { outer = '#ffd060'; inner = '#ffffff'; }
-      else if (i === 2) { outer = '#ff9050'; inner = '#ffd060'; }
-      else if (i === 3) { outer = '#e87028'; inner = '#ff9050'; }
-      else if (i === 4) { outer = '#c84020'; inner = '#e87028'; }
-      else if (i === 5) { outer = '#7a1a10'; inner = '#c84020'; }
-      else              { outer = '#3a1010'; inner = '#7a1a10'; }
-      drawPixelSmokePuff(tx, ty, tr, outer);
-      if (tr >= 2) drawPixelSmokePuff(tx, ty, tr - 1, inner);
+    // ── TRAIL — 12 steps behind the ball, fading hot → cool ──────
+    // Matches the smooth-art trail composition (TRAIL_LEN=12, step
+    // spacing = vx*1.5) so the visual rhythm reads the same. Sine
+    // wobble on Y gives the trail a wavering flame feel.
+    const TRAIL_LEN = 12;
+    for (let ti = 1; ti <= TRAIL_LEN; ti++) {
+      const tx = Math.round(lb.x - lb.vx * ti * 1.5);
+      const ty = Math.round(lb.y - lb.vy * ti * 1.5
+                            + Math.sin(lb.life * 0.5 + lb.seed + ti * 1.3) * 1.8);
+      const tNorm = ti / TRAIL_LEN;
+      const tr = Math.max(1, Math.round(baseR * (1 - tNorm * 0.85)));
+      // Color picker fades hot yellow at the head → deep orange at the tip
+      let col;
+      if (tNorm < 0.12)      col = '#fff4d0';
+      else if (tNorm < 0.22) col = '#ffd060';
+      else if (tNorm < 0.36) col = '#ff9050';
+      else if (tNorm < 0.55) col = '#e87028';
+      else if (tNorm < 0.78) col = '#c84020';
+      else                   col = '#7a1a10';
+      drawPixelSmokePuff(tx, ty, tr, col);
     }
 
-    // ── ORBITAL EMBER SPARKS around the ball ───────────────────────
-    for (let i = 0; i < 6; i++) {
-      const sa = (i / 6 + lb.life * 0.04 + lb.seed) * Math.PI * 2;
-      const sd = r + 3 + Math.sin(lb.life * 0.10 + i) * 1.5;
-      const sx = (cx + Math.cos(sa) * sd) | 0;
-      const sy = (cy + Math.sin(sa) * sd) | 0;
-      pxFill(sx, sy, 1, 1, (i & 1) ? '#ffffff' : '#ffd060');
-    }
+    // ── OUTER HALO — bright orange glow around the body ──────────
+    drawPixelSmokePuff(cx, cy, Math.round(baseR * 1.6), '#7a1a10');
+    drawPixelSmokePuff(cx, cy, baseR + 2, '#a02018');
+    drawPixelSmokePuff(cx, cy, baseR + 1, '#c84020');
 
-    // ── OUTER HALO + BODY LAYERS ──────────────────────────────────
-    drawPixelSmokePuff(cx, cy, r + 2, '#7a1a10');
-    drawPixelSmokePuff(cx, cy, r + 1, '#c84020');
-    drawPixelSmokePuff(cx, cy, r,     '#e87028');
-    drawPixelSmokePuff(cx, cy, r - 1, '#ff9050');
-    // Hot core offset toward the leading edge (direction of travel)
-    const cOffX = (lb.vx * 0.45) | 0;
-    const cOffY = (lb.vy * 0.45) | 0;
-    drawPixelSmokePuff(cx + cOffX, cy + cOffY, Math.max(1, r - 2), '#ffd060');
-    drawPixelSmokePuff(cx + cOffX, cy + cOffY, Math.max(1, r - 3), '#fff4d0');
-    if (r >= 5) {
-      drawPixelSmokePuff(cx + cOffX, cy + cOffY, Math.max(1, r - 4), '#ffffff');
-    }
+    // ── BODY — concentric layers (matches smooth radial gradient) ─
+    drawPixelSmokePuff(cx, cy, baseR,     '#e87028');   // deep orange rim
+    drawPixelSmokePuff(cx, cy, baseR - 1, '#ff9050');   // hot orange
+    drawPixelSmokePuff(cx, cy, baseR - 2, '#ffd060');   // bright yellow
 
-    // ── FLAME TONGUES — 4 around the body, rotating ───────────────
-    const tongPhase = (lb.life / 4) | 0;
-    for (let i = 0; i < 4; i++) {
-      const ang = ((tongPhase + i * 2) & 7) / 8 * Math.PI * 2;
-      const bx = (cx + Math.cos(ang) * (r + 1)) | 0;
-      const by = (cy + Math.sin(ang) * (r + 1)) | 0;
-      pxFill(bx, by, 1, 1, '#ffd060');
-      const tx = (cx + Math.cos(ang) * (r + 2)) | 0;
-      const ty = (cy + Math.sin(ang) * (r + 2)) | 0;
-      pxFill(tx, ty, 1, 1, '#ff9050');
-    }
+    // ── HOT WHITE CENTER offset toward leading edge ──────────────
+    // Matches smooth's "coreOffX/Y = vx*0.55, vy*0.55 * 0.6" with a
+    // sine wobble. The brightest spot tracks the direction of travel.
+    const coreOffX = Math.round(lb.vx * 0.55 + Math.sin(lb.life * 0.6 + lb.seed) * 1.2);
+    const coreOffY = Math.round(lb.vy * 0.55 * 0.6);
+    drawPixelSmokePuff(cx + coreOffX, cy + coreOffY, Math.max(1, baseR - 3), '#fff4d0');
+    drawPixelSmokePuff(cx + coreOffX, cy + coreOffY, Math.max(1, baseR - 4), '#ffffff');
   }
 
   // ── PIXEL SCRAP TOWER ───────────────────────────────────────────
@@ -15108,39 +15093,48 @@ const DLX_BUILD = 'v444-pixel-obstacles';
 
   // Renders a single scrap stack — vertical stack of distinct salvage
   // pieces (crushed cars, barrels, twisted girders, cab) filling
-  // height `h` from `yTop` downward. `inverted` flag flips the
-  // stacking order for the top stack so the heaviest piece is at the
-  // gap edge (sells "stuff piled on top of stuff").
+  // height `h` from `yTop` downward. v444c FIX — cycles through the
+  // pieces list repeatedly until the full stack height is covered;
+  // previously only 52 px got rendered and the rest of the stack
+  // was invisible.
   function drawPixelScrapStack(x, yTop, h, seed, inverted) {
-    const tw = 36;
     if (h <= 0) return;
-    // Pieces from bottom of stack upward, each with a fixed height.
-    // For an inverted top-stack we read them in reverse order.
     const pieces = [
-      { name: 'tires',  height: 8 },
-      { name: 'car',    height: 12 },
+      { name: 'tires',   height: 8 },
+      { name: 'car',     height: 12 },
       { name: 'barrels', height: 8 },
-      { name: 'girder', height: 4 },
-      { name: 'cab',    height: 14 },
-      { name: 'plate',  height: 6 },
+      { name: 'girder',  height: 4 },
+      { name: 'cab',     height: 14 },
+      { name: 'plate',   height: 6 },
     ];
     let cursor = inverted ? yTop : (yTop + h);
-    for (const p of pieces) {
-      // Place from the gap-edge inward. For bottom stack (inverted=false),
-      // pieces stack UP from the floor end (so cursor decreases).
-      // For top stack (inverted=true), pieces stack DOWN from the
-      // ceiling (cursor increases).
+    let pieceIdx = 0;
+    // Safety bound — at minimum 5 px per piece, can't fill more
+    // than h / 5 pieces, so cap iterations at h.
+    for (let safety = 0; safety < h; safety++) {
+      const p = pieces[pieceIdx % pieces.length];
       const yy = inverted ? cursor : (cursor - p.height);
-      // Stop drawing once we'd exceed the stack
       if (inverted) {
-        if (yy + p.height > yTop + h) break;
-        drawScrapPiece(x, yy, p.height, p.name, seed);
+        if (yy + p.height > yTop + h) {
+          // Last piece doesn't fit — fill the leftover with a slim
+          // crushed-plate fragment so the stack has no empty gap.
+          const left = (yTop + h) - cursor;
+          if (left > 1) drawScrapPiece(x, cursor, left, 'plate', seed + pieceIdx);
+          break;
+        }
+        drawScrapPiece(x, yy, p.height, p.name, seed + pieceIdx);
         cursor += p.height;
       } else {
-        if (yy < yTop) break;
-        drawScrapPiece(x, yy, p.height, p.name, seed);
+        if (yy < yTop) {
+          // Top of stack — fill the remaining gap above the last piece
+          const left = cursor - yTop;
+          if (left > 1) drawScrapPiece(x, yTop, left, 'plate', seed + pieceIdx);
+          break;
+        }
+        drawScrapPiece(x, yy, p.height, p.name, seed + pieceIdx);
         cursor -= p.height;
       }
+      pieceIdx++;
     }
   }
 
@@ -15216,84 +15210,85 @@ const DLX_BUILD = 'v444-pixel-obstacles';
   }
 
   // ── PIXEL AIR WRECK ─────────────────────────────────────────────
-  // Floating broken-plane silhouette at (sx, alt). 64w × 32h.
+  // Floating broken-plane silhouette at (sx, alt). 96w × 48h —
+  // 50% larger than v444 so it reads clearly at gameplay distance.
   function drawPixelAirWreck(sx, alt, seed) {
     const x = sx | 0;
     const y = alt | 0;
     const flicker = (Math.sin(seed + frame * 0.30) + Math.sin(seed * 1.3 + frame * 0.51)) > 0.2;
 
-    // BODY (dark rust gray)
-    pxFill(x + 4,  y + 12, 52, 8, '#3a2018');
-    pxFill(x + 8,  y + 10, 44, 2, '#3a2018');
-    pxFill(x + 14, y + 9,  32, 1, '#3a2018');
-    pxFill(x + 4,  y + 20, 48, 2, '#3a2018');
+    // BODY (dark rust gray) — bigger fuselage
+    pxFill(x + 6,  y + 18, 78, 12, '#3a2018');
+    pxFill(x + 12, y + 15, 66, 3,  '#3a2018');
+    pxFill(x + 21, y + 14, 48, 1,  '#3a2018');
+    pxFill(x + 6,  y + 30, 72, 3,  '#3a2018');
     // Nose cone
-    pxFill(x + 1, y + 14, 3, 4, '#2a1810');
-    pxFill(x + 3, y + 13, 1, 6, '#2a1810');
-    pxFill(x + 4, y + 14, 1, 4, '#5a3020');
-    // Cockpit
-    pxFill(x + 6, y + 9, 8, 4, '#1a0a06');
-    pxFill(x + 7,  y + 10, 1, 1, '#7eb8c8');
-    pxFill(x + 9,  y + 10, 1, 1, '#7eb8c8');
-    pxFill(x + 8,  y + 10, 1, 2, '#1a0a06');
-    pxFill(x + 10, y + 11, 1, 1, '#1a0a06');
-    pxFill(x + 11, y + 10, 1, 1, '#7eb8c8');
-    pxFill(x + 6,  y + 11, 8, 1, '#5a3020');
+    pxFill(x + 2, y + 21, 4, 6, '#2a1810');
+    pxFill(x + 4, y + 20, 2, 9, '#2a1810');
+    pxFill(x + 6, y + 21, 1, 6, '#5a3020');
+    // Cockpit (smashed canopy with broken windows)
+    pxFill(x + 9, y + 14, 12, 6, '#1a0a06');
+    pxFill(x + 10, y + 15, 2, 1, '#7eb8c8');
+    pxFill(x + 13, y + 15, 2, 1, '#7eb8c8');
+    pxFill(x + 12, y + 15, 1, 3, '#1a0a06');
+    pxFill(x + 15, y + 16, 1, 2, '#1a0a06');
+    pxFill(x + 17, y + 15, 2, 1, '#7eb8c8');
+    pxFill(x + 9,  y + 16, 12, 1, '#5a3020');
     // Panel detail + rivets
-    pxFill(x + 14, y + 15, 36, 1, '#2a1810');
-    pxFill(x + 22, y + 12, 1, 8, '#2a1810');
-    pxFill(x + 36, y + 12, 1, 8, '#2a1810');
-    for (let i = 0; i < 6; i++) {
-      pxFill(x + 16 + i * 6, y + 13, 1, 1, '#5a3020');
-      pxFill(x + 16 + i * 6, y + 18, 1, 1, '#5a3020');
+    pxFill(x + 21, y + 23, 54, 1, '#2a1810');
+    pxFill(x + 33, y + 18, 1, 12, '#2a1810');
+    pxFill(x + 54, y + 18, 1, 12, '#2a1810');
+    for (let i = 0; i < 9; i++) {
+      pxFill(x + 24 + i * 6, y + 19, 1, 1, '#5a3020');
+      pxFill(x + 24 + i * 6, y + 27, 1, 1, '#5a3020');
     }
-    // BIG TEAR + ember glow
-    pxFill(x + 25, y + 11, 10, 9, '#1a0a06');
-    pxFill(x + 27, y + 12, 1, 7, '#5a3020');
-    pxFill(x + 30, y + 12, 1, 7, '#5a3020');
-    pxFill(x + 33, y + 12, 1, 7, '#5a3020');
+    // BIG TEAR + ember glow (scaled up)
+    pxFill(x + 38, y + 16, 15, 14, '#1a0a06');
+    pxFill(x + 41, y + 18, 1, 11, '#5a3020');
+    pxFill(x + 45, y + 18, 1, 11, '#5a3020');
+    pxFill(x + 49, y + 18, 1, 11, '#5a3020');
     if (flicker) {
-      pxFill(x + 28, y + 15, 5, 2, PX.rust);
-      pxFill(x + 29, y + 16, 3, 1, PX.orange);
-      pxFill(x + 30, y + 16, 1, 1, PX.yellow);
+      pxFill(x + 42, y + 22, 8, 3, PX.rust);
+      pxFill(x + 44, y + 23, 5, 2, PX.orange);
+      pxFill(x + 45, y + 23, 2, 1, PX.yellow);
     } else {
-      pxFill(x + 28, y + 16, 5, 1, '#7a1a10');
-      pxFill(x + 30, y + 16, 1, 1, PX.orange);
+      pxFill(x + 42, y + 24, 8, 2, '#7a1a10');
+      pxFill(x + 45, y + 24, 2, 1, PX.orange);
     }
     // Cargo hatch
-    pxFill(x + 38, y + 14, 8, 5, '#2a1810');
-    pxFill(x + 39, y + 15, 6, 3, '#5a3020');
-    pxFill(x + 38, y + 14, 1, 5, PX.outline);
-    pxFill(x + 45, y + 14, 1, 5, PX.outline);
+    pxFill(x + 57, y + 21, 12, 8, '#2a1810');
+    pxFill(x + 58, y + 22, 10, 6, '#5a3020');
+    pxFill(x + 57, y + 21, 1, 8, PX.outline);
+    pxFill(x + 68, y + 21, 1, 8, PX.outline);
     // Twin tail fins (right side, broken)
-    pxFill(x + 53, y + 6, 4, 8, '#3a2018');
-    pxFill(x + 53, y + 6, 1, 8, '#2a1810');
-    pxFill(x + 53, y + 5, 2, 1, PX.outline);
-    pxFill(x + 55, y + 7, 2, 1, PX.outline);
-    pxFill(x + 56, y + 14, 6, 3, '#3a2018');
-    pxFill(x + 58, y + 16, 5, 2, '#3a2018');
-    pxFill(x + 62, y + 14, 1, 4, PX.outline);
+    pxFill(x + 80, y + 9,  6, 12, '#3a2018');
+    pxFill(x + 80, y + 9,  1, 12, '#2a1810');
+    pxFill(x + 80, y + 7,  3, 2,  PX.outline);
+    pxFill(x + 84, y + 11, 3, 2,  PX.outline);
+    pxFill(x + 84, y + 21, 9,  5, '#3a2018');
+    pxFill(x + 87, y + 24, 8,  3, '#3a2018');
+    pxFill(x + 93, y + 21, 1,  6, PX.outline);
     // Snapped wing stub
-    pxFill(x + 18, y + 22, 24, 4, '#3a2018');
-    pxFill(x + 18, y + 25, 24, 1, '#2a1810');
-    pxFill(x + 44, y + 23, 1, 1, PX.outline);
-    pxFill(x + 42, y + 24, 4, 1, PX.outline);
-    pxFill(x + 46, y + 26, 10, 2, '#3a2018');
+    pxFill(x + 27, y + 33, 36, 6, '#3a2018');
+    pxFill(x + 27, y + 38, 36, 1, '#2a1810');
+    pxFill(x + 66, y + 34, 1, 1, PX.outline);
+    pxFill(x + 63, y + 36, 6, 1, PX.outline);
+    pxFill(x + 69, y + 39, 15, 3, '#3a2018');
     // Engine nacelle on the wing
-    pxFill(x + 28, y + 21, 5, 2, '#1a0a06');
-    pxFill(x + 29, y + 21, 3, 1, '#5a3020');
+    pxFill(x + 42, y + 31, 8, 3, '#1a0a06');
+    pxFill(x + 43, y + 31, 5, 1, '#5a3020');
     // Propeller stub
-    pxFill(x, y + 15, 2, 2, '#2a1810');
-    pxFill(x + 1, y + 12, 1, 3, '#2a1810');
-    pxFill(x + 2, y + 11, 2, 1, '#5a3020');
-    pxFill(x, y + 17, 1, 2, '#2a1810');
+    pxFill(x, y + 22, 3, 3, '#2a1810');
+    pxFill(x + 1, y + 18, 1, 4, '#2a1810');
+    pxFill(x + 3, y + 16, 3, 2, '#5a3020');
+    pxFill(x, y + 25, 2, 3, '#2a1810');
     // Animated smoke puffs rising from the tear
     const sOff = (frame / 4) | 0;
-    for (let i = 0; i < 3; i++) {
-      const sy = y + 8 - i * 3 - (sOff % 3);
-      const sxx = x + 28 + ((i & 1) ? 2 : -2);
-      if (sy >= y - 4) {
-        pxFill(sxx, sy, 3 + i, 2, (i & 1) ? '#c8a888' : '#b08868');
+    for (let i = 0; i < 4; i++) {
+      const sy = y + 12 - i * 4 - (sOff % 4);
+      const sxx = x + 42 + ((i & 1) ? 3 : -3);
+      if (sy >= y - 6) {
+        pxFill(sxx, sy, 4 + i, 3, (i & 1) ? '#c8a888' : '#b08868');
       }
     }
   }
@@ -15436,73 +15431,96 @@ const DLX_BUILD = 'v444-pixel-obstacles';
     pxFill(x + 17, y + 13, 1, 1, PX.yellow);
   }
 
-  // ── PIXEL TENTACLE ──────────────────────────────────────────────
-  // Single tentacle bursting from a cracked-earth mound at (sx, gy).
-  // `t` is the tentacle object with worldX + waveSeed.
-  function drawPixelTentacle(sx, gy, tObj) {
-    sx = sx | 0; gy = gy | 0;
-    const wave = (frame * 0.08) + (tObj.waveSeed || 0);
-    const slimePulse = (Math.sin(frame * 0.2) + 1) * 0.5;
-    const slimeCol = slimePulse > 0.5 ? '#5a9028' : '#88b840';
-
-    // Cracked-earth mound silhouette
-    pxFill(sx - 10, gy - 4, 20, 6, PX.outline);
-    pxFill(sx - 9, gy - 3, 18, 4, '#3a0a18');
-    pxFill(sx - 7, gy - 4, 14, 1, '#5a1830');
-    // Cracks emitting slime
-    pxFill(sx - 8, gy - 1, 3, 1, slimeCol);
-    pxFill(sx + 5, gy - 1, 3, 1, slimeCol);
-    pxFill(sx - 2, gy, 3, 1, slimeCol);
-
-    // Wave tentacle as a series of segments
-    const segs = 14;
-    const length = 50;
+  // ── PIXEL TENTACLE MONSTER ──────────────────────────────────────
+  // Now spawns 2-3 LONGER tentacles per cracked-earth mound. Each
+  // tentacle has its own wave phase + base angle so they don't move
+  // in lockstep. The TIP of the longest tentacle gets the maw with
+  // the blinking eye + teeth + cyan core.
+  function drawPixelTentacleArm(rootX, rootY, baseAngle, length, phase, withMaw) {
+    const segs = 18;
     const segLen = length / segs;
-    const baseAngle = -Math.PI * 0.55;
-    let cx = sx, cy = gy - 4;
+    let cx = rootX, cy = rootY;
     let ang = baseAngle;
     const pts = [{ x: cx, y: cy }];
     for (let i = 1; i <= segs; i++) {
       const tr = i / segs;
-      ang += Math.sin(wave + tr * 3.0) * 0.20;
+      ang += Math.sin(phase + tr * 3.0) * 0.18;
       cx += Math.cos(ang) * segLen;
       cy += Math.sin(ang) * segLen;
       pts.push({ x: cx | 0, y: cy | 0 });
     }
+    // Draw thick body (outline + core + highlight per segment)
     for (let i = 1; i < pts.length; i++) {
       const taper = 1 - (i / pts.length);
-      const w = Math.max(1, Math.round(4 * taper + 0.5));
+      const w = Math.max(1, Math.round(4 * taper + 0.8));
       const mx = ((pts[i - 1].x + pts[i].x) * 0.5) | 0;
       const my = ((pts[i - 1].y + pts[i].y) * 0.5) | 0;
       pxFill(mx - w, my - w, w * 2 + 1, w * 2 + 1, '#243818');
       pxFill(mx - w + 1, my - w + 1, Math.max(1, w * 2 - 1), Math.max(1, w * 2 - 1), '#5a9028');
       if (w >= 2) pxFill(mx - w + 1, my - w + 1, Math.max(1, w * 2 - 1), 1, '#88b840');
     }
-    // Suction-cup spots
+    // Suction-cup spots along the inside curve
     for (let i = 2; i < pts.length - 1; i += 2) {
       pxFill(pts[i].x, pts[i].y + 1, 1, 1, '#243818');
       pxFill(pts[i].x + 1, pts[i].y + 1, 1, 1, '#a01a0a');
     }
+    // MAW at the tip (only on the marked tentacle)
+    if (withMaw) {
+      const tip = pts[pts.length - 1];
+      const tx = tip.x | 0, ty = tip.y | 0;
+      drawPixelSmokePuff(tx, ty, 5, '#243818');
+      drawPixelSmokePuff(tx, ty, 4, '#5a9028');
+      drawPixelSmokePuff(tx, ty - 1, 3, '#88b840');
+      const eyeHot = ((frame / 4) | 0) & 1;
+      pxFill(tx - 1, ty - 3, 3, 2, '#1a0a04');
+      pxFill(tx, ty - 3, 1, 1, eyeHot ? '#ff4020' : '#a01a0a');
+      if (eyeHot) pxFill(tx, ty - 3, 1, 1, '#ffd060');
+      pxFill(tx - 2, ty + 1, 5, 4, PX.outline);
+      pxFill(tx - 1, ty + 2, 3, 2, '#1a0a04');
+      pxFill(tx - 1, ty + 1, 1, 1, '#ffffff');
+      pxFill(tx + 1, ty + 1, 1, 1, '#ffffff');
+      pxFill(tx, ty + 4, 1, 1, '#ffffff');
+      if (((frame / 3) | 0) & 1) pxFill(tx, ty + 3, 1, 1, '#7eddeb');
+    } else {
+      // Glowing cyan suction tip
+      const tip = pts[pts.length - 1];
+      const tx = tip.x | 0, ty = tip.y | 0;
+      drawPixelSmokePuff(tx, ty, 2, '#243818');
+      drawPixelSmokePuff(tx, ty, 1, '#3ad8ff');
+      if (((frame / 4) | 0) & 1) pxFill(tx, ty, 1, 1, '#ffffff');
+    }
+  }
 
-    // MAW at the tip — eye + teeth + glowing cyan core
-    const tip = pts[pts.length - 1];
-    const tx = tip.x | 0, ty = tip.y | 0;
-    drawPixelSmokePuff(tx, ty, 4, '#243818');
-    drawPixelSmokePuff(tx, ty, 3, '#5a9028');
-    drawPixelSmokePuff(tx, ty - 1, 2, '#88b840');
-    // Eye
-    const eyeHot = ((frame / 4) | 0) & 1;
-    pxFill(tx - 1, ty - 2, 3, 2, '#1a0a04');
-    pxFill(tx, ty - 2, 1, 1, eyeHot ? '#ff4020' : '#a01a0a');
-    if (eyeHot) pxFill(tx, ty - 2, 1, 1, '#ffd060');
-    // Mouth + teeth
-    pxFill(tx - 2, ty + 1, 5, 3, PX.outline);
-    pxFill(tx - 1, ty + 2, 3, 1, '#1a0a04');
-    pxFill(tx - 1, ty + 1, 1, 1, '#ffffff');
-    pxFill(tx + 1, ty + 1, 1, 1, '#ffffff');
-    pxFill(tx, ty + 3, 1, 1, '#ffffff');
-    // Pulsing cyan core
-    if (((frame / 3) | 0) & 1) pxFill(tx, ty + 2, 1, 1, '#7eddeb');
+  function drawPixelTentacle(sx, gy, tObj) {
+    sx = sx | 0; gy = gy | 0;
+    const waveSeed = tObj.waveSeed || 0;
+    const slimePulse = (Math.sin(frame * 0.2) + 1) * 0.5;
+    const slimeCol = slimePulse > 0.5 ? '#5a9028' : '#88b840';
+
+    // Cracked-earth mound silhouette — bigger now (3 tentacles per
+    // spawn so the mound should match the wider footprint).
+    pxFill(sx - 16, gy - 4, 32, 6, PX.outline);
+    pxFill(sx - 15, gy - 3, 30, 4, '#3a0a18');
+    pxFill(sx - 13, gy - 4, 26, 1, '#5a1830');
+    // Slime oozing from cracks
+    pxFill(sx - 12, gy - 1, 4, 1, slimeCol);
+    pxFill(sx - 4,  gy - 1, 4, 1, slimeCol);
+    pxFill(sx + 6,  gy - 1, 4, 1, slimeCol);
+    pxFill(sx + 12, gy,     3, 1, slimeCol);
+
+    // ── 3 TENTACLES per spawn (was 1) ─────────────────────────────
+    // Different lengths + angles + wave phases so they don't move in
+    // lockstep. The MIDDLE tentacle is the LONGEST + has the maw.
+    const wavePhase = (frame * 0.08) + waveSeed;
+    // Left tentacle — short, leans left
+    drawPixelTentacleArm(sx - 8, gy - 3, -Math.PI * 0.72, 60,
+                         wavePhase, false);
+    // Right tentacle — medium, leans right
+    drawPixelTentacleArm(sx + 8, gy - 3, -Math.PI * 0.32, 70,
+                         wavePhase + 1.4, false);
+    // Center tentacle — LONGEST, has the maw + glowing eye
+    drawPixelTentacleArm(sx,     gy - 4, -Math.PI * 0.52, 88,
+                         wavePhase + 0.7, true);
   }
 
   // ---------- Daily delivery course renderers ----------
