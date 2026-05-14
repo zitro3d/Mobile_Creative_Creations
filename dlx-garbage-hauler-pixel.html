@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v446f-fireball-less-white';
+const DLX_BUILD = 'v446g-fireball-embers';
 
 (function() {
   // ---------- Device detection ----------
@@ -15030,55 +15030,52 @@ const DLX_BUILD = 'v446f-fireball-less-white';
   // ═════════════════════════════════════════════════════════════════
 
   // ── PIXEL FIREBALL (lava ball projectile) ────────────────────────
-  // v446e — RASTERIZED teardrop silhouette (was overlapping circles
-  // which read as a chain of balls). Now each color layer is drawn
-  // as one CONNECTED shape: round head + tapering point at the tail.
-  //
-  // For each row Y in the bounding box, compute the LEFT and RIGHT
-  // edges of the teardrop and fillRect that row. The outer-most
-  // layer covers the full silhouette; inner layers are shrunk
-  // versions stacked on top to make color bands.
+  // v446g — audit pass against the Caleb Vaccaro reference. Key
+  // changes:
+  //   - Tail length kept ~constant across frames (was 1.2r→3r which
+  //     was too dramatic — reference varies subtly, 2.8r→3.4r).
+  //   - GRADIENT CORE: white center → pale yellow → bright yellow,
+  //     nested at the leading edge. No more flat white dot.
+  //   - EMBERS SHEDDING off the back of the tail is the main animated
+  //     element (matches the reference's frame-by-frame ember count
+  //     growth: 0 → 2 → 4 → 6). Each ember floats with perpendicular
+  //     sine wobble and fades hot → cool by distance from the tail.
   function drawPixelLavaBall(lb) {
     const cx = Math.round(lb.x);
     const cy = Math.round(lb.y);
     const r = Math.max(3, Math.round(lb.r));
 
-    // Velocity unit vector (head faces forward, tail trails back)
+    // Velocity unit vector
     const speed = Math.sqrt(lb.vx * lb.vx + lb.vy * lb.vy) || 1;
     const fdx = lb.vx / speed;
     const fdy = lb.vy / speed;
-    // Perpendicular axis (rotate +90°) for the cross-product
     const pdx = -fdy;
     const pdy = fdx;
 
-    // 4-FRAME ANIMATION — tail length cycles
+    // 4-frame anim cycle (4 game frames per anim frame ≈ 15fps)
     const frameIdx = ((lb.life / 4) | 0) & 3;
-    const tailFactors = [1.2, 1.7, 2.3, 3.0];
+    // Tail length — slightly varies per frame for organic feel
+    const tailFactors = [2.8, 3.0, 3.2, 3.4];
     const baseTailLen = r * tailFactors[frameIdx];
 
     // Bounding box for the rasterizer
     const boxR = Math.ceil(r + baseTailLen) + 2;
 
-    // Rasterize one teardrop layer at a given radius offset.
-    // Negative rDelta = inner (smaller) layer.
+    // Rasterize one teardrop layer (solid silhouette, not a chain
+    // of circles). Each color band is one fillRect per row.
     function rasterTeardrop(rDelta, color) {
       const layerR = r + rDelta;
       if (layerR <= 0) return;
-      // Tail length shrinks proportionally with the radius so inner
-      // layers look like nested teardrops, not weird shapes.
       const layerTail = Math.max(1, baseTailLen + rDelta * 0.7);
       for (let dy = -boxR; dy <= boxR; dy++) {
         let runStart = null;
         for (let dx = -boxR; dx <= boxR; dx++) {
-          // Project (dx, dy) onto the velocity axis
           const proj = dx * fdx + dy * fdy;
           const perp = Math.abs(dx * pdx + dy * pdy);
           let inside = false;
           if (proj >= 0) {
-            // HEAD — circle of radius layerR
             inside = (proj * proj + perp * perp) <= layerR * layerR;
           } else {
-            // TAIL — taper linearly from layerR at proj=0 to 0 at -layerTail
             const t = -proj / layerTail;
             if (t <= 1) {
               const taperedR = layerR * (1 - t * 0.95);
@@ -15098,46 +15095,55 @@ const DLX_BUILD = 'v446f-fireball-less-white';
       }
     }
 
-    // ── COLOR LAYERS — outer rim → inner core ──
-    // v446f — REMOVED pale yellow + shrunk the white core. Was too
-    // washed out; user wanted a clear white→yellow→orange→red
-    // gradient. Now yellow is the dominant interior, white is just
-    // a 1-pixel hot spot at the front.
-    rasterTeardrop(+1, '#7a1a10');   // outer dim halo (1 px rim)
+    // ── COLOR LAYERS — outer rim → inner main band ──
+    rasterTeardrop(+1, '#7a1a10');   // outer dim halo
     rasterTeardrop( 0, '#c84020');   // red rim
     rasterTeardrop(-1, '#e87028');   // orange
     rasterTeardrop(-2, '#ff9050');   // hot orange
-    rasterTeardrop(-3, '#ffd060');   // yellow (dominant interior)
+    rasterTeardrop(-3, '#ffd060');   // bright yellow (main interior)
 
-    // ── WHITE-HOT CORE — tiny dot offset toward leading edge ──
-    // Just 1-3 pixels, sized by the fireball radius. Anything bigger
-    // washes out the colored bands.
+    // ── GRADIENT CORE — white → pale yellow → bright yellow ──
+    // Nested discs at the leading edge form a smooth gradient
+    // from white center outward into the surrounding yellow band.
     if (r >= 4) {
       const coreOffX = Math.round(fdx * 2);
       const coreOffY = Math.round(fdy * 2);
-      // 1-pixel white core
+      // Bright yellow disc (overlaps with the yellow band but
+      // creates a slightly brighter inner zone)
+      if (r >= 6) drawPixelSmokePuff(cx + coreOffX, cy + coreOffY, 2, '#ffe080');
+      // Pale yellow disc
+      drawPixelSmokePuff(cx + coreOffX, cy + coreOffY, 1, '#fff4d0');
+      // 1-pixel white core (the hottest spot)
       pxFill(cx + coreOffX, cy + coreOffY, 1, 1, '#ffffff');
-      // For bigger fireballs, add a small + cross of pale yellow
-      // around the white pixel (gives the core "glow" without
-      // becoming a giant white blob).
-      if (r >= 6) {
-        pxFill(cx + coreOffX - 1, cy + coreOffY,     1, 1, '#fff4d0');
-        pxFill(cx + coreOffX + 1, cy + coreOffY,     1, 1, '#fff4d0');
-        pxFill(cx + coreOffX,     cy + coreOffY - 1, 1, 1, '#fff4d0');
-        pxFill(cx + coreOffX,     cy + coreOffY + 1, 1, 1, '#fff4d0');
-      }
     }
 
-    // ── SPARKS shedding off the tail tip (frames 2-3) ──
-    if (frameIdx >= 2) {
-      const sparkCount = (frameIdx === 3) ? 4 : 2;
-      const bdx = -fdx, bdy = -fdy;
-      for (let i = 0; i < sparkCount; i++) {
-        const sparkDist = baseTailLen + 1 + i * 2;
-        const wob = Math.sin(lb.life * 0.4 + i * 1.7) * 1.8;
-        const sx = (cx + bdx * sparkDist + pdx * wob) | 0;
-        const sy = (cy + bdy * sparkDist + pdy * wob) | 0;
-        pxFill(sx, sy, 1, 1, i < 2 ? '#ffd060' : '#ff9050');
+    // ── EMBERS SHEDDING off the back of the tail ──
+    // Per-frame ember count grows then resets:
+    //   frame 0: 0 (clean teardrop)
+    //   frame 1: 2 (one starting to break off)
+    //   frame 2: 4 (mid shedding)
+    //   frame 3: 6 (full shedding)
+    const emberCounts = [0, 2, 4, 6];
+    const ec = emberCounts[frameIdx];
+    for (let i = 0; i < ec; i++) {
+      // Distance behind the tail tip — older embers further out
+      const dist = baseTailLen + 1 + i * 2 + ((i + frameIdx) % 2);
+      // Perpendicular wobble — alternates above/below tail axis
+      const wob = Math.sin(lb.life * 0.3 + i * 1.7 + lb.seed) * (r * 0.6);
+      const ex = (cx - fdx * dist + pdx * wob) | 0;
+      const ey = (cy - fdy * dist + pdy * wob) | 0;
+      // Color fades hot → cool by ember age (closer = hotter)
+      let color;
+      if (i === 0)      color = '#ffffff';
+      else if (i === 1) color = '#ffd060';
+      else if (i === 2) color = '#ff9050';
+      else if (i === 3) color = '#e87028';
+      else if (i === 4) color = '#c84020';
+      else              color = '#7a1a10';
+      pxFill(ex, ey, 1, 1, color);
+      // Bigger ember (2x2) for the freshest one on frame 3
+      if (frameIdx === 3 && i === 0) {
+        pxFill(ex + 1, ey, 1, 1, '#fff4d0');
       }
     }
   }
