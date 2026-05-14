@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v427-pixel';
+const DLX_BUILD = 'v428-pixel';
 
 (function() {
   // ---------- Device detection ----------
@@ -27423,6 +27423,62 @@ const DLX_BUILD = 'v427-pixel';
     outline:     '#04060a',
   };
 
+  // ─────────────────────────────────────────────────────────
+  // PIXEL FLAME — driven by thrust state (tap = big, idle = putter)
+  // ─────────────────────────────────────────────────────────
+  let pxFlameLevel = 0.30;
+  function pxFlameUpdate() {
+    // Target 1.0 while thrusting, 0.30 idle so engine always shows
+    // a small putter flame instead of vanishing on release.
+    const target = (thrusterFrames > 0) ? 1.0 : 0.30;
+    pxFlameLevel += (target - pxFlameLevel) * 0.18;
+  }
+
+  function pxRoadkillFlame(ctx, level, frame) {
+    if (level < 0.04) return;
+    ctx.imageSmoothingEnabled = false;
+    const C = PXC;
+    // Rear nozzle in rig-local coords (after -31,-29 centering)
+    const x = -23, y = 15;
+    const flick = Math.floor(Math.sin(frame * 0.45) * 2 * level);
+    const flick2 = Math.floor(Math.cos(frame * 0.32) * 1.5 * level);
+
+    const cols = Math.max(2, Math.floor(36 * level));
+    const peakOuter = Math.max(2, Math.floor(18 * level));
+    const peakMid   = Math.max(2, Math.floor(14 * level));
+    const peakHot   = Math.max(2, Math.floor(10 * level));
+    const peakCore  = Math.max(1, Math.floor(6 * level));
+
+    ctx.fillStyle = C.flameDeep;
+    for (let i = 0; i < cols; i++) {
+      const h = Math.max(1, peakOuter - Math.floor(i * 0.5) + flick);
+      ctx.fillRect(x - i, y - (h >> 1) + flick2, 1, h);
+    }
+    ctx.fillStyle = C.flameMid;
+    const midCols = Math.floor(cols * 0.78);
+    for (let i = 0; i < midCols; i++) {
+      const h = Math.max(1, peakMid - Math.floor(i * 0.5) + (flick >> 1));
+      ctx.fillRect(x - i, y - (h >> 1), 1, h);
+    }
+    ctx.fillStyle = C.flameHot;
+    const hotCols = Math.floor(cols * 0.56);
+    for (let i = 0; i < hotCols; i++) {
+      const h = Math.max(1, peakHot - Math.floor(i * 0.5));
+      ctx.fillRect(x - i, y - (h >> 1), 1, h);
+    }
+    ctx.fillStyle = C.flameCore;
+    const coreCols = Math.floor(cols * 0.34);
+    for (let i = 0; i < coreCols; i++) {
+      const h = Math.max(1, peakCore - Math.floor(i * 0.4));
+      ctx.fillRect(x - i, y - (h >> 1), 1, h);
+    }
+    // Source flare at the nozzle (scales with level — tiny when puttering)
+    const flareW = Math.max(1, Math.floor(4 * level));
+    const flareH = Math.max(1, Math.floor(6 * level));
+    ctx.fillRect(x, y - (flareH >> 1), flareW, flareH);
+  }
+
+
   function pxRoadkillRig(ctx, ox, oy, frame) {
       ctx.imageSmoothingEnabled = false;
       const x = ox | 0, y = oy | 0;
@@ -27641,7 +27697,8 @@ const DLX_BUILD = 'v427-pixel';
     ctx.save();
     ctx.rotate(tilt * 1.45);
     drawHaulerBack();
-    if (thrusterFrames > 0) drawDirtyFlame();
+    // Legacy vector flame replaced by pxRoadkillFlame (in drawHaulerFront).
+    // if (thrusterFrames > 0) drawDirtyFlame();
     ctx.restore();
 
     // Bio-shielded retrofit overlay — only on organic-theme levels.
@@ -27680,12 +27737,13 @@ const DLX_BUILD = 'v427-pixel';
   }
 
   function drawHaulerFront() {
-    // PIXEL-ART RIG SWAP — bypass legacy vector HAULER renderer.
-    // Body center is at native rig coords (43, 29); subtract those to
-    // center the rig on the bird position (origin is already at
-    // bird.x/y from drawBird's ctx.translate).
+    // Pixel-art rig + thrust-driven flame. Flame is drawn FIRST so
+    // the rig's engine nozzle visibly covers the flame source pixel;
+    // the flame trail extends out the back-left of the rig.
+    pxFlameUpdate();
     ctx.save();
     ctx.imageSmoothingEnabled = false;
+    pxRoadkillFlame(ctx, pxFlameLevel, frame);
     pxRoadkillRig(ctx, -31, -29, frame);
     ctx.restore();
   }
