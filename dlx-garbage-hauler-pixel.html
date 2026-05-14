@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v437-pixel-citadel';
+const DLX_BUILD = 'v438-pixel-props';
 
 (function() {
   // ---------- Device detection ----------
@@ -13910,6 +13910,512 @@ const DLX_BUILD = 'v437-pixel-citadel';
     ctx.restore();
   }
 
+  // ═════════════════════════════════════════════════════════════════
+  // PIXEL-ART PROPS (batch 2 — hazards + scenery + buttes)
+  // Each function takes (sx, gy, ...) where sx is the prop's screen X
+  // and gy is the ground-level Y (the foot of the prop). The prop
+  // computes its own internal top-left offset from those — matches
+  // the way the existing drawDailyCactus / drawDailyRock / etc. are
+  // called by drawDailyHazards + drawDailyScenery.
+  // ═════════════════════════════════════════════════════════════════
+
+  // Helper: is the active level routed through pixel-art renderers?
+  function isPixelHorizonLevel() {
+    return currentDeliveryLevel.horizonStyle === 'pixelCitadel';
+  }
+
+  // Extended palette for props (cactus greens, bone whites, etc.)
+  const PXP = {
+    cactusCore: '#3a6028', cactusLit: '#5a8038', cactusDark: '#1a3818',
+    rockCore: '#7a3018',   rockLit: '#a85838',   rockDark: '#3a1408',
+    boneLight: '#e8d4a8',  boneShade: '#a88858', boneDark: '#3a2810',
+    brushCore: '#3a3818',  brushLit: '#605830',
+    tumbleweed: '#a87830', tumbleweedDark: '#5a3818',
+    deadShade: '#a88858',  deadLight: '#e8d4a8',
+  };
+
+  // ── PIXEL CACTUS (small + saguaro) ──────────────────────────────
+  // sx = screen X (cactus trunk horizontal center), gy = ground Y
+  // (foot of the trunk). Big = saguaro (taller, two-elbow arms).
+  function drawPixelCactus(sx, gy, big) {
+    sx = sx | 0; gy = gy | 0;
+    const h = big ? 32 : 22;
+    // Top-left of the 14-wide sprite — center on sx.
+    const x = sx - 7;
+    const y = gy - h;
+    // Trunk
+    pxFill(x + 5, y + 2, 4, h - 2, PXP.cactusDark);
+    pxFill(x + 6, y, 2, 2, PXP.cactusDark);
+    // Arms — connected via L-elbows so they don't read as floating.
+    if (big) {
+      // Saguaro — taller arms, elbow further up
+      pxFill(x + 1, y + 18, 5, 3, PXP.cactusDark);     // left elbow
+      pxFill(x + 1, y + 9,  3, 9, PXP.cactusDark);     // left vertical
+      pxFill(x + 1, y + 8,  3, 1, PXP.cactusDark);
+      pxFill(x + 8, y + 14, 5, 3, PXP.cactusDark);     // right elbow
+      pxFill(x + 10, y + 5, 3, 9, PXP.cactusDark);     // right vertical
+      pxFill(x + 10, y + 4, 3, 1, PXP.cactusDark);
+    } else {
+      // Small cactus — shorter arms
+      pxFill(x + 2, y + 12, 4, 3, PXP.cactusDark);     // left elbow
+      pxFill(x + 2, y + 6,  3, 9, PXP.cactusDark);     // left vertical
+      pxFill(x + 2, y + 5,  3, 1, PXP.cactusDark);
+      pxFill(x + 8, y + 9,  4, 3, PXP.cactusDark);     // right elbow
+      pxFill(x + 9, y + 3,  3, 9, PXP.cactusDark);     // right vertical
+      pxFill(x + 9, y + 2,  3, 1, PXP.cactusDark);
+    }
+    // Lit cores
+    pxFill(x + 6, y + 1, 2, h - 2, PXP.cactusCore);
+    // Bright highlight stripe down the trunk
+    pxFill(x + 6, y + 2, 1, h - 4, PXP.cactusLit);
+    // Spine dots along the ribs
+    for (let i = 0; i < (big ? 7 : 5); i++) {
+      pxFill(x + 5, y + 4 + i * 4, 1, 1, PX.outline);
+      pxFill(x + 8, y + 6 + i * 4, 1, 1, PX.outline);
+    }
+  }
+
+  // ── PIXEL ROCK + VARIATIONS ─────────────────────────────────────
+  // worldX seeds the variation pick so the same rock is consistent
+  // across frames + on replays. 4 variants: small, big boulder,
+  // sharp jagged peak, twin pair.
+  function drawPixelRockSmall(sx, gy) {
+    sx = sx | 0; gy = gy | 0;
+    const x = sx - 8, y = gy - 10;
+    pxFill(x + 1, y + 4, 16, 8, PXP.rockDark);
+    pxFill(x + 3, y + 2, 12, 10, PXP.rockDark);
+    pxFill(x + 2, y + 5, 14, 6, PXP.rockCore);
+    pxFill(x + 4, y + 3, 10, 8, PXP.rockCore);
+    pxFill(x + 6, y + 3, 6, 1, PXP.rockLit);
+    pxFill(x + 9, y + 4, 6, 1, PXP.rockLit);
+    pxFill(x + 11, y + 5, 5, 1, PXP.rockLit);
+    pxFill(x + 6, y + 7, 1, 3, PXP.rockDark);
+    pxFill(x + 7, y + 9, 2, 1, PXP.rockDark);
+  }
+  function drawPixelRockBig(sx, gy) {
+    sx = sx | 0; gy = gy | 0;
+    const x = sx - 14, y = gy - 18;
+    // Stepped trapezoid silhouette
+    pxFill(x + 10, y, 8, 1, PX.outline);
+    pxFill(x + 7, y + 1, 13, 1, PX.outline);
+    pxFill(x + 5, y + 2, 17, 1, PX.outline);
+    pxFill(x + 3, y + 3, 21, 1, PX.outline);
+    pxFill(x + 2, y + 4, 23, 1, PX.outline);
+    pxFill(x + 1, y + 5, 25, 6, PX.outline);
+    pxFill(x, y + 11, 27, 5, PX.outline);
+    pxFill(x + 1, y + 16, 27, 2, PX.outline);
+    // Core fill (inset 1 px from outline)
+    pxFill(x + 11, y + 1, 6, 1, PXP.rockCore);
+    pxFill(x + 8, y + 2, 12, 1, PXP.rockCore);
+    pxFill(x + 6, y + 3, 16, 1, PXP.rockCore);
+    pxFill(x + 4, y + 4, 20, 1, PXP.rockCore);
+    pxFill(x + 3, y + 5, 22, 5, PXP.rockCore);
+    pxFill(x + 2, y + 10, 24, 4, PXP.rockCore);
+    pxFill(x + 2, y + 14, 24, 3, PXP.rockCore);
+    // Sun-lit crown
+    pxFill(x + 11, y + 1, 6, 1, PXP.rockLit);
+    pxFill(x + 14, y + 2, 6, 1, PXP.rockLit);
+    pxFill(x + 16, y + 3, 6, 1, PXP.rockLit);
+    pxFill(x + 18, y + 4, 5, 1, PXP.rockLit);
+    pxFill(x + 20, y + 5, 4, 1, PXP.rockLit);
+    // Strata bands
+    pxFill(x + 3, y + 8, 22, 1, PXP.rockDark);
+    pxFill(x + 2, y + 12, 24, 1, '#3a1408');
+    // Prominent crack
+    pxFill(x + 12, y + 5, 1, 8, PXP.rockDark);
+    pxFill(x + 11, y + 9, 1, 2, PXP.rockDark);
+    pxFill(x + 19, y + 9, 1, 5, PXP.rockDark);
+    // Lichen patch
+    pxFill(x + 4, y + 11, 2, 1, '#5a6028');
+    pxFill(x + 5, y + 12, 1, 1, '#5a6028');
+  }
+  function drawPixelRockSharp(sx, gy) {
+    sx = sx | 0; gy = gy | 0;
+    const x = sx - 9, y = gy - 14;
+    // Tall left peak
+    pxFill(x + 1, y + 6, 1, 1, PX.outline);
+    pxFill(x + 2, y + 4, 1, 2, PX.outline);
+    pxFill(x + 3, y + 2, 1, 2, PX.outline);
+    pxFill(x + 4, y + 1, 1, 1, PX.outline);
+    pxFill(x + 5, y + 3, 1, 2, PX.outline);
+    pxFill(x + 6, y + 5, 1, 1, PX.outline);
+    // Right peak (taller, primary)
+    pxFill(x + 7, y + 7, 1, 1, PX.outline);
+    pxFill(x + 8, y + 6, 1, 1, PX.outline);
+    pxFill(x + 9, y + 4, 1, 2, PX.outline);
+    pxFill(x + 10, y + 2, 1, 2, PX.outline);
+    pxFill(x + 11, y, 1, 2, PX.outline);
+    pxFill(x + 12, y + 2, 1, 2, PX.outline);
+    pxFill(x + 13, y + 4, 1, 2, PX.outline);
+    pxFill(x + 14, y + 6, 1, 1, PX.outline);
+    pxFill(x + 15, y + 7, 1, 1, PX.outline);
+    pxFill(x + 16, y + 8, 1, 2, PX.outline);
+    pxFill(x + 17, y + 10, 1, 2, PX.outline);
+    // Bottom edge
+    pxFill(x + 1, y + 11, 1, 1, PX.outline);
+    pxFill(x + 1, y + 12, 16, 1, PX.outline);
+    pxFill(x + 2, y + 13, 14, 1, PX.outline);
+    // Body fill
+    pxFill(x + 2, y + 6, 4, 1, PXP.rockDark);
+    pxFill(x + 3, y + 4, 2, 2, PXP.rockDark);
+    pxFill(x + 4, y + 2, 1, 2, PXP.rockCore);
+    pxFill(x + 9, y + 6, 5, 1, PXP.rockDark);
+    pxFill(x + 10, y + 4, 3, 2, PXP.rockCore);
+    pxFill(x + 11, y + 2, 1, 2, PXP.rockCore);
+    pxFill(x + 11, y + 1, 1, 1, PXP.rockLit);
+    pxFill(x + 2, y + 7, 14, 4, PXP.rockCore);
+    pxFill(x + 3, y + 11, 12, 1, PXP.rockCore);
+    pxFill(x + 4, y + 12, 11, 1, PXP.rockCore);
+    pxFill(x + 12, y + 5, 1, 1, PXP.rockLit);
+    pxFill(x + 13, y + 7, 1, 1, PXP.rockLit);
+    pxFill(x + 14, y + 8, 1, 2, PXP.rockLit);
+    pxFill(x + 7, y + 8, 1, 3, '#1a0804');
+    pxFill(x + 8, y + 8, 1, 2, '#1a0804');
+  }
+  function drawPixelRockTwins(sx, gy) {
+    sx = sx | 0; gy = gy | 0;
+    const x = sx - 11, y = gy - 12;
+    // Larger left rock
+    pxFill(x + 1, y + 4, 1, 6, PX.outline);
+    pxFill(x + 2, y + 2, 1, 2, PX.outline);
+    pxFill(x + 3, y + 1, 4, 1, PX.outline);
+    pxFill(x + 7, y + 2, 1, 1, PX.outline);
+    pxFill(x + 8, y + 3, 1, 2, PX.outline);
+    pxFill(x + 9, y + 5, 1, 1, PX.outline);
+    pxFill(x + 10, y + 6, 1, 2, PX.outline);
+    pxFill(x + 11, y + 8, 1, 2, PX.outline);
+    pxFill(x + 1, y + 10, 11, 1, PX.outline);
+    pxFill(x + 2, y + 4, 6, 6, PXP.rockCore);
+    pxFill(x + 3, y + 2, 4, 2, PXP.rockCore);
+    pxFill(x + 8, y + 5, 2, 4, PXP.rockCore);
+    pxFill(x + 10, y + 8, 1, 2, PXP.rockCore);
+    pxFill(x + 4, y + 2, 2, 1, PXP.rockLit);
+    pxFill(x + 3, y + 3, 5, 1, PXP.rockLit);
+    pxFill(x + 2, y + 5, 1, 5, PXP.rockDark);
+    pxFill(x + 5, y + 6, 1, 3, PXP.rockDark);
+    // Smaller right pebble
+    pxFill(x + 13, y + 7, 1, 3, PX.outline);
+    pxFill(x + 14, y + 6, 1, 1, PX.outline);
+    pxFill(x + 15, y + 5, 3, 1, PX.outline);
+    pxFill(x + 18, y + 6, 1, 1, PX.outline);
+    pxFill(x + 19, y + 7, 1, 3, PX.outline);
+    pxFill(x + 14, y + 10, 5, 1, PX.outline);
+    pxFill(x + 14, y + 7, 5, 3, PXP.rockCore);
+    pxFill(x + 15, y + 6, 3, 1, PXP.rockCore);
+    pxFill(x + 16, y + 6, 2, 1, PXP.rockLit);
+    pxFill(x + 14, y + 8, 1, 2, PXP.rockDark);
+  }
+  function drawPixelRock(sx, gy, worldX) {
+    // Seed picks variation. Stable per worldX so the rock is consistent.
+    const seed = worldX * 0.0173 + 5.91;
+    const pick = srand(seed);
+    if (pick < 0.42)      drawPixelRockSmall(sx, gy);
+    else if (pick < 0.70) drawPixelRockTwins(sx, gy);
+    else if (pick < 0.88) drawPixelRockSharp(sx, gy);
+    else                  drawPixelRockBig(sx, gy);
+  }
+
+  // ── PIXEL SPIKES — big menacing iron-spike trap ────────────────
+  function drawPixelSpikes(sx, gy, worldX) {
+    sx = sx | 0; gy = gy | 0;
+    const x = sx - 23, y = gy - 30;
+    // Dirt mound base
+    pxFill(x, y + 28, 46, 2, PX.outline);
+    pxFill(x + 1, y + 28, 44, 1, PX.earth1);
+    pxFill(x + 2, y + 26, 42, 2, PX.earth1);
+    pxFill(x + 4, y + 25, 38, 1, PX.earth0);
+    pxFill(x + 8, y + 24, 30, 1, PX.earth1);
+    pxFill(x + 12, y + 23, 22, 1, PX.earth0);
+    // Per-spike rendering
+    const drawSpike = (spikeX, baseY, height) => {
+      pxFill(spikeX, baseY - height, 1, 1, '#ffffff');
+      pxFill(spikeX, baseY - height + 1, 1, 2, '#f4e8c0');
+      pxFill(spikeX - 1, baseY - height + 2, 1, 1, '#a88858');
+      pxFill(spikeX + 1, baseY - height + 2, 1, 1, '#a88858');
+      pxFill(spikeX, baseY - height + 3, 1, 1, '#a01a0a');
+      pxFill(spikeX + 1, baseY - height + 4, 1, 1, PX.rust);
+      const bodyTop = baseY - height + 3;
+      const bodyH = height - 3;
+      for (let r = 0; r < bodyH; r++) {
+        const hw = Math.min(1 + ((r / 2) | 0), 4);
+        const yy = bodyTop + r;
+        pxFill(spikeX - hw, yy, 1, 1, PX.outline);
+        pxFill(spikeX + hw, yy, 1, 1, PX.outline);
+        if (hw >= 1) {
+          pxFill(spikeX - hw + 1, yy, 1, 1, '#5a3020');
+          pxFill(spikeX, yy, 1, 1, '#7a3018');
+          pxFill(spikeX + hw - 1, yy, 1, 1, '#a85838');
+        }
+        if (hw >= 2) {
+          pxFill(spikeX - hw + 2, yy, hw * 2 - 3, 1, '#7a3018');
+          pxFill(spikeX + 1, yy, hw - 1, 1, '#a85838');
+        }
+      }
+      // Rust streaks
+      pxFill(spikeX - 1, bodyTop + ((bodyH * 0.4) | 0), 1, (bodyH * 0.4) | 0, '#3a1408');
+      pxFill(spikeX + 1, bodyTop + ((bodyH * 0.3) | 0), 1, (bodyH * 0.5) | 0, PX.rust);
+      pxFill(spikeX - 2, baseY - 1, 5, 1, '#1a0804');
+      pxFill(spikeX - 3, baseY, 7, 1, PX.outline);
+    };
+    const baseY = y + 27;
+    drawSpike(x + 7,  baseY, 20);
+    drawSpike(x + 18, baseY, 26);
+    drawSpike(x + 28, baseY, 22);
+    drawSpike(x + 38, baseY, 18);
+    // Dried blood pool around the tallest
+    pxFill(x + 14, y + 27, 8, 1, '#7a1a10');
+    pxFill(x + 16, y + 26, 4, 1, '#a01a0a');
+  }
+
+  // ── PIXEL SKULL ──────────────────────────────────────────────────
+  // facingLeft: mirror the eye sockets / nose so the skull "looks"
+  // in the direction the original drawDailySkull faced.
+  function drawPixelSkull(sx, gy, facingLeft) {
+    sx = sx | 0; gy = gy | 0;
+    const x = sx - 8, y = gy - 15;
+    pxFill(x + 1, y + 1, 14, 11, PXP.boneDark);
+    pxFill(x + 2, y, 12, 1, PXP.boneDark);
+    pxFill(x, y + 3, 1, 7, PXP.boneDark);
+    pxFill(x + 15, y + 3, 1, 7, PXP.boneDark);
+    pxFill(x + 2, y + 1, 12, 10, PXP.boneLight);
+    pxFill(x + 3, y, 10, 1, PXP.boneLight);
+    pxFill(x + 1, y + 3, 1, 6, PXP.boneLight);
+    pxFill(x + 14, y + 3, 1, 6, PXP.boneLight);
+    pxFill(x + 2, y + 10, 12, 1, PXP.boneShade);
+    // Eye sockets (slight asymmetry based on facing for character)
+    pxFill(x + 3, y + 3, 3, 1, PXP.boneShade);
+    pxFill(x + 10, y + 3, 3, 1, PXP.boneShade);
+    pxFill(x + 3, y + 4, 3, 3, PX.outline);
+    pxFill(x + 10, y + 4, 3, 3, PX.outline);
+    pxFill(facingLeft ? x + 3 : x + 5, y + 6, 1, 1, PXP.boneShade);
+    pxFill(facingLeft ? x + 10 : x + 12, y + 6, 1, 1, PXP.boneShade);
+    // Nose
+    pxFill(x + 7, y + 7, 2, 1, PX.outline);
+    pxFill(x + 7, y + 8, 2, 2, PX.outline);
+    // Jaw
+    pxFill(x + 3, y + 12, 10, 3, PXP.boneDark);
+    pxFill(x + 4, y + 12, 8, 2, PXP.boneLight);
+    for (let i = 0; i < 4; i++) {
+      pxFill(x + 5 + i * 2, y + 14, 1, 1, PX.outline);
+    }
+    // Horn nubs
+    pxFill(x + 1, y, 1, 1, PXP.boneDark);
+    pxFill(x + 14, y, 1, 1, PXP.boneDark);
+  }
+
+  // ── PIXEL BONES ──────────────────────────────────────────────────
+  function drawPixelBones(sx, gy) {
+    sx = sx | 0; gy = gy | 0;
+    const x = sx - 11, y = gy - 18;
+    const bone = (bx, by) => {
+      // Left end-cap (two lobes with notch)
+      pxFill(bx + 1, by,     4, 1, PXP.boneDark);
+      pxFill(bx,     by + 1, 6, 3, PXP.boneDark);
+      pxFill(bx,     by + 7, 6, 3, PXP.boneDark);
+      pxFill(bx + 1, by + 10, 4, 1, PXP.boneDark);
+      pxFill(bx + 4, by + 4, 4, 1, PXP.boneDark);
+      pxFill(bx + 4, by + 6, 4, 1, PXP.boneDark);
+      pxFill(bx + 3, by + 5, 5, 1, PXP.boneDark);
+      // Right end-cap
+      pxFill(bx + 17, by,     4, 1, PXP.boneDark);
+      pxFill(bx + 16, by + 1, 6, 3, PXP.boneDark);
+      pxFill(bx + 16, by + 7, 6, 3, PXP.boneDark);
+      pxFill(bx + 17, by + 10, 4, 1, PXP.boneDark);
+      pxFill(bx + 14, by + 4, 4, 1, PXP.boneDark);
+      pxFill(bx + 14, by + 6, 4, 1, PXP.boneDark);
+      pxFill(bx + 14, by + 5, 5, 1, PXP.boneDark);
+      // Shaft
+      pxFill(bx + 7,  by + 4, 8, 1, PXP.boneDark);
+      pxFill(bx + 6,  by + 5, 10, 1, PXP.boneDark);
+      pxFill(bx + 7,  by + 6, 8, 1, PXP.boneDark);
+      // Light highlights
+      pxFill(bx + 2, by + 1, 3, 1, PXP.boneLight);
+      pxFill(bx + 1, by + 2, 4, 1, PXP.boneLight);
+      pxFill(bx + 1, by + 7, 4, 1, PXP.boneLight);
+      pxFill(bx + 2, by + 9, 3, 1, PXP.boneLight);
+      pxFill(bx + 17, by + 1, 3, 1, PXP.boneLight);
+      pxFill(bx + 17, by + 2, 4, 1, PXP.boneLight);
+      pxFill(bx + 17, by + 7, 4, 1, PXP.boneLight);
+      pxFill(bx + 17, by + 9, 3, 1, PXP.boneLight);
+      pxFill(bx + 6, by + 5, 10, 1, PXP.boneLight);
+      // Shade
+      pxFill(bx + 1, by + 3, 4, 1, PXP.boneShade);
+      pxFill(bx + 1, by + 8, 4, 1, PXP.boneShade);
+      pxFill(bx + 17, by + 3, 4, 1, PXP.boneShade);
+      pxFill(bx + 17, by + 8, 4, 1, PXP.boneShade);
+      pxFill(bx + 7, by + 6, 8, 1, PXP.boneShade);
+      // Notch shadow
+      pxFill(bx + 3, by + 4, 1, 1, PX.outline);
+      pxFill(bx + 3, by + 6, 1, 1, PX.outline);
+      pxFill(bx + 18, by + 4, 1, 1, PX.outline);
+      pxFill(bx + 18, by + 6, 1, 1, PX.outline);
+    };
+    bone(x, y);
+    bone(x + 3, y + 13);
+  }
+
+  // ── PIXEL BRUSH (sage / desert scrub) ─────────────────────────────
+  // variant is a 0..1 seed used to vary twig heights so adjacent
+  // brushes aren't identical.
+  function drawPixelBrush(sx, gy, variant) {
+    sx = sx | 0; gy = gy | 0;
+    const v = variant || 0.5;
+    const x = sx - 9, y = gy - 11;
+    const tall = 1 + ((v * 4) | 0);   // 1..4 px taller central twig
+    pxFill(x + 4, y + 4, 1, 6, PXP.brushCore);
+    pxFill(x + 6, y + 2 - (tall > 1 ? 1 : 0), 1, 8 + (tall > 1 ? 1 : 0), PXP.brushCore);
+    pxFill(x + 8, y + 5, 1, 5, PXP.brushCore);
+    pxFill(x + 10, y + 1 - (tall > 2 ? 1 : 0), 1, 9 + (tall > 2 ? 1 : 0), PXP.brushCore);
+    pxFill(x + 12, y + 4, 1, 6, PXP.brushCore);
+    // Side offshoots
+    pxFill(x + 5, y + 5, 1, 1, PXP.brushCore);
+    pxFill(x + 7, y + 3, 1, 1, PXP.brushCore);
+    pxFill(x + 9, y + 4, 1, 1, PXP.brushCore);
+    pxFill(x + 11, y + 3, 1, 1, PXP.brushCore);
+    // Olive leaf clusters at twig tips
+    pxFill(x + 4, y + 3, 1, 1, PXP.brushLit);
+    pxFill(x + 6, y + 1 - (tall > 1 ? 1 : 0), 2, 1, PXP.brushLit);
+    pxFill(x + 6, y - (tall > 1 ? 1 : 0), 1, 1, PXP.brushLit);
+    pxFill(x + 10, y - (tall > 2 ? 1 : 0), 2, 1, PXP.brushLit);
+    pxFill(x + 12, y + 3, 1, 1, PXP.brushLit);
+    // Dirt root mound
+    pxFill(x + 3, y + 10, 12, 1, PX.outline);
+    pxFill(x + 4, y + 9, 10, 1, PXP.rockDark);
+  }
+
+  // ── PIXEL TUMBLEWEED ─────────────────────────────────────────────
+  function drawPixelTumbleweed(sx, gy) {
+    sx = sx | 0; gy = gy | 0;
+    const cx = sx, cy = gy - 7;
+    // Inner shadow pixels
+    pxFill(cx - 1, cy - 1, 1, 1, PXP.tumbleweedDark);
+    pxFill(cx + 2, cy + 1, 1, 1, PXP.tumbleweedDark);
+    pxFill(cx - 2, cy + 2, 1, 1, PXP.tumbleweedDark);
+    // Outer rim — diagonal twigs forming a rough circle
+    const rim = [
+      [-2,-6],[-1,-6],[1,-6],[2,-6],
+      [-4,-5],[-3,-5],[3,-5],[4,-5],
+      [-5,-4],[-4,-4],[4,-4],[5,-4],
+      [-6,-3],[-6,-2],[6,-3],[6,-2],
+      [-6,-1],[-6,0],[6,-1],[6,0],
+      [-6,1],[-6,2],[6,1],[6,2],
+      [-5,3],[-4,3],[4,3],[5,3],
+      [-4,4],[-3,4],[3,4],[4,4],
+      [-3,5],[-1,5],[1,5],[3,5],
+    ];
+    for (const [dx, dy] of rim) {
+      pxFill(cx + dx, cy + dy, 1, 1, PXP.tumbleweedDark);
+    }
+    // Criss-crossing internal twigs
+    const diag1 = [[-4,-3],[-3,-2],[-2,-1],[-1,0],[0,1],[1,2],[2,3],[3,4]];
+    const diag2 = [[3,-4],[2,-3],[1,-2],[0,-1],[-2,1],[-3,2],[-4,3]];
+    const horiz = [[-3,0],[-2,0],[2,0],[3,0]];
+    const vert  = [[-1,-3],[-1,-2],[0,2],[0,3]];
+    for (const [dx, dy] of diag1) pxFill(cx + dx, cy + dy, 1, 1, PXP.tumbleweed);
+    for (const [dx, dy] of diag2) pxFill(cx + dx, cy + dy, 1, 1, PXP.tumbleweed);
+    for (const [dx, dy] of horiz) pxFill(cx + dx, cy + dy, 1, 1, PXP.tumbleweed);
+    for (const [dx, dy] of vert)  pxFill(cx + dx, cy + dy, 1, 1, PXP.tumbleweed);
+    // Highlight specks
+    pxFill(cx - 2, cy - 3, 1, 1, PXP.boneLight);
+    pxFill(cx + 1, cy + 2, 1, 1, PXP.boneLight);
+  }
+
+  // ── PIXEL BUTTE (mesa) ───────────────────────────────────────────
+  // Flat-top + vertical cliff sides + small talus base. NOT a pyramid.
+  // (sx, gy) = foot center of the mesa.
+  function drawPixelButte(sx, gy, sizeSeed) {
+    sx = sx | 0; gy = gy | 0;
+    const W_ = 44;
+    const x = sx - 22, y = gy - 30;
+    const rows = [
+      [4, 4, PX.outline,    1],
+      [3, 3, PX.outline,    1],
+      [3, 3, PXP.rockLit,   1],
+      [3, 3, PXP.rockCore,  2],
+      [3, 3, PXP.rockDark,  1],
+      [3, 3, PXP.rockCore,  3],
+      [3, 3, PXP.rockDark,  1],
+      [3, 3, PXP.rockCore,  3],
+      [3, 3, PXP.rockDark,  1],
+      [3, 3, PXP.rockCore,  3],
+      [3, 3, PXP.rockDark,  1],
+      [3, 3, PXP.rockCore,  4],
+      [3, 3, PXP.rockDark,  1],
+      [3, 3, PXP.rockCore,  2],
+      [2, 2, PXP.rockCore,  2],
+      [1, 1, PXP.rockCore,  2],
+      [0, 0, PX.outline,    1],
+    ];
+    let curY = y;
+    for (const [insL, insR, color, h] of rows) {
+      pxFill(x + insL, curY, W_ - insL - insR, h, color);
+      curY += h;
+    }
+    // Vertical cliff outlines
+    const bodyTop = y + 2;
+    const bodyBot = y + 27;
+    pxFill(x + 3, bodyTop, 1, bodyBot - bodyTop, PX.outline);
+    pxFill(x + W_ - 4, bodyTop, 1, bodyBot - bodyTop, PX.outline);
+    // Sun-lit + shadow faces
+    for (let yy = bodyTop + 1; yy < bodyBot - 1; yy++) {
+      pxFill(x + W_ - 8, yy, 4, 1, PXP.rockLit);
+      pxFill(x + 4, yy, 3, 1, PXP.rockDark);
+    }
+    for (const sy of [6, 10, 14, 19, 23]) {
+      pxFill(x + W_ - 8, y + sy, 4, 1, PXP.rockDark);
+      pxFill(x + 4, y + sy, 3, 1, '#3a1408');
+    }
+    // Erosion cracks
+    pxFill(x + 14, y + 4, 1, 22, PXP.rockDark);
+    pxFill(x + 22, y + 6, 1, 20, PXP.rockDark);
+    pxFill(x + 30, y + 5, 1, 21, PXP.rockDark);
+    pxFill(x + 10, y + 8, 1, 12, '#3a1408');
+    pxFill(x + 26, y + 12, 1, 10, '#3a1408');
+    // Boulders at base
+    pxFill(x + 1, y + 28, 2, 1, PXP.rockDark);
+    pxFill(x + 4, y + 29, 2, 1, PXP.rockDark);
+    pxFill(x + W_ - 5, y + 29, 2, 1, PXP.rockDark);
+    pxFill(x + W_ - 2, y + 28, 2, 1, PXP.rockDark);
+  }
+
+  // ── PIXEL TERRAIN BAND FILL ──────────────────────────────────────
+  // Per-column stacked earth bands. Replaces the smooth gradient
+  // fill for the pixel level. The caller is responsible for sampling
+  // the floor silhouette + passing it in.
+  function drawPixelTerrainBands(floorPts) {
+    // Sun-catch crest (1 px) + earth0 (3 rows) + earth1 (8 rows) +
+    // earth2 (rest of the way down to ground band).
+    for (let i = 0; i < floorPts.length - 1; i++) {
+      const p = floorPts[i];
+      const next = floorPts[i + 1];
+      // Use the segment width (typically 1) so we don't leave gaps
+      // between sample points.
+      const segW = Math.max(1, next.sx - p.sx);
+      // Crest highlight
+      pxFill(p.sx, p.y, segW, 1, PX.duneCrest);
+      // Earth0 sunlit layer
+      pxFill(p.sx, p.y + 1, segW, 3, PX.earth0);
+      // Earth1 mid layer
+      pxFill(p.sx, p.y + 4, segW, 8, PX.earth1);
+      // Earth2 deep shadow (down to PLAY_H + a bit)
+      const deepStart = p.y + 12;
+      if (deepStart < PLAY_H + 4) {
+        pxFill(p.sx, deepStart, segW, PLAY_H + 4 - deepStart, PX.earth2);
+      }
+    }
+    // Scattered pebbles (deterministic seed) for crunchy texture
+    const seedHash = (n) => Math.abs(Math.sin(n * 12.9898 + dailyScrollX * 0.01) * 43758.5453) % 1;
+    for (let i = 0; i < 30; i++) {
+      const sx = (seedHash(i + 1) * W) | 0;
+      if (sx < 0 || sx >= floorPts.length) continue;
+      const fy = floorPts[sx].y;
+      const dy = ((seedHash(i + 7) * 10) | 0) + 3;
+      const py = fy + dy;
+      if (py > PLAY_H - 2) continue;
+      pxFill(sx, py, 1 + ((seedHash(i + 11) * 2) | 0), 1, '#1a0804');
+    }
+  }
+
   // ---------- Daily delivery course renderers ----------
   // Hazy gray dust-storm sky for the wasteland delivery course. Repaints
   // over the campaign theme's sky so the daily looks distinctly post-haze
@@ -14818,16 +15324,24 @@ const DLX_BUILD = 'v437-pixel-citadel';
       floorPts.push({ sx: sx, y: Math.round(L.floor) });
     }
 
-    // ---- EARTH FILL — one continuous polygon under the floor
-    ctx.fillStyle = earthGrad;
-    ctx.beginPath();
-    ctx.moveTo(floorPts[0].sx, PLAY_H + 4);
-    for (let i = 0; i < floorPts.length; i++) {
-      ctx.lineTo(floorPts[i].sx, floorPts[i].y);
+    // Pixel-art branch — stacked earth bands per column (crest +
+    // earth0 + earth1 + earth2) instead of a smooth gradient
+    // polygon fill. The tunnel-carveout overlay code below still
+    // runs unchanged.
+    if (isPixelHorizonLevel()) {
+      drawPixelTerrainBands(floorPts);
+    } else {
+      // ---- EARTH FILL — one continuous polygon under the floor
+      ctx.fillStyle = earthGrad;
+      ctx.beginPath();
+      ctx.moveTo(floorPts[0].sx, PLAY_H + 4);
+      for (let i = 0; i < floorPts.length; i++) {
+        ctx.lineTo(floorPts[i].sx, floorPts[i].y);
+      }
+      ctx.lineTo(floorPts[floorPts.length - 1].sx, PLAY_H + 4);
+      ctx.closePath();
+      ctx.fill();
     }
-    ctx.lineTo(floorPts[floorPts.length - 1].sx, PLAY_H + 4);
-    ctx.closePath();
-    ctx.fill();
 
     // ---- Per-tunnel CAVERN INTERIOR + DIRT CAP polygons spanning
     // the FULL entrance + body + exit range. Both polygons are
@@ -14920,7 +15434,10 @@ const DLX_BUILD = 'v437-pixel-citadel';
   // Citadel-only — buttes are mesa rock outcrops and don't belong in a
   // body cavity.
   function drawDailyButtes() {
-    if (currentDeliveryLevel.horizonStyle !== 'citadel') return;
+    const isCitadel = currentDeliveryLevel.horizonStyle === 'citadel'
+                   || currentDeliveryLevel.horizonStyle === 'pixelCitadel';
+    if (!isCitadel) return;
+    const isPixel = isPixelHorizonLevel();
     const slot = 180;
     const startX = Math.floor(dailyScrollX / slot) - 1;
     const endX   = Math.floor((dailyScrollX + W) / slot) + 1;
@@ -14929,15 +15446,14 @@ const DLX_BUILD = 'v437-pixel-citadel';
       if (srand(seed) < 0.55) continue;     // 45% of slots have a butte
       const wx = i * slot + Math.floor(srand(seed + 0.4) * 100);
       if (isOverDailyTunnel(wx)) continue;        // hide buttes above tunnels
-      // Round to integer pixels — prevents sub-pixel jitter as the
-      // world scrolls.
       const sx = Math.round(wx - dailyScrollX);
       if (sx < -40 || sx > W + 40) continue;
-      // Sample terrain at the rounded screen-X (not the prop's true worldX)
-      // so the foot tracks the dune polygon — which is also sampled at
-      // fixed screen-X steps. Prevents the prop from bobbing relative to
-      // the dune as scrollX crosses fractional pixel thresholds.
       const gy = Math.round(terrainHeightAt(sx + dailyScrollX));
+      if (isPixel) {
+        // Pixel-art mesa — flat top + vertical cliff sides, NOT a pyramid.
+        drawPixelButte(sx, gy, seed);
+        continue;
+      }
       const w = 24 + Math.floor(srand(seed + 0.7) * 30);
       const h = 12 + Math.floor(srand(seed + 0.9) * 14);
       ctx.save();
@@ -14982,9 +15498,13 @@ const DLX_BUILD = 'v437-pixel-citadel';
 
   function drawDailyHazards() {
     if (!isDaily) return;
-    // Cacti, spikes, rocks are wasteland flavor — no cacti grow inside
-    // a creature. Skip the whole layer for non-citadel levels.
-    if (currentDeliveryLevel.horizonStyle !== 'citadel') return;
+    // Cacti, spikes, rocks are wasteland flavor — render for both the
+    // smooth citadel level + the pixel-art variant. Skip every other
+    // theme (cavern / cave / scrapyard ship their own props).
+    const isCitadel = currentDeliveryLevel.horizonStyle === 'citadel'
+                   || currentDeliveryLevel.horizonStyle === 'pixelCitadel';
+    if (!isCitadel) return;
+    const isPixel = isPixelHorizonLevel();
     ctx.save();
     for (const h of dailyHazards) {
       // Hide surface hazards over a tunnel — the dune dips through
@@ -15002,10 +15522,17 @@ const DLX_BUILD = 'v437-pixel-citadel';
       // the dune polygon (which is also sampled at fixed screen-X steps),
       // killing the bobbing-cactus illusion when scrollX is fractional.
       const gy = Math.round(terrainHeightAt(sx + dailyScrollX));
-      if      (h.kind === 'cactusBig') drawDailyCactus(sx, gy, true);
-      else if (h.kind === 'cactus')    drawDailyCactus(sx, gy, false);
-      else if (h.kind === 'spikes')    drawDailySpikes(sx, gy, h.worldX);
-      else                              drawDailyRock(sx, gy);
+      if (isPixel) {
+        if      (h.kind === 'cactusBig') drawPixelCactus(sx, gy, true);
+        else if (h.kind === 'cactus')    drawPixelCactus(sx, gy, false);
+        else if (h.kind === 'spikes')    drawPixelSpikes(sx, gy, h.worldX);
+        else                              drawPixelRock(sx, gy, h.worldX);
+      } else {
+        if      (h.kind === 'cactusBig') drawDailyCactus(sx, gy, true);
+        else if (h.kind === 'cactus')    drawDailyCactus(sx, gy, false);
+        else if (h.kind === 'spikes')    drawDailySpikes(sx, gy, h.worldX);
+        else                              drawDailyRock(sx, gy);
+      }
     }
     ctx.restore();
   }
@@ -18980,10 +19507,13 @@ const DLX_BUILD = 'v437-pixel-citadel';
       drawScrapyardDebris();
       return;
     }
-    // Cacti / skulls / trash / rocks / brush are wasteland flavor — only
-    // render them when the level uses the citadel horizon. Other levels
-    // ship their own ground props (or skip them entirely) in a follow-up.
-    if (currentDeliveryLevel.horizonStyle !== 'citadel') return;
+    // Cacti / skulls / trash / rocks / brush are wasteland flavor — render
+    // for both the smooth citadel level and the pixel-art variant. Skip
+    // other themes (they ship their own ground props).
+    const isCitadel = currentDeliveryLevel.horizonStyle === 'citadel'
+                   || currentDeliveryLevel.horizonStyle === 'pixelCitadel';
+    if (!isCitadel) return;
+    const isPixel = isPixelHorizonLevel();
     ctx.save();
     const slot = 70; // world-units between potential prop slots
     const startX = Math.floor(dailyScrollX / slot) - 1;
@@ -19000,6 +19530,14 @@ const DLX_BUILD = 'v437-pixel-citadel';
       const gy = Math.round(terrainHeightAt(sx + dailyScrollX));
       const pick = srand(seed + 2.7);
       // Mix of bone/wreckage AND living desert vegetation
+      if (isPixel) {
+        if      (pick < 0.18) drawPixelSkull(sx, gy, srand(seed + 3.1) > 0.5);
+        else if (pick < 0.34) drawDailyTrash(sx, gy, srand(seed + 3.7));
+        else if (pick < 0.50) drawPixelBones(sx, gy);
+        else if (pick < 0.78) drawPixelBrush(sx, gy, srand(seed + 4.1));
+        else                  drawPixelTumbleweed(sx, gy);
+        continue;
+      }
       if      (pick < 0.18) drawDailySkull(sx, gy, srand(seed + 3.1) > 0.5);
       else if (pick < 0.34) drawDailyTrash(sx, gy, srand(seed + 3.7));
       else if (pick < 0.50) drawDailyBones(sx, gy);
