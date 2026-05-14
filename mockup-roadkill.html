@@ -120,6 +120,22 @@
     <div class="canvasWrap">
       <canvas id="pixelStage" width="200" height="80" class="pixelCanvas"></canvas>
     </div>
+    <div style="display:flex; align-items:center; gap:12px; margin-top:12px; padding-top:12px; border-top:1px solid #2a1a30;">
+      <button id="recordGifBtn" style="
+        background: linear-gradient(180deg,#f06030 0%,#c52a18 100%);
+        border: 2px solid #1a0a06;
+        color: #ffd83d;
+        font-family: Impact, 'Arial Black', sans-serif;
+        font-size: 14px; letter-spacing: 2px;
+        padding: 8px 18px; border-radius: 6px;
+        cursor: pointer;
+        box-shadow: 0 3px 0 #5a2010;
+      ">DOWNLOAD GIF</button>
+      <span id="recordStatus" style="
+        font-size: 11px; color: #806a90;
+        font-family: 'Helvetica Neue', sans-serif;
+      ">Records 3 sec of animation @ 30fps and downloads as GIF.</span>
+    </div>
   </div>
 
   <!-- Variation B: 3D-PUSHED -->
@@ -165,6 +181,8 @@
 
 </div>
 
+<!-- gif.js — client-side GIF encoder (loaded for the Download GIF btn) -->
+<script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
 <script>
 // ─────────────────────────────────────────────────────────
 // Shared color palette (dusty teal / warm accents)
@@ -184,7 +202,7 @@ const C = {
   rust:        '#c83828',
   rustDark:    '#7a1a10',
   // Cabin / cockpit
-  domeFrame:   '#a8aca0',
+  domeFrame:   '#bcc0b4',
   domeShadow:  '#787c70',
   glassDark:   '#142028',
   glassLit:    '#7eddeb',
@@ -379,106 +397,67 @@ function pxRig(ctx, ox, oy, frame) {
   ctx.fillRect(x + 71, y + 21, 1, 1);
   ctx.fillRect(x + 74, y + 21, 1, 1);
 
-  // ── ENGINE POD (LARGER v10 — 3 thick dark-grey pipes + tall bell) ──
-  // User v10: pipes shouldn't be multicolored — dark grey only +
-  // thicker. And engine should be larger still so the gap to body
-  // visually closes. Bell now 22×24 (was 22×19), waist 16×20, nose
-  // 12×17. Same lower position + bob animation.
-  const bob = Math.round(Math.sin(frame * 0.05) * 2);
-  const eT = y + 44 + bob;
-  const bBot = y + 36;
-  const pLen = eT - bBot;
-
-  // ── Pipes (3 THICK dark-grey pipes — was 4 multicolored) ──
-  // Each pipe: 5 px wide (outline 1 + body 3 + outline 1) + 1-px
-  // highlight strip on the left for chunky 3D feel.
-  // Pipe 1
+  // ── ENGINE POD (BIGGER, MOVED TO FRONT-MID-CENTER) per user v6 ──
+  // Scale up so the engine reads as the dominant feature. Pulled
+  // forward under the cabin area, no longer back-center. Bell
+  // exhaust on the left, narrow waist, intake on the right.
+  // Bell back (chunky, flame exits) — x+22 to x+40, y+36 to y+52
   ctx.fillStyle = C.outline;
-  ctx.fillRect(x + 28, bBot, 5, pLen);
+  ctx.fillRect(x + 22, y + 36, 18, 16);
   ctx.fillStyle = C.podGrey;
-  ctx.fillRect(x + 29, bBot, 3, pLen);
+  ctx.fillRect(x + 23, y + 37, 16, 14);
   ctx.fillStyle = C.chromeDark;
-  ctx.fillRect(x + 29, bBot, 1, pLen);
-  // Pipe 2
+  ctx.fillRect(x + 23, y + 37, 16,  1);
+  ctx.fillStyle = C.podBlack;
+  ctx.fillRect(x + 23, y + 50, 16,  1);
+  // Narrow middle/waist section
   ctx.fillStyle = C.outline;
-  ctx.fillRect(x + 40, bBot, 5, pLen);
+  ctx.fillRect(x + 40, y + 38, 14, 12);
   ctx.fillStyle = C.podGrey;
-  ctx.fillRect(x + 41, bBot, 3, pLen);
+  ctx.fillRect(x + 40, y + 39, 14, 10);
   ctx.fillStyle = C.chromeDark;
-  ctx.fillRect(x + 41, bBot, 1, pLen);
-  // Pipe 3
+  ctx.fillRect(x + 40, y + 39, 14,  1);
+  ctx.fillStyle = C.podBlack;
+  ctx.fillRect(x + 40, y + 48, 14,  1);
+  // Front nose section (slight taper)
   ctx.fillStyle = C.outline;
-  ctx.fillRect(x + 52, bBot, 5, pLen);
+  ctx.fillRect(x + 54, y + 39, 10, 10);
   ctx.fillStyle = C.podGrey;
-  ctx.fillRect(x + 53, bBot, 3, pLen);
+  ctx.fillRect(x + 55, y + 40, 8, 8);
   ctx.fillStyle = C.chromeDark;
-  ctx.fillRect(x + 53, bBot, 1, pLen);
-  // Connector fittings at body underside (chunky dark caps)
-  ctx.fillStyle = C.podBlack;
-  ctx.fillRect(x + 27, bBot - 1, 7, 1);
-  ctx.fillRect(x + 39, bBot - 1, 7, 1);
-  ctx.fillRect(x + 51, bBot - 1, 7, 1);
-
-  // ── Bell back (22 wide × 24 tall — was 22×19) ──
-  ctx.fillStyle = C.outline;
-  ctx.fillRect(x + 22, eT, 22, 24);
-  ctx.fillStyle = C.podGrey;
-  ctx.fillRect(x + 23, eT + 1, 20, 22);
+  ctx.fillRect(x + 55, y + 40, 8, 1);
+  // Strut connecting engine to body
   ctx.fillStyle = C.chromeDark;
-  ctx.fillRect(x + 23, eT + 1, 20, 1);
-  ctx.fillStyle = C.podBlack;
-  ctx.fillRect(x + 23, eT + 22, 20, 1);
-
-  // ── Narrow waist (16×20, was 16×14) ──
-  ctx.fillStyle = C.outline;
-  ctx.fillRect(x + 44, eT + 2, 16, 20);
-  ctx.fillStyle = C.podGrey;
-  ctx.fillRect(x + 44, eT + 3, 16, 18);
-  ctx.fillStyle = C.chromeDark;
-  ctx.fillRect(x + 44, eT + 3, 16, 1);
-  ctx.fillStyle = C.podBlack;
-  ctx.fillRect(x + 44, eT + 20, 16, 1);
-
-  // ── Front nose (12×17, was 12×12) ──
-  ctx.fillStyle = C.outline;
-  ctx.fillRect(x + 60, eT + 3, 12, 17);
-  ctx.fillStyle = C.podGrey;
-  ctx.fillRect(x + 61, eT + 4, 10, 15);
-  ctx.fillStyle = C.chromeDark;
-  ctx.fillRect(x + 61, eT + 4, 10, 1);
-
-  // ── Rear exhaust nozzle (longer for taller bell) ──
-  ctx.fillStyle = C.podBlack;
-  ctx.fillRect(x + 18, eT + 6, 5, 12);
-  ctx.fillStyle = C.podGlow;
-  ctx.fillRect(x + 19, eT + 8, 4, 8);
-  ctx.fillStyle = C.flameCore;
-  ctx.fillRect(x + 20, eT + 10, 2, 4);
-
-  // ── Bell turbine vents (4 slits, scaled with taller bell) ──
-  ctx.fillStyle = C.podBlack;
-  ctx.fillRect(x + 27, eT + 5, 1, 13);
-  ctx.fillRect(x + 31, eT + 5, 1, 13);
-  ctx.fillRect(x + 35, eT + 5, 1, 13);
-  ctx.fillRect(x + 39, eT + 5, 1, 13);
-  // Waist vents
-  ctx.fillRect(x + 47, eT + 6, 1, 10);
-  ctx.fillRect(x + 52, eT + 6, 1, 10);
-
-  // ── Yellow caution stripe (wider — but only ONE band now since
-  //    engine is taller and we don't want too much yellow) ──
-  ctx.fillStyle = C.yellow;
-  ctx.fillRect(x + 24, eT + 17, 36, 1);
-  ctx.fillStyle = C.yellowDeep;
-  ctx.fillRect(x + 24, eT + 18, 36, 1);
-
-  // ── Front intake (right end, taller to match new height) ──
-  ctx.fillStyle = C.podBlack;
-  ctx.fillRect(x + 68, eT + 6, 4, 12);
+  ctx.fillRect(x + 44, y + 34, 6, 3);
   ctx.fillStyle = C.podDark;
-  ctx.fillRect(x + 69, eT + 7, 3, 10);
+  ctx.fillRect(x + 44, y + 36, 6, 1);
+  // Rear exhaust nozzle (left edge of bell — flame exits here)
+  ctx.fillStyle = C.podBlack;
+  ctx.fillRect(x + 18, y + 40, 5, 8);
+  ctx.fillStyle = C.podGlow;
+  ctx.fillRect(x + 19, y + 42, 4, 5);
+  ctx.fillStyle = C.flameCore;
+  ctx.fillRect(x + 20, y + 43, 2, 3);
+  // Bell turbine vents (vertical slits)
+  ctx.fillStyle = C.podBlack;
+  ctx.fillRect(x + 27, y + 41, 1, 6);
+  ctx.fillRect(x + 31, y + 41, 1, 6);
+  ctx.fillRect(x + 35, y + 41, 1, 6);
+  // Waist vents (smaller)
+  ctx.fillRect(x + 44, y + 42, 1, 5);
+  ctx.fillRect(x + 49, y + 42, 1, 5);
+  // Yellow caution stripe on engine
+  ctx.fillStyle = C.yellow;
+  ctx.fillRect(x + 24, y + 47, 28, 1);
+  ctx.fillStyle = C.yellowDeep;
+  ctx.fillRect(x + 24, y + 48, 28, 1);
+  // Front intake (right end — dark hole)
+  ctx.fillStyle = C.podBlack;
+  ctx.fillRect(x + 60, y + 41, 4, 7);
+  ctx.fillStyle = C.podDark;
+  ctx.fillRect(x + 61, y + 42, 3, 5);
   ctx.fillStyle = C.chromeDark;
-  ctx.fillRect(x + 69, eT + 11, 3, 1);
+  ctx.fillRect(x + 61, y + 44, 3, 1);
 
   // ── CHAIN ANCHOR PORT (back-bottom of body, where beam emerges) ──
   ctx.fillStyle = C.outline;
@@ -538,48 +517,48 @@ function pxChain(ctx, x1, y1, x2, y2, frame) {
 }
 
 function pxFlame(ctx, ox, oy, frame) {
-  // v9: scaled up another ~20% to match bigger engine. Outer cone
-  // 44 columns, mid 34, hot 24, core 14, source flare 6×12 + 4×14.
+  // v6: scaled up per user ("a lot larger"). More columns, taller
+  // per-column heights, longer brighter white-hot core.
   ctx.imageSmoothingEnabled = false;
   const x = ox | 0, y = oy | 0;
   const flick = Math.floor(Math.sin(frame * 0.45) * 2);
   const flick2 = Math.floor(Math.cos(frame * 0.32) * 1.5);
 
-  // Outer deep blue (widest at nozzle, longest tail)
+  // Outer deep blue — widest at nozzle, long tail
   ctx.fillStyle = C.flameDeep;
-  for (let i = 0; i < 44; i++) {
-    const h = Math.max(1, 22 - Math.floor(i * 0.5) + flick);
+  for (let i = 0; i < 36; i++) {
+    const h = Math.max(1, 18 - Math.floor(i * 0.5) + flick);
     ctx.fillRect(x - i, y - (h >> 1) + flick2, 1, h);
   }
   // Mid flame
   ctx.fillStyle = C.flameMid;
-  for (let i = 0; i < 34; i++) {
-    const h = Math.max(1, 17 - Math.floor(i * 0.5) + (flick >> 1));
+  for (let i = 0; i < 28; i++) {
+    const h = Math.max(1, 14 - Math.floor(i * 0.5) + (flick >> 1));
     ctx.fillRect(x - i, y - (h >> 1), 1, h);
   }
   // Hot inner cyan
   ctx.fillStyle = C.flameHot;
-  for (let i = 0; i < 24; i++) {
-    const h = Math.max(1, 12 - Math.floor(i * 0.5));
+  for (let i = 0; i < 20; i++) {
+    const h = Math.max(1, 10 - Math.floor(i * 0.5));
     ctx.fillRect(x - i, y - (h >> 1), 1, h);
   }
-  // White-hot core (longest hot center)
+  // White-hot core — longer and hotter
   ctx.fillStyle = C.flameCore;
-  for (let i = 0; i < 14; i++) {
-    const h = Math.max(1, 8 - Math.floor(i * 0.4));
+  for (let i = 0; i < 12; i++) {
+    const h = Math.max(1, 6 - Math.floor(i * 0.4));
     ctx.fillRect(x - i, y - (h >> 1), 1, h);
   }
   // Bright source flare at the nozzle
-  ctx.fillRect(x, y - 6, 6, 12);
-  ctx.fillRect(x + 1, y - 7, 4, 14);
+  ctx.fillRect(x, y - 5, 5, 10);
+  ctx.fillRect(x + 1, y - 6, 3, 12);
 
   // Sparks trailing in wake
   ctx.fillStyle = C.flameHot;
-  for (let i = 0; i < 7; i++) {
-    const a = frame * 0.05 + i * 1.4;
-    const d = 6 + Math.sin(frame * 0.3 + i) * 3;
-    ctx.fillRect((x - 36 - Math.floor(Math.abs(Math.sin(a)) * d)) | 0,
-                 (y + Math.floor(Math.cos(a) * 6)) | 0, 1, 1);
+  for (let i = 0; i < 6; i++) {
+    const a = frame * 0.05 + i * 1.5;
+    const d = 5 + Math.sin(frame * 0.3 + i) * 3;
+    ctx.fillRect((x - 30 - Math.floor(Math.abs(Math.sin(a)) * d)) | 0,
+                 (y + Math.floor(Math.cos(a) * 5)) | 0, 1, 1);
   }
 }
 
@@ -587,14 +566,12 @@ function renderPixel(frame) {
   const c = document.getElementById('pixelStage');
   const ctx = c.getContext('2d');
   ctx.clearRect(0, 0, c.width, c.height);
-  // v8: engine sits lower, pipes connect to body, engine bobs.
-  // Compute bob here too so flame anchor stays glued to nozzle.
+  // v6: cargo bigger (28x28), engine moved forward and bigger,
+  // flame bigger. Flame anchor at new rear nozzle (x+18, y+44).
   const rigX = 115, rigY = 10;
-  const bob = Math.round(Math.sin(frame * 0.05) * 2);
   pxCargo(ctx, 44, rigY + 14);
   pxChain(ctx, 76, rigY + 28, rigX + 4, rigY + 28, frame);
-  // Flame exits the bell's rear nozzle — y = (rigY + 44 + bob) + 8
-  pxFlame(ctx, rigX + 18, rigY + 56 + bob, frame);
+  pxFlame(ctx, rigX + 18, rigY + 44, frame);
   pxRig(ctx, rigX, rigY, frame);
 }
 
@@ -1060,6 +1037,80 @@ function tick() {
   requestAnimationFrame(tick);
 }
 tick();
+
+// ─────────────────────────────────────────────────────────
+// GIF EXPORT — captures 90 frames (3 sec at 30fps) of the pixel
+// stage canvas and triggers a roadkill-v7.gif download.
+// ─────────────────────────────────────────────────────────
+(function () {
+  const btn = document.getElementById('recordGifBtn');
+  const status = document.getElementById('recordStatus');
+  if (!btn || !status) return;
+
+  btn.addEventListener('click', function () {
+    if (typeof GIF === 'undefined') {
+      status.textContent = 'GIF library failed to load — check connection.';
+      return;
+    }
+    btn.disabled = true;
+    btn.style.filter = 'grayscale(0.4)';
+
+    const canvas = document.getElementById('pixelStage');
+    const SCALE = 4;                          // upscale the GIF 4x
+    const scaled = document.createElement('canvas');
+    scaled.width = canvas.width * SCALE;
+    scaled.height = canvas.height * SCALE;
+    const sctx = scaled.getContext('2d');
+    sctx.imageSmoothingEnabled = false;       // crisp pixel scaling
+
+    const gif = new GIF({
+      workers: 2,
+      quality: 5,
+      width: scaled.width,
+      height: scaled.height,
+      workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'
+    });
+
+    const totalFrames = 90;                   // 3 sec at 30fps
+    const delayMs = 33;
+    let captured = 0;
+
+    const captureNext = () => {
+      sctx.clearRect(0, 0, scaled.width, scaled.height);
+      sctx.drawImage(canvas, 0, 0, scaled.width, scaled.height);
+      gif.addFrame(scaled, { delay: delayMs, copy: true });
+      captured++;
+      status.textContent = 'Recording ' + captured + ' / ' + totalFrames + ' frames…';
+      if (captured >= totalFrames) {
+        status.textContent = 'Encoding GIF (this can take ~10 sec)…';
+        gif.render();
+      } else {
+        setTimeout(captureNext, delayMs);
+      }
+    };
+
+    gif.on('progress', function (p) {
+      status.textContent = 'Encoding GIF: ' + Math.round(p * 100) + '%…';
+    });
+
+    gif.on('finished', function (blob) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'roadkill-v7.gif';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      status.textContent = 'Downloaded roadkill-v7.gif (' +
+        Math.round(blob.size / 1024) + ' KB). Click to record again.';
+      btn.disabled = false;
+      btn.style.filter = '';
+    });
+
+    captureNext();
+  });
+})();
 </script>
 
 </body>
