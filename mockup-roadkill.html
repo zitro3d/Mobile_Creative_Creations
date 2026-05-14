@@ -938,13 +938,41 @@ function tick() {
 tick();
 
 // ─────────────────────────────────────────────────────────
-// GIF EXPORT — captures 90 frames (3 sec at 30fps) of the pixel
-// stage canvas and triggers a roadkill-v7.gif download.
+// GIF EXPORT — v13: parallel workers (via same-origin blob URL to
+// dodge cross-origin restrictions) + inline preview fallback so
+// iOS users can long-press to save when a.download is ignored.
 // ─────────────────────────────────────────────────────────
 (function () {
   const btn = document.getElementById('recordGifBtn');
   const status = document.getElementById('recordStatus');
   if (!btn || !status) return;
+
+  // Build-stamp tag so we know the latest file actually loaded
+  status.textContent = 'GIF encoder ready (build v13).';
+
+  // Preview container — gets the finished GIF inline so users on
+  // mobile / iOS Safari (where a.download is ignored) can long-
+  // press the image to save it to camera roll.
+  let preview = document.getElementById('gifPreview');
+  if (!preview) {
+    preview = document.createElement('div');
+    preview.id = 'gifPreview';
+    preview.style.cssText = 'margin-top:12px; display:none; flex-direction:column; gap:6px; padding:10px; background:#1a0a1c; border:2px solid #c52a18; border-radius:6px;';
+    btn.parentElement.parentElement.appendChild(preview);
+  }
+
+  // Pre-fetch the gif.js worker as a same-origin blob so workers:2
+  // doesn't hit "cross-origin worker URL" failures.
+  let workerBlobUrl = null;
+  fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js')
+    .then(r => r.ok ? r.text() : Promise.reject(r.status))
+    .then(js => {
+      workerBlobUrl = URL.createObjectURL(new Blob([js], { type: 'application/javascript' }));
+      console.log('[GIF] worker blob ready');
+    })
+    .catch(err => {
+      console.warn('[GIF] worker blob fetch failed, will fall back to workers:0', err);
+    });
 
   btn.addEventListener('click', async function () {
     if (typeof GIF === 'undefined') {
@@ -954,41 +982,52 @@ tick();
     }
     btn.disabled = true;
     btn.style.filter = 'grayscale(0.4)';
+    preview.style.display = 'none';
+    preview.innerHTML = '';
     status.textContent = 'Setting up encoder…';
 
-    // Pause the heavy smoothStage render while the encoder runs on
-    // the main thread — it was eating 300k+ pixels per frame and
-    // starving the GIF encoder of CPU time.
     smoothPaused = true;
     const finish = () => { smoothPaused = false; btn.disabled = false; btn.style.filter = ''; };
 
-    // Paint pause — let the browser show the disabled state before
-    // the encoder monopolizes the main thread.
     await new Promise(r => setTimeout(r, 50));
 
     const canvas = document.getElementById('pixelStage');
-    // Native canvas is 200×80 — pure 1× output (no upscale) keeps the
-    // encoder fast on the main thread. CSS scales the pixel art when
-    // played back, so the GIF can stay tight.
-    const SCALE = 1;
+    // Upscale 3× so the GIF is usable (600×240) but still fast.
+    const SCALE = 3;
     const scaled = document.createElement('canvas');
     scaled.width = canvas.width * SCALE;
     scaled.height = canvas.height * SCALE;
     const sctx = scaled.getContext('2d');
     sctx.imageSmoothingEnabled = false;
 
-    // Run encoding in the main thread (workers: 0). dither: false
-    // skips Floyd-Steinberg pass — pixel art has flat colors so
-    // dithering adds work for no quality gain.
-    const gif = new GIF({
-      workers: 0,
+    // Use 2 parallel workers if the blob URL prep succeeded; otherwise
+    // fall back to main-thread encode.
+    const gifOpts = {
       quality: 20,
       width: scaled.width,
       height: scaled.height,
       dither: false
-    });
+    };
+    if (workerBlobUrl) {
+      gifOpts.workers = 2;
+      gifOpts.workerScript = workerBlobUrl;
+      console.log('[GIF] using parallel workers');
+    } else {
+      gifOpts.workers = 0;
+      console.log('[GIF] using main-thread encode');
+    }
 
-    const totalFrames = 30;                   // 1 sec at 30fps — short, fast
+    let gif;
+    try {
+      gif = new GIF(gifOpts);
+    } catch (e) {
+      console.error('[GIF] construct failed', e);
+      status.textContent = 'Encoder init failed: ' + e.message;
+      finish();
+      return;
+    }
+
+    const totalFrames = 30;
     const delayMs = 33;
     let captured = 0;
     let lastProgress = -1;
@@ -1039,15 +1078,42 @@ tick();
         return;
       }
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'roadkill-v7.gif';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-      status.textContent = 'Downloaded roadkill-v7.gif (' +
-        Math.round(blob.size / 1024) + ' KB). Click again to record another.';
+
+      // Inline preview — works on every platform. On mobile, long-
+      // press the image to save it.
+      preview.innerHTML = '';
+      const hint = document.createElement('div');
+      hint.style.cssText = 'font:11px Helvetica,sans-serif;color:#ffd83d;';
+      hint.textContent = 'GIF ready (' + Math.round(blob.size / 1024) +
+        ' KB). On desktop the download started automatically. On phone, long-press the image below to save.';
+      const img = document.createElement('img');
+      img.src = url;
+      img.style.cssText = 'image-rendering:pixelated;width:100%;max-width:600px;border:2px solid #ffd83d;background:#000;';
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'roadkill-v7.gif';
+      link.textContent = '↓ Download roadkill-v7.gif';
+      link.style.cssText = 'font:bold 13px Helvetica,sans-serif;color:#7eddeb;text-decoration:underline;';
+      preview.appendChild(hint);
+      preview.appendChild(img);
+      preview.appendChild(link);
+      preview.style.display = 'flex';
+
+      // Best-effort auto-download for desktop (iOS Safari ignores this)
+      try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'roadkill-v7.gif';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (e) {
+        console.warn('[GIF] auto-download failed (mobile likely)', e);
+      }
+      // Hold the URL alive for 60s so the preview <img> and manual
+      // download link both keep working.
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      status.textContent = 'Done — GIF shown below.';
       finish();
     });
 
