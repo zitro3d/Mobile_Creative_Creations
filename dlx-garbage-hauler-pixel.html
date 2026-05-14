@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v446c-wreck-match-mockup';
+const DLX_BUILD = 'v446d-fireball-comet';
 
 (function() {
   // ---------- Device detection ----------
@@ -15030,56 +15030,98 @@ const DLX_BUILD = 'v446c-wreck-match-mockup';
   // ═════════════════════════════════════════════════════════════════
 
   // ── PIXEL FIREBALL (lava ball projectile) ────────────────────────
-  // v444b — pixelated version of the SMOOTH-art fireball design (the
-  // one the user liked). Same composition: 12-step trail of fading
-  // circles behind the ball, outer halo, concentric body layers,
-  // white-hot core OFFSET toward the leading edge.
+  // v446d — REWRITE to match user's reference: classic 4-frame
+  // teardrop/comet pixel-art fireball. Round head with a tapering
+  // flame tail behind it, where the TAIL LENGTH cycles through 4
+  // frames creating a pulsating breathe-in/breathe-out animation.
+  // Frame 4 sheds small ember sparks off the tail tip.
   function drawPixelLavaBall(lb) {
-    // Pulsate radius (matches smooth)
-    const pulse = 1 + 0.10 * Math.sin(lb.life * 0.45 + lb.seed);
-    const baseR = Math.max(2, Math.round(lb.r * pulse));
     const cx = Math.round(lb.x);
     const cy = Math.round(lb.y);
+    const r = Math.max(3, Math.round(lb.r));
 
-    // ── TRAIL — 12 steps behind the ball, fading hot → cool ──────
-    // Matches the smooth-art trail composition (TRAIL_LEN=12, step
-    // spacing = vx*1.5) so the visual rhythm reads the same. Sine
-    // wobble on Y gives the trail a wavering flame feel.
-    const TRAIL_LEN = 12;
-    for (let ti = 1; ti <= TRAIL_LEN; ti++) {
-      const tx = Math.round(lb.x - lb.vx * ti * 1.5);
-      const ty = Math.round(lb.y - lb.vy * ti * 1.5
-                            + Math.sin(lb.life * 0.5 + lb.seed + ti * 1.3) * 1.8);
-      const tNorm = ti / TRAIL_LEN;
-      const tr = Math.max(1, Math.round(baseR * (1 - tNorm * 0.85)));
-      // Color picker fades hot yellow at the head → deep orange at the tip
+    // Velocity unit vector (head faces forward, tail trails back)
+    const speed = Math.sqrt(lb.vx * lb.vx + lb.vy * lb.vy) || 1;
+    const fdx = lb.vx / speed;
+    const fdy = lb.vy / speed;
+    const bdx = -fdx;
+    const bdy = -fdy;
+
+    // 4-FRAME ANIMATION — tail length cycles 1.2r → 1.7r → 2.3r → 3r
+    // then loops. Each anim frame lasts 4 game frames (~15fps anim).
+    const frameIdx = ((lb.life / 4) | 0) & 3;
+    const tailFactors = [1.2, 1.7, 2.3, 3.0];
+    const tailLen = Math.max(1, (r * tailFactors[frameIdx]) | 0);
+
+    // ── TAIL FIRST (head overdraws the base of the tail) ──
+    // Outer rim of the tail — deep red fading to dark at the tip.
+    for (let i = 1; i <= tailLen; i++) {
+      const tt = i / tailLen;
+      const tailR = Math.max(1, Math.round(r * (1 - tt * 0.85)));
+      const px = (cx + bdx * i) | 0;
+      const py = (cy + bdy * i) | 0;
       let col;
-      if (tNorm < 0.12)      col = '#fff4d0';
-      else if (tNorm < 0.22) col = '#ffd060';
-      else if (tNorm < 0.36) col = '#ff9050';
-      else if (tNorm < 0.55) col = '#e87028';
-      else if (tNorm < 0.78) col = '#c84020';
-      else                   col = '#7a1a10';
-      drawPixelSmokePuff(tx, ty, tr, col);
+      if (tt < 0.18)      col = '#c84020';
+      else if (tt < 0.45) col = '#a02018';
+      else if (tt < 0.75) col = '#7a1a10';
+      else                col = '#3a1010';
+      drawPixelSmokePuff(px, py, tailR, col);
+    }
+    // Inner hot tail — orange running through the center
+    for (let i = 1; i <= tailLen; i++) {
+      const tt = i / tailLen;
+      const tailR = Math.max(1, Math.round((r - 1) * (1 - tt * 0.9)));
+      if (tailR <= 0) continue;
+      const px = (cx + bdx * i) | 0;
+      const py = (cy + bdy * i) | 0;
+      let col;
+      if (tt < 0.20)      col = '#ff9050';
+      else if (tt < 0.55) col = '#e87028';
+      else                col = '#c84020';
+      drawPixelSmokePuff(px, py, tailR, col);
+    }
+    // Bright yellow center — only first half of the tail (the hot part)
+    for (let i = 1; i <= (tailLen >> 1); i++) {
+      const tt = (2 * i) / tailLen;
+      const tailR = Math.max(1, Math.round((r - 2) * (1 - tt * 0.5)));
+      if (tailR <= 0) continue;
+      const px = (cx + bdx * i) | 0;
+      const py = (cy + bdy * i) | 0;
+      drawPixelSmokePuff(px, py, tailR, '#ffd060');
     }
 
-    // ── OUTER HALO — bright orange glow around the body ──────────
-    drawPixelSmokePuff(cx, cy, Math.round(baseR * 1.6), '#7a1a10');
-    drawPixelSmokePuff(cx, cy, baseR + 2, '#a02018');
-    drawPixelSmokePuff(cx, cy, baseR + 1, '#c84020');
+    // ── HEAD — concentric layers, overdraws the tail base ──
+    drawPixelSmokePuff(cx, cy, r + 1, '#7a1a10');
+    drawPixelSmokePuff(cx, cy, r,     '#c84020');
+    drawPixelSmokePuff(cx, cy, r - 1, '#e87028');
+    drawPixelSmokePuff(cx, cy, r - 2, '#ff9050');
+    drawPixelSmokePuff(cx, cy, Math.max(1, r - 3), '#ffd060');
+    // White-hot core offset toward the leading edge
+    if (r >= 4) {
+      const coreOffX = Math.round(fdx * 1);
+      const coreOffY = Math.round(fdy * 1);
+      drawPixelSmokePuff(cx + coreOffX, cy + coreOffY,
+                         Math.max(1, r - 4), '#fff4d0');
+    }
+    if (r >= 5) {
+      const coreOffX = Math.round(fdx * 1.5);
+      const coreOffY = Math.round(fdy * 1.5);
+      drawPixelSmokePuff(cx + coreOffX, cy + coreOffY,
+                         Math.max(1, r - 5), '#ffffff');
+    }
 
-    // ── BODY — concentric layers (matches smooth radial gradient) ─
-    drawPixelSmokePuff(cx, cy, baseR,     '#e87028');   // deep orange rim
-    drawPixelSmokePuff(cx, cy, baseR - 1, '#ff9050');   // hot orange
-    drawPixelSmokePuff(cx, cy, baseR - 2, '#ffd060');   // bright yellow
-
-    // ── HOT WHITE CENTER offset toward leading edge ──────────────
-    // Matches smooth's "coreOffX/Y = vx*0.55, vy*0.55 * 0.6" with a
-    // sine wobble. The brightest spot tracks the direction of travel.
-    const coreOffX = Math.round(lb.vx * 0.55 + Math.sin(lb.life * 0.6 + lb.seed) * 1.2);
-    const coreOffY = Math.round(lb.vy * 0.55 * 0.6);
-    drawPixelSmokePuff(cx + coreOffX, cy + coreOffY, Math.max(1, baseR - 3), '#fff4d0');
-    drawPixelSmokePuff(cx + coreOffX, cy + coreOffY, Math.max(1, baseR - 4), '#ffffff');
+    // ── SPARKS shedding off the tail tip (frame 3+, more on frame 4)
+    if (frameIdx >= 2) {
+      const sparkCount = (frameIdx === 3) ? 4 : 2;
+      for (let i = 0; i < sparkCount; i++) {
+        const sparkDist = tailLen + 1 + i * 2;
+        const wob = Math.sin(lb.life * 0.4 + i * 1.7) * 1.8;
+        // perpendicular offset from the tail axis (cross-product trick)
+        const sx = (cx + bdx * sparkDist - fdy * wob) | 0;
+        const sy = (cy + bdy * sparkDist + fdx * wob) | 0;
+        pxFill(sx, sy, 1, 1, i < 2 ? '#ffd060' : '#ff9050');
+      }
+    }
   }
 
   // ── PIXEL SCRAP TOWER ───────────────────────────────────────────
