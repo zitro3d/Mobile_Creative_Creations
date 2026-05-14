@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v439-pixel-dirt';
+const DLX_BUILD = 'v440-pixel-deep-dirt';
 
 (function() {
   // ---------- Device detection ----------
@@ -14385,11 +14385,15 @@ const DLX_BUILD = 'v439-pixel-dirt';
   // artifacts (buried skulls, bones, rocks, scrap), and scattered
   // mineral/pebble specks. Caller passes the floor silhouette.
   function drawPixelTerrainBands(floorPts) {
-    // 4 dirt color levels, sunlit → progressively darker
+    // 5 dirt color levels, sunlit → progressively darker. earth4
+    // is the very deepest band — kicks in below depth ~60 so the
+    // bottom half of the underground has its own darker level
+    // instead of flat earth3 everywhere.
     const earth0 = '#a85838';   // sunlit top
     const earth1 = '#7a3818';   // upper-mid
-    const earth2 = '#5a2818';   // lower-mid (NEW intermediate)
-    const earth3 = '#3a1808';   // deepest
+    const earth2 = '#5a2818';   // lower-mid
+    const earth3 = '#3a1808';   // deep
+    const earth4 = '#241004';   // deepest (NEW — below depth ~60)
     const earthVein = '#8a3018';
     const earthSpec = '#1a0804';
     const boneCol  = '#a88858';
@@ -14451,33 +14455,68 @@ const DLX_BUILD = 'v439-pixel-dirt';
           (flip ? h >= (4 - density) : h < density) ? earth3 : earth2);
       }
 
-      // Solid earth3 (rest of the way down)
-      const deepStart = p.y + 33;
-      if (deepStart < PLAY_H + 4) {
-        pxFill(p.sx, deepStart, segW, PLAY_H + 4 - deepStart, earth3);
+      // Solid earth3 (rows 33..56 — bridges into the deepest layer)
+      const earth3Start = p.y + 33;
+      if (earth3Start < PLAY_H + 4) {
+        const earth3H = Math.min(24, PLAY_H + 4 - earth3Start);
+        pxFill(p.sx, earth3Start, segW, earth3H, earth3);
       }
 
-      // Sparse pebble + mineral flecks throughout (every ~3 rows)
-      for (let d = 5; d < PLAY_H + 4 - p.y; d += 3) {
-        const yy = p.y + d;
+      // Dither earth3 → earth4 (rows 57..62)
+      for (let r = 0; r < 6; r++) {
+        const yy = p.y + 57 + r;
         if (yy >= PLAY_H + 4) break;
+        const density = r + 1;        // 1..6 out of 6
+        const h = hash(wx, yy) & 5;
+        const flip = ((wx + yy) & 1);
+        pxFill(p.sx, yy, segW, 1,
+          (flip ? h >= (6 - density) : h < density) ? earth4 : earth3);
+      }
+
+      // Solid earth4 deepest (rest of the way down). Also bleed past
+      // PLAY_H so the bottom-of-screen ground band BLENDS with the
+      // deep dirt instead of showing a hard color seam at PLAY_H.
+      const deepestStart = p.y + 63;
+      if (deepestStart < H + 4) {
+        pxFill(p.sx, deepestStart, segW, H + 4 - deepestStart, earth4);
+      }
+
+      // Sparse pebble + mineral flecks throughout (every ~3 rows).
+      // Extended to walk all the way down to the bottom of the
+      // screen so the deep dirt has continuous texture.
+      for (let d = 5; d < H + 4 - p.y; d += 3) {
+        const yy = p.y + d;
+        if (yy >= H + 4) break;
         const h = hash(wx + d * 13, yy) & 31;
         if (h === 0)      pxFill(p.sx, yy, 1, 1, earthSpec);
         else if (h === 1 && d > 18) pxFill(p.sx, yy, 1, 1, earthVein);
+        else if (h === 2 && d > 60) pxFill(p.sx, yy, 1, 1, earth3);  // lighter speck in deepest
       }
     }
 
     // ── UNDULATING DIAGONAL STRATA LINES ──────────────────────────
-    // 5 sediment layers, each a 1-px line that follows a sine-wave
-    // PLUS a slight diagonal slope. The line offsets follow the
-    // floor crest so they bow with the terrain but also undulate
-    // independently — reads as geological strata, not perfect lines.
+    // Sediment layers extending all the way DOWN through the dirt
+    // (not just the top 48 rows). Each line follows a sine-wave +
+    // slight linear slope so it reads as a real geological stratum,
+    // not a perfect horizontal stripe. Layers placed every ~10 rows
+    // through the full depth so the deep dirt has continuous
+    // texture all the way to the bottom of the playfield.
     const strata = [
-      { depth: 12, amp: 4, freq: 0.012, phase: 0.0, slope:  0.04, color: earthSpec },
-      { depth: 20, amp: 5, freq: 0.009, phase: 1.3, slope: -0.03, color: earthVein },
-      { depth: 28, amp: 6, freq: 0.014, phase: 2.7, slope:  0.05, color: earthSpec },
-      { depth: 38, amp: 5, freq: 0.011, phase: 0.6, slope: -0.04, color: earthSpec },
-      { depth: 48, amp: 7, freq: 0.008, phase: 1.9, slope:  0.03, color: earthVein },
+      { depth: 12,  amp: 4, freq: 0.012, phase: 0.0, slope:  0.04, color: earthSpec },
+      { depth: 20,  amp: 5, freq: 0.009, phase: 1.3, slope: -0.03, color: earthVein },
+      { depth: 28,  amp: 6, freq: 0.014, phase: 2.7, slope:  0.05, color: earthSpec },
+      { depth: 38,  amp: 5, freq: 0.011, phase: 0.6, slope: -0.04, color: earthSpec },
+      { depth: 48,  amp: 7, freq: 0.008, phase: 1.9, slope:  0.03, color: earthVein },
+      { depth: 60,  amp: 6, freq: 0.010, phase: 3.4, slope: -0.05, color: earthSpec },
+      { depth: 72,  amp: 8, freq: 0.007, phase: 0.9, slope:  0.04, color: earthVein },
+      { depth: 84,  amp: 5, freq: 0.013, phase: 2.1, slope: -0.03, color: earthSpec },
+      { depth: 96,  amp: 7, freq: 0.009, phase: 1.6, slope:  0.05, color: earthSpec },
+      { depth: 108, amp: 6, freq: 0.011, phase: 0.4, slope: -0.04, color: earthVein },
+      { depth: 120, amp: 8, freq: 0.008, phase: 2.8, slope:  0.03, color: earthSpec },
+      { depth: 132, amp: 5, freq: 0.012, phase: 1.1, slope: -0.05, color: earthSpec },
+      { depth: 144, amp: 7, freq: 0.009, phase: 3.0, slope:  0.04, color: earthVein },
+      { depth: 156, amp: 6, freq: 0.010, phase: 1.8, slope: -0.03, color: earthSpec },
+      { depth: 168, amp: 8, freq: 0.007, phase: 0.5, slope:  0.05, color: earthSpec },
     ];
     for (const s of strata) {
       for (let i = 0; i < floorPts.length - 1; i++) {
@@ -14486,13 +14525,12 @@ const DLX_BUILD = 'v439-pixel-dirt';
         const segW = Math.max(1, next.sx - p.sx);
         const wx = (p.sx + dailyScrollX) | 0;
         // Base depth + sine undulation + linear slope across worldX.
-        // The slope is intentionally small so the line drifts up/down
-        // gradually across the screen (diagonal feel) instead of
-        // running flat.
         const yy = p.y + s.depth
                  + Math.round(Math.sin(wx * s.freq + s.phase) * s.amp)
                  + Math.round(wx * s.slope);
-        if (yy < p.y + 5 || yy >= PLAY_H + 4) continue;
+        // Allow strata down through the full screen height (not just
+        // PLAY_H) so the deep dirt below the playfield has detail too.
+        if (yy < p.y + 5 || yy >= H + 4) continue;
         // Skip ~20% of columns so the line reads as broken/eroded
         if ((hash(wx, s.depth) & 7) < 2) continue;
         pxFill(p.sx, yy, segW, 1, s.color);
@@ -14519,14 +14557,24 @@ const DLX_BUILD = 'v439-pixel-dirt';
       const floorIdx = Math.max(0, Math.min(floorPts.length - 1,
         sx - floorPts[0].sx));
       const fy = floorPts[floorIdx].y;
-      // Depth: pick 1 of 4 buried bands based on the hash
-      const depthPick = (slotHash >> 8) & 3;
-      const buryDepth = depthPick === 0 ? 10 + ((slotHash >> 12) % 6)   // shallow
-                     : depthPick === 1 ? 18 + ((slotHash >> 12) % 8)   // mid
-                     : depthPick === 2 ? 30 + ((slotHash >> 12) % 8)   // deep
-                                       : 42 + ((slotHash >> 12) % 8);  // deepest
+      // Depth: pick 1 of 8 buried bands spread through the whole
+      // dirt cross-section (not just the top 50 rows). The deeper
+      // bands cover the previously-empty bottom half of the
+      // underground so artifacts spawn throughout, not just near
+      // the surface.
+      const depthPick = (slotHash >> 8) & 7;
+      const buryDepth = depthPick === 0 ? 10  + ((slotHash >> 13) % 6)   // shallow
+                     : depthPick === 1 ? 22  + ((slotHash >> 13) % 8)
+                     : depthPick === 2 ? 36  + ((slotHash >> 13) % 8)
+                     : depthPick === 3 ? 52  + ((slotHash >> 13) % 8)
+                     : depthPick === 4 ? 70  + ((slotHash >> 13) % 10)
+                     : depthPick === 5 ? 92  + ((slotHash >> 13) % 12)
+                     : depthPick === 6 ? 116 + ((slotHash >> 13) % 12)
+                                       : 142 + ((slotHash >> 13) % 16); // deepest
       const ay = fy + buryDepth;
-      if (ay > PLAY_H - 4) continue;
+      // Allow artifacts down through the full screen height so the
+      // deep dirt has buried objects too.
+      if (ay > H - 4) continue;
       // Pick artifact type
       const kind = (slotHash >> 16) & 7;
       if (kind < 2) {
