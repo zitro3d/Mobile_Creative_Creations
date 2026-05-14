@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v435-pixel';
+const DLX_BUILD = 'v436-pixel-level';
 
 (function() {
   // ---------- Device detection ----------
@@ -13342,12 +13342,475 @@ const DLX_BUILD = 'v435-pixel';
     ctx.restore();
   }
 
+  // ═════════════════════════════════════════════════════════════════
+  // PIXEL-ART LEVEL RENDERERS (Sunset Wastes pixel variant)
+  // First batch of the pixel-art port — sky + horizon + citadel ruins.
+  // Drawn at native canvas pixel resolution (no scaling — every fillRect
+  // is 1 pixel = 1 game pixel) with a hard-edge palette ported from
+  // mockup-sunset-wastes.html. Co-located with the smooth-art renderers
+  // above so the pixel/smooth alternates live next to each other.
+  // ═════════════════════════════════════════════════════════════════
+
+  // Palette — must match mockup-sunset-wastes.html so the in-game art
+  // looks identical to the mockup the user reviewed.
+  const PX = {
+    sky0: '#f6e0b4', sky1: '#f4c890', sky2: '#e8a868', sky3: '#c87040',
+    moonLit: '#fff4d0', moonShade: '#d8b888', moonSmall: '#f8d8a0',
+    duneFar: '#c48250', duneMid: '#965028', duneCrest: '#fce0a8',
+    citadelLit: '#a06038', citadelShade: '#5a3018', citadelWindow: '#1a0a04',
+    smokeLight: '#7a5a4a', smokeDark: '#4a3428',
+    earth0: '#a85838', earth1: '#7a3818', earth2: '#3a1808',
+    rust: '#c83828', orange: '#e87028', yellow: '#ffc628',
+    outline: '#04060a',
+  };
+
+  // Pixel-aligned rect helper. Floors coords to integers so we never
+  // get sub-pixel smearing across pixel boundaries.
+  function pxFill(x, y, w, h, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x | 0, y | 0, w | 0, h | 0);
+  }
+
+  // Stable pseudo-hash → 0..7 (deterministic noise for dither patterns
+  // and per-chunk citadel variation). Works on integer x.
+  function pxHash7(x) {
+    return ((x * 2654435761) >>> 0) & 7;
+  }
+
+  // ── PIXEL SKY ────────────────────────────────────────────────────
+  // 4 flat horizontal bands with 9-row dithered seams between them so
+  // the transitions read as a soft gradient (not a hard line) while
+  // staying chunky-pixel-art everywhere else.
+  function drawPixelDailySky() {
+    ctx.imageSmoothingEnabled = false;
+    const h = PLAY_H;
+    const b0 = 0;
+    const b1 = (h * 0.30) | 0;
+    const b2 = (h * 0.55) | 0;
+    const b3 = (h * 0.78) | 0;
+    pxFill(0, b0, W, b1 - b0, PX.sky0);
+    pxFill(0, b1, W, b2 - b1, PX.sky1);
+    pxFill(0, b2, W, b3 - b2, PX.sky2);
+    pxFill(0, b3, W, h - b3, PX.sky3);
+    // 9-row dither bands at each seam (density ramps 1/8 → 7/8)
+    const ditherBand = (yCenter, top, bot) => {
+      const rows = 9, half = rows >> 1;
+      for (let r = -half; r <= half; r++) {
+        const yy = yCenter + r;
+        if (yy < 0 || yy >= h) continue;
+        const density = Math.round(((r + half) / rows) * 8);
+        for (let x = 0; x < W; x++) {
+          const useBot = pxHash7(x) < density;
+          const flip = ((x + yy) & 1) === 0;
+          const which = (flip ? useBot : !useBot);
+          pxFill(x, yy, 1, 1, which ? bot : top);
+        }
+      }
+    };
+    ditherBand(b1, PX.sky0, PX.sky1);
+    ditherBand(b2, PX.sky1, PX.sky2);
+    ditherBand(b3, PX.sky2, PX.sky3);
+
+    // Bottom-of-screen ground band (mirrors smooth-art branch)
+    pxFill(0, PLAY_H, W, H - PLAY_H, currentDeliveryLevel.groundBand);
+
+    // Twin moons — same composition as smooth branch, rebuilt as
+    // pixel-aligned discs (1-pixel-jaggy circles via integer hypot).
+    if (currentDeliveryLevel.skyMoons === 'twin') {
+      const disc = (cx, cy, r, color) => {
+        cx |= 0; cy |= 0;
+        for (let dy = -r; dy <= r; dy++) {
+          const dx = Math.floor(Math.sqrt(r * r - dy * dy));
+          pxFill(cx - dx, cy + dy, dx * 2 + 1, 1, color);
+        }
+      };
+      // Big crescent — lit disc with a sky-colored bite
+      const bcx = (W * 0.18) | 0;
+      const bcy = (PLAY_H * 0.18) | 0;
+      const moonR = 18;
+      disc(bcx,     bcy,     moonR,     PX.moonShade);
+      disc(bcx - 1, bcy - 1, moonR - 1, PX.moonLit);
+      disc(bcx + 7, bcy - 4, moonR - 2, PX.sky0);
+      // Small full moon, top-right
+      const scx = (W * 0.82) | 0;
+      const scy = (PLAY_H * 0.10) | 0;
+      disc(scx, scy, 5, PX.moonSmall);
+      pxFill(scx - 1, scy - 1, 2, 1, PX.moonLit);
+    }
+  }
+
+  // ── PIXEL SMOKE PUFF + COLUMN (animated) ─────────────────────────
+  // Pixel-circle puff for citadel smoke. Used inside drawPixelSmoke-
+  // Column to assemble a wisping column of growing puffs.
+  function drawPixelSmokePuff(cx, cy, r, color) {
+    cx |= 0; cy |= 0; r |= 0;
+    for (let dy = -r; dy <= r; dy++) {
+      const dxRange = Math.floor(Math.sqrt(r * r - dy * dy));
+      pxFill(cx - dxRange, cy + dy, dxRange * 2 + 1, 1, color);
+    }
+  }
+
+  function drawPixelSmokeColumn(x, topY) {
+    const t = frame;  // global animation clock (reused for all pixel anims)
+    const puffs = 5;
+    for (let i = 0; i < puffs; i++) {
+      const offset = i * 6;
+      const life = ((t * 0.18) + offset) % 30;
+      if (life > 28) continue;
+      const rise = life * 1.6;
+      const r = Math.min(((life / 4) | 0) + 1, 5);
+      const wobble = Math.sin(life * 0.22 + i * 1.3) * 3;
+      const cy = (topY - rise) | 0;
+      const cx = (x + wobble) | 0;
+      const outerCol = (life > 20) ? '#5a4838' : PX.smokeDark;
+      drawPixelSmokePuff(cx, cy, r, outerCol);
+      if (r >= 2) drawPixelSmokePuff(cx - 1, cy - 1, r - 1, PX.smokeLight);
+      if (r >= 3) pxFill(cx - 1, cy - r, 1, 1, '#a89888');
+    }
+  }
+
+  // ── PIXEL FIRE PATCH (animated) ──────────────────────────────────
+  // Loopable flame patch for the burned-out building shell.
+  function drawPixelFire(x, y, w, h) {
+    const phase = (frame / 4) | 0;
+    pxFill(x, y + h - 2, w, 2, '#7a1a10');
+    pxFill(x + 1, y + h - 1, w - 2, 1, '#a01a0a');
+    for (let i = 0; i < w; i++) {
+      if (((phase * 7 + i * 13) & 5) === 0) {
+        pxFill(x + i, y + h - 3, 1, 1, PX.rust);
+      }
+    }
+    for (let i = 1; i < w - 1; i += 2) {
+      const fh = 1 + ((phase + i * 3) & 3);
+      if (fh > 0) pxFill(x + i, y + h - 2 - fh, 1, fh, PX.orange);
+    }
+    const tongues = [
+      (phase + 1) % Math.max(w - 1, 1),
+      (phase * 2 + 4) % Math.max(w - 1, 1),
+      (phase + 7) % Math.max(w - 1, 1),
+    ];
+    for (const tx of tongues) {
+      const fh = 2 + ((phase + tx) & 2);
+      pxFill(x + tx, y + h - 2 - fh, 1, fh, PX.yellow);
+      pxFill(x + tx, y + h - 1 - fh, 1, 1, '#ffffff');
+    }
+    const eOff = (phase * 3) & 7;
+    if (eOff < 4) {
+      pxFill(x + (w >> 1) + (eOff - 2), y + h - 8 - eOff, 1, 1, '#ffd060');
+    }
+  }
+
+  // ── PIXEL CITADEL CHUNK ──────────────────────────────────────────
+  // Renders one wasteland-ruins chunk centered at cx, sitting on
+  // baseY. Each chunk = 7 distinct broken structures (half-buried
+  // building, tipped silo, burned shell with fire, leaning tower,
+  // scrap heap, collapsed warehouse, tilted pillar) plus animated
+  // smoke columns from the damaged tops. The seed parameter shifts
+  // structure heights so adjacent chunks don't read as identical.
+  function drawPixelCitadelChunk(cx, baseY, seed) {
+    const wob = (n) => Math.floor(srand(seed + n) * 4) - 2;
+
+    // 1) Half-buried building (far left)
+    {
+      const sx = cx - 48, sy = baseY - 12 + wob(0.1);
+      pxFill(sx, sy + 8, 14, 4, PX.outline);
+      pxFill(sx, sy + 5, 10, 4, PX.outline);
+      pxFill(sx, sy + 2, 7, 4, PX.outline);
+      pxFill(sx, sy, 4, 3, PX.outline);
+      pxFill(sx + 1, sy + 1, 3, 1, PX.citadelShade);
+      pxFill(sx + 1, sy + 3, 5, 2, PX.citadelShade);
+      pxFill(sx + 1, sy + 6, 8, 2, PX.citadelShade);
+      pxFill(sx + 1, sy + 9, 12, 2, PX.citadelShade);
+      pxFill(sx + 2, sy + 1, 1, 1, PX.citadelLit);
+      pxFill(sx + 2, sy + 3, 3, 1, PX.citadelLit);
+      pxFill(sx + 2, sy + 6, 6, 1, PX.citadelLit);
+      pxFill(sx + 2, sy + 8, 4, 2, PX.citadelWindow);
+      pxFill(sx + 2, sy + 9, 4, 1, '#3a2010');
+      pxFill(sx + 8, sy + 9, 1, 3, PX.rust);
+      // Sand dune piling against the base
+      for (let dx = 0; dx < 22; dx++) {
+        const dh = Math.round(4 + Math.sin(dx * 0.25) * 1.5);
+        const sandY = baseY - dh + (dx > 14 ? (dx - 14) : 0);
+        if (sandY >= baseY) continue;
+        pxFill(sx + dx, sandY, 1, 1, PX.earth0);
+        pxFill(sx + dx, sandY + 1, 1, baseY - sandY - 1, PX.earth1);
+      }
+    }
+
+    // 2) Tipped-over silo
+    {
+      const sx = cx - 30, sy = baseY - 7 + wob(0.2);
+      pxFill(sx, sy + 1, 18, 5, PX.outline);
+      pxFill(sx + 1, sy, 16, 1, PX.outline);
+      pxFill(sx + 1, sy + 6, 16, 1, PX.outline);
+      pxFill(sx + 18, sy + 2, 3, 3, PX.outline);
+      pxFill(sx + 1, sy + 1, 17, 5, PX.citadelLit);
+      pxFill(sx + 1, sy + 5, 17, 1, PX.citadelShade);
+      for (let i = 0; i < 5; i++) {
+        pxFill(sx + 3 + i * 3, sy + 1, 1, 5, PX.citadelShade);
+      }
+      pxFill(sx + 8, sy + 2, 4, 3, PX.citadelWindow);
+      pxFill(sx + 9, sy + 3, 2, 1, '#3a2010');
+      pxFill(sx + 3, sy + 2, 1, 3, PX.rust);
+      pxFill(sx + 14, sy + 4, 2, 1, PX.rust);
+      pxFill(sx, sy + 2, 2, 4, PX.citadelWindow);
+      // Sand dune burying the buried end
+      for (let dx = -4; dx < 8; dx++) {
+        const baseHeight = 4 + Math.round(Math.sin(dx * 0.4) * 1.5);
+        const sandY = baseY - baseHeight;
+        pxFill(sx + dx, sandY, 1, 1, PX.earth0);
+        pxFill(sx + dx, sandY + 1, 1, baseY - sandY - 1, PX.earth1);
+      }
+    }
+
+    // 3) Burned-out building shell (with animated fire inside)
+    {
+      const sx = cx - 14, sy = baseY - 26 + wob(0.3);
+      const sw = 16, sh = 26;
+      pxFill(sx, sy + 4, 2, sh - 4, PX.outline);
+      pxFill(sx + 1, sy + 4, 1, sh - 4, PX.citadelShade);
+      pxFill(sx, sy + 4, 5, 1, PX.outline);
+      pxFill(sx + 1, sy + 2, 3, 2, PX.outline);
+      pxFill(sx + 3, sy + 6, 2, 1, PX.outline);
+      pxFill(sx + sw - 2, sy + 12, 2, sh - 12, PX.outline);
+      pxFill(sx + sw - 1, sy + 12, 1, sh - 14, PX.citadelShade);
+      pxFill(sx + sw - 4, sy + 11, 4, 1, PX.outline);
+      pxFill(sx + sw - 3, sy + 13, 1, 1, PX.outline);
+      pxFill(sx + 4, sy + sh - 8, 9, 1, PX.outline);
+      pxFill(sx + 4, sy + sh - 8, 1, 8, PX.outline);
+      pxFill(sx + 12, sy + sh - 6, 1, 6, PX.outline);
+      pxFill(sx + 5, sy + sh - 7, 8, 5, PX.citadelShade);
+      pxFill(sx + 2, sy + sh - 2, sw - 4, 2, '#3a2010');
+      // FIRE inside the shell (animated)
+      drawPixelFire(sx + 4, sy + sh - 9, 8, 7);
+      pxFill(sx, sy + sh - 14, 2, 4, PX.citadelWindow);
+      pxFill(sx, sy + 5, 1, sh - 5, PX.citadelWindow);
+      pxFill(sx + sw - 1, sy + 13, 1, sh - 13, PX.citadelWindow);
+      // Sand drift on right wall
+      for (let dx = 0; dx < 10; dx++) {
+        const dh = 3 + Math.round(Math.sin(dx * 0.35) * 1);
+        const sandY = baseY - dh - (dx < 4 ? (4 - dx) * 2 : 0);
+        pxFill(sx + sw - 2 + dx, sandY, 1, 1, PX.earth0);
+        pxFill(sx + sw - 2 + dx, sandY + 1, 1, baseY - sandY - 1, PX.earth1);
+      }
+    }
+
+    // 4) Leaning collapsed tower
+    {
+      const sx = cx + 5, sy = baseY - 32 + wob(0.4);
+      const lean = (row) => Math.floor(row / 6);
+      const sw = 10, sh = 22;
+      for (let row = 0; row < sh; row++) {
+        const L = lean(row);
+        pxFill(sx + L, sy + row, 1, 1, PX.outline);
+        pxFill(sx + L + sw - 1, sy + row, 1, 1, PX.outline);
+        pxFill(sx + L + 1, sy + row, 1, 1, PX.citadelShade);
+        pxFill(sx + L + 2, sy + row, sw - 4, 1, PX.citadelLit);
+        pxFill(sx + L + sw - 2, sy + row, 1, 1, PX.citadelShade);
+      }
+      pxFill(sx + 2, sy - 1, 1, 1, PX.outline);
+      pxFill(sx + 4, sy - 2, 1, 2, PX.outline);
+      pxFill(sx + 6, sy - 1, 1, 1, PX.outline);
+      pxFill(sx + 8, sy, 2, 1, PX.outline);
+      pxFill(sx + 3, sy - 3, 1, 3, '#3a2010');
+      pxFill(sx + 7, sy - 2, 1, 2, '#3a2010');
+      for (let row = 4; row < sh - 6; row += 7) {
+        const L = lean(row);
+        pxFill(sx + L + 3, sy + row, 4, 2, PX.citadelWindow);
+        pxFill(sx + L + 3, sy + row, 4, 1, '#3a2010');
+        pxFill(sx + L + 3, sy + row + 1, 4, 1, '#3a2010');
+      }
+      pxFill(sx + 1, sy + 6, 1, 12, PX.citadelWindow);
+      // Big sand dune burying the bottom
+      for (let dx = -2; dx < sw + 6; dx++) {
+        const baseHeight = 5 + Math.round(Math.sin(dx * 0.3 + 1.5) * 2.5);
+        const sandY = baseY - baseHeight;
+        pxFill(sx + dx, sandY, 1, 1, PX.earth0);
+        pxFill(sx + dx, sandY + 1, 1, baseY - sandY - 1, PX.earth1);
+      }
+    }
+
+    // 5) Scrap heap mound
+    {
+      const sx = cx + 20, sy = baseY - 12 + wob(0.5);
+      pxFill(sx, sy + 10, 24, 2, PX.outline);
+      pxFill(sx + 1, sy + 8, 22, 2, PX.outline);
+      pxFill(sx + 2, sy + 6, 20, 2, PX.outline);
+      pxFill(sx + 4, sy + 4, 16, 2, PX.outline);
+      pxFill(sx + 7, sy + 2, 10, 2, PX.outline);
+      pxFill(sx + 9, sy, 6, 2, PX.outline);
+      pxFill(sx + 1, sy + 9, 22, 2, '#3a2018');
+      pxFill(sx + 2, sy + 7, 20, 1, '#3a2018');
+      pxFill(sx + 3, sy + 5, 17, 1, '#3a2018');
+      pxFill(sx + 5, sy + 3, 14, 1, '#3a2018');
+      pxFill(sx + 8, sy + 1, 8, 1, '#3a2018');
+      pxFill(sx + 4, sy + 7, 8, 2, '#7a3018');
+      pxFill(sx + 5, sy + 7, 2, 1, PX.citadelWindow);
+      pxFill(sx + 9, sy + 7, 2, 1, PX.citadelWindow);
+      pxFill(sx + 11, sy + 3, 3, 4, '#5a3020');
+      pxFill(sx + 11, sy + 5, 3, 1, '#3a2018');
+      pxFill(sx + 12, sy + 4, 1, 1, PX.rust);
+      pxFill(sx + 15, sy + 2, 3, 5, '#5a3020');
+      pxFill(sx + 15, sy + 4, 3, 1, '#3a2018');
+      pxFill(sx + 16, sy + 3, 1, 1, PX.yellow);
+      pxFill(sx + 18, sy + 5, 6, 1, '#3a2018');
+      pxFill(sx + 22, sy + 4, 2, 1, '#5a3020');
+      pxFill(sx + 13, sy + 9, 3, 2, PX.citadelWindow);
+      pxFill(sx + 7, sy + 1, 1, 4, '#5a5a60');
+    }
+
+    // 6) Collapsed warehouse with sand drift
+    {
+      const sx = cx + 44, sy = baseY - 18 + wob(0.6);
+      const sw = 22;
+      pxFill(sx, sy + 6, 2, 12, PX.outline);
+      pxFill(sx + 1, sy + 6, 1, 12, PX.citadelShade);
+      pxFill(sx, sy + 6, 4, 1, PX.outline);
+      pxFill(sx + 1, sy + 4, 2, 2, PX.outline);
+      pxFill(sx + 4, sy + 9, 1, 9, PX.outline);
+      pxFill(sx + 4, sy + 9, sw - 12, 1, PX.outline);
+      pxFill(sx + 5, sy + 10, sw - 14, 2, PX.citadelShade);
+      pxFill(sx + sw - 8, sy + 13, 2, 5, PX.outline);
+      pxFill(sx + sw - 8, sy + 13, 3, 1, PX.outline);
+      pxFill(sx + sw - 7, sy + 13, 1, 5, PX.citadelShade);
+      pxFill(sx + 2, sy + 16, sw - 4, 2, '#3a2010');
+      pxFill(sx + 2, sy + 8, 14, 1, '#3a2010');
+      pxFill(sx + 6, sy + 10, 10, 1, '#5a3020');
+      pxFill(sx + 3, sy + 12, 14, 1, '#3a2010');
+      pxFill(sx + 6, sy + 7, 1, 1, '#3a2010');
+      pxFill(sx + 11, sy + 5, 1, 2, '#3a2010');
+      pxFill(sx + 1, sy + 9, 1, 8, PX.citadelWindow);
+      // Big sand drift on right
+      for (let dx = 0; dx < 14; dx++) {
+        const baseHeight = 4 + Math.round(Math.sin(dx * 0.3 + 0.5) * 1.5)
+                            + Math.max(0, 5 - Math.abs(dx - 6));
+        const sandY = baseY - baseHeight;
+        pxFill(sx + sw - 10 + dx, sandY, 1, 1, PX.earth0);
+        pxFill(sx + sw - 10 + dx, sandY + 1, 1, baseY - sandY - 1, PX.earth1);
+      }
+    }
+
+    // 7) Tilted broken pillar (far right)
+    {
+      const sx = cx + 70, sy = baseY - 16 + wob(0.7);
+      const lean = (row) => Math.floor(row / 3);
+      for (let row = 0; row < 16; row++) {
+        const L = lean(row);
+        pxFill(sx + L, sy + row, 1, 1, PX.outline);
+        pxFill(sx + L + 2, sy + row, 1, 1, PX.outline);
+        pxFill(sx + L + 1, sy + row, 1, 1, PX.citadelShade);
+      }
+      pxFill(sx, sy - 1, 1, 1, PX.outline);
+      pxFill(sx + 2, sy - 1, 1, 1, PX.outline);
+      for (let dx = -2; dx < 7; dx++) {
+        const dh = 3 + Math.round(Math.sin(dx * 0.5) * 1);
+        const sandY = baseY - dh;
+        pxFill(sx + dx, sandY, 1, 1, PX.earth0);
+        pxFill(sx + dx, sandY + 1, 1, baseY - sandY - 1, PX.earth1);
+      }
+    }
+
+    // Continuous low sand-dune line filling the gaps across the chunk
+    for (let dx = -50; dx < 100; dx++) {
+      const wx = cx + dx;
+      const dh = 2 + Math.round(
+        Math.sin(dx * 0.12) * 1.5 +
+        Math.sin(dx * 0.27 + 1.3) * 1
+      );
+      if (dh <= 0) continue;
+      const sandY = baseY - dh;
+      pxFill(wx, sandY, 1, 1, PX.earth0);
+      pxFill(wx, sandY + 1, 1, dh - 1, PX.earth1);
+    }
+
+    // Animated smoke columns from the burning + smoldering structures
+    drawPixelSmokeColumn(cx - 6,  baseY - 30);
+    drawPixelSmokeColumn(cx + 8,  baseY - 32);
+    drawPixelSmokeColumn(cx + 30, baseY - 12);
+    drawPixelSmokeColumn(cx + 52, baseY - 17);
+  }
+
+  // ── PIXEL DUNES — stepped silhouette ridges ─────────────────────
+  // Two layers (far + mid) with their own parallax speeds. Stepped
+  // 1-px ridge crests + flat fills below. Mirrors the smooth-art
+  // dune layers but in chunky pixel form.
+  function drawPixelDuneLayer(baseY, scrollSpeed, ridgeFn, fillColor, height) {
+    const scroll = dailyScrollX * scrollSpeed;
+    for (let x = 0; x < W; x++) {
+      const wx = x + scroll;
+      const y = baseY + ridgeFn(wx);
+      pxFill(x, y, 1, 1, PX.duneCrest);
+      pxFill(x, y + 1, 1, height, fillColor);
+    }
+  }
+
+  // ── PIXEL HORIZON dispatch (sky-attached layers below the moons)
+  // Far dunes → citadel ruins → mid dunes → outpost dust drifts.
+  function drawPixelDailyHorizon() {
+    ctx.imageSmoothingEnabled = false;
+    ctx.save();
+    const farRidgeY = (PLAY_H * 0.62) | 0;
+    const midRidgeY = (PLAY_H * 0.74) | 0;
+
+    // FAR dune ridge (paler tan, slow parallax)
+    drawPixelDuneLayer(
+      farRidgeY,
+      0.10,
+      (wx) => Math.round(
+        Math.sin(wx * 0.025) * 6 +
+        Math.sin(wx * 0.011) * 10
+      ),
+      PX.duneFar,
+      28
+    );
+
+    // CITADEL RUINS — chunked + scrolled with citadel parallax speed
+    const citScroll = dailyScrollX * 0.06;
+    const chunkW = 220;
+    const startC = Math.floor((citScroll - chunkW) / chunkW) - 1;
+    const endC   = Math.floor((citScroll + W) / chunkW) + 1;
+    for (let c = startC; c <= endC; c++) {
+      const cx = c * chunkW - citScroll + (chunkW >> 1);
+      const seed = c * 0.5739 + 3.11;
+      drawPixelCitadelChunk(cx, farRidgeY + 4, seed);
+    }
+
+    // Warm haze veil pushing the citadel back (1-row alpha bands —
+    // we can't easily do a fade in pixel mode, so use a few sparse
+    // dithered horizontal lines to suggest haze).
+    ctx.fillStyle = 'rgba(248, 200, 144, 0.18)';
+    ctx.fillRect(0, 0, W, farRidgeY + 4);
+
+    // MID dune ridge (richer rust, faster parallax) — rendered AFTER
+    // citadel so it occludes the bases of the back-buildings.
+    drawPixelDuneLayer(
+      midRidgeY,
+      0.18,
+      (wx) => Math.round(
+        Math.sin(wx * 0.04 + 1.3) * 5 +
+        Math.sin(wx * 0.018 + 0.6) * 8
+      ),
+      PX.duneMid,
+      40
+    );
+
+    ctx.restore();
+  }
+
   // ---------- Daily delivery course renderers ----------
   // Hazy gray dust-storm sky for the wasteland delivery course. Repaints
   // over the campaign theme's sky so the daily looks distinctly post-haze
   // grayish, not sunset.
   function drawDailySky() {
     if (!isDaily) return;
+    // Pixel-art branch — banded sky with dithered seams + pixel-disc
+    // moons. Drawn whenever the active level opted into pixel art via
+    // skyStyle: 'pixel'. The smooth-gradient path below stays the
+    // default for every other level.
+    if (currentDeliveryLevel.skyStyle === 'pixel') {
+      drawPixelDailySky();
+      return;
+    }
     if (!bgCache.dailySkyGrad) {
       // Sky stops sourced from the active delivery level so swapping
       // levels swaps the gradient without touching the renderer.
@@ -13453,6 +13916,14 @@ const DLX_BUILD = 'v435-pixel';
   // for organ surfaces).
   function drawDailyHorizon() {
     if (!isDaily) return;
+    // Pixel-art branch — draws stepped pixel dunes + wasteland-ruin
+    // citadel chunks (half-buried buildings, tipped silos, burned
+    // shells with animated fire, scrap heaps). Wrapped in its own
+    // ctx.save/restore inside the function.
+    if (currentDeliveryLevel.horizonStyle === 'pixelCitadel') {
+      drawPixelDailyHorizon();
+      return;
+    }
     ctx.save();
 
     if (currentDeliveryLevel.horizonStyle === 'scrapyard') {
@@ -30368,6 +30839,54 @@ const DLX_BUILD = 'v435-pixel';
       // level only sees obstacles that fit its setting. Renderers that
       // dispatch on level theme (lavaBalls, scrapTowers, tentacles)
       // additionally swap their visuals.
+      obstacleSet: {
+        drones: true, thieves: true, groundOps: true,
+        lavaBalls: true, scrapTowers: true, airWrecks: true,
+        tunnels: true, tentacles: true,
+      },
+      obstacleTheme: 'desert',
+    },
+
+    // ── PIXEL-ART variant of Sunset Wastes ─────────────────────
+    // Same skyPalette + dispatch labels as sunsetWastes but routes
+    // through the chunky pixel-art renderers instead of the smooth
+    // gradient ones. Players opt in via ?level=sunsetWastesPixel.
+    // First batch of the pixel-art port: SKY + HORIZON + CITADEL
+    // ruins. Other layers (terrain, hazards, obstacles, rivals)
+    // still use the existing smooth-art renderers — those will be
+    // converted in subsequent batches.
+    sunsetWastesPixel: {
+      label: 'SUNSET WASTES · PX',
+      skyPalette: [
+        { stop: 0,    color: '#f6e0b4' },
+        { stop: 0.35, color: '#f4c890' },
+        { stop: 0.65, color: '#e8a868' },
+        { stop: 1,    color: '#c87040' },
+      ],
+      skyStyle: 'pixel',                    // routes drawDailySky through banded pixel renderer
+      skyMoons: 'twin',
+      hazeStripeColor: 'rgba(255, 220, 180, 0.10)',
+      dustMoteColor: 'rgba(120, 80, 50, 0.35)',
+      dustEmberStart: [255, 235, 200],
+      dustEmberEnd:   [255, 200, 145],
+      groundBand: '#5a2e18',
+      horizonStyle: 'pixelCitadel',         // routes drawDailyHorizon through pixel ruin renderer
+      horizonDuneFarColor: 'rgba(196, 130, 80, 0.85)',
+      horizonDuneMidColor: 'rgba(150, 80, 40, 0.96)',
+      horizonDuneHighlight: 'rgba(252, 224, 168, 0.45)',
+      earthPalette: [
+        { stop: 0,    color: '#e8a868' },
+        { stop: 0.35, color: '#a85838' },
+        { stop: 0.75, color: '#5a2818' },
+        { stop: 1,    color: '#3a1808' },
+      ],
+      ambientField: null,
+      pulseTintColor: null,
+      pulseTintAmp: 0,
+      pulsePeriodFrames: 0,
+      dispatchLabel: 'DLX DISPATCH CENTER',
+      dockLabel: 'GOOD BUDDY TRUCK STOP',
+      cargoFlavor: null,
       obstacleSet: {
         drones: true, thieves: true, groundOps: true,
         lavaBalls: true, scrapTowers: true, airWrecks: true,
