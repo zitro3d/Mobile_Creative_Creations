@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v441-pixel-trash';
+const DLX_BUILD = 'v442-pixel-tunnel';
 
 (function() {
   // ---------- Device detection ----------
@@ -14771,6 +14771,140 @@ const DLX_BUILD = 'v441-pixel-trash';
     pxFill(sx + 1, sy + 2, 1, 1, PX.rust);
   }
 
+  // ═════════════════════════════════════════════════════════════════
+  // PIXEL TUNNEL CARVE-OUT
+  // Replaces the smooth-art cavern-interior + dirt-cap polygons with
+  // pixel-art versions. Goal: the tunnel feels like a HOLE GOING DOWN
+  // into the dirt cross-section (not a concrete pipe poking up).
+  //
+  // Approach:
+  //   - Dirt cap (snoutTop → ceiling) rendered as pixel dirt strata
+  //     so the area above the cavern reads as a chunk of dirt with
+  //     the same color levels as the surrounding cross-section.
+  //   - Cavern interior (ceiling → floor) rendered as dark pixel-art
+  //     tunnel air with a concrete-rust rim along the ceiling + floor
+  //     edges. Subtle dust-mote speckles for atmosphere.
+  //   - Pixel-art concrete arch frames at the entrance + exit mouth
+  //     so the player can clearly see where the hole is.
+  // ═════════════════════════════════════════════════════════════════
+
+  // Fills a single column from yTop down by h rows with dirt bands
+  // proportionally distributed. Anchored to wx so flecks scroll
+  // with the world.
+  function drawPixelDirtCapColumn(sx, segW, yTop, h, wx) {
+    if (h <= 0) return;
+    // 1-px crest at the top of the cap if the cap is tall enough
+    if (h >= 4) {
+      pxFill(sx, yTop, segW, 1, PX.duneCrest);
+      yTop += 1; h -= 1;
+    }
+    // Proportional bands earth0 → earth1 → earth2 → earth3
+    const b1 = Math.max(1, Math.floor(h * 0.15));
+    const b2 = Math.max(1, Math.floor(h * 0.28));
+    const b3 = Math.max(1, Math.floor(h * 0.32));
+    const b4 = Math.max(0, h - b1 - b2 - b3);
+    let cy = yTop;
+    pxFill(sx, cy, segW, b1, '#a85838'); cy += b1;
+    pxFill(sx, cy, segW, b2, '#7a3818'); cy += b2;
+    pxFill(sx, cy, segW, b3, '#5a2818'); cy += b3;
+    if (b4 > 0) pxFill(sx, cy, segW, b4, '#3a1808');
+    // Pebble + mineral specks
+    for (let d = 2; d < h; d += 3) {
+      const yy = yTop + d;
+      const hh = ((wx * 374761393) ^ (yy * 668265263)) >>> 0;
+      if ((hh & 15) === 0)      pxFill(sx, yy, 1, 1, '#1a0804');
+      else if ((hh & 31) === 1) pxFill(sx, yy, 1, 1, '#8a3018');
+    }
+  }
+
+  // Fills a single column of cavern interior (the air pocket the
+  // player flies through) from yTop=ceiling down to yBot=floor.
+  function drawPixelCavernColumn(sx, segW, yTop, yBot, wx) {
+    const h = yBot - yTop;
+    if (h <= 0) return;
+    // Dark interior
+    pxFill(sx, yTop, segW, h, '#0c0604');
+    // 1-px concrete-rust rim along the CEILING (top edge of cavern)
+    pxFill(sx, yTop, segW, 1, '#3a2010');
+    if (h >= 2) pxFill(sx, yTop + 1, segW, 1, '#5a3018');
+    // 1-px rim along the FLOOR (bottom edge of cavern)
+    pxFill(sx, yBot - 1, segW, 1, '#3a2010');
+    if (h >= 3) pxFill(sx, yBot - 2, segW, 1, '#5a3018');
+    // Sparse dust-mote speckles inside the cavern
+    const hh = ((wx * 374761393) ^ (yTop * 668265263)) >>> 0;
+    if ((hh & 31) === 0) {
+      const dy = 3 + ((hh >> 5) % Math.max(1, h - 6));
+      pxFill(sx, yTop + dy, 1, 1, '#7a4830');
+    }
+  }
+
+  // Pixel concrete mouth frame at the entrance (or exit) of a tunnel.
+  // Drawn as a thin 2-px rim around the cavern opening + a few yellow
+  // hazard chevron pixels on each side. Marks the hole so the player
+  // can see where to dive in.
+  function drawPixelTunnelMouthFrame(sx, ceilingY, floorY, dir) {
+    // dir = +1 for entrance (frame on left/inside), -1 for exit
+    // (frame on right/inside). Frame extends INWARD from the edge.
+    const w = 4;  // frame thickness
+    const concrete  = '#7a6048';
+    const concreteS = '#3a2418';
+    const hi        = '#a08868';
+    // Top arch corner (rounded inward — drops down at the outer edge)
+    for (let i = 0; i < w; i++) {
+      const yy = ceilingY + i;
+      // Outer wall
+      pxFill(sx + (dir > 0 ? i : -i - 1), yy, 1, 1, concreteS);
+      // Inner highlight
+      pxFill(sx + (dir > 0 ? i + 1 : -i - 2), yy + 1, 1, 1, hi);
+    }
+    // Bottom arch corner
+    for (let i = 0; i < w; i++) {
+      const yy = floorY - i - 1;
+      pxFill(sx + (dir > 0 ? i : -i - 1), yy, 1, 1, concreteS);
+      pxFill(sx + (dir > 0 ? i + 1 : -i - 2), yy - 1, 1, 1, concrete);
+    }
+    // Yellow hazard chevrons running down the mouth opening
+    const mouthMidY = ((ceilingY + floorY) / 2) | 0;
+    for (let c = -1; c <= 1; c++) {
+      const cy = mouthMidY + c * 6;
+      if (cy < ceilingY + 4 || cy > floorY - 4) continue;
+      // Chevron arrow pointing INTO the tunnel
+      pxFill(sx + (dir > 0 ? 1 : -2), cy, 1, 2, PX.yellow);
+      pxFill(sx + (dir > 0 ? 2 : -3), cy + 1, 1, 1, PX.yellow);
+    }
+    // Bent rebar pixel poking out the top
+    pxFill(sx + (dir > 0 ? 2 : -3), ceilingY - 2, 1, 2, '#3a2010');
+  }
+
+  // Main entry point — replaces the smooth cavern + dirt-cap polygons
+  // for one tunnel obstacle.
+  function drawPixelTunnelCarveout(o, tPts) {
+    if (tPts.length < 2) return;
+    for (let i = 0; i < tPts.length - 1; i++) {
+      const p = tPts[i];
+      const segW = Math.max(1, tPts[i + 1].sx - p.sx);
+      const wx = (p.sx + dailyScrollX) | 0;
+      // ── DIRT CAP from snoutTop down to ceiling
+      if (p.ceiling > p.snoutTop) {
+        drawPixelDirtCapColumn(p.sx, segW, p.snoutTop,
+                                p.ceiling - p.snoutTop, wx);
+      }
+      // ── CAVERN INTERIOR from ceiling down to floor
+      if (p.floor > p.ceiling) {
+        drawPixelCavernColumn(p.sx, segW, p.ceiling, p.floor, wx);
+      }
+    }
+    // ── Mouth frames at the entrance + exit
+    const first = tPts[0];
+    const last = tPts[tPts.length - 1];
+    if (first.floor > first.ceiling) {
+      drawPixelTunnelMouthFrame(first.sx, first.ceiling, first.floor, 1);
+    }
+    if (last.floor > last.ceiling) {
+      drawPixelTunnelMouthFrame(last.sx, last.ceiling, last.floor, -1);
+    }
+  }
+
   // ---------- Daily delivery course renderers ----------
   // Hazy gray dust-storm sky for the wasteland delivery course. Repaints
   // over the campaign theme's sky so the daily looks distinctly post-haze
@@ -15731,6 +15865,15 @@ const DLX_BUILD = 'v441-pixel-trash';
                   snoutTop: Math.round(LEnd.snoutTop),
                   ceiling:  Math.round(LEnd.ceiling),
                   floor:    Math.round(LEnd.floor) });
+
+      // Pixel-art mode renders the cavern interior + dirt cap as
+      // pixel dirt strata + dark cavern walls so the tunnel feels
+      // like a HOLE GOING DOWN into the dirt cross-section, not a
+      // concrete pipe poking up.
+      if (isPixelHorizonLevel()) {
+        drawPixelTunnelCarveout(o, tPts);
+        continue;
+      }
 
       // CAVERN INTERIOR — dark fill from ceiling polyline down to
       // floor polyline. Drawn before the dirt cap so the cap covers
