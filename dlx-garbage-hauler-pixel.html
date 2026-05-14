@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v446l-tentacle-longer';
+const DLX_BUILD = 'v446m-bones-hitbox-longer';
 
 (function() {
   // ---------- Device detection ----------
@@ -8326,12 +8326,17 @@ const DLX_BUILD = 'v446l-tentacle-longer';
           const lastWasTunnel = dailyAirObstacles.length > 0 &&
             dailyAirObstacles[dailyAirObstacles.length - 1].kind === 'tunnel';
           // Also don't spawn tunnels in the docking-approach zone —
-          // the Good Buddy truck stop sits at worldX 9400 and the
-          // landing animation triggers when scrollX hits 9200, so a
-          // tunnel landing in that band would visually clip + hide
-          // the dock during the victory sequence.
-          const inTruckStopApproach = dailyNextAirObstacleX > 8600;
-          if (!lastWasTunnel && !inTruckStopApproach && r < 0.40) {
+          // the Good Buddy truck stop sits at worldX 11000 and the
+          // landing animation triggers ~200 px before, so a tunnel
+          // landing in that band would visually clip + hide the
+          // dock during the victory sequence.
+          // v446m — truck stop pushed to 11000 (was 9400) for a
+          // longer level. Approach gate pushed to 10200.
+          const inTruckStopApproach = dailyNextAirObstacleX > 10200;
+          // v446m — tunnel spawn rate dropped 0.40 → 0.25 per user
+          // feedback ("remove one to two tunnels"). Result: noticeably
+          // sparser tunnel sections, more open-air flying time.
+          if (!lastWasTunnel && !inTruckStopApproach && r < 0.25) {
             kind = 'tunnel';
           } else if (dailyCurrentStage >= 2 && r < 0.70) {
             kind = 'scrapTower';
@@ -8935,9 +8940,12 @@ const DLX_BUILD = 'v446l-tentacle-longer';
         // 480 px platform + diner fits on screen at landing —
         // previously the diner extended past the right edge and got
         // clipped during the victory sequence.
-        if (!dailyDeliveredAtFinish && dailyScrollX >= 9200) {
+        // v446m — finish line moved 9200 → 10800 (truck stop is now
+        // at 11000 instead of 9400). 200 px of approach before the
+        // dock animation triggers.
+        if (!dailyDeliveredAtFinish && dailyScrollX >= 10800) {
           dailyDeliveredAtFinish = true;
-          const truckStopWX = 9400;
+          const truckStopWX = 11000;
           const dockScreenX = truckStopWX - dailyScrollX;
           dailyDockingFrames = 270;
           playSound('dock');
@@ -10778,8 +10786,17 @@ const DLX_BUILD = 'v446l-tentacle-longer';
           }
         } else if (o.kind === 'airWreck') {
           if (passThrough) continue;             // field passes through wrecks
-          const ww = 30, wh = 16;
-          if (Math.abs(bird.x - sx) < r + ww && Math.abs(bird.y - o.alt) < r + wh) {
+          // v446m HITBOX FIX — was anchored to sx (visual LEFT edge)
+          // with half-widths 30×16 for the old 64w wreck. Now centered
+          // on the visual CENTER of the 120w × 48h wreck so the
+          // collision box matches the actual sprite footprint.
+          // Half-widths inset slightly inside the visual (44 × 18 vs
+          // 60 × 24 visual half-extents) so the player can graze the
+          // outer rim + wing tips without crashing.
+          const wreckCx = sx + 60;          // visual horizontal center
+          const wreckCy = o.alt + 22;       // visual vertical center
+          const ww = 44, wh = 18;
+          if (Math.abs(bird.x - wreckCx) < r + ww && Math.abs(bird.y - wreckCy) < r + wh) {
             return true;
           }
         }
@@ -14266,6 +14283,148 @@ const DLX_BUILD = 'v446l-tentacle-longer';
   }
 
   // ── PIXEL BONES ──────────────────────────────────────────────────
+  // ── PIXEL RIBCAGE — curved ribs arching up out of the dirt ─────
+  function drawPixelRibcage(sx, gy) {
+    sx = sx | 0; gy = gy | 0;
+    const x = sx - 12, y = gy - 14;
+    // Central spine (vertical bone column)
+    pxFill(x + 11, y + 4, 2, 10, PXP.boneDark);
+    pxFill(x + 11, y + 4, 1, 10, PXP.boneLight);
+    // Vertebrae knobs along the spine
+    pxFill(x + 10, y + 6, 4, 1, PXP.boneDark);
+    pxFill(x + 10, y + 9, 4, 1, PXP.boneDark);
+    pxFill(x + 10, y + 12, 4, 1, PXP.boneDark);
+    // 5 curved ribs arching out from spine — left side
+    // Each rib: top knob + curved body
+    pxFill(x + 3, y + 1, 1, 1, PXP.boneDark);   // rib 1 tip (highest)
+    pxFill(x + 4, y + 2, 1, 1, PXP.boneDark);
+    pxFill(x + 5, y + 3, 1, 1, PXP.boneDark);
+    pxFill(x + 6, y + 4, 5, 1, PXP.boneDark);   // rib 1 connects to spine
+    pxFill(x + 4, y + 2, 1, 1, PXP.boneLight);
+    pxFill(x + 6, y + 4, 4, 1, PXP.boneLight);
+    pxFill(x + 1, y + 3, 1, 1, PXP.boneDark);   // rib 2 tip
+    pxFill(x + 2, y + 4, 1, 1, PXP.boneDark);
+    pxFill(x + 3, y + 5, 1, 1, PXP.boneDark);
+    pxFill(x + 4, y + 6, 6, 1, PXP.boneDark);
+    pxFill(x + 4, y + 6, 5, 1, PXP.boneLight);
+    pxFill(x + 1, y + 8, 1, 1, PXP.boneDark);   // rib 3
+    pxFill(x + 2, y + 9, 7, 1, PXP.boneDark);
+    pxFill(x + 2, y + 9, 7, 1, PXP.boneLight);
+    pxFill(x + 2, y + 12, 8, 1, PXP.boneDark);  // rib 4 (low, near ground)
+    pxFill(x + 2, y + 12, 7, 1, PXP.boneLight);
+    // 5 curved ribs — right side (mirror)
+    pxFill(x + 20, y + 1, 1, 1, PXP.boneDark);
+    pxFill(x + 19, y + 2, 1, 1, PXP.boneDark);
+    pxFill(x + 18, y + 3, 1, 1, PXP.boneDark);
+    pxFill(x + 13, y + 4, 5, 1, PXP.boneDark);
+    pxFill(x + 19, y + 2, 1, 1, PXP.boneLight);
+    pxFill(x + 14, y + 4, 4, 1, PXP.boneLight);
+    pxFill(x + 22, y + 3, 1, 1, PXP.boneDark);
+    pxFill(x + 21, y + 4, 1, 1, PXP.boneDark);
+    pxFill(x + 20, y + 5, 1, 1, PXP.boneDark);
+    pxFill(x + 13, y + 6, 7, 1, PXP.boneDark);
+    pxFill(x + 14, y + 6, 5, 1, PXP.boneLight);
+    pxFill(x + 22, y + 8, 1, 1, PXP.boneDark);
+    pxFill(x + 14, y + 9, 8, 1, PXP.boneDark);
+    pxFill(x + 14, y + 9, 7, 1, PXP.boneLight);
+    pxFill(x + 13, y + 12, 9, 1, PXP.boneDark);
+    pxFill(x + 14, y + 12, 7, 1, PXP.boneLight);
+    // Dirt mound at the base — bones half-buried
+    pxFill(x + 6, y + 13, 13, 1, PX.outline);
+    pxFill(x + 8, y + 12, 9, 1, PXP.rockDark);
+  }
+
+  // ── PIXEL ANIMAL SKULL — long-snouted (horse/alien hybrid) ─────
+  function drawPixelAnimalSkull(sx, gy) {
+    sx = sx | 0; gy = gy | 0;
+    const x = sx - 12, y = gy - 11;
+    // Cranium (back/right, rounder)
+    pxFill(x + 14, y + 1, 8, 9, PXP.boneDark);
+    pxFill(x + 15, y, 6, 1, PXP.boneDark);
+    pxFill(x + 15, y + 1, 6, 8, PXP.boneLight);
+    pxFill(x + 14, y + 9, 8, 1, PXP.boneShade);
+    // Long snout (extends left)
+    pxFill(x + 1, y + 4, 14, 5, PXP.boneDark);
+    pxFill(x, y + 5, 1, 3, PXP.boneDark);
+    pxFill(x + 1, y + 5, 14, 3, PXP.boneLight);
+    pxFill(x + 1, y + 7, 14, 1, PXP.boneShade);
+    // Eye socket (in cranium)
+    pxFill(x + 16, y + 3, 3, 3, PX.outline);
+    pxFill(x + 17, y + 4, 1, 1, PXP.boneShade);
+    // Nasal cavity (at the snout tip)
+    pxFill(x + 1, y + 6, 2, 1, PX.outline);
+    pxFill(x + 3, y + 5, 2, 2, PX.outline);
+    // Teeth along the bottom of the snout
+    for (let i = 0; i < 6; i++) {
+      pxFill(x + 2 + i * 2, y + 8, 1, 1, PX.outline);
+    }
+    // Curved horns (2 sticking up from the back of the cranium)
+    pxFill(x + 14, y - 1, 1, 2, PXP.boneDark);
+    pxFill(x + 13, y, 1, 1, PXP.boneDark);
+    pxFill(x + 21, y - 1, 1, 2, PXP.boneDark);
+    pxFill(x + 22, y, 1, 1, PXP.boneDark);
+    // Jaw bone separated below
+    pxFill(x + 3, y + 9, 14, 2, PXP.boneDark);
+    pxFill(x + 4, y + 9, 12, 1, PXP.boneLight);
+    pxFill(x + 4, y + 10, 12, 1, PXP.boneShade);
+  }
+
+  // ── PIXEL ALIEN CLAW — 3-finger bone claw, alien hand ─────────
+  function drawPixelAlienClaw(sx, gy) {
+    sx = sx | 0; gy = gy | 0;
+    const x = sx - 8, y = gy - 16;
+    // Palm cluster (at the bottom)
+    pxFill(x + 5, y + 12, 6, 4, PXP.boneDark);
+    pxFill(x + 6, y + 12, 4, 3, PXP.boneLight);
+    pxFill(x + 6, y + 14, 4, 1, PXP.boneShade);
+    // Wrist stub
+    pxFill(x + 7, y + 15, 2, 1, PXP.boneDark);
+    // Finger 1 — center (longest, claw)
+    pxFill(x + 7, y, 2, 12, PXP.boneDark);
+    pxFill(x + 7, y, 1, 12, PXP.boneLight);
+    pxFill(x + 7, y - 1, 1, 1, PX.outline);  // sharp claw tip
+    // Finger 2 — left
+    pxFill(x + 3, y + 4, 2, 9, PXP.boneDark);
+    pxFill(x + 3, y + 4, 1, 9, PXP.boneLight);
+    pxFill(x + 3, y + 3, 1, 1, PX.outline);  // claw tip
+    pxFill(x + 4, y + 3, 1, 1, PXP.boneDark); // joint bend
+    // Finger 3 — right
+    pxFill(x + 11, y + 4, 2, 9, PXP.boneDark);
+    pxFill(x + 11, y + 4, 1, 9, PXP.boneLight);
+    pxFill(x + 11, y + 3, 1, 1, PX.outline);
+    pxFill(x + 12, y + 3, 1, 1, PXP.boneDark);
+    // Knuckle joints — 1 dark pixel per finger
+    pxFill(x + 7, y + 5, 1, 1, PX.outline);
+    pxFill(x + 7, y + 9, 1, 1, PX.outline);
+    pxFill(x + 3, y + 8, 1, 1, PX.outline);
+    pxFill(x + 11, y + 8, 1, 1, PX.outline);
+  }
+
+  // ── PIXEL ALIEN SPINE — vertebra segment lying on the ground ───
+  function drawPixelAlienSpine(sx, gy) {
+    sx = sx | 0; gy = gy | 0;
+    const x = sx - 13, y = gy - 6;
+    // Horizontal spine running L→R
+    pxFill(x, y + 2, 26, 2, PXP.boneDark);
+    pxFill(x + 1, y + 2, 24, 1, PXP.boneLight);
+    pxFill(x + 1, y + 3, 24, 1, PXP.boneShade);
+    // 6 vertebra discs along the spine
+    for (let i = 0; i < 6; i++) {
+      const vx = x + 2 + i * 4;
+      pxFill(vx, y + 1, 2, 4, PXP.boneDark);
+      pxFill(vx, y + 1, 2, 1, PXP.boneLight);
+      pxFill(vx, y + 4, 2, 1, PXP.boneShade);
+      // Tiny spinous process sticking up
+      pxFill(vx + 1, y, 1, 1, PXP.boneDark);
+    }
+    // Skull stub at the left end (just a knob)
+    pxFill(x, y + 1, 1, 4, PXP.boneDark);
+    pxFill(x - 1, y + 2, 1, 2, PXP.boneDark);
+    // Tail bone fading at right
+    pxFill(x + 25, y + 2, 2, 2, PXP.boneShade);
+    pxFill(x + 26, y + 3, 1, 1, PXP.boneShade);
+  }
+
   function drawPixelBones(sx, gy) {
     sx = sx | 0; gy = gy | 0;
     const x = sx - 11, y = gy - 18;
@@ -14791,20 +14950,25 @@ const DLX_BUILD = 'v446l-tentacle-longer';
       // Allow artifacts down through the full screen height so the
       // deep dirt has buried objects too.
       if (ay > H - 4) continue;
-      // Pick artifact type
+      // Pick artifact type — 8 buckets across more bone variants
       const kind = (slotHash >> 16) & 7;
-      if (kind < 2) {
-        // BURIED SKULL — small (8×6), partially obscured
+      if (kind === 0) {
         drawBuriedSkull(sx, ay, boneCol, boneLitCol);
-      } else if (kind < 4) {
-        // BURIED BONES — single bone segment (10×3)
+      } else if (kind === 1) {
         drawBuriedBone(sx, ay, boneCol, boneLitCol);
-      } else if (kind < 6) {
-        // BURIED ROCK / BOULDER — small cluster (6×4)
+      } else if (kind === 2) {
+        drawBuriedRibcage(sx, ay, boneCol, boneLitCol);
+      } else if (kind === 3) {
+        drawBuriedAnimalSkull(sx, ay, boneCol, boneLitCol);
+      } else if (kind === 4) {
+        drawBuriedAlienClaw(sx, ay, boneCol, boneLitCol);
+      } else if (kind === 5) {
         drawBuriedRock(sx, ay, rockCol, rockLitCol);
-      } else {
-        // BURIED SCRAP — twisted metal piece (7×3)
+      } else if (kind === 6) {
         drawBuriedScrap(sx, ay);
+      } else {
+        // BURIED SPINE SEGMENT — alien vertebrae
+        drawBuriedAlienSpine(sx, ay, boneCol, boneLitCol);
       }
     }
 
@@ -14869,6 +15033,81 @@ const DLX_BUILD = 'v446l-tentacle-longer';
     pxFill(sx, sy + 1, 2, 1, lit);
     pxFill(sx + 1, sy + 2, 2, 1, lit);
   }
+  function drawBuriedRibcage(sx, sy, light, hi) {
+    // 11×5 mini ribcage — 4 ribs arching out from a central spine
+    sx = sx | 0; sy = sy | 0;
+    // Spine
+    pxFill(sx, sy, 1, 5, light);
+    pxFill(sx, sy, 1, 5, hi);
+    // Ribs — pairs curving out left + right
+    pxFill(sx - 3, sy, 3, 1, light);
+    pxFill(sx + 1, sy, 3, 1, light);
+    pxFill(sx - 4, sy + 1, 1, 1, light);
+    pxFill(sx + 4, sy + 1, 1, 1, light);
+    pxFill(sx - 5, sy + 2, 5, 1, light);
+    pxFill(sx + 1, sy + 2, 5, 1, light);
+    pxFill(sx - 5, sy + 2, 5, 1, hi);
+    pxFill(sx + 1, sy + 2, 5, 1, hi);
+    pxFill(sx - 4, sy + 4, 4, 1, light);
+    pxFill(sx + 1, sy + 4, 4, 1, light);
+    // Notch shadow at center
+    pxFill(sx, sy + 1, 1, 1, PX.outline);
+  }
+
+  function drawBuriedAnimalSkull(sx, sy, light, hi) {
+    // 11×5 long-snouted animal skull
+    sx = sx | 0; sy = sy | 0;
+    // Snout (left)
+    pxFill(sx - 5, sy + 2, 7, 2, light);
+    pxFill(sx - 5, sy + 2, 7, 1, hi);
+    // Cranium (right)
+    pxFill(sx + 2, sy, 4, 5, light);
+    pxFill(sx + 2, sy, 4, 1, hi);
+    pxFill(sx + 2, sy + 4, 4, 1, PX.outline);
+    // Eye socket
+    pxFill(sx + 3, sy + 1, 2, 2, PX.outline);
+    // Nostril
+    pxFill(sx - 4, sy + 2, 1, 1, PX.outline);
+    // Teeth row
+    pxFill(sx - 4, sy + 4, 1, 1, PX.outline);
+    pxFill(sx - 2, sy + 4, 1, 1, PX.outline);
+    pxFill(sx, sy + 4, 1, 1, PX.outline);
+  }
+
+  function drawBuriedAlienClaw(sx, sy, light, hi) {
+    // 9×6 — 3-finger alien hand bones
+    sx = sx | 0; sy = sy | 0;
+    // Palm cluster
+    pxFill(sx - 1, sy + 4, 4, 2, light);
+    pxFill(sx - 1, sy + 4, 4, 1, hi);
+    // 3 fingers reaching up
+    pxFill(sx - 2, sy + 1, 1, 3, light);     // left finger
+    pxFill(sx - 2, sy, 1, 1, PX.outline);    // claw tip
+    pxFill(sx + 1, sy, 1, 4, light);          // center finger (longest)
+    pxFill(sx + 1, sy - 1, 1, 1, PX.outline);
+    pxFill(sx + 1, sy, 1, 4, hi);
+    pxFill(sx + 4, sy + 1, 1, 3, light);     // right finger
+    pxFill(sx + 4, sy, 1, 1, PX.outline);
+    // Knuckle joints
+    pxFill(sx + 1, sy + 2, 1, 1, PX.outline);
+    pxFill(sx - 2, sy + 3, 1, 1, PX.outline);
+    pxFill(sx + 4, sy + 3, 1, 1, PX.outline);
+  }
+
+  function drawBuriedAlienSpine(sx, sy, light, hi) {
+    // 11×3 — horizontal spine segment with 3-4 vertebrae
+    sx = sx | 0; sy = sy | 0;
+    pxFill(sx - 5, sy + 1, 11, 1, light);
+    pxFill(sx - 5, sy + 1, 11, 1, hi);
+    // Vertebrae knobs
+    for (let i = 0; i < 4; i++) {
+      const vx = sx - 4 + i * 3;
+      pxFill(vx, sy, 2, 1, light);
+      pxFill(vx, sy + 2, 2, 1, light);
+      pxFill(vx, sy + 2, 2, 1, PX.outline);
+    }
+  }
+
   function drawBuriedScrap(sx, sy) {
     // 7w × 3h twisted metal piece — sharp angular shape
     sx = sx | 0; sy = sy | 0;
@@ -21096,7 +21335,17 @@ const DLX_BUILD = 'v446l-tentacle-longer';
       if (isPixel) {
         if      (pick < 0.14) drawPixelSkull(sx, gy, srand(seed + 3.1) > 0.5);
         else if (pick < 0.54) drawPixelTrash(sx, gy, srand(seed + 3.7));
-        else if (pick < 0.66) drawPixelBones(sx, gy);
+        else if (pick < 0.66) {
+          // Bones — picks 1 of 5 variants per slot so the wasteland
+          // has a mix of crossbones / ribcages / animal skulls / alien
+          // claws / alien spines instead of just one bone style.
+          const bvar = srand(seed + 5.7);
+          if      (bvar < 0.20) drawPixelBones(sx, gy);
+          else if (bvar < 0.40) drawPixelRibcage(sx, gy);
+          else if (bvar < 0.60) drawPixelAnimalSkull(sx, gy);
+          else if (bvar < 0.80) drawPixelAlienClaw(sx, gy);
+          else                  drawPixelAlienSpine(sx, gy);
+        }
         else if (pick < 0.85) drawPixelBrush(sx, gy, srand(seed + 4.1));
         else                  drawPixelTumbleweed(sx, gy);
         continue;
@@ -33514,7 +33763,7 @@ const DLX_BUILD = 'v446l-tentacle-longer';
     { kind: 'driveIn',         worldX: 5400 },
     { kind: 'sphinx',          worldX: 6900 },
     { kind: 'collapsedOffice', worldX: 8200 },
-    { kind: 'truckStop',       worldX: 9400 },
+    { kind: 'truckStop',       worldX: 11000 },
   ];
   // Ground-level rival haulers chasing on the dunes (Phase A4)
   let dailyGroundOps = [];         // [{ x, y, vx, state, stateFrames, hookY }]
@@ -33585,7 +33834,9 @@ const DLX_BUILD = 'v446l-tentacle-longer';
   // 600 px gap = ~2.5-3.3 sec at typical scroll speed — enough time for
   // any in-flight projectiles spawned just before the gate to clear off.
   // Backstopped by docking-invulnerability inside collide().
-  const TRUCK_STOP_NO_SPAWN_AFTER = 8800;
+  // v446m — level length extended (was 8800 → now 10400) so the
+  // run feels less rushed before the docking approach.
+  const TRUCK_STOP_NO_SPAWN_AFTER = 10400;
   const DAILY_STAGES = [
     { threshold: 0,    label: 'STAGE 1 — OPEN DUNES'           },
     { threshold: 100,  label: 'STAGE 2 — DRONE ZONE'           },
