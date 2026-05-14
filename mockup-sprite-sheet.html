@@ -366,57 +366,130 @@ function tick() {
 tick();
 
 // ─────────────────────────────────────────────────────────
-// GIF EXPORT — main-thread, upscaled 2×, 3 sec @ 30fps
+// GIF EXPORT — robust diagnostic version. Logs every stage to
+// both console AND the visible status line so we can see exactly
+// where it stalls.
 // ─────────────────────────────────────────────────────────
 (function () {
   const btn = document.getElementById('recordBtn');
   const status = document.getElementById('status');
-  if (!btn || !status) return;
+  if (!btn || !status) {
+    console.error('[GIF] button or status element missing');
+    return;
+  }
 
-  btn.addEventListener('click', function () {
+  // Probe gif.js right after script load so we know if it loaded
+  function checkLib() {
     if (typeof GIF === 'undefined') {
-      status.textContent = 'GIF library failed to load.';
-      return;
+      status.textContent = '❌ gif.js failed to load — check network / ad-blocker.';
+      btn.disabled = true;
+      btn.style.opacity = '0.4';
+      console.error('[GIF] gif.js global missing — CDN script blocked?');
+      return false;
     }
+    return true;
+  }
+  // Run check shortly after load (gives the CDN script time to evaluate)
+  setTimeout(checkLib, 800);
+
+  btn.addEventListener('click', async function () {
+    console.log('[GIF] click registered');
+    if (!checkLib()) return;
     btn.disabled = true;
     btn.style.filter = 'grayscale(0.4)';
-    status.textContent = 'Capturing frames…';
 
-    // v2: native-size output (no upscale) + fewer frames + lower
-    // quality. The sprite-sheet canvas is 500×120 — 6× bigger than
-    // the rig mockup that worked at 400×160 upscaled. Each frame copy
-    // was ~1MB; 90 frames = 90MB before encoding even starts. That's
-    // why it stalled at 0%. Shrinking everything down:
-    const SCALE = 1;                        // was 2 — native 500×120 GIF
+    // Tiny pause so the UI can paint the disabled state before we
+    // monopolize the main thread with frame capture/encoding
+    await new Promise(r => setTimeout(r, 50));
+
+    status.textContent = 'Setting up encoder…';
+    console.log('[GIF] canvas size', canvas.width, '×', canvas.height);
+
+    const SCALE = 1;
     const scaled = document.createElement('canvas');
     scaled.width = canvas.width * SCALE;
     scaled.height = canvas.height * SCALE;
     const sctx = scaled.getContext('2d');
     sctx.imageSmoothingEnabled = false;
 
-    const gif = new GIF({
-      workers: 0,
-      quality: 15,                          // was 10 — higher = faster
-      width: scaled.width,
-      height: scaled.height,
-      dither: false
-    });
+    let gif;
+    try {
+      gif = new GIF({
+        workers: 0,
+        quality: 20,
+        width: scaled.width,
+        height: scaled.height,
+        dither: false
+      });
+    } catch (e) {
+      console.error('[GIF] failed to construct encoder:', e);
+      status.textContent = '❌ Encoder init failed: ' + e.message;
+      btn.disabled = false; btn.style.filter = '';
+      return;
+    }
 
-    const totalFrames = 60;                 // was 90 — 2 sec at 30fps
+    const totalFrames = 30;                     // 1 sec at 30fps
     const delayMs = 33;
     let captured = 0;
 
+    gif.on('progress', function (p) {
+      const pct = Math.round(p * 100);
+      console.log('[GIF] encode progress', pct + '%');
+      status.textContent = 'Encoding: ' + pct + '%';
+    });
+
+    gif.on('abort', function () {
+      console.warn('[GIF] aborted');
+      status.textContent = '❌ Encoding aborted.';
+      btn.disabled = false; btn.style.filter = '';
+    });
+
+    gif.on('finished', function (blob) {
+      console.log('[GIF] finished, blob:', blob ? blob.size + ' bytes' : 'null');
+      if (!blob || blob.size === 0) {
+        status.textContent = '❌ Encoder produced empty file.';
+        btn.disabled = false; btn.style.filter = '';
+        return;
+      }
+      try {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'roadkill-sprite-sheet.gif';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        status.textContent = '✓ Downloaded (' + Math.round(blob.size / 1024) + ' KB)';
+        console.log('[GIF] download triggered');
+      } catch (e) {
+        console.error('[GIF] download trigger failed:', e);
+        status.textContent = '❌ Download trigger failed: ' + e.message;
+      }
+      btn.disabled = false; btn.style.filter = '';
+    });
+
     const captureNext = () => {
-      sctx.clearRect(0, 0, scaled.width, scaled.height);
-      sctx.drawImage(canvas, 0, 0, scaled.width, scaled.height);
-      gif.addFrame(scaled, { delay: delayMs, copy: true });
-      captured++;
-      status.textContent = 'Recording ' + captured + ' / ' + totalFrames + '…';
+      try {
+        sctx.clearRect(0, 0, scaled.width, scaled.height);
+        sctx.drawImage(canvas, 0, 0, scaled.width, scaled.height);
+        gif.addFrame(scaled, { delay: delayMs, copy: true });
+        captured++;
+        status.textContent = 'Capturing ' + captured + '/' + totalFrames + '…';
+      } catch (e) {
+        console.error('[GIF] addFrame failed:', e);
+        status.textContent = '❌ Frame ' + captured + ' failed: ' + e.message;
+        btn.disabled = false; btn.style.filter = '';
+        return;
+      }
       if (captured >= totalFrames) {
-        status.textContent = 'Encoding GIF…';
-        try { gif.render(); } catch (e) {
-          console.error(e);
-          status.textContent = 'Error: ' + e.message;
+        console.log('[GIF] capture complete, calling render()');
+        status.textContent = 'Encoding…';
+        try {
+          gif.render();
+        } catch (e) {
+          console.error('[GIF] render() threw:', e);
+          status.textContent = '❌ render() threw: ' + e.message;
           btn.disabled = false; btn.style.filter = '';
         }
       } else {
@@ -424,28 +497,7 @@ tick();
       }
     };
 
-    gif.on('progress', function (p) {
-      status.textContent = 'Encoding GIF: ' + Math.round(p * 100) + '%…';
-    });
-
-    gif.on('finished', function (blob) {
-      if (!blob || blob.size === 0) {
-        status.textContent = 'Encoding produced empty file.';
-        btn.disabled = false; btn.style.filter = '';
-        return;
-      }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'roadkill-sprite-sheet.gif';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-      status.textContent = 'Downloaded (' + Math.round(blob.size / 1024) + ' KB). Click again for another.';
-      btn.disabled = false; btn.style.filter = '';
-    });
-
+    console.log('[GIF] starting capture');
     captureNext();
   });
 })();
