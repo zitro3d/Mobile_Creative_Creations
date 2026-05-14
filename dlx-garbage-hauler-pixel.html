@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v446-air-wreck-fidelity';
+const DLX_BUILD = 'v446b-wider-uneven';
 
 (function() {
   // ---------- Device detection ----------
@@ -14165,13 +14165,14 @@ const DLX_BUILD = 'v446-air-wreck-fidelity';
       pxFill(spikeX - 3, baseY, 7, 1, PX.outline);
     };
     // 5 spikes of varied heights — center tallest, tapering off.
-    // Heights chosen to match the smooth-art 28-50 peak range.
+    // v446c — heights bumped ~30% per user request (32-44 → 42-58)
+    // so the spikes really tower above the dirt mound.
     const baseY = y + 45;
-    drawSpike(x + 6,  baseY, 32);
-    drawSpike(x + 16, baseY, 40);
-    drawSpike(x + 28, baseY, 44);   // TALLEST (center)
-    drawSpike(x + 40, baseY, 38);
-    drawSpike(x + 50, baseY, 30);
+    drawSpike(x + 6,  baseY, 42);
+    drawSpike(x + 16, baseY, 52);
+    drawSpike(x + 28, baseY, 58);   // TALLEST (center)
+    drawSpike(x + 40, baseY, 50);
+    drawSpike(x + 50, baseY, 40);
     // Dried blood pool around the tallest spike
     pxFill(x + 22, y + 45, 14, 1, '#7a1a10');
     pxFill(x + 25, y + 44, 8,  1, '#a01a0a');
@@ -15103,57 +15104,79 @@ const DLX_BUILD = 'v446-air-wreck-fidelity';
   }
 
   // Renders a single scrap stack — vertical stack of distinct salvage
-  // pieces (crushed cars, barrels, twisted girders, cab) filling
-  // height `h` from `yTop` downward.
-  // v444f — pieces are now ~50% larger AND each piece type picks 1 of
-  // 2-3 sub-variants per cycle so the stack doesn't read as repeating
-  // copies of the same piece. SHUFFLED order based on seed so two
-  // adjacent pillars don't have the same stacking sequence either.
+  // pieces filling height `h` from `yTop` downward.
+  // v446d — full restructure per user feedback:
+  //   - WIDER AT THE GAP-EDGE (heaviest stuff at base), TAPERED toward
+  //     the far end (36 → ~22 px wide). Reads as a real precarious
+  //     scrap pile, not a uniform column.
+  //   - UNEVEN piece heights — per-piece random jitter of ±2..4 px.
+  //   - HORIZONTAL JITTER — each piece shifted ±2 px from center by
+  //     a seeded offset so they don't stack perfectly aligned.
+  //   - DEBRIS falling off the sides every few pieces (1-3 px chunks)
+  //   - Simpler per-piece detail (less rivets/stripes, more silhouette).
   function drawPixelScrapStack(x, yTop, h, seed, inverted) {
     if (h <= 0) return;
-    // Bigger pieces (~50% taller — was 8/12/8/4/14/6 totaling 52)
+    const baseTw = 36;
+    const minTw = 22;
     const pieces = [
-      { name: 'tires',   height: 12 },
-      { name: 'car',     height: 18 },
-      { name: 'barrels', height: 12 },
+      { name: 'tires',   height: 11 },
+      { name: 'car',     height: 17 },
+      { name: 'barrels', height: 13 },
       { name: 'girder',  height: 6 },
-      { name: 'cab',     height: 20 },
+      { name: 'cab',     height: 19 },
       { name: 'plate',   height: 8 },
     ];
-    // Shuffle starting index based on seed so adjacent pillars don't
-    // start with the same piece. srand returns 0..1 deterministically.
     let pieceIdx = Math.floor(srand(seed + 0.13) * pieces.length);
     let cursor = inverted ? yTop : (yTop + h);
+    const stackTop = inverted ? yTop + h : yTop;        // far end (taper toward here)
+    const stackBot = inverted ? yTop      : yTop + h;   // gap edge (wider here)
     for (let safety = 0; safety < h; safety++) {
       const p = pieces[pieceIdx % pieces.length];
-      const yy = inverted ? cursor : (cursor - p.height);
-      // Per-cycle variant key — different sub-variant on each loop
-      // through the array so the same piece type doesn't repeat
-      // identically.
+      // Distance from the gap edge (0..h) — used for taper.
+      const distFromGap = inverted ? (cursor - yTop) : ((yTop + h) - cursor);
+      const taper = Math.min(1, distFromGap / h);
+      const tw = Math.max(minTw, Math.round(baseTw - (baseTw - minTw) * taper));
+      // Per-piece height jitter (±2 px) for unevenness
+      const heightJitter = Math.floor(srand(seed + pieceIdx * 0.41) * 5) - 2;
+      const ph = Math.max(5, p.height + heightJitter);
+      // Horizontal jitter ±2 px (so pieces don't perfectly align)
+      const xJitter = Math.floor(srand(seed + pieceIdx * 0.67) * 5) - 2;
+      const px_ = x + ((baseTw - tw) >> 1) + xJitter;
       const variantSeed = seed + pieceIdx * 0.7;
+      const yy = inverted ? cursor : (cursor - ph);
       if (inverted) {
-        if (yy + p.height > yTop + h) {
+        if (yy + ph > yTop + h) {
           const left = (yTop + h) - cursor;
-          if (left > 1) drawScrapPiece(x, cursor, left, 'plate', variantSeed);
+          if (left > 1) drawScrapPiece(px_, cursor, left, tw, 'plate', variantSeed);
           break;
         }
-        drawScrapPiece(x, yy, p.height, p.name, variantSeed);
-        cursor += p.height;
+        drawScrapPiece(px_, yy, ph, tw, p.name, variantSeed);
+        cursor += ph;
       } else {
         if (yy < yTop) {
           const left = cursor - yTop;
-          if (left > 1) drawScrapPiece(x, yTop, left, 'plate', variantSeed);
+          if (left > 1) drawScrapPiece(px_, yTop, left, tw, 'plate', variantSeed);
           break;
         }
-        drawScrapPiece(x, yy, p.height, p.name, variantSeed);
-        cursor -= p.height;
+        drawScrapPiece(px_, yy, ph, tw, p.name, variantSeed);
+        cursor -= ph;
+      }
+      // FALLING DEBRIS — every 3rd piece, fling a 1-2 px chunk off
+      // one side so the stack looks like it's spilling.
+      if ((pieceIdx % 3) === 0) {
+        const debrisSide = srand(seed + pieceIdx * 0.91) > 0.5 ? 1 : -1;
+        const dx = x + (debrisSide > 0 ? baseTw + 1 + xJitter : -2 + xJitter);
+        const dy = inverted ? yy + (ph >> 1) : yy + (ph >> 1);
+        const debrisH = 1 + Math.floor(srand(seed + pieceIdx * 1.13) * 2);
+        pxFill(dx, dy, 2, debrisH, PX.outline);
+        pxFill(dx + (debrisSide > 0 ? -1 : 2), dy + 1, 1, 1, '#3a2018');
       }
       pieceIdx++;
     }
   }
 
-  function drawScrapPiece(x, y, h, name, seed) {
-    const tw = 36;
+  function drawScrapPiece(x, y, h, tw, name, seed) {
+    // tw is the piece width — passed in so the stack can taper.
     // Stable pseudo-hash variant pick from the seed (0..1) → 0..2
     const vSeed = (seed * 7919) % 1;
     const variant = Math.abs(vSeed * 3) | 0;   // 0, 1, or 2
@@ -15343,11 +15366,11 @@ const DLX_BUILD = 'v446-air-wreck-fidelity';
   }
 
   // ── PIXEL AIR WRECK ─────────────────────────────────────────────
-  // Floating broken-plane silhouette at (sx, alt). 96w × 48h.
-  // v445a — fidelity bumped to match the player rig: multi-tone
-  // body shading (5 layers), brighter sun-catch on top edges, more
-  // panel rivets, hot ember glow with white-core flicker, multi-pane
-  // canopy with frame + dark glass + cyan reflections.
+  // Floating broken-plane silhouette at (sx, alt). 120w × 48h.
+  // v446a — width bumped from 96 → 120 so it reads like a real
+  // crashed transport plane (was too skinny). All internal elements
+  // proportionally scaled. Same multi-tone body shading + multi-pane
+  // canopy from v446.
   function drawPixelAirWreck(sx, alt, seed) {
     const x = sx | 0;
     const y = alt | 0;
@@ -15355,86 +15378,83 @@ const DLX_BUILD = 'v446-air-wreck-fidelity';
 
     // ── BODY — multi-tone rust gray (5 layers) ─────────────────
     // Bottom shadow band (deepest)
-    pxFill(x + 6,  y + 28, 78, 4,  '#1a0a04');
-    pxFill(x + 6,  y + 27, 78, 1,  '#2a1810');
+    pxFill(x + 8,  y + 28, 102, 4, '#1a0a04');
+    pxFill(x + 8,  y + 27, 102, 1, '#2a1810');
     // Main body fill (mid-tone)
-    pxFill(x + 6,  y + 18, 78, 10, '#3a2018');
+    pxFill(x + 8,  y + 18, 102, 10, '#3a2018');
     // Upper body lit band
-    pxFill(x + 12, y + 15, 66, 3,  '#5a3020');
-    pxFill(x + 21, y + 14, 48, 1,  '#5a3020');
+    pxFill(x + 16, y + 15, 86, 3, '#5a3020');
+    pxFill(x + 27, y + 14, 64, 1, '#5a3020');
     // Top-edge sun-catch highlight (1 px lighter rim)
-    pxFill(x + 14, y + 14, 44, 1,  '#7a4828');
-    pxFill(x + 13, y + 15, 1, 1,   '#7a4828');
-    pxFill(x + 57, y + 15, 1, 1,   '#7a4828');
+    pxFill(x + 18, y + 14, 60, 1, '#7a4828');
+    pxFill(x + 17, y + 15, 1, 1,  '#7a4828');
+    pxFill(x + 73, y + 15, 1, 1,  '#7a4828');
     // ── NOSE CONE ──────────────────────────────────────────────
-    pxFill(x + 2, y + 21, 4, 6, '#1a0a04');           // deepest shadow
-    pxFill(x + 4, y + 20, 2, 9, '#2a1810');           // shade
-    pxFill(x + 5, y + 21, 1, 6, '#5a3020');           // core
-    pxFill(x + 5, y + 21, 1, 1, '#7a4828');           // lit tip
-    // Nose ring
-    pxFill(x + 3, y + 26, 4, 1, '#1a0a04');
+    pxFill(x + 2, y + 21, 6, 6, '#1a0a04');
+    pxFill(x + 5, y + 20, 3, 9, '#2a1810');
+    pxFill(x + 7, y + 21, 1, 6, '#5a3020');
+    pxFill(x + 7, y + 21, 1, 1, '#7a4828');
+    pxFill(x + 4, y + 26, 4, 1, '#1a0a04');
     // ── COCKPIT — multi-pane canopy with frame ────────────────
-    // Frame (lighter gray on top, dark on the rest)
-    pxFill(x + 9, y + 13, 12, 1, '#7a6048');          // bright frame top
-    pxFill(x + 9, y + 14, 12, 6, '#1a0a06');          // dark frame
-    // Window panes (cyan glass with darker shadow + cyan reflection)
-    pxFill(x + 10, y + 15, 3, 4, '#1a3a48');          // dark glass back
-    pxFill(x + 10, y + 15, 3, 1, '#7eb8c8');          // bright top reflection
-    pxFill(x + 12, y + 17, 1, 1, '#a8d8e8');          // bright spot
-    pxFill(x + 14, y + 15, 3, 4, '#1a3a48');
-    pxFill(x + 14, y + 15, 3, 1, '#7eb8c8');
-    pxFill(x + 16, y + 17, 1, 1, '#a8d8e8');
-    pxFill(x + 18, y + 15, 2, 4, '#1a3a48');
-    pxFill(x + 18, y + 15, 2, 1, '#7eb8c8');
-    // Window frame dividers (vertical posts)
-    pxFill(x + 13, y + 14, 1, 6, '#3a2818');
-    pxFill(x + 17, y + 14, 1, 6, '#3a2818');
-    // Window bottom rim
-    pxFill(x + 9,  y + 19, 12, 1, '#5a3020');
-    pxFill(x + 9,  y + 20, 12, 1, '#3a1a08');
+    pxFill(x + 11, y + 13, 14, 1, '#7a6048');
+    pxFill(x + 11, y + 14, 14, 6, '#1a0a06');
+    // Window panes
+    pxFill(x + 12, y + 15, 3, 4, '#1a3a48');
+    pxFill(x + 12, y + 15, 3, 1, '#7eb8c8');
+    pxFill(x + 14, y + 17, 1, 1, '#a8d8e8');
+    pxFill(x + 16, y + 15, 3, 4, '#1a3a48');
+    pxFill(x + 16, y + 15, 3, 1, '#7eb8c8');
+    pxFill(x + 18, y + 17, 1, 1, '#a8d8e8');
+    pxFill(x + 20, y + 15, 4, 4, '#1a3a48');
+    pxFill(x + 20, y + 15, 4, 1, '#7eb8c8');
+    pxFill(x + 22, y + 17, 1, 1, '#a8d8e8');
+    pxFill(x + 15, y + 14, 1, 6, '#3a2818');
+    pxFill(x + 19, y + 14, 1, 6, '#3a2818');
+    pxFill(x + 11, y + 19, 14, 1, '#5a3020');
+    pxFill(x + 11, y + 20, 14, 1, '#3a1a08');
     // Panel detail + rivets
-    pxFill(x + 21, y + 23, 54, 1, '#2a1810');
-    pxFill(x + 33, y + 18, 1, 12, '#2a1810');
-    pxFill(x + 54, y + 18, 1, 12, '#2a1810');
-    for (let i = 0; i < 9; i++) {
-      pxFill(x + 24 + i * 6, y + 19, 1, 1, '#5a3020');
-      pxFill(x + 24 + i * 6, y + 27, 1, 1, '#5a3020');
+    pxFill(x + 27, y + 23, 70, 1, '#2a1810');
+    pxFill(x + 41, y + 18, 1, 12, '#2a1810');
+    pxFill(x + 70, y + 18, 1, 12, '#2a1810');
+    for (let i = 0; i < 11; i++) {
+      pxFill(x + 30 + i * 6, y + 19, 1, 1, '#5a3020');
+      pxFill(x + 30 + i * 6, y + 27, 1, 1, '#5a3020');
     }
     // BIG TEAR + ember glow (scaled up)
-    pxFill(x + 38, y + 16, 15, 14, '#1a0a06');
-    pxFill(x + 41, y + 18, 1, 11, '#5a3020');
-    pxFill(x + 45, y + 18, 1, 11, '#5a3020');
-    pxFill(x + 49, y + 18, 1, 11, '#5a3020');
+    pxFill(x + 48, y + 16, 18, 14, '#1a0a06');
+    pxFill(x + 51, y + 18, 1, 11, '#5a3020');
+    pxFill(x + 56, y + 18, 1, 11, '#5a3020');
+    pxFill(x + 61, y + 18, 1, 11, '#5a3020');
     if (flicker) {
-      pxFill(x + 42, y + 22, 8, 3, PX.rust);
-      pxFill(x + 44, y + 23, 5, 2, PX.orange);
-      pxFill(x + 45, y + 23, 2, 1, PX.yellow);
+      pxFill(x + 52, y + 22, 11, 3, PX.rust);
+      pxFill(x + 55, y + 23, 6, 2, PX.orange);
+      pxFill(x + 56, y + 23, 3, 1, PX.yellow);
     } else {
-      pxFill(x + 42, y + 24, 8, 2, '#7a1a10');
-      pxFill(x + 45, y + 24, 2, 1, PX.orange);
+      pxFill(x + 52, y + 24, 11, 2, '#7a1a10');
+      pxFill(x + 56, y + 24, 3, 1, PX.orange);
     }
     // Cargo hatch
-    pxFill(x + 57, y + 21, 12, 8, '#2a1810');
-    pxFill(x + 58, y + 22, 10, 6, '#5a3020');
-    pxFill(x + 57, y + 21, 1, 8, PX.outline);
-    pxFill(x + 68, y + 21, 1, 8, PX.outline);
+    pxFill(x + 71, y + 21, 14, 8, '#2a1810');
+    pxFill(x + 72, y + 22, 12, 6, '#5a3020');
+    pxFill(x + 71, y + 21, 1, 8, PX.outline);
+    pxFill(x + 84, y + 21, 1, 8, PX.outline);
     // Twin tail fins (right side, broken)
-    pxFill(x + 80, y + 9,  6, 12, '#3a2018');
-    pxFill(x + 80, y + 9,  1, 12, '#2a1810');
-    pxFill(x + 80, y + 7,  3, 2,  PX.outline);
-    pxFill(x + 84, y + 11, 3, 2,  PX.outline);
-    pxFill(x + 84, y + 21, 9,  5, '#3a2018');
-    pxFill(x + 87, y + 24, 8,  3, '#3a2018');
-    pxFill(x + 93, y + 21, 1,  6, PX.outline);
+    pxFill(x + 100, y + 9,  6, 12, '#3a2018');
+    pxFill(x + 100, y + 9,  1, 12, '#2a1810');
+    pxFill(x + 100, y + 7,  3, 2,  PX.outline);
+    pxFill(x + 104, y + 11, 3, 2,  PX.outline);
+    pxFill(x + 104, y + 21, 12, 5, '#3a2018');
+    pxFill(x + 107, y + 24, 11, 3, '#3a2018');
+    pxFill(x + 116, y + 21, 1, 6, PX.outline);
     // Snapped wing stub
-    pxFill(x + 27, y + 33, 36, 6, '#3a2018');
-    pxFill(x + 27, y + 38, 36, 1, '#2a1810');
-    pxFill(x + 66, y + 34, 1, 1, PX.outline);
-    pxFill(x + 63, y + 36, 6, 1, PX.outline);
-    pxFill(x + 69, y + 39, 15, 3, '#3a2018');
+    pxFill(x + 33, y + 33, 48, 6, '#3a2018');
+    pxFill(x + 33, y + 38, 48, 1, '#2a1810');
+    pxFill(x + 84, y + 34, 1, 1, PX.outline);
+    pxFill(x + 81, y + 36, 6, 1, PX.outline);
+    pxFill(x + 87, y + 39, 18, 3, '#3a2018');
     // Engine nacelle on the wing
-    pxFill(x + 42, y + 31, 8, 3, '#1a0a06');
-    pxFill(x + 43, y + 31, 5, 1, '#5a3020');
+    pxFill(x + 52, y + 31, 10, 3, '#1a0a06');
+    pxFill(x + 53, y + 31, 6, 1, '#5a3020');
     // Propeller stub
     pxFill(x, y + 22, 3, 3, '#2a1810');
     pxFill(x + 1, y + 18, 1, 4, '#2a1810');
@@ -15444,7 +15464,7 @@ const DLX_BUILD = 'v446-air-wreck-fidelity';
     const sOff = (frame / 4) | 0;
     for (let i = 0; i < 4; i++) {
       const sy = y + 12 - i * 4 - (sOff % 4);
-      const sxx = x + 42 + ((i & 1) ? 3 : -3);
+      const sxx = x + 52 + ((i & 1) ? 4 : -4);
       if (sy >= y - 6) {
         pxFill(sxx, sy, 4 + i, 3, (i & 1) ? '#c8a888' : '#b08868');
       }
@@ -15590,18 +15610,18 @@ const DLX_BUILD = 'v446-air-wreck-fidelity';
   }
 
   // ── PIXEL TENTACLE MONSTER ──────────────────────────────────────
-  // Now spawns 2-3 LONGER tentacles per cracked-earth mound. Each
-  // tentacle has its own wave phase + base angle so they don't move
-  // in lockstep. The TIP of the longest tentacle gets the maw with
-  // the blinking eye + teeth + cyan core.
-  // v444e — palette switched from green to WINE/PURPLE to match the
-  // smooth-art tentacle look (#5a1830 spine, #a0405a highlight,
-  // cream suckers, dark wine mound).
-  function drawPixelTentacleArm(rootX, rootY, baseAngle, length, phase, withMaw) {
-    const TENT_DARK   = '#2a0810';   // outline (very dark wine)
-    const TENT_CORE   = '#5a1830';   // body (wine)
-    const TENT_LIT    = '#a0405a';   // highlight (pink-wine)
-    const TENT_SUCKER = '#fce0a8';   // sucker spots (cream)
+  // Spawns 3 tentacles per cracked-earth mound. Each tentacle has
+  // its own wave phase + base angle + THICKNESS so they don't move
+  // in lockstep AND don't all look identical in girth. The TIP of
+  // the longest tentacle gets the maw.
+  // v446b — wave speed halved (was 0.08, now 0.04) so the motion
+  // feels less twitchy. Tentacle thicknesses now varied per arm
+  // (max body widths 3 / 5 / 4) instead of all using the same 4.
+  function drawPixelTentacleArm(rootX, rootY, baseAngle, length, phase, maxW, withMaw) {
+    const TENT_DARK   = '#2a0810';
+    const TENT_CORE   = '#5a1830';
+    const TENT_LIT    = '#a0405a';
+    const TENT_SUCKER = '#fce0a8';
     const segs = 18;
     const segLen = length / segs;
     let cx = rootX, cy = rootY;
@@ -15617,7 +15637,7 @@ const DLX_BUILD = 'v446-air-wreck-fidelity';
     // Draw thick body (outline + core + highlight per segment)
     for (let i = 1; i < pts.length; i++) {
       const taper = 1 - (i / pts.length);
-      const w = Math.max(1, Math.round(4 * taper + 0.8));
+      const w = Math.max(1, Math.round(maxW * taper + 0.8));
       const mx = ((pts[i - 1].x + pts[i].x) * 0.5) | 0;
       const my = ((pts[i - 1].y + pts[i].y) * 0.5) | 0;
       pxFill(mx - w, my - w, w * 2 + 1, w * 2 + 1, TENT_DARK);
@@ -15774,14 +15794,18 @@ const DLX_BUILD = 'v446-air-wreck-fidelity';
     pxFill(sx + 6,  gy - 1, 4, 1, slimeCol);
     pxFill(sx + 12, gy,     3, 1, slimeCol);
 
-    // 3 TENTACLES per spawn
-    const wavePhase = (frame * 0.08) + waveSeed;
+    // 3 TENTACLES per spawn — slowed to 0.04 (was 0.08) and each
+    // arm gets a different max thickness so the silhouette varies.
+    const wavePhase = (frame * 0.04) + waveSeed;
+    // Left  — thin (max body width 3)
     drawPixelTentacleArm(sx - 8, gy - 3, -Math.PI * 0.72, 60,
-                         wavePhase, false);
+                         wavePhase,       3, false);
+    // Right — medium (max body width 4)
     drawPixelTentacleArm(sx + 8, gy - 3, -Math.PI * 0.32, 70,
-                         wavePhase + 1.4, false);
+                         wavePhase + 1.4, 4, false);
+    // Center — thickest (max body width 5), longest, with maw
     drawPixelTentacleArm(sx,     gy - 4, -Math.PI * 0.52, 88,
-                         wavePhase + 0.7, true);
+                         wavePhase + 0.7, 5, true);
   }
 
   // ---------- Daily delivery course renderers ----------
