@@ -78,10 +78,16 @@
 </div>
 
 <div class="controls">
-  <button class="btn" id="downloadBtn">DOWNLOAD 512 × 512 PNG</button>
+  <button class="btn" data-size="512">DOWNLOAD 512</button>
+  <button class="btn" data-size="1024">DOWNLOAD 1024</button>
+  <button class="btn" data-size="2048">DOWNLOAD 2048</button>
+  <button class="btn" data-size="4096">DOWNLOAD 4096</button>
 </div>
 
-<div class="meta">128 PX NATIVE · 4× INTEGER SCALE · TRANSPARENT BG</div>
+<div class="meta">128 PX NATIVE · INTEGER NEAREST-NEIGHBOR SCALING · TRANSPARENT BG<br>
+  For 1920 × 1080 video where the character appears small in-shot,
+  pick the largest size (2048 or 4096) so the video pipeline has
+  more source pixels to average from on its final downscale.</div>
 
 <script>
 const cv  = document.getElementById('devilCanvas');
@@ -674,26 +680,31 @@ function drawDevil() {
 drawDevil();
 
 // ── DOWNLOAD ────────────────────────────────────────────────
-document.getElementById('downloadBtn').addEventListener('click', () => {
-  // Render the 128×128 canvas at 4× into a fresh 512×512 canvas
-  // with imageSmoothingEnabled=false so the integer-scale pixel art
-  // exports with hard, sharp edges (no AA, no blur).
+// Every download is a clean integer nearest-neighbor scale of the
+// 128-px source: 512 (4×), 1024 (8×), 2048 (16×), 4096 (32×). Each
+// source pixel maps to an N×N hard block in the output — no AA,
+// no smoothing, no rotation, no sub-pixel sampling. That keeps the
+// pixel art bit-perfect at every export size.
+function exportAt(size) {
   const dl = document.createElement('canvas');
-  dl.width = 512;
-  dl.height = 512;
+  dl.width = size;
+  dl.height = size;
   const dctx = dl.getContext('2d');
   dctx.imageSmoothingEnabled = false;
-  dctx.drawImage(cv, 0, 0, 512, 512);
+  dctx.drawImage(cv, 0, 0, size, size);
   dl.toBlob((blob) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'angel-devil-pixel-art-512.png';
+    a.download = `angel-devil-pixel-art-${size}.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   }, 'image/png');
+}
+document.querySelectorAll('.btn[data-size]').forEach((btn) => {
+  btn.addEventListener('click', () => exportAt(parseInt(btn.dataset.size, 10)));
 });
 </script>
 </body>
