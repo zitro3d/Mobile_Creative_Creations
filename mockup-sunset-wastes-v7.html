@@ -244,13 +244,17 @@
   </div>
 
   <div class="panel">
-    <div class="panelLabel">5 · DLX LOGO (imported, black knocked out)</div>
+    <div class="panelLabel">5 · DLX LOGO (imported, background chroma-keyed)</div>
     <div class="panelSub">
-      Save the source logo to <code>/home/user/Mobile_Creative_Creations/dlx-logo.png</code>
-      (repo root). The script loads it at runtime, knocks out every
-      near-black pixel (R+G+B &lt; 40 each) to full transparency,
-      and renders the result at native resolution with the panel
-      background showing through. Refresh the page after saving.
+      Loads <code>./assets/IMG_4175.jpeg</code> at runtime. The
+      script samples the top-left pixel as the chroma key (the dark
+      purple plaque background) and sets the alpha of every pixel
+      within Euclidean RGB distance 60 of that color to 0. The
+      transparent canvas means the page background shows through.
+      Image renders at its native 995 × 529 resolution (CSS-capped
+      to 448 px wide for layout). Swap the source by replacing
+      <code>assets/IMG_4175.jpeg</code> or tune the chroma threshold
+      via <code>DLX_LOGO_CHROMA_DIST</code> in the script.
     </div>
     <div class="canvasWrap">
       <canvas id="dlxLogoCanvas" class="pixelCanvas" width="112" height="56" style="width: 448px; height: 224px;"></canvas>
@@ -2089,13 +2093,16 @@ function drawDock(ctx, t) {
 }
 
 // ═════════════════════════════════════════════════════════════════
-// 5 · DLX LOGO  (loaded from ./dlx-logo.png, black knocked out)
+// 5 · DLX LOGO  (imported from ./assets/IMG_4175.jpeg, BG knocked out)
 // ═════════════════════════════════════════════════════════════════
-// Save the source image to /home/user/Mobile_Creative_Creations/dlx-logo.png
-// in the repo root. On load, the script processes the alpha channel
-// so every dark-near-black pixel becomes fully transparent (Rule:
-// R+G+B below DLX_LOGO_BLACK_THRESH on a 0-255 scale).
-const DLX_LOGO_BLACK_THRESH = 40;
+// Loads the user-provided plaque PNG/JPEG. The source has a dark
+// purple background rather than pure black, so the loader CHROMA-KEYS
+// the top-left corner color: every pixel within DLX_LOGO_CHROMA_DIST
+// of the corner color (Euclidean RGB distance) is set fully
+// transparent. That leaves just the orange / cream / magenta letters
+// + the chrome bezel ring against the canvas background.
+const DLX_LOGO_SRC = './assets/IMG_4175.jpeg';
+const DLX_LOGO_CHROMA_DIST = 60;
 let dlxLogoLoaded = false;
 let dlxLogoLoading = false;
 let dlxLogoError = null;
@@ -2109,9 +2116,9 @@ function startLoadingDLXLogo() {
   const img = new Image();
   img.crossOrigin = 'anonymous';
   img.onload = () => {
-    // Resize the visible canvas to match the image's native size so
-    // no detail is lost. CSS display width caps at 448 (the panel's
-    // original on-screen width).
+    // Resize the visible canvas to the image's native size so no
+    // detail is lost. CSS display width caps at the panel's original
+    // on-screen width (448).
     const dlxCanvas = document.getElementById('dlxLogoCanvas');
     dlxCanvas.width = img.width;
     dlxCanvas.height = img.height;
@@ -2121,7 +2128,7 @@ function startLoadingDLXLogo() {
     dlxCanvas.style.width = displayW + 'px';
     dlxCanvas.style.height = displayH + 'px';
 
-    // Knock out black to transparent
+    // Process — chroma-key the corner background to transparent.
     const off = document.createElement('canvas');
     off.width = img.width;
     off.height = img.height;
@@ -2130,9 +2137,14 @@ function startLoadingDLXLogo() {
     ofx.drawImage(img, 0, 0);
     const data = ofx.getImageData(0, 0, img.width, img.height);
     const arr = data.data;
-    const T = DLX_LOGO_BLACK_THRESH;
+    // Sample the top-left pixel as the chroma key target
+    const keyR = arr[0], keyG = arr[1], keyB = arr[2];
+    const distSq = DLX_LOGO_CHROMA_DIST * DLX_LOGO_CHROMA_DIST;
     for (let i = 0; i < arr.length; i += 4) {
-      if (arr[i] < T && arr[i + 1] < T && arr[i + 2] < T) {
+      const dr = arr[i]     - keyR;
+      const dg = arr[i + 1] - keyG;
+      const db = arr[i + 2] - keyB;
+      if (dr * dr + dg * dg + db * db < distSq) {
         arr[i + 3] = 0;
       }
     }
@@ -2150,10 +2162,10 @@ function startLoadingDLXLogo() {
     dlxLogoLoading = false;
   };
   img.onerror = () => {
-    dlxLogoError = 'SAVE dlx-logo.png IN REPO ROOT';
+    dlxLogoError = 'COULD NOT LOAD ' + DLX_LOGO_SRC;
     dlxLogoLoading = false;
   };
-  img.src = './dlx-logo.png?t=' + Date.now();   // cache-bust
+  img.src = DLX_LOGO_SRC + '?t=' + Date.now();   // cache-bust on refresh
 }
 
 function drawDLXLogo(ctx, t) {
