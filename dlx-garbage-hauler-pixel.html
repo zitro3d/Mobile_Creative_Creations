@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v448c-spikes-2x';
+const DLX_BUILD = 'v448d-dispatch-real-logo';
 
 (function() {
   // ---------- Device detection ----------
@@ -19381,9 +19381,11 @@ const DLX_BUILD = 'v448c-spikes-2x';
       }
     }
 
-    // ──────────── DLX NEON SIGNS on the roof ──────────────
-    drawDLXNeonSign(x - 30, ceilingY - 4);
-    drawDLXNeonSign(dockEdge - 18, ceilingY - 4);
+    // ──────────── DLX LOGO mounted above the roof ─────────
+    // Single big pixel-art plaque (loaded from assets/IMG_4175.jpeg)
+    // centered over the dispatch, with its bottom edge tucked just
+    // above the roof beam.
+    drawDispatchLogo((backWallX + dockEdge) / 2, ceilingY + 2, 120);
 
     // ──────────── "TAP TO LAUNCH" PROMPT ──────────────────
     if (dailyAwaitingLaunch) {
@@ -21890,6 +21892,65 @@ const DLX_BUILD = 'v448c-spikes-2x';
     ctx.fillText('DLX', cx, y0 + sh / 2 + 1);
     ctx.shadowBlur = 0;
     ctx.textBaseline = 'alphabetic';
+    ctx.restore();
+  }
+
+  // ── NEW DLX LOGO — loaded from assets/IMG_4175.jpeg ───────────
+  // Replaces the legacy neon-sign rectangle. Image is loaded once,
+  // chroma-keyed to make the dark-purple background transparent,
+  // and cached as an offscreen canvas. drawDispatchLogo() draws the
+  // cached canvas at the requested position; if the image hasn't
+  // loaded yet (first few frames after the level starts) it's a
+  // no-op.
+  const DISPATCH_LOGO_SRC = 'assets/IMG_4175.jpeg';
+  const DISPATCH_LOGO_CHROMA_DIST = 60;
+  let dispatchLogoProcessed = null;
+  let dispatchLogoLoading = false;
+  let dispatchLogoError = false;
+  function ensureDispatchLogoLoaded() {
+    if (dispatchLogoProcessed || dispatchLogoLoading || dispatchLogoError) return;
+    dispatchLogoLoading = true;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const off = document.createElement('canvas');
+      off.width = img.width;
+      off.height = img.height;
+      const ofx = off.getContext('2d');
+      ofx.imageSmoothingEnabled = false;
+      ofx.drawImage(img, 0, 0);
+      try {
+        const data = ofx.getImageData(0, 0, img.width, img.height);
+        const arr = data.data;
+        const keyR = arr[0], keyG = arr[1], keyB = arr[2];
+        const distSq = DISPATCH_LOGO_CHROMA_DIST * DISPATCH_LOGO_CHROMA_DIST;
+        for (let i = 0; i < arr.length; i += 4) {
+          const dr = arr[i]     - keyR;
+          const dg = arr[i + 1] - keyG;
+          const db = arr[i + 2] - keyB;
+          if (dr * dr + dg * dg + db * db < distSq) arr[i + 3] = 0;
+        }
+        ofx.putImageData(data, 0, 0);
+      } catch (e) { /* CORS — fall back to raw image */ }
+      dispatchLogoProcessed = off;
+      dispatchLogoLoading = false;
+    };
+    img.onerror = () => { dispatchLogoError = true; dispatchLogoLoading = false; };
+    img.src = DISPATCH_LOGO_SRC;
+  }
+  function drawDispatchLogo(cx, baseY, w) {
+    ensureDispatchLogoLoaded();
+    if (!dispatchLogoProcessed) return;
+    const aspect = dispatchLogoProcessed.height / dispatchLogoProcessed.width;
+    const h = Math.round(w * aspect);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+      dispatchLogoProcessed,
+      Math.round(cx - w / 2),
+      Math.round(baseY - h),
+      w, h
+    );
     ctx.restore();
   }
 
