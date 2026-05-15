@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v448i-bone-tower-animal';
+const DLX_BUILD = 'v448j-pillar-sibling';
 
 (function() {
   // ---------- Device detection ----------
@@ -15844,13 +15844,18 @@ const DLX_BUILD = 'v448i-bone-tower-animal';
   // pixel salvage. Hazard tape at the gap edges. Width 36 px to
   // match the smooth-art collision footprint.
   function drawPixelScrapTower(sx, top, gap, seed) {
-    // Fleet variety — alternating seeds route to the bone-tower alt.
-    if (((seed | 0) & 1) === 1) { drawPixelBoneTower(sx, top, gap, seed); return; }
+    // Fleet variety — alternating seeds route to a SIBLING scrap
+    // tower (same garbage/cargo aesthetic, slightly cooler steel-
+    // grey palette + larger debris cadence). Bone tower variant
+    // exists in this file too (drawPixelBoneTower) but is reserved
+    // for a future level — the Sunset Wastes pillars stay on-theme
+    // with cargo/rubbish for visual continuity.
+    const isAlt = ((seed | 0) & 1) === 1;
     const tw = 36;
     const x = sx | 0;
     const botTop = (top + gap) | 0;
-    drawPixelScrapStack(x, 0, top, seed, true);
-    drawPixelScrapStack(x, botTop, PLAY_H - botTop, seed + 1.3, false);
+    drawPixelScrapStack(x, 0, top, seed, true, isAlt);
+    drawPixelScrapStack(x, botTop, PLAY_H - botTop, seed + 1.3, false, isAlt);
     // Hazard tape — yellow + black checks at each gap edge
     for (let i = 0; i < tw; i += 4) {
       pxFill(x + i, top - 2, 2, 3, PX.yellow);
@@ -15873,18 +15878,29 @@ const DLX_BUILD = 'v448i-bone-tower-animal';
   //     a seeded offset so they don't stack perfectly aligned.
   //   - DEBRIS falling off the sides every few pieces (1-3 px chunks)
   //   - Simpler per-piece detail (less rivets/stripes, more silhouette).
-  function drawPixelScrapStack(x, yTop, h, seed, inverted) {
+  function drawPixelScrapStack(x, yTop, h, seed, inverted, isAlt) {
     if (h <= 0) return;
     const baseTw = 36;
     const minTw = 22;
-    const pieces = [
-      { name: 'tires',   height: 11 },
-      { name: 'car',     height: 17 },
-      { name: 'barrels', height: 13 },
-      { name: 'girder',  height: 6 },
-      { name: 'cab',     height: 19 },
-      { name: 'plate',   height: 8 },
-    ];
+    // Sibling stack — slightly different piece order so the silhouette
+    // doesn't read identical, and a cooler debris tone for differentiation.
+    const pieces = isAlt
+      ? [
+          { name: 'cab',     height: 17 },   // bigger cab piece anchors alt stacks
+          { name: 'barrels', height: 14 },
+          { name: 'plate',   height: 7 },
+          { name: 'tires',   height: 12 },
+          { name: 'girder',  height: 7 },
+          { name: 'car',     height: 16 },
+        ]
+      : [
+          { name: 'tires',   height: 11 },
+          { name: 'car',     height: 17 },
+          { name: 'barrels', height: 13 },
+          { name: 'girder',  height: 6 },
+          { name: 'cab',     height: 19 },
+          { name: 'plate',   height: 8 },
+        ];
     let pieceIdx = Math.floor(srand(seed + 0.13) * pieces.length);
     let cursor = inverted ? yTop : (yTop + h);
     const stackTop = inverted ? yTop + h : yTop;        // far end (taper toward here)
@@ -15906,39 +15922,48 @@ const DLX_BUILD = 'v448i-bone-tower-animal';
       if (inverted) {
         if (yy + ph > yTop + h) {
           const left = (yTop + h) - cursor;
-          if (left > 1) drawScrapPiece(px_, cursor, left, tw, 'plate', variantSeed);
+          if (left > 1) drawScrapPiece(px_, cursor, left, tw, 'plate', variantSeed, isAlt);
           break;
         }
-        drawScrapPiece(px_, yy, ph, tw, p.name, variantSeed);
+        drawScrapPiece(px_, yy, ph, tw, p.name, variantSeed, isAlt);
         cursor += ph;
       } else {
         if (yy < yTop) {
           const left = cursor - yTop;
-          if (left > 1) drawScrapPiece(px_, yTop, left, tw, 'plate', variantSeed);
+          if (left > 1) drawScrapPiece(px_, yTop, left, tw, 'plate', variantSeed, isAlt);
           break;
         }
-        drawScrapPiece(px_, yy, ph, tw, p.name, variantSeed);
+        drawScrapPiece(px_, yy, ph, tw, p.name, variantSeed, isAlt);
         cursor -= ph;
       }
-      // FALLING DEBRIS — every 3rd piece, fling a 1-2 px chunk off
-      // one side so the stack looks like it's spilling.
-      if ((pieceIdx % 3) === 0) {
+      // FALLING DEBRIS — alt stacks shed every 2nd piece (more spill);
+      // base stacks shed every 3rd. Alt debris is cool steel-grey.
+      const shedEvery = isAlt ? 2 : 3;
+      if ((pieceIdx % shedEvery) === 0) {
         const debrisSide = srand(seed + pieceIdx * 0.91) > 0.5 ? 1 : -1;
         const dx = x + (debrisSide > 0 ? baseTw + 1 + xJitter : -2 + xJitter);
         const dy = inverted ? yy + (ph >> 1) : yy + (ph >> 1);
         const debrisH = 1 + Math.floor(srand(seed + pieceIdx * 1.13) * 2);
         pxFill(dx, dy, 2, debrisH, PX.outline);
-        pxFill(dx + (debrisSide > 0 ? -1 : 2), dy + 1, 1, 1, '#3a2018');
+        pxFill(dx + (debrisSide > 0 ? -1 : 2), dy + 1, 1, 1,
+               isAlt ? '#28323a' : '#3a2018');
       }
       pieceIdx++;
     }
   }
 
-  function drawScrapPiece(x, y, h, tw, name, seed) {
+  function drawScrapPiece(x, y, h, tw, name, seed, isAlt) {
     // tw is the piece width — passed in so the stack can taper.
     // Stable pseudo-hash variant pick from the seed (0..1) → 0..2
     const vSeed = (seed * 7919) % 1;
     const variant = Math.abs(vSeed * 3) | 0;   // 0, 1, or 2
+    // Sibling-stack tint — re-paint the piece after the base render
+    // with a 1-px cooler steel highlight along its top edge so the
+    // alt stacks read as a subtly different alloy without rebuilding
+    // every shape variant from scratch.
+    const altTopHi  = '#5a6878';
+    const altSeam   = '#28323a';
+    const altRivet  = '#1a2028';
 
     if (name === 'tires') {
       // 3 variants — different tire counts + rim styles
@@ -16120,6 +16145,28 @@ const DLX_BUILD = 'v448i-bone-tower-animal';
         pxFill(x + 26, y + 2, 2, 2, '#1a0a06');
         pxFill(x + 11, y + 2, 1, 1, PX.rust);
         pxFill(x + 19, y + 3, 1, 1, PX.rust);
+      }
+    }
+
+    // ── SIBLING TINT OVERLAY ──
+    // Sprinkle steel-grey highlights + rivets so the alt stack reads
+    // as a different alloy / different junkyard. Subtle enough that
+    // the player still recognizes the same junk silhouettes.
+    if (isAlt) {
+      // 1-px cool top hi-lite swap (cooler than the warm rust hi)
+      pxFill(x + 1, y, tw - 2, 1, altTopHi);
+      // Cool seam line down the center spine
+      const cxC = x + (tw >> 1);
+      pxFill(cxC, y + 1, 1, h - 2, altSeam);
+      // Rivet dots at the four corners (greebling)
+      pxFill(x + 2,      y + 2,     1, 1, altRivet);
+      pxFill(x + tw - 3, y + 2,     1, 1, altRivet);
+      pxFill(x + 2,      y + h - 3, 1, 1, altRivet);
+      pxFill(x + tw - 3, y + h - 3, 1, 1, altRivet);
+      // Mid-edge rivets on the longer sides
+      if (h >= 12) {
+        pxFill(x + 2,      y + (h >> 1), 1, 1, altRivet);
+        pxFill(x + tw - 3, y + (h >> 1), 1, 1, altRivet);
       }
     }
   }
