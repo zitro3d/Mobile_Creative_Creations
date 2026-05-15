@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v446p-tentacle-no-pop';
+const DLX_BUILD = 'v447-dispatch-distribution-center';
 
 (function() {
   // ---------- Device detection ----------
@@ -18628,120 +18628,381 @@ const DLX_BUILD = 'v446p-tentacle-no-pop';
       return;
     }
     ctx.save();
-    // Hangar interior floor matches the rig's parking altitude. Floor
-    // edge sits ~22px below mid-screen so the rig sits ON it cleanly.
-    const floorY    = PLAY_H / 2 + 28;
-    const ceilingY  = PLAY_H / 2 - 70;
-    const backWallX = x - 110;        // left wall (back of the hangar)
-    const dockEdge  = x + 105;        // where the floor / runway ends to the right
+    ctx.imageSmoothingEnabled = false;
+
+    // ── BOUNDS (kept the same as the prior hangar so spawn /
+    //     scroll / launch geometry keeps working identically) ──
+    const floorY    = (PLAY_H / 2 + 28) | 0;
+    const ceilingY  = (PLAY_H / 2 - 70) | 0;
+    const backWallX = (x - 110) | 0;       // left wall (back of the hangar)
+    const dockEdge  = (x + 105) | 0;       // where the floor ends to the right
     const hangarW   = dockEdge - backWallX;
 
-    // ---- Far back interior darkness (so the open hangar reads as a
-    // hollow box you can see straight into) ----
+    // ── PHASE — computed from the daily launch state machine ──
+    // dailyAwaitingLaunch  → LOAD  (door closed, traffic = RED)
+    // dailyIntroFrames 75-56 → ARM (door rising, traffic = YELLOW)
+    // dailyIntroFrames 55-1  → LAUNCH (door open, traffic = GREEN)
+    // Post-launch holds in LAUNCH state until the dispatch scrolls off.
+    const phaseLoad   = dailyAwaitingLaunch;
+    const phaseArm    = !dailyAwaitingLaunch && dailyIntroFrames > 55;
+    const phaseLaunch = !dailyAwaitingLaunch && dailyIntroFrames <= 55;
+    const blink       = ((frame / 4) | 0) & 1;
+    const fastBlink   = frame & 1;
+
+    // ── Door open fraction (0 = closed, 1 = fully retracted) ──
+    let doorOpen = 0;
+    if (phaseLoad)      doorOpen = 0;
+    else if (phaseArm)  doorOpen = Math.max(0, Math.min(1, (75 - dailyIntroFrames) / 20));
+    else                doorOpen = 1;
+
+    // ── Traffic light state ──
+    const lightR = phaseLoad;
+    const lightY = phaseArm && blink;
+    const lightG = phaseLaunch;
+
+    // ──────────── HANGAR INTERIOR (dark) ─────────────────
     ctx.fillStyle = '#1a0a08';
-    ctx.fillRect(backWallX, ceilingY + 4, hangarW, floorY - ceilingY - 4);
+    ctx.fillRect(backWallX, ceilingY + 12, hangarW - 30, floorY - ceilingY - 12);
+    // Warm ambient floor glow
+    ctx.fillStyle = '#3a1808';
+    ctx.fillRect(backWallX + 4, floorY - 16, hangarW - 38, 12);
 
-    // ---- Back wall (depth-shaded sandstone with shelves of crates) ----
+    // ──────────── SANDSTONE BACK WALL ─────────────────────
     ctx.fillStyle = '#5a3018';
-    ctx.fillRect(backWallX, ceilingY + 4, 18, floorY - ceilingY - 4);
+    ctx.fillRect(backWallX, ceilingY + 12, 22, floorY - ceilingY - 12);
     ctx.fillStyle = '#3a1a08';
-    ctx.fillRect(backWallX, ceilingY + 4, 4, floorY - ceilingY - 4);
-    // Stack of crates on the back wall (hangar storage)
+    ctx.fillRect(backWallX, ceilingY + 12, 4, floorY - ceilingY - 12);
     ctx.fillStyle = '#7a3018';
-    for (let cr = 0; cr < 3; cr++) {
-      const cx = backWallX + 24 + cr * 22;
-      const cw = 18, ch = 14;
-      ctx.fillRect(cx, floorY - ch, cw, ch);
-      ctx.fillStyle = '#a85838';
-      ctx.fillRect(cx, floorY - ch, cw, 2);
-      ctx.fillStyle = '#1a0604';
-      ctx.fillRect(cx + cw / 2 - 0.5, floorY - ch + 2, 1, ch - 2);
-      ctx.strokeStyle = '#1a0604';
-      ctx.lineWidth = 0.8;
-      ctx.strokeRect(cx, floorY - ch, cw, ch);
-      ctx.fillStyle = '#7a3018';
+    ctx.fillRect(backWallX, ceilingY + 12, 1, floorY - ceilingY - 12);
+    // Brick courses
+    ctx.fillStyle = '#3a1a08';
+    for (let r = 0; r < (floorY - ceilingY - 12); r += 10) {
+      ctx.fillRect(backWallX, ceilingY + 12 + r, 22, 1);
     }
-    // Yellow caution X painted on the back wall
-    ctx.strokeStyle = 'rgba(255, 216, 61, 0.55)';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.moveTo(backWallX + 90, ceilingY + 12); ctx.lineTo(backWallX + 110, ceilingY + 32);
-    ctx.moveTo(backWallX + 110, ceilingY + 12); ctx.lineTo(backWallX + 90, ceilingY + 32);
-    ctx.stroke();
-
-    // ---- Hangar floor — yellow runway stripes leading toward the open side ----
-    ctx.fillStyle = '#3a2418';
-    ctx.fillRect(backWallX + 18, floorY, hangarW - 18, 6);
-    // Runway centerline dashes
-    ctx.fillStyle = '#ffd83d';
-    for (let s = 0; s < 12; s++) {
-      ctx.fillRect(backWallX + 26 + s * 18, floorY + 1.4, 10, 1.4);
+    for (let r = 5; r < (floorY - ceilingY - 12); r += 10) {
+      ctx.fillRect(backWallX + 14, ceilingY + 12 + r, 1, 4);
     }
-    // Runway edge caution stripe
+    // Yellow caution-X painted on the back wall
     ctx.fillStyle = '#ffd83d';
-    ctx.fillRect(backWallX + 18, floorY + 4, hangarW - 18, 2);
-    ctx.fillStyle = '#1a0408';
-    for (let s = 0; s < 30; s++) ctx.fillRect(backWallX + 20 + s * 7, floorY + 4, 2.4, 2);
+    for (let i = 0; i < 12; i++) {
+      ctx.fillRect(backWallX + 6  + i, ceilingY + 26 + i, 1, 1);
+      ctx.fillRect(backWallX + 18 - i, ceilingY + 26 + i, 1, 1);
+    }
+    // Window lights (occupied dispatch office)
+    ctx.fillStyle = blink ? '#ffd060' : '#3a2010';
+    ctx.fillRect(backWallX + 6, ceilingY + 44, 2, 3);
+    ctx.fillRect(backWallX + 6, ceilingY + 54, 2, 3);
 
-    // ---- Ceiling (terracotta beam spanning the open hangar) ----
+    // ──────────── TERRACOTTA ROOF BEAM ────────────────────
     ctx.fillStyle = '#d8421a';
-    ctx.fillRect(backWallX, ceilingY, hangarW + 4, 8);
+    ctx.fillRect(backWallX - 4, ceilingY, hangarW + 4, 8);
     ctx.fillStyle = '#a82812';
-    ctx.fillRect(backWallX, ceilingY + 8, hangarW + 4, 2);
+    ctx.fillRect(backWallX - 4, ceilingY + 8, hangarW + 4, 2);
     ctx.fillStyle = '#5a1a08';
-    ctx.fillRect(backWallX, ceilingY + 10, hangarW + 4, 1);
+    ctx.fillRect(backWallX - 4, ceilingY + 10, hangarW + 4, 1);
+    // Tile ribs
+    ctx.fillStyle = '#a82812';
+    for (let i = 0; i < hangarW + 4; i += 6) {
+      ctx.fillRect(backWallX - 4 + i, ceilingY, 1, 8);
+    }
+    // Corbels under the beam
+    for (let b = 0; b < 9; b++) {
+      const bx = backWallX + 14 + b * 22;
+      if (bx >= dockEdge - 30) break;
+      ctx.fillStyle = '#5a3018';
+      ctx.fillRect(bx, ceilingY + 12, 3, 5);
+      ctx.fillStyle = '#3a1a08';
+      ctx.fillRect(bx, ceilingY + 17, 3, 1);
+      ctx.fillStyle = '#7a3018';
+      ctx.fillRect(bx, ceilingY + 12, 1, 5);
+    }
 
-    // Roof support beams (vertical I-beams across the open ceiling)
+    // ──────────── ANTENNA + RADIO MAST ────────────────────
     ctx.fillStyle = '#3a2418';
-    for (let b = 0; b < 4; b++) {
-      const bx = backWallX + 50 + b * 50;
-      ctx.fillRect(bx, ceilingY + 10, 3, 6);
-      // Triangular gusset
-      ctx.beginPath();
-      ctx.moveTo(bx - 4, ceilingY + 12);
-      ctx.lineTo(bx + 7, ceilingY + 12);
-      ctx.lineTo(bx + 1.5, ceilingY + 18);
-      ctx.closePath();
-      ctx.fill();
+    ctx.fillRect(backWallX + 22, ceilingY - 10, 1, 10);
+    ctx.fillRect(backWallX + 23, ceilingY - 10, 1, 10);
+    ctx.fillStyle = '#5a3020';
+    ctx.fillRect(backWallX + 20, ceilingY - 6, 5, 1);
+    ctx.fillRect(backWallX + 20, ceilingY - 2, 5, 1);
+    ctx.fillStyle = blink ? '#ff4040' : '#a01a0a';
+    ctx.fillRect(backWallX + 22, ceilingY - 12, 2, 2);
+    // Second antenna farther right
+    ctx.fillStyle = '#3a2418';
+    ctx.fillRect(dockEdge - 62, ceilingY - 10, 1, 10);
+    ctx.fillStyle = blink ? '#ff4040' : '#a01a0a';
+    ctx.fillRect(dockEdge - 62, ceilingY - 12, 1, 2);
+
+    // ──────────── OVERHEAD CRANE — beam + trolley ─────────
+    ctx.fillStyle = '#1a0604';
+    ctx.fillRect(backWallX + 22, ceilingY + 22, hangarW - 52, 4);
+    ctx.fillStyle = '#5a5a60';
+    ctx.fillRect(backWallX + 23, ceilingY + 23, hangarW - 54, 2);
+    ctx.fillStyle = '#a0a4a8';
+    ctx.fillRect(backWallX + 23, ceilingY + 23, hangarW - 54, 1);
+    // Trolley (the cart on the beam)
+    const trolleyX = backWallX + 88;
+    ctx.fillStyle = '#1a0604';
+    ctx.fillRect(trolleyX, ceilingY + 23, 14, 5);
+    ctx.fillStyle = '#28282e';
+    ctx.fillRect(trolleyX + 1, ceilingY + 24, 12, 3);
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(trolleyX + 1, ceilingY + 24, 12, 1);
+
+    // Cable + hook — extends / retracts based on phase
+    let cableLen;
+    if (phaseLoad)     cableLen = 36 + Math.round(Math.sin(frame * 0.18) * 4);
+    else if (phaseArm) cableLen = Math.max(4, 36 - (75 - dailyIntroFrames) * 2);
+    else               cableLen = 4;
+    cableLen = Math.max(4, Math.min(48, cableLen));
+    const hookX = trolleyX + 6;
+    const hookY = ceilingY + 28 + cableLen;
+    // Cable (chain segments)
+    for (let cy = ceilingY + 28; cy < hookY; cy += 2) {
+      ctx.fillStyle = '#9a9aa0';
+      ctx.fillRect(hookX, cy, 1, 1);
+      ctx.fillStyle = '#28282e';
+      ctx.fillRect(hookX + 1, cy + 1, 1, 1);
+    }
+    // Hook + dangling cargo crate during the load phase
+    if (phaseLoad || phaseArm) {
+      ctx.fillStyle = '#1a0604';
+      ctx.fillRect(hookX - 2, hookY, 8, 4);
+      ctx.fillStyle = '#a0a4a8';
+      ctx.fillRect(hookX - 1, hookY + 1, 6, 2);
+      if (phaseLoad && cableLen > 16) {
+        ctx.fillStyle = '#1a0604';
+        ctx.fillRect(hookX - 5, hookY + 4, 14, 10);
+        ctx.fillStyle = '#a06820';
+        ctx.fillRect(hookX - 4, hookY + 5, 12, 8);
+        ctx.fillStyle = '#ffd83d';
+        ctx.fillRect(hookX - 4, hookY + 5, 12, 1);
+        ctx.fillStyle = '#5a3020';
+        ctx.fillRect(hookX,     hookY + 5, 1,  8);
+      }
     }
 
-    // ---- Yellow fluorescent ceiling lights (across the full ceiling) ----
-    ctx.shadowBlur = 8; ctx.shadowColor = '#ffd060';
+    // ──────────── BACK-WALL STORAGE ──────────────────────
+    // Tall crate behind the conveyor
+    ctx.fillStyle = '#1a0604';
+    ctx.fillRect(backWallX + 26, floorY - 32, 16, 16);
+    ctx.fillStyle = '#a06820';
+    ctx.fillRect(backWallX + 27, floorY - 31, 14, 14);
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(backWallX + 27, floorY - 31, 14, 1);
+    ctx.fillStyle = '#5a3020';
+    ctx.fillRect(backWallX + 33, floorY - 31, 1, 14);
+    ctx.fillStyle = '#3a2010';
+    ctx.fillRect(backWallX + 30, floorY - 25, 8, 1);
+    // Smaller crate on top
+    ctx.fillStyle = '#1a0604';
+    ctx.fillRect(backWallX + 28, floorY - 44, 12, 12);
+    ctx.fillStyle = '#a06820';
+    ctx.fillRect(backWallX + 29, floorY - 43, 10, 10);
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(backWallX + 29, floorY - 43, 10, 1);
+    // Drum cluster
+    for (let i = 0; i < 2; i++) {
+      const bx = backWallX + 46 + i * 9;
+      ctx.fillStyle = '#1a0604';
+      ctx.fillRect(bx, floorY - 22, 7, 12);
+      ctx.fillStyle = '#5a3020';
+      ctx.fillRect(bx + 1, floorY - 21, 5, 10);
+      ctx.fillStyle = '#c83828';
+      ctx.fillRect(bx + 1, floorY - 18, 5, 1);
+      ctx.fillRect(bx + 1, floorY - 13, 5, 1);
+    }
+
+    // ──────────── CONVEYOR BELT — floor level ────────────
+    // Belt moves crates from storage toward the launch end.
+    const belt_L = backWallX + 26;
+    const belt_R = dockEdge - 50;
+    const belt_W = belt_R - belt_L;
+    const belt_Y = floorY - 14;
+    ctx.fillStyle = '#1a0604';
+    ctx.fillRect(belt_L, belt_Y, belt_W, 10);
+    ctx.fillStyle = '#3a2418';
+    ctx.fillRect(belt_L + 1, belt_Y + 1, belt_W - 2, 8);
+    ctx.fillStyle = '#5a3020';
+    ctx.fillRect(belt_L + 1, belt_Y + 1, belt_W - 2, 1);
+    // Belt rollers
+    for (let rx = belt_L + 4; rx < belt_R - 2; rx += 10) {
+      ctx.fillStyle = '#a0a4a8';
+      ctx.fillRect(rx, belt_Y + 7, 2, 2);
+      ctx.fillStyle = '#1a0604';
+      ctx.fillRect(rx + 1, belt_Y + 8, 1, 1);
+    }
+    // Moving crates riding the belt
+    const beltOffset = ((frame * 0.6) | 0);
+    for (let i = 0; i < 6; i++) {
+      const slot = (i * 22 + beltOffset) % (belt_W - 12);
+      if (slot < 0) continue;
+      const cx = belt_L + 4 + slot;
+      if (cx > belt_R - 12) continue;
+      ctx.fillStyle = '#1a0604';
+      ctx.fillRect(cx - 1, belt_Y - 9, 11, 10);
+      ctx.fillStyle = '#a06820';
+      ctx.fillRect(cx, belt_Y - 8, 9, 8);
+      ctx.fillStyle = '#ffd83d';
+      ctx.fillRect(cx, belt_Y - 8, 9, 1);
+      ctx.fillStyle = '#5a3020';
+      ctx.fillRect(cx + 4, belt_Y - 8, 1, 8);
+      ctx.fillStyle = '#3a2010';
+      ctx.fillRect(cx + 2, belt_Y - 4, 5, 1);
+    }
+
+    // ──────────── LAUNCH GATE FRAME (right side) ─────────
+    const gateLeft  = dockEdge - 38;
+    const gateRight = dockEdge - 4;
+    const gateInteriorTop = ceilingY + 18;
+    // Pillars (yellow with hazard chevrons)
+    ctx.fillStyle = '#1a0604';
+    ctx.fillRect(gateLeft,  ceilingY + 12, 4, floorY - ceilingY - 12);
+    ctx.fillRect(gateRight, ceilingY + 12, 4, floorY - ceilingY - 12);
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(gateLeft  + 1, ceilingY + 12, 2, floorY - ceilingY - 12);
+    ctx.fillRect(gateRight + 1, ceilingY + 12, 2, floorY - ceilingY - 12);
+    ctx.fillStyle = '#1a0604';
+    for (let i = 0; i < Math.floor((floorY - ceilingY - 12) / 4); i++) {
+      ctx.fillRect(gateLeft  + 1, ceilingY + 13 + i * 4, 2, 2);
+      ctx.fillRect(gateRight + 1, ceilingY + 15 + i * 4, 2, 2);
+    }
+    // Crossbar above the gate opening
+    ctx.fillStyle = '#1a0604';
+    ctx.fillRect(gateLeft, ceilingY + 12, gateRight - gateLeft + 4, 6);
+    ctx.fillStyle = '#28282e';
+    ctx.fillRect(gateLeft + 1, ceilingY + 13, gateRight - gateLeft + 2, 4);
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(gateLeft + 2, ceilingY + 13, gateRight - gateLeft, 1);
+    // Crossbar warning lights (synced to ARM-phase blink)
+    const armFlash = phaseArm && blink;
+    for (let i = 0; i < 5; i++) {
+      ctx.fillStyle = armFlash ? '#ffd060' : '#5a4020';
+      ctx.fillRect(gateLeft + 4 + i * 6, ceilingY + 15, 2, 1);
+    }
+
+    // ──────────── FOLDING DOOR (overhead, rises in ARM) ──
+    const doorTotal = floorY - gateInteriorTop;
+    const doorVis   = Math.max(0, Math.round(doorTotal * (1 - doorOpen)));
+    const doorTopY  = gateInteriorTop + (doorTotal - doorVis);
+    const doorL = gateLeft + 4;
+    const doorR = gateRight;
+    const doorW = doorR - doorL;
+    if (doorVis > 0) {
+      ctx.fillStyle = '#1a0604';
+      ctx.fillRect(doorL, doorTopY, doorW, doorVis);
+      ctx.fillStyle = '#3a3020';
+      ctx.fillRect(doorL + 1, doorTopY, doorW - 2, doorVis);
+      // Diagonal hazard stripes painted across the door
+      ctx.fillStyle = '#ffd83d';
+      for (let s = 0; s < 80; s++) {
+        const stripeY = doorTopY + s * 3;
+        if (stripeY >= doorTopY + doorVis) break;
+        for (let stx = 0; stx < doorW - 2; stx++) {
+          if (((stx + s) & 7) < 4) {
+            ctx.fillRect(doorL + 1 + stx, stripeY, 1, 1);
+          }
+        }
+      }
+      // Heavy bottom bumper
+      ctx.fillStyle = '#1a0604';
+      ctx.fillRect(doorL, doorTopY + doorVis - 2, doorW, 2);
+      ctx.fillStyle = '#5a3020';
+      ctx.fillRect(doorL + 1, doorTopY + doorVis - 1, doorW - 2, 1);
+    }
+    // Retracted door housing visible at the top of the gate
+    if (doorOpen > 0.1) {
+      const stackedH = Math.max(3, Math.round(doorTotal * doorOpen * 0.3));
+      ctx.fillStyle = '#1a0604';
+      ctx.fillRect(doorL, gateInteriorTop, doorW, stackedH);
+      ctx.fillStyle = '#3a3020';
+      ctx.fillRect(doorL + 1, gateInteriorTop + 1, doorW - 2, stackedH - 2);
+      for (let py = gateInteriorTop + 3; py < gateInteriorTop + stackedH; py += 2) {
+        ctx.fillStyle = '#28282e';
+        ctx.fillRect(doorL + 1, py, doorW - 2, 1);
+      }
+    }
+
+    // ──────────── TRAFFIC LIGHT (right of the gate) ──────
+    const tlX = dockEdge + 4;
+    const tlY = ceilingY + 26;
+    // Mast
+    ctx.fillStyle = '#1a0604';
+    ctx.fillRect(tlX, tlY - 4, 8, 4);
+    ctx.fillStyle = '#3a2418';
+    ctx.fillRect(tlX + 1, tlY - 3, 6, 2);
+    // Lamp box
+    ctx.fillStyle = '#1a0604';
+    ctx.fillRect(tlX, tlY, 8, 32);
+    ctx.fillStyle = '#28282e';
+    ctx.fillRect(tlX + 1, tlY + 1, 6, 30);
+    // Light visors
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = '#1a0604';
+      ctx.fillRect(tlX - 1, tlY + 2 + i * 10, 2, 1);
+      ctx.fillRect(tlX + 7, tlY + 2 + i * 10, 2, 1);
+    }
+    // Lamp lenses
+    const drawLamp = (cy_, on, hot, dim) => {
+      ctx.fillStyle = '#1a0604';
+      ctx.fillRect(tlX + 1, cy_, 6, 8);
+      if (on) {
+        ctx.fillStyle = hot;
+        ctx.fillRect(tlX + 2, cy_ + 1, 4, 6);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(tlX + 3, cy_ + 2, 2, 1);
+        ctx.fillStyle = hot;
+        ctx.fillRect(tlX,     cy_ + 3, 1, 2);
+        ctx.fillRect(tlX + 7, cy_ + 3, 1, 2);
+      } else {
+        ctx.fillStyle = dim;
+        ctx.fillRect(tlX + 2, cy_ + 1, 4, 6);
+      }
+    };
+    drawLamp(tlY + 2,  lightR, '#ff4040', '#3a0a06');
+    drawLamp(tlY + 12, lightY, '#ffd060', '#3a2010');
+    drawLamp(tlY + 22, lightG, '#3aff60', '#0a3a10');
+
+    // ──────────── RUNWAY (out through the gate) ──────────
+    ctx.fillStyle = '#3a2418';
+    ctx.fillRect(backWallX + 4, floorY, hangarW - 8, 6);
+    // Edge stripes
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(backWallX + 4, floorY - 1, hangarW - 8, 1);
+    ctx.fillRect(backWallX + 4, floorY + 4, hangarW - 8, 2);
+    // Hazard chunks on the bottom edge
+    ctx.fillStyle = '#1a0604';
+    for (let s = 0; s < 30; s++) {
+      ctx.fillRect(backWallX + 6 + s * 7, floorY + 4, 2, 2);
+    }
+    // Centerline dashes — scroll during launch for motion suggestion
+    const dashOffset = phaseLaunch ? (frame * 2) % 9 : 0;
     ctx.fillStyle = '#ffd060';
-    for (let f = 0; f < 7; f++) {
-      ctx.fillRect(backWallX + 22 + f * 26, ceilingY + 14, 18, 2);
+    for (let s = 0; s < 22; s++) {
+      ctx.fillRect((backWallX + 8 + s * 9 + dashOffset) | 0, floorY + 2, 6, 1);
     }
-    ctx.shadowBlur = 0;
-    // Soft warm light spill across the floor
-    const floorGlow = ctx.createLinearGradient(backWallX, ceilingY + 18, backWallX, floorY);
-    floorGlow.addColorStop(0, 'rgba(255, 200, 96, 0.18)');
-    floorGlow.addColorStop(1, 'rgba(255, 200, 96, 0)');
-    ctx.fillStyle = floorGlow;
-    ctx.fillRect(backWallX + 18, ceilingY + 18, hangarW - 18, floorY - ceilingY - 18);
+    // Runway exits past the gate
+    ctx.fillStyle = '#3a2418';
+    ctx.fillRect(dockEdge, floorY, 30, 6);
+    ctx.fillStyle = '#ffd83d';
+    ctx.fillRect(dockEdge, floorY + 4, 30, 2);
+    ctx.fillStyle = '#1a0604';
+    for (let s = 0; s < 6; s++) ctx.fillRect(dockEdge + 2 + s * 5, floorY + 4, 2, 2);
 
-    // ---- Foundation wall under the hangar (clean concrete) ----
+    // ──────────── FOUNDATION + SAND DRIFT (kept) ─────────
     const wallH = y - floorY;
     if (wallH > 0) {
       const fx = backWallX - 8;
       const fw = hangarW + 16;
       const ftop = floorY + 6;
-      // Concrete fill (original gray palette restored)
       ctx.fillStyle = '#7a6a5a';
       ctx.fillRect(fx, ftop, fw, wallH - 6);
       ctx.fillStyle = '#5a4a3a';
       ctx.fillRect(fx, ftop, fw, 2);
-      // Vertical concrete-panel seams
       ctx.fillStyle = 'rgba(40, 30, 20, 0.5)';
       for (let i = 0; i < 6; i++) {
         ctx.fillRect(fx + i * (hangarW / 5), ftop, 1, wallH - 6);
       }
-      // ---- GROUND INTEGRATION ----
-      // Pile sand + small rocks against the lower ~14px of the
-      // foundation so the wall doesn't read as a clean slab planted
-      // in the dunes. Dirt accumulates at the corners and tapers
-      // outward, blending the building into the dune line.
       const skirtTop = ftop + wallH - 14;
-      // Sand drift along the full base — tapered ramp
       ctx.fillStyle = '#b86838';
       ctx.beginPath();
       ctx.moveTo(fx - 20, ftop + wallH);
@@ -18752,45 +19013,31 @@ const DLX_BUILD = 'v446p-tentacle-no-pop';
       ctx.lineTo(fx + fw + 20, ftop + wallH);
       ctx.closePath();
       ctx.fill();
-      // Darker shadow along the wall-sand contact line — kept faint
-      // so it doesn't read as a horizontal dash / broken art line.
       ctx.fillStyle = 'rgba(40, 18, 8, 0.28)';
       ctx.fillRect(fx, skirtTop + 2, fw, 1);
-      // (Sand drift cream-stroke highlight removed — its contour
-      // extended past the foundation walls and read as two thin
-      // white dashes / seams on the dune surface.)
-      // (Sand grit specks + tiny corner rocks also removed earlier.)
     }
 
-    // ---- DLX neon sign on the roof above the hangar ----
+    // ──────────── DUST CLOUDS DURING LAUNCH ───────────────
+    // Geometric stepped square clusters trailing the rig as it
+    // crosses the gate threshold.
+    if (phaseArm || phaseLaunch) {
+      for (let i = 0; i < 6; i++) {
+        const ex = (bird.x - 12 - i * 4) | 0;
+        const ey = (bird.y + 4 - ((frame + i * 3) % 4)) | 0;
+        const r = Math.min(3, 1 + (i >> 1));
+        const w = r * 2 + 1;
+        ctx.fillStyle = (i & 1) ? '#c8a888' : '#b08868';
+        ctx.fillRect(ex - r + 1, ey - r,     w - 2, 1);
+        ctx.fillRect(ex - r,     ey - r + 1, w,     w - 2);
+        ctx.fillRect(ex - r + 1, ey + r,     w - 2, 1);
+      }
+    }
+
+    // ──────────── DLX NEON SIGNS on the roof ──────────────
     drawDLXNeonSign(x - 30, ceilingY - 4);
     drawDLXNeonSign(dockEdge - 18, ceilingY - 4);
 
-    // ---- Outer left exterior wall (silhouette behind the back wall) ----
-    ctx.fillStyle = '#7a4828';
-    ctx.fillRect(backWallX - 18, ceilingY + 4, 18, floorY - ceilingY - 4);
-    ctx.fillStyle = '#a85838';
-    ctx.fillRect(backWallX - 18, ceilingY + 4, 18, 4);
-    ctx.fillStyle = '#3a1a08';
-    ctx.fillRect(backWallX - 18, floorY - 4, 18, 4);
-    // Small window on the outer wall
-    ctx.fillStyle = '#ffd060';
-    ctx.shadowBlur = 4; ctx.shadowColor = '#ffd060';
-    ctx.fillRect(backWallX - 14, ceilingY + 18, 6, 8);
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = '#1a0604';
-    ctx.lineWidth = 0.8;
-    ctx.strokeRect(backWallX - 14, ceilingY + 18, 6, 8);
-
-    // ---- Runway extends out from the dock edge (caution-striped) ----
-    ctx.fillStyle = '#3a2418';
-    ctx.fillRect(dockEdge, floorY, 28, 6);
-    ctx.fillStyle = '#ffd83d';
-    ctx.fillRect(dockEdge, floorY + 4, 28, 2);
-    ctx.fillStyle = '#1a0408';
-    for (let s = 0; s < 5; s++) ctx.fillRect(dockEdge + 2 + s * 6, floorY + 4, 2.4, 2);
-
-    // ---- "TAP TO LAUNCH" prompt — pulses while the rig is parked ----
+    // ──────────── "TAP TO LAUNCH" PROMPT ──────────────────
     if (dailyAwaitingLaunch) {
       const pulse = 0.5 + 0.5 * Math.sin(frame * 0.12);
       ctx.save();
@@ -18800,7 +19047,6 @@ const DLX_BUILD = 'v446p-tentacle-no-pop';
       ctx.font = 'bold 13px Impact, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('TAP TO LAUNCH', x + 30, ceilingY - 26);
-      // Down-arrow under the text pointing at the rig
       ctx.beginPath();
       ctx.moveTo(x + 30 - 6, ceilingY - 14);
       ctx.lineTo(x + 30 + 6, ceilingY - 14);
