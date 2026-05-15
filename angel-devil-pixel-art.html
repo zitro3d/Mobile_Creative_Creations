@@ -125,7 +125,8 @@
       <canvas id="devilCanvas" class="pixelCanvas" width="128" height="128" style="width: 512px; height: 512px;"></canvas>
     </div>
     <div class="controls">
-      <button class="btn" data-target="devil" data-size="512">DOWNLOAD 512 × 512 GIF</button>
+      <button class="btn" data-target="devil" data-mode="character" data-size="512">DEVIL IDLE GIF</button>
+      <button class="btn" data-target="devil" data-mode="poof"      data-size="512">POOF REVEAL GIF</button>
     </div>
   </div>
 </div>
@@ -740,43 +741,51 @@ function drawFlame(t) {
 
 // ── DEVIL MAIN DRAW (animated) ─────────────────────────────
 // `t` is the frame counter (0, 1, 2, ...).
-// The devil is fully visible after the magical poof finishes (~t=60).
-function drawDevil(t) {
+// `opts.showCharacter` (default true) — paint the devil body
+// `opts.showPoof`      (default true) — paint the reveal particles
+// The GIF exporters call this with one of the two off so the
+// downloads can be composited independently in video.
+function drawDevil(t, opts) {
   t = t | 0;
+  opts = opts || {};
+  const showCharacter = opts.showCharacter !== false;
+  const showPoof      = opts.showPoof      !== false;
+
   ctx.clearRect(0, 0, 128, 128);
 
-  // Whole-body breath bob — slight vertical motion synced to the
-  // mouth open/close cycle.
-  const mouthCycle = t % 80;
-  const mouthOpen  = mouthCycle < 14;     // mouth opens for 14 frames each loop
-  const breathDy   = mouthOpen ? 1 : 0;
+  if (showCharacter) {
+    // Whole-body breath bob — slight vertical motion synced to the
+    // mouth open/close cycle.
+    const mouthCycle = t % 80;
+    const mouthOpen  = mouthCycle < 14;
+    const breathDy   = mouthOpen ? 1 : 0;
 
-  ctx.save();
-  ctx.translate(0, breathDy);
+    ctx.save();
+    ctx.translate(0, breathDy);
 
-  // Z-order matches the static version
-  drawHorn(-1);
-  drawHorn(+1);
-  drawEar(-1);
-  drawEar(+1);
-  drawHead();
-  drawHair();
-  drawFace(t);
-  drawMouth(t);
-  drawTrident(-1, t);
-  drawTrident(+1, t);
-  drawBody();
-  drawArm(-1);
-  drawArm(+1);
-  drawTail(t);
-  drawLegs();
-  drawFlame(t);
+    drawHorn(-1);
+    drawHorn(+1);
+    drawEar(-1);
+    drawEar(+1);
+    drawHead();
+    drawHair();
+    drawFace(t);
+    drawMouth(t);
+    drawTrident(-1, t);
+    drawTrident(+1, t);
+    drawBody();
+    drawArm(-1);
+    drawArm(+1);
+    drawTail(t);
+    drawLegs();
+    drawFlame(t);
 
-  ctx.restore();
+    ctx.restore();
+  }
 
-  // Magical poof overlay — appears for the first ~60 frames, then
-  // dissipates. Always drawn LAST so it overlays the devil.
-  if (t < 75) drawMagicalPoof(t);
+  // Magical poof overlay — appears for the first ~75 frames, then
+  // dissipates. Drawn LAST so it overlays the devil when both are on.
+  if (showPoof && t < 75) drawMagicalPoof(t);
 }
 
 // ── MAGICAL POOF — sparkle particles + initial burst cloud ─
@@ -1367,11 +1376,11 @@ function exportAngel(size) {
   }, 'image/png');
 }
 
-function exportDevil(size, btn) {
-  // Animated GIF export — render 80 frames of the devil at 128 px
-  // native, scaled to `size` with imageSmoothingEnabled=false. 80
-  // frames covers a full mouth-open/breath cycle. Each frame is
-  // ~33 ms (30 fps).
+// Animated GIF export — modes:
+//   'character' = devil idle loop, NO poof, 80 frames (one mouth cycle)
+//   'poof'      = reveal particles only, NO devil, 75 frames (full poof)
+// Each frame ~33 ms (30 fps).
+function exportDevil(size, btn, mode) {
   if (typeof GIF === 'undefined') {
     alert('GIF library not loaded yet — try again in a moment');
     return;
@@ -1380,8 +1389,15 @@ function exportDevil(size, btn) {
   const origLabel = btn.textContent;
   btn.textContent = 'RECORDING…';
 
-  const FRAMES = 80;
+  // Mode setup — frame count + drawDevil options + filename
+  const isPoof = (mode === 'poof');
+  const FRAMES = isPoof ? 75 : 80;
   const FPS = 30;
+  const drawOpts = isPoof
+    ? { showCharacter: false, showPoof: true }
+    : { showCharacter: true,  showPoof: false };
+  const fileLabel = isPoof ? 'poof-reveal' : 'devil-idle';
+
   const srcCv = document.createElement('canvas');
   srcCv.width = 128; srcCv.height = 128;
   const srcCx = srcCv.getContext('2d');
@@ -1399,7 +1415,7 @@ function exportDevil(size, btn) {
   gif.on('finished', (blob) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `devil-pixel-art-${size}.gif`;
+    a.href = url; a.download = `${fileLabel}-${size}.gif`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 6000);
     btn.disabled = false;
@@ -1407,11 +1423,11 @@ function exportDevil(size, btn) {
   });
   gif.on('abort', () => { btn.disabled = false; btn.textContent = 'ERROR — RETRY'; });
 
-  // Save the current active ctx so we don't disturb the live animation
+  // Redirect drawDevil's active ctx to the offscreen capture canvas
   const prevCtx = ctx, prevCv = cv;
   ctx = srcCx; cv = srcCv;
   for (let f = 0; f < FRAMES; f++) {
-    drawDevil(f);
+    drawDevil(f, drawOpts);
     dstCx.clearRect(0, 0, size, size);
     dstCx.drawImage(srcCv, 0, 0, size, size);
     gif.addFrame(dstCv, { copy: true, delay: 1000 / FPS });
@@ -1424,7 +1440,7 @@ document.querySelectorAll('.btn[data-target]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const size = parseInt(btn.dataset.size, 10) || 512;
     if (btn.dataset.target === 'angel') exportAngel(size);
-    else                                  exportDevil(size, btn);
+    else                                exportDevil(size, btn, btn.dataset.mode || 'character');
   });
 });
 </script>
