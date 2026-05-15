@@ -110,12 +110,12 @@
 
 <div class="characterRow">
   <div class="characterCol angel">
-    <div class="characterTitle">ANGEL</div>
+    <div class="characterTitle">ANGEL (ANIMATED)</div>
     <div class="canvasWrap">
       <canvas id="angelCanvas" class="pixelCanvas" width="128" height="128" style="width: 512px; height: 512px;"></canvas>
     </div>
     <div class="controls">
-      <button class="btn" data-target="angel" data-size="512">DOWNLOAD 512 × 512 PNG</button>
+      <button class="btn" data-target="angel" data-size="512">DOWNLOAD 512 × 512 GIF</button>
     </div>
   </div>
 
@@ -886,45 +886,51 @@ function angelLobe(cx, cy, w, h) {
   }
 }
 
-function drawAngelWing(side) {
-  // 3 stacked feather lobes per wing
+function drawAngelWing(side, t) {
+  // 3 stacked feather lobes per wing + animated flap.
+  // 4-phase flap cycle (every 8 frames at 30 fps ≈ 3.75 Hz):
+  //   phase 0: wings down  (rest)
+  //   phase 1: mid-up
+  //   phase 2: wings up    (peak flap)
+  //   phase 3: mid-down
+  t = t | 0;
+  const phase = ((t / 2) | 0) & 3;
+  const flap  = phase === 0 ? 0
+              : phase === 1 ? -1
+              : phase === 2 ? -3
+              :               -1;
   const cx = 64;
   const wingCx = cx + side * 28;
   // Top lobe (smaller, behind head/upper body)
-  angelLobe(wingCx + side * -2, 50, 22, 16);
+  angelLobe(wingCx + side * -2, 50 + flap, 22, 16);
   // Mid lobe (largest)
-  angelLobe(wingCx + side *  2, 64, 36, 22);
+  angelLobe(wingCx + side *  2, 64 + flap, 36, 22);
   // Bottom lobe (drooping, large)
-  angelLobe(wingCx + side * -4, 80, 32, 22);
+  angelLobe(wingCx + side * -4, 80 + flap, 32, 22);
   // Feather-tip whites — 3 small specular flicks at outer edges
   for (let f = 0; f < 3; f++) {
-    const fy = 52 + f * 12;
+    const fy = 52 + f * 12 + flap;
     const fx = wingCx + side * (16 - f * 2);
     px(A.wingSpec, fx, fy, 2, 1);
   }
   // Inner-edge feather divisions (shadow lines between lobes)
-  px(A.wingOut, wingCx - 14, 56, 28, 1);
-  px(A.wingOut, wingCx - 14, 72, 28, 1);
-  // ── FLUTTER MOTION SPARKLES ──
-  // Tiny white pixel sparkles trailing the outer wing tips,
-  // suggesting the wings are mid-flap (motion blur cue).
-  px(A.wingSpec, wingCx + side * 18, 44, 1, 1);
-  px(A.wingSpec, wingCx + side * 22, 48, 1, 1);
-  px(A.wingSpec, wingCx + side * 20, 60, 1, 1);
-  px(A.wingSpec, wingCx + side * 24, 56, 1, 1);
-  px(A.wingSpec, wingCx + side * 18, 78, 1, 1);
-  px(A.wingSpec, wingCx + side * 22, 74, 1, 1);
-  // Soft motion arcs — short curved lines of mid grey beyond the
-  // visible wing edges.
-  px(A.wingShad, wingCx + side * 19, 50, 1, 1);
-  px(A.wingShad, wingCx + side * 21, 52, 1, 1);
-  px(A.wingShad, wingCx + side * 19, 70, 1, 1);
-  px(A.wingShad, wingCx + side * 21, 68, 1, 1);
+  px(A.wingOut, wingCx - 14, 56 + flap, 28, 1);
+  px(A.wingOut, wingCx - 14, 72 + flap, 28, 1);
+  // Motion sparkles + arcs only visible during the up/down stroke
+  // (phases 1 + 2), so the wings get a swoosh of motion at the peak.
+  if (phase === 1 || phase === 2) {
+    px(A.wingSpec, wingCx + side * 18, 44 + flap, 1, 1);
+    px(A.wingSpec, wingCx + side * 22, 48 + flap, 1, 1);
+    px(A.wingSpec, wingCx + side * 20, 60 + flap, 1, 1);
+    px(A.wingShad, wingCx + side * 19, 50 + flap, 1, 1);
+    px(A.wingShad, wingCx + side * 21, 52 + flap, 1, 1);
+    px(A.wingShad, wingCx + side * 19, 70 + flap, 1, 1);
+  }
 }
 
-function drawAngelWings() {
-  drawAngelWing(-1);
-  drawAngelWing(+1);
+function drawAngelWings(t) {
+  drawAngelWing(-1, t);
+  drawAngelWing(+1, t);
 }
 
 function drawAngelHalo() {
@@ -1100,53 +1106,55 @@ function drawAngelEars() {
   px(A.skinSh, 78, 49, 2, 2);
 }
 
-function drawAngelFace() {
-  // EYEBROWS — gentle arch (peak in the center), reads as
-  // cheerful / surprised-happy. Old version slanted UP toward the
-  // nose which made the angel look concerned / sad.
-  // Left brow
+function drawAngelFace(t) {
+  t = t | 0;
+  // EYEBROWS — gentle arch (always drawn)
   px(A.brow, 51, 41, 7, 1);
-  px(A.brow, 53, 40, 3, 1);   // raised middle (arch peak)
-  // Right brow (mirrored)
+  px(A.brow, 53, 40, 3, 1);
   px(A.brow, 70, 41, 7, 1);
   px(A.brow, 72, 40, 3, 1);
 
-  // EYES — big anime-style with multi-spot highlights so they
-  // sparkle. Pupil sits in the upper-mid eye, with cute sparkles
-  // both above and below, plus an upper-rim eyelash that does
-  // NOT droop at the outer corner (the old droopy lash read sad).
-  // LEFT EYE
-  px(A.out,       51, 43, 9, 9);
-  px(A.eyeWhite,  52, 44, 7, 7);
-  px(A.eyeMid,    52, 45, 7, 5);
-  px(A.eyeLit,    53, 45, 5, 4);
-  px(A.eyeBright, 53, 45, 5, 2);
-  px(A.eyeOut,    55, 47, 2, 3);
-  // Main sparkle (upper-left of pupil)
-  px(A.eyeWhite,  55, 47, 1, 1);
-  // Secondary sparkle (lower-right)
-  px(A.eyeWhite,  57, 49, 1, 1);
-  // Top-rim shine (gives the eye an upward smile)
-  px(A.eyeWhite,  53, 45, 1, 1);
-  // Top eyelashes (flat line, no outer droop)
-  px(A.out, 51, 42, 8, 1);
-  px(A.out, 50, 43, 1, 1);
-  // Upturned outer corner (smiling eye)
-  px(A.out, 59, 43, 1, 1);
-
-  // RIGHT EYE (mirrored)
-  px(A.out,       68, 43, 9, 9);
-  px(A.eyeWhite,  69, 44, 7, 7);
-  px(A.eyeMid,    69, 45, 7, 5);
-  px(A.eyeLit,    70, 45, 5, 4);
-  px(A.eyeBright, 70, 45, 5, 2);
-  px(A.eyeOut,    71, 47, 2, 3);
-  px(A.eyeWhite,  71, 47, 1, 1);
-  px(A.eyeWhite,  73, 49, 1, 1);
-  px(A.eyeWhite,  74, 45, 1, 1);
-  px(A.out, 68, 42, 8, 1);
-  px(A.out, 76, 43, 1, 1);
-  px(A.out, 68, 43, 1, 1);
+  // BLINK — eyes close briefly twice in a 120-frame loop.
+  const blinkT = t % 120;
+  const isBlinking = (blinkT >= 40 && blinkT < 44) ||
+                     (blinkT >= 50 && blinkT < 54);
+  if (isBlinking) {
+    // Closed eyes — gentle smiling-line shape
+    px(A.out, 51, 47, 8, 2);
+    px(A.brow, 52, 47, 6, 1);
+    px(A.out, 51, 48, 1, 1);
+    px(A.out, 58, 48, 1, 1);
+    px(A.out, 68, 47, 8, 2);
+    px(A.brow, 69, 47, 6, 1);
+    px(A.out, 68, 48, 1, 1);
+    px(A.out, 75, 48, 1, 1);
+  } else {
+    // OPEN EYES — big anime-style with multi-spot highlights
+    px(A.out,       51, 43, 9, 9);
+    px(A.eyeWhite,  52, 44, 7, 7);
+    px(A.eyeMid,    52, 45, 7, 5);
+    px(A.eyeLit,    53, 45, 5, 4);
+    px(A.eyeBright, 53, 45, 5, 2);
+    px(A.eyeOut,    55, 47, 2, 3);
+    px(A.eyeWhite,  55, 47, 1, 1);
+    px(A.eyeWhite,  57, 49, 1, 1);
+    px(A.eyeWhite,  53, 45, 1, 1);
+    px(A.out, 51, 42, 8, 1);
+    px(A.out, 50, 43, 1, 1);
+    px(A.out, 59, 43, 1, 1);
+    px(A.out,       68, 43, 9, 9);
+    px(A.eyeWhite,  69, 44, 7, 7);
+    px(A.eyeMid,    69, 45, 7, 5);
+    px(A.eyeLit,    70, 45, 5, 4);
+    px(A.eyeBright, 70, 45, 5, 2);
+    px(A.eyeOut,    71, 47, 2, 3);
+    px(A.eyeWhite,  71, 47, 1, 1);
+    px(A.eyeWhite,  73, 49, 1, 1);
+    px(A.eyeWhite,  74, 45, 1, 1);
+    px(A.out, 68, 42, 8, 1);
+    px(A.out, 76, 43, 1, 1);
+    px(A.out, 68, 43, 1, 1);
+  }
 
   // BLUSH cheeks (pink rounded patches under each eye)
   px(A.blush, 52, 53, 4, 2);
@@ -1382,18 +1390,78 @@ function drawSparkle(cx, cy, r) {
   px('#ffffff',   cx, cy, 1, 1);
 }
 
-function drawAngel() {
+// ── FAIRY DUST — twinkling particles drifting around the angel ──
+// Each particle has a fixed home position + drift offset + a phase
+// in the 120-frame loop. They twinkle (small/large) based on phase
+// and only appear during the first half of their own sub-cycle, so
+// they look like fading-in-and-out sparkles. Periods all divide
+// evenly into 120 so the loop is seamless.
+const ANGEL_DUST = [
+  { x:  92, y: 38, period: 30 },
+  { x: 102, y: 50, period: 24 },
+  { x: 108, y: 76, period: 40 },
+  { x:  96, y: 96, period: 20 },
+  { x:  82, y: 18, period: 30 },
+  { x:  26, y: 36, period: 24 },
+  { x:  18, y: 60, period: 40 },
+  { x:  30, y: 82, period: 20 },
+  { x:  38, y: 102, period: 30 },
+  { x:  64, y: 24, period: 60 },
+];
+function drawAngelFairyDust(t) {
+  t = t | 0;
+  for (const d of ANGEL_DUST) {
+    const phase = (t + d.x + d.y) % d.period;
+    if (phase >= d.period * 0.6) continue;          // particle is dim/off
+    // Drift the home position with a slow wobble
+    const dx = Math.round(Math.sin(t * 0.05 + d.x * 0.3) * 2);
+    const dy = Math.round(Math.cos(t * 0.06 + d.y * 0.2) * 2);
+    const x = d.x + dx;
+    const y = d.y + dy;
+    const big = phase > d.period * 0.15 && phase < d.period * 0.4;
+    if (big) {
+      // 4-point star burst
+      px(A.starGold,  x,     y - 1, 1, 3);
+      px(A.starGold,  x - 1, y,     3, 1);
+      px(A.starGold2, x - 1, y - 1, 1, 1);
+      px(A.starGold2, x + 1, y - 1, 1, 1);
+      px(A.starGold2, x - 1, y + 1, 1, 1);
+      px(A.starGold2, x + 1, y + 1, 1, 1);
+      px('#ffffff',   x,     y,     1, 1);
+    } else {
+      px(A.starGold, x, y, 1, 1);
+    }
+  }
+}
+
+function drawAngel(t) {
+  t = t | 0;
   ctx.clearRect(0, 0, 128, 128);
-  // Z-order: wings (behind everything) → halo → head → hair (covers
-  //          most of the head + back of ears) → ears (poke through
-  //          the hair) → face features → NECK (between chin and
-  //          dress collar) → dress → arms → legs → feet → sparkles
-  drawAngelWings();
+  // ── Whole-body float — slow vertical bob (one cycle in 120 frames)
+  const bodyDy = Math.round(Math.sin(t * (2 * Math.PI / 120)) * 2);
+  // ── Halo undulation — DIFFERENT phase from the body, faster cycle
+  //    (2 cycles in 120 frames) so the halo "floats" independently
+  //    of the head.
+  const haloDy = Math.round(Math.sin(t * (4 * Math.PI / 120) + 1.0) * 1);
+
+  ctx.save();
+  ctx.translate(0, bodyDy);
+
+  // Halo (with its own undulation on top of the body bob)
+  ctx.save();
+  ctx.translate(0, haloDy);
   drawAngelHalo();
+  ctx.restore();
+
+  // Wings (animated flap)
+  drawAngelWings(t);
+
+  // Z-order: head → hair → ears → face (animated blink) → neck →
+  //          dress → arms → legs → feet → static sparkles overlay
   drawAngelHead();
   drawAngelHair();
   drawAngelEars();
-  drawAngelFace();
+  drawAngelFace(t);
   drawAngelNeck();
   drawAngelDress();
   drawAngelArm(-1);
@@ -1401,29 +1469,30 @@ function drawAngel() {
   drawAngelLegs();
   drawAngelFeet();
   drawSparkles();
+
+  ctx.restore();
+
+  // Fairy dust — drawn OUTSIDE the body translate so the particles
+  // drift independently of the float, like dust floating in the
+  // air around her.
+  drawAngelFairyDust(t);
 }
 
-// ── INITIAL RENDER ──────────────────────────────────────────
-// Angel is static — drawn once on load.
-ctx = ctxAngel; cv = cvAngel;
-drawAngel();
-
-// Devil is animated — re-rendered every frame from `devilFrame`.
-// Animation cycle (80 frames at ~30 fps ≈ 2.7 sec total):
-//   t<12   burst-cloud poof
-//   t<75   sparkle particles dissipating
-//   t<14 of every 80-frame mouth cycle: mouth opens, body breathes
-//   blinks at t%180 == 78 and t%180 == 98 (4 frames each)
-//   pitchforks bob continuously (sin), tail wobbles continuously,
-//   flame undulates 4-phase cycle.
-let devilFrame = 0;
-function devilLoop() {
+// ── ANIMATION LOOP — both characters re-rendered every frame ──
+// Devil: 80-frame mouth cycle, 180-frame blink loop, poof at t<75.
+// Angel: 120-frame body-bob loop, 60-frame halo loop, 8-frame wing
+//        flap cycle, blink at t%120 ∈ [40,44) and [50,54), drifting
+//        fairy-dust sparkles.
+let frame = 0;
+function loop() {
   ctx = ctxDevil; cv = cvDevil;
-  drawDevil(devilFrame);
-  devilFrame++;
-  requestAnimationFrame(devilLoop);
+  drawDevil(frame);
+  ctx = ctxAngel; cv = cvAngel;
+  drawAngel(frame);
+  frame++;
+  requestAnimationFrame(loop);
 }
-devilLoop();
+loop();
 
 // ── DOWNLOAD ────────────────────────────────────────────────
 // Every download is a clean integer nearest-neighbor scale of the
@@ -1441,21 +1510,56 @@ fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js')
   })
   .catch(() => {});
 
-function exportAngel(size) {
-  // Static PNG export — render the angel canvas at size×size with
-  // hard nearest-neighbor scaling.
-  const dl = document.createElement('canvas');
-  dl.width = size; dl.height = size;
-  const dctx = dl.getContext('2d');
-  dctx.imageSmoothingEnabled = false;
-  dctx.drawImage(cvAngel, 0, 0, size, size);
-  dl.toBlob((blob) => {
+function exportAngel(size, btn) {
+  // Animated GIF — 120 frames at 30 fps (one full body-bob cycle).
+  // Tuned so every sub-animation (halo bob, wing flap, blinks,
+  // fairy-dust particle periods) divides evenly into 120 so the
+  // loop is seamless.
+  if (typeof GIF === 'undefined') {
+    alert('GIF library not loaded yet — try again in a moment');
+    return;
+  }
+  btn.disabled = true;
+  const origLabel = btn.textContent;
+  btn.textContent = 'RECORDING…';
+
+  const FRAMES = 120;
+  const FPS = 30;
+  const srcCv = document.createElement('canvas');
+  srcCv.width = 128; srcCv.height = 128;
+  const srcCx = srcCv.getContext('2d');
+  srcCx.imageSmoothingEnabled = false;
+  const dstCv = document.createElement('canvas');
+  dstCv.width = size; dstCv.height = size;
+  const dstCx = dstCv.getContext('2d');
+  dstCx.imageSmoothingEnabled = false;
+
+  const gifOpts = { quality: 8, width: size, height: size,
+                    transparent: 0x000000, dither: false };
+  if (gifWorkerBlob) { gifOpts.workers = 2; gifOpts.workerScript = gifWorkerBlob; }
+  else                gifOpts.workers = 0;
+  const gif = new GIF(gifOpts);
+  gif.on('finished', (blob) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `angel-pixel-art-${size}.png`;
+    a.href = url; a.download = `angel-pixel-art-${size}.gif`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-  }, 'image/png');
+    setTimeout(() => URL.revokeObjectURL(url), 6000);
+    btn.disabled = false;
+    btn.textContent = origLabel;
+  });
+  gif.on('abort', () => { btn.disabled = false; btn.textContent = 'ERROR — RETRY'; });
+
+  const prevCtx = ctx, prevCv = cv;
+  ctx = srcCx; cv = srcCv;
+  for (let f = 0; f < FRAMES; f++) {
+    drawAngel(f);
+    dstCx.clearRect(0, 0, size, size);
+    dstCx.drawImage(srcCv, 0, 0, size, size);
+    gif.addFrame(dstCv, { copy: true, delay: 1000 / FPS });
+  }
+  ctx = prevCtx; cv = prevCv;
+  gif.render();
 }
 
 // Animated GIF export — modes:
@@ -1521,7 +1625,7 @@ function exportDevil(size, btn, mode) {
 document.querySelectorAll('.btn[data-target]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const size = parseInt(btn.dataset.size, 10) || 512;
-    if (btn.dataset.target === 'angel') exportAngel(size);
+    if (btn.dataset.target === 'angel') exportAngel(size, btn);
     else                                exportDevil(size, btn, btn.dataset.mode || 'character');
   });
 });
