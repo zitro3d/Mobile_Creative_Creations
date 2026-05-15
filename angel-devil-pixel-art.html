@@ -115,7 +115,8 @@
       <canvas id="angelCanvas" class="pixelCanvas" width="128" height="128" style="width: 512px; height: 512px;"></canvas>
     </div>
     <div class="controls">
-      <button class="btn" data-target="angel" data-size="512">DOWNLOAD 512 × 512 GIF</button>
+      <button class="btn" data-target="angel" data-mode="character" data-size="512">ANGEL IDLE GIF</button>
+      <button class="btn" data-target="angel" data-mode="reveal"    data-size="512">REVEAL GIF</button>
     </div>
   </div>
 
@@ -1434,48 +1435,193 @@ function drawAngelFairyDust(t) {
   }
 }
 
-function drawAngel(t) {
+// ── ANGEL MAGICAL REVEAL ──────────────────────────────────────
+// Heavenly-descent style reveal — distinct from the devil's
+// orange-burst poof. 75 frames, plays once.
+// Phase layers (overlapping for richness):
+//   t< 15  : vertical LIGHT BEAM descends from the top of frame
+//   t 8-35 : expanding HALO RING radiating outward from halo level
+//   t15-65 : FALLING FEATHERS drift down with sin-wobble
+//   t20-70 : tiny PINK HEARTS puff outward in a radial pattern
+//   t25-75 : UPWARD GLITTER shower rising from below
+function drawAngelReveal(t) {
   t = t | 0;
+  const cx = 64;
+
+  // ── PHASE 1 : VERTICAL LIGHT BEAM ──
+  if (t < 18) {
+    const beamH = Math.min(t * 8, 110);
+    px('#ffffff', cx,     0, 1, beamH);
+    px('#fff080', cx - 1, 0, 1, beamH);
+    px('#fff080', cx + 1, 0, 1, beamH);
+    if (t > 5) {
+      px('#ffd040', cx - 2, 0, 1, beamH);
+      px('#ffd040', cx + 2, 0, 1, beamH);
+    }
+    if (t > 10) {
+      px('#a0e8f0', cx - 3, 0, 1, beamH);
+      px('#a0e8f0', cx + 3, 0, 1, beamH);
+    }
+  }
+
+  // ── PHASE 2 : EXPANDING HALO RING ──
+  if (t >= 8 && t < 38) {
+    const ringR = (t - 8) * 2;
+    const cy = 12;
+    // 16-step ring using sin/cos cardinal points
+    for (let i = 0; i < 16; i++) {
+      const ang = (i / 16) * Math.PI * 2;
+      const rx = (cx + Math.cos(ang) * ringR) | 0;
+      const ry = (cy + Math.sin(ang) * ringR) | 0;
+      if (rx < 0 || rx > 127 || ry < 0 || ry > 127) continue;
+      px(A.haloHi, rx, ry, 1, 1);
+      if (i % 2 === 0) px(A.haloSpec, rx, ry, 1, 1);
+    }
+  }
+
+  // ── PHASE 3 : FALLING FEATHERS ──
+  if (t >= 15 && t < 70) {
+    const feathers = [
+      { x:  28, startT: 15, period: 50 },
+      { x:  48, startT: 22, period: 48 },
+      { x:  80, startT: 18, period: 52 },
+      { x:  98, startT: 28, period: 50 },
+      { x:  40, startT: 30, period: 47 },
+      { x:  88, startT: 35, period: 50 },
+      { x:  20, startT: 40, period: 45 },
+      { x: 108, startT: 42, period: 48 },
+    ];
+    for (const f of feathers) {
+      if (t < f.startT) continue;
+      const ft = t - f.startT;
+      if (ft > f.period) continue;
+      const fy  = ft * 1.6;
+      const wob = Math.round(Math.sin(ft * 0.3) * 3);
+      const x = (f.x + wob) | 0;
+      const y = fy | 0;
+      if (y > 120) continue;
+      // Tiny feather silhouette (3 wide × 3 tall)
+      px(A.wingMid, x - 1, y,     1, 1);
+      px(A.wingHi,  x,     y - 1, 1, 1);
+      px(A.wingHi,  x,     y,     1, 1);
+      px(A.wingMid, x + 1, y,     1, 1);
+      px(A.wingHi,  x,     y + 1, 1, 1);
+      px(A.wingShad, x - 1, y + 1, 1, 1);
+    }
+  }
+
+  // ── PHASE 4 : PINK HEARTS puffing outward in a radial burst ──
+  if (t >= 20 && t < 70) {
+    const hearts = [
+      { ang: 0.2,  startT: 20 },
+      { ang: 0.9,  startT: 23 },
+      { ang: 1.7,  startT: 26 },
+      { ang: 2.5,  startT: 29 },
+      { ang: 3.4,  startT: 31 },
+      { ang: 4.2,  startT: 34 },
+      { ang: 5.1,  startT: 37 },
+      { ang: 5.9,  startT: 40 },
+    ];
+    for (const h of hearts) {
+      if (t < h.startT) continue;
+      const ht = t - h.startT;
+      if (ht > 32) continue;
+      const dist = ht * 2;
+      const hx = (cx + Math.cos(h.ang) * dist) | 0;
+      const hy = (64 + Math.sin(h.ang) * dist) | 0;
+      if (hx < 1 || hx > 126 || hy < 1 || hy > 126) continue;
+      // Tiny heart sprite (4 wide × 3 tall) — two bumps + V tip
+      px('#ff80a0', hx - 1, hy,     1, 1);
+      px('#ff80a0', hx + 1, hy,     1, 1);
+      px('#ff80a0', hx - 2, hy,     1, 1);
+      px('#ff80a0', hx + 2, hy,     1, 1);
+      px('#ff80a0', hx - 1, hy + 1, 3, 1);
+      px('#ff80a0', hx,     hy + 2, 1, 1);
+      px('#ffc0d8', hx - 1, hy,     1, 1);   // hi-lite
+      px('#ffc0d8', hx,     hy + 1, 1, 1);
+    }
+  }
+
+  // ── PHASE 5 : UPWARD GLITTER SHOWER ──
+  if (t >= 25 && t < 75) {
+    for (let i = 0; i < 12; i++) {
+      const phase = ((t * 2 + i * 11) % 60) | 0;
+      if (phase >= 50) continue;
+      const x = 8 + ((i * 17 + 7) % 112);
+      const y = 128 - phase * 1.8;
+      if (y < 20 || y > 127) continue;
+      const palette = [A.starGold, A.starGold2, '#ffc0d8', '#ffffff'];
+      const c = palette[i % 4];
+      px(c, x | 0, y | 0, 1, 1);
+      if (phase < 20 && phase > 8) {
+        // small sparkle cross
+        px('#ffffff', (x | 0) - 1, y | 0, 1, 1);
+        px('#ffffff', (x | 0) + 1, y | 0, 1, 1);
+      }
+    }
+  }
+
+  // ── PHASE 6 : Fading bright flash at t=10 (just after the beam
+  //    fully extends) — quick white wash to sell the "arrival."
+  if (t >= 12 && t < 16) {
+    const flashA = (15 - t) / 4;
+    for (let i = 0; i < 24; i++) {
+      const ang = (i / 24) * Math.PI * 2;
+      const r = 10 + (t - 12) * 4;
+      const fx = (cx + Math.cos(ang) * r) | 0;
+      const fy = (60 + Math.sin(ang) * r) | 0;
+      if (fx < 0 || fx > 127 || fy < 0 || fy > 127) continue;
+      px('#ffffff', fx, fy, 1, 1);
+      if (flashA > 0.5) {
+        px('#fff080', fx, fy + 1, 1, 1);
+      }
+    }
+  }
+}
+
+function drawAngel(t, opts) {
+  t = t | 0;
+  opts = opts || {};
+  const showCharacter = opts.showCharacter !== false;
+  const showReveal    = opts.showReveal    !== false;
   ctx.clearRect(0, 0, 128, 128);
-  // ── Whole-body float — slow vertical bob (one cycle in 120 frames)
-  const bodyDy = Math.round(Math.sin(t * (2 * Math.PI / 120)) * 2);
-  // ── Halo undulation — DIFFERENT phase from the body, faster cycle
-  //    (2 cycles in 120 frames) so the halo "floats" independently
-  //    of the head.
-  const haloDy = Math.round(Math.sin(t * (4 * Math.PI / 120) + 1.0) * 1);
 
-  ctx.save();
-  ctx.translate(0, bodyDy);
+  if (showCharacter) {
+    // ── Whole-body float — slow vertical bob (one cycle in 120 frames)
+    const bodyDy = Math.round(Math.sin(t * (2 * Math.PI / 120)) * 2);
+    // ── Halo undulation — DIFFERENT phase from the body
+    const haloDy = Math.round(Math.sin(t * (4 * Math.PI / 120) + 1.0) * 1);
 
-  // Halo (with its own undulation on top of the body bob)
-  ctx.save();
-  ctx.translate(0, haloDy);
-  drawAngelHalo();
-  ctx.restore();
+    ctx.save();
+    ctx.translate(0, bodyDy);
 
-  // Wings (animated flap)
-  drawAngelWings(t);
+    ctx.save();
+    ctx.translate(0, haloDy);
+    drawAngelHalo();
+    ctx.restore();
 
-  // Z-order: head → hair → ears → face (animated blink) → neck →
-  //          dress → arms → legs → feet → static sparkles overlay
-  drawAngelHead();
-  drawAngelHair();
-  drawAngelEars();
-  drawAngelFace(t);
-  drawAngelNeck();
-  drawAngelDress();
-  drawAngelArm(-1);
-  drawAngelArm(+1);
-  drawAngelLegs();
-  drawAngelFeet();
-  drawSparkles();
+    drawAngelWings(t);
+    drawAngelHead();
+    drawAngelHair();
+    drawAngelEars();
+    drawAngelFace(t);
+    drawAngelNeck();
+    drawAngelDress();
+    drawAngelArm(-1);
+    drawAngelArm(+1);
+    drawAngelLegs();
+    drawAngelFeet();
+    drawSparkles();
 
-  ctx.restore();
+    ctx.restore();
 
-  // Fairy dust — drawn OUTSIDE the body translate so the particles
-  // drift independently of the float, like dust floating in the
-  // air around her.
-  drawAngelFairyDust(t);
+    // Fairy dust outside the body translate
+    drawAngelFairyDust(t);
+  }
+
+  // Reveal — only plays during its first ~75 frames; drawn LAST so
+  // it overlays the character.
+  if (showReveal && t < 75) drawAngelReveal(t);
 }
 
 // ── ANIMATION LOOP — both characters re-rendered every frame ──
@@ -1510,11 +1656,13 @@ fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js')
   })
   .catch(() => {});
 
-function exportAngel(size, btn) {
-  // Animated GIF — 120 frames at 30 fps (one full body-bob cycle).
-  // Tuned so every sub-animation (halo bob, wing flap, blinks,
-  // fairy-dust particle periods) divides evenly into 120 so the
-  // loop is seamless.
+// Animated GIF export — modes for the angel:
+//   'character' = idle loop, NO reveal, 120 frames (seamless body+
+//                 halo+wing+blink+fairy-dust loop)
+//   'reveal'    = magical descent only, NO character, 75 frames
+//                 (light beam → halo ring → feathers → hearts →
+//                 glitter shower — one-shot)
+function exportAngel(size, btn, mode) {
   if (typeof GIF === 'undefined') {
     alert('GIF library not loaded yet — try again in a moment');
     return;
@@ -1523,8 +1671,14 @@ function exportAngel(size, btn) {
   const origLabel = btn.textContent;
   btn.textContent = 'RECORDING…';
 
-  const FRAMES = 120;
+  const isReveal = (mode === 'reveal');
+  const FRAMES = isReveal ? 75 : 120;
   const FPS = 30;
+  const drawOpts = isReveal
+    ? { showCharacter: false, showReveal: true }
+    : { showCharacter: true,  showReveal: false };
+  const fileLabel = isReveal ? 'angel-reveal' : 'angel-idle';
+
   const srcCv = document.createElement('canvas');
   srcCv.width = 128; srcCv.height = 128;
   const srcCx = srcCv.getContext('2d');
@@ -1542,7 +1696,7 @@ function exportAngel(size, btn) {
   gif.on('finished', (blob) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `angel-pixel-art-${size}.gif`;
+    a.href = url; a.download = `${fileLabel}-${size}.gif`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 6000);
     btn.disabled = false;
@@ -1553,7 +1707,7 @@ function exportAngel(size, btn) {
   const prevCtx = ctx, prevCv = cv;
   ctx = srcCx; cv = srcCv;
   for (let f = 0; f < FRAMES; f++) {
-    drawAngel(f);
+    drawAngel(f, drawOpts);
     dstCx.clearRect(0, 0, size, size);
     dstCx.drawImage(srcCv, 0, 0, size, size);
     gif.addFrame(dstCv, { copy: true, delay: 1000 / FPS });
@@ -1625,7 +1779,7 @@ function exportDevil(size, btn, mode) {
 document.querySelectorAll('.btn[data-target]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const size = parseInt(btn.dataset.size, 10) || 512;
-    if (btn.dataset.target === 'angel') exportAngel(size, btn);
+    if (btn.dataset.target === 'angel') exportAngel(size, btn, btn.dataset.mode || 'character');
     else                                exportDevil(size, btn, btn.dataset.mode || 'character');
   });
 });
