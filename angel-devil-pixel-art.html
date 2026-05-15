@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Angel Devil Pixel Art</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Helvetica Neue', system-ui, sans-serif;
+    background: #000;
+    color: #f4e8d8;
+    min-height: 100vh;
+    padding: 26px 16px 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    -webkit-font-smoothing: antialiased;
+  }
+  .kicker {
+    font-size: 10px; letter-spacing: 4px; font-weight: 800;
+    color: #ff4060; margin-bottom: 6px; text-align: center;
+  }
+  h1 {
+    font-family: Impact, 'Arial Black', sans-serif;
+    font-size: 30px; letter-spacing: 6px; color: #ff4060;
+    margin-bottom: 4px; text-align: center;
+  }
+  .sub {
+    font-size: 11px; line-height: 1.55; color: #806a90;
+    max-width: 600px; margin: 8px auto 22px; text-align: center;
+  }
+  .canvasWrap {
+    background: #000;
+    border: 2px solid #4a0820;
+    padding: 18px;
+    box-shadow: 0 0 32px rgba(255, 60, 80, 0.18);
+  }
+  canvas.pixelCanvas {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    display: block;
+  }
+  .controls {
+    margin-top: 22px;
+    display: flex; gap: 12px;
+  }
+  .btn {
+    background: linear-gradient(180deg,#f06030 0%,#c52a18 100%);
+    border: 2px solid #1a0a06;
+    color: #ffd83d;
+    font-family: Impact, 'Arial Black', sans-serif;
+    font-size: 14px; letter-spacing: 2px;
+    padding: 10px 20px; border-radius: 0;
+    cursor: pointer;
+    box-shadow: 0 3px 0 #5a2010;
+  }
+  .btn:hover { filter: brightness(1.1); }
+  .meta {
+    margin-top: 16px;
+    font-size: 10px; color: #5a4a5a;
+    letter-spacing: 1px; text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="kicker">DLX · NEO-16-BIT CHARACTER</div>
+<h1>ANGEL DEVIL</h1>
+<p class="sub">
+  Pixel-art recreation of the 3D devil reference. Rendered at
+  128 × 128 native and scaled 4× to 512 × 512 with pure nearest-
+  neighbor sampling so every block stays a hard-edged color square.
+</p>
+
+<div class="canvasWrap">
+  <canvas id="devilCanvas" class="pixelCanvas" width="128" height="128" style="width: 512px; height: 512px;"></canvas>
+</div>
+
+<div class="controls">
+  <button class="btn" id="downloadBtn">DOWNLOAD 512 × 512 PNG</button>
+</div>
+
+<div class="meta">128 PX NATIVE · 4× INTEGER SCALE · TRANSPARENT BG</div>
+
+<script>
+const cv  = document.getElementById('devilCanvas');
+const ctx = cv.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+function px(color, x, y, w, h) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x | 0, y | 0, (w || 1) | 0, (h || 1) | 0);
+}
+
+// ── PALETTE ────────────────────────────────────────────────
+const C = {
+  out:        '#3a0810',
+  skinShadow: '#7a1030',
+  skinMid:    '#d82048',
+  skinLit:    '#f04068',
+  skinHi:     '#ff8098',
+  belly:      '#ff90a8',
+  eyeWhite:   '#ffd060',
+  eyeWhiteHi: '#fff080',
+  pupil:      '#1a0a0a',
+  mouthDark:  '#3a0408',
+  mouthMid:   '#7a0820',
+  tooth:      '#f4e8d8',
+  toothSh:    '#a88858',
+  hairDark:   '#1a1a1a',
+  hairMid:    '#3a3a3a',
+  hornBase:   '#a01030',
+  hornMid:    '#d82048',
+  hornHi:     '#ff7090',
+  hornSpec:   '#ffb0c0',
+  triOut:     '#1a1a20',
+  triDark:    '#4a4a52',
+  triMid:     '#8a8a92',
+  triLit:     '#c0c0c8',
+  triSpec:    '#ffffff',
+  flameOut:   '#a01818',
+  flameMid:   '#ff4020',
+  flameIn:    '#ffa040',
+  flameCore:  '#ffd060',
+  flameWhite: '#ffffff',
+};
+
+// ── DRAW HELPERS ────────────────────────────────────────────
+
+// Stepped horn (curved, with 3-step shading)
+function drawHorn(side) {
+  // side = -1 for left, +1 for right
+  // Tip at top, base at bottom (~14 tall × 8 wide)
+  const tipX = 64 + side * 22;     // tip x
+  const tipY = 22;                  // tip y
+  const baseY = 36;                 // base y (where horn meets head)
+  // Outline silhouette + 3-step body
+  // Row-by-row: each row has (start_x, width)
+  // Curving banana shape: tip narrow + offset outward, base wider + centered toward head
+  const rows = [
+    // y_off, width, dx_offset (relative to tipX)
+    { y: 0,  w: 2, dx: 0 },
+    { y: 1,  w: 3, dx: 0 },
+    { y: 2,  w: 3, dx: 0 },
+    { y: 3,  w: 3, dx: -side },
+    { y: 4,  w: 4, dx: -side },
+    { y: 5,  w: 4, dx: -side * 2 },
+    { y: 6,  w: 5, dx: -side * 2 },
+    { y: 7,  w: 5, dx: -side * 3 },
+    { y: 8,  w: 6, dx: -side * 3 },
+    { y: 9,  w: 6, dx: -side * 4 },
+    { y: 10, w: 7, dx: -side * 4 },
+    { y: 11, w: 7, dx: -side * 5 },
+    { y: 12, w: 8, dx: -side * 5 },
+    { y: 13, w: 8, dx: -side * 6 },
+    { y: 14, w: 9, dx: -side * 6 },
+  ];
+  // Outline (drawn 1 px wider as a darker silhouette)
+  for (const r of rows) {
+    const rx = (side === 1) ? (tipX + r.dx - 1) : (tipX + r.dx - r.w + 1 - 1);
+    px(C.out, rx, tipY + r.y, r.w + 2, 1);
+  }
+  // Mid body (one step in)
+  for (const r of rows) {
+    const rx = (side === 1) ? (tipX + r.dx) : (tipX + r.dx - r.w + 1);
+    px(C.hornMid, rx, tipY + r.y, r.w, 1);
+  }
+  // Lit side (the side facing the light — center of head)
+  for (const r of rows) {
+    const litRx = (side === 1) ? (tipX + r.dx) : (tipX + r.dx);
+    const litW  = Math.max(1, r.w >> 1);
+    px(C.hornHi, litRx, tipY + r.y, litW, 1);
+  }
+  // Shadow side ridges (2-3 horizontal stripes for the segmented ram-horn look)
+  for (let s = 4; s < rows.length; s += 4) {
+    const r = rows[s];
+    const rx = (side === 1) ? (tipX + r.dx) : (tipX + r.dx - r.w + 1);
+    px(C.hornBase, rx, tipY + r.y, r.w, 1);
+  }
+  // Specular hi-lite at the tip
+  px(C.hornSpec, tipX, tipY + 1, 1, 2);
+}
+
+// Pointed elf-style ear
+function drawEar(side) {
+  // side = -1 left, +1 right
+  // Triangular ear sticking out from the side of the head
+  const cx = 64 + side * 24;        // outer point x
+  const cy = 52;                    // center y
+  // 6-step triangle
+  const rows = [
+    { dy: -6, w: 1 },
+    { dy: -5, w: 2 },
+    { dy: -4, w: 3 },
+    { dy: -3, w: 4 },
+    { dy: -2, w: 5 },
+    { dy: -1, w: 6 },
+    { dy:  0, w: 7 },
+    { dy:  1, w: 6 },
+    { dy:  2, w: 5 },
+    { dy:  3, w: 4 },
+    { dy:  4, w: 3 },
+    { dy:  5, w: 2 },
+  ];
+  for (const r of rows) {
+    const rx = side === 1 ? (cx - r.w + 1) : cx;
+    // Outline
+    px(C.out, rx - (side === 1 ? 0 : 0), cy + r.dy, r.w, 1);
+  }
+  // Inner ear fill
+  for (let i = 1; i < rows.length - 1; i++) {
+    const r = rows[i];
+    const rx = side === 1 ? (cx - r.w + 2) : (cx + 1);
+    if (r.w >= 3) px(C.skinMid, rx, cy + r.dy, r.w - 2, 1);
+  }
+  // Inner ear cavity (darker)
+  px(C.skinShadow, side === 1 ? cx - 3 : cx + 1, cy - 1, 3, 3);
+  // Tip highlight
+  px(C.skinHi, side === 1 ? cx : cx, cy - 4, 1, 2);
+}
+
+function drawHead() {
+  // Egg-shape head, 38 wide × 38 tall, centered at (64, 50)
+  const cx = 64, cy = 50;
+  // Row plan: top narrower, middle widest, jaw narrows again
+  const rows = [
+    { dy: -18, w: 20 },
+    { dy: -17, w: 24 },
+    { dy: -16, w: 28 },
+    { dy: -15, w: 30 },
+    { dy: -14, w: 32 },
+    { dy: -13, w: 34 },
+    { dy: -12, w: 34 },
+    { dy: -11, w: 36 },
+    { dy: -10, w: 36 },
+    { dy: -9,  w: 38 },
+    { dy: -8,  w: 38 },
+    { dy: -7,  w: 38 },
+    { dy: -6,  w: 38 },
+    { dy: -5,  w: 38 },
+    { dy: -4,  w: 38 },
+    { dy: -3,  w: 38 },
+    { dy: -2,  w: 38 },
+    { dy: -1,  w: 38 },
+    { dy:  0,  w: 38 },
+    { dy:  1,  w: 38 },
+    { dy:  2,  w: 38 },
+    { dy:  3,  w: 38 },
+    { dy:  4,  w: 36 },
+    { dy:  5,  w: 36 },
+    { dy:  6,  w: 34 },
+    { dy:  7,  w: 32 },
+    { dy:  8,  w: 30 },
+    { dy:  9,  w: 28 },
+    { dy:  10, w: 24 },
+    { dy:  11, w: 20 },
+    { dy:  12, w: 14 },
+    { dy:  13, w: 10 },
+  ];
+  // Outline ring (1 px outside the silhouette)
+  for (const r of rows) {
+    px(C.out, cx - (r.w >> 1) - 1, cy + r.dy, r.w + 2, 1);
+  }
+  // Skin fill
+  for (const r of rows) {
+    px(C.skinMid, cx - (r.w >> 1), cy + r.dy, r.w, 1);
+  }
+  // Top-left sun-catch (3D up-lit feel)
+  for (const r of rows) {
+    if (r.dy < -2 && r.dy > -15) {
+      const inset = Math.max(1, Math.abs(r.dy + 6));
+      px(C.skinLit, cx - (r.w >> 1) + 2, cy + r.dy, r.w - 4 - inset, 1);
+    }
+  }
+  // Cheek hi-lite under each eye
+  px(C.skinHi, cx - 12, cy - 3, 6, 2);
+  px(C.skinHi, cx + 6,  cy - 3, 6, 2);
+  // Lower-right shadow band
+  for (const r of rows) {
+    if (r.dy > 4) {
+      px(C.skinShadow, cx + (r.w >> 1) - 4, cy + r.dy, 4, 1);
+    }
+  }
+  // Chin shadow
+  px(C.skinShadow, cx - 6, cy + 11, 12, 2);
+}
+
+function drawHair() {
+  // Dark hair tuft between the horns (peaking through the head top)
+  px(C.hairDark, 60, 34, 8, 2);
+  px(C.hairDark, 58, 32, 4, 2);
+  px(C.hairDark, 62, 30, 3, 3);
+  px(C.hairDark, 66, 31, 3, 2);
+  px(C.hairDark, 56, 33, 3, 1);
+  px(C.hairDark, 70, 33, 3, 1);
+  // Hair mid-tone (subtle highlight)
+  px(C.hairMid, 63, 31, 1, 1);
+  px(C.hairMid, 60, 33, 1, 1);
+  px(C.hairMid, 68, 33, 1, 1);
+}
+
+function drawFace() {
+  // EYEBROWS — angry V shape (slanting inward toward the nose)
+  // Left brow (angles down-right toward center)
+  px(C.hairDark, 49, 49, 9, 2);
+  px(C.hairDark, 50, 48, 8, 1);
+  px(C.hairDark, 52, 47, 6, 1);
+  px(C.hairDark, 55, 46, 3, 1);
+  // Right brow (mirrored)
+  px(C.hairDark, 70, 49, 9, 2);
+  px(C.hairDark, 70, 48, 8, 1);
+  px(C.hairDark, 70, 47, 6, 1);
+  px(C.hairDark, 70, 46, 3, 1);
+
+  // EYES — yellow with vertical slit pupils
+  // Left eye
+  px(C.out, 50, 52, 10, 8);
+  px(C.eyeWhite, 51, 53, 8, 6);
+  px(C.eyeWhiteHi, 51, 53, 8, 2);
+  // Vertical slit pupil
+  px(C.pupil, 55, 53, 2, 6);
+  // Eye highlight pip
+  px(C.tooth, 56, 54, 1, 1);
+  // Right eye
+  px(C.out, 68, 52, 10, 8);
+  px(C.eyeWhite, 69, 53, 8, 6);
+  px(C.eyeWhiteHi, 69, 53, 8, 2);
+  px(C.pupil, 71, 53, 2, 6);
+  px(C.tooth, 70, 54, 1, 1);
+
+  // NOSE — small pointed nose, slightly to the upper-right
+  px(C.out,        61, 58, 6, 6);
+  px(C.skinLit,    62, 59, 4, 4);
+  px(C.skinHi,     63, 60, 2, 2);
+  px(C.skinShadow, 62, 63, 4, 1);
+  px(C.out,        61, 63, 1, 1);
+  px(C.out,        66, 63, 1, 1);
+}
+
+function drawMouth() {
+  // Wide evil grin from x=48 to x=80, centered around y=68
+  // Upper lip outline (curves into a smile)
+  px(C.out, 48, 66, 32, 2);
+  // Mouth interior (dark)
+  px(C.mouthDark, 49, 67, 30, 8);
+  px(C.mouthMid,  49, 67, 30, 1);
+  // Bottom lip
+  px(C.out, 49, 75, 30, 2);
+  px(C.skinShadow, 50, 76, 28, 1);
+
+  // FANGS — 2 upper canines + 2 lower (animal teeth)
+  // Upper-left fang (long, curving down)
+  px(C.tooth, 52, 67, 2, 4);
+  px(C.tooth, 53, 71, 1, 1);
+  // Upper-right fang
+  px(C.tooth, 74, 67, 2, 4);
+  px(C.tooth, 74, 71, 1, 1);
+  // Tooth shading on the inner side
+  px(C.toothSh, 53, 70, 1, 1);
+  px(C.toothSh, 75, 70, 1, 1);
+
+  // White front teeth (smaller, between the fangs)
+  for (let i = 0; i < 6; i++) {
+    px(C.tooth, 56 + i * 3, 68, 2, 3);
+  }
+  // Tooth divider lines
+  for (let i = 0; i < 7; i++) {
+    px(C.mouthDark, 55 + i * 3, 68, 1, 3);
+  }
+
+  // Lower fang (small, on the right side)
+  px(C.tooth, 70, 73, 2, 3);
+  // Tongue hint
+  px('#a02050', 60, 73, 8, 2);
+}
+
+function drawBody() {
+  // Chubby rounded torso, 38 wide × 28 tall, top at y=72
+  const cx = 64;
+  const rows = [
+    { dy: 0,  w: 28 },
+    { dy: 1,  w: 32 },
+    { dy: 2,  w: 36 },
+    { dy: 3,  w: 38 },
+    { dy: 4,  w: 38 },
+    { dy: 5,  w: 38 },
+    { dy: 6,  w: 38 },
+    { dy: 7,  w: 38 },
+    { dy: 8,  w: 38 },
+    { dy: 9,  w: 38 },
+    { dy: 10, w: 38 },
+    { dy: 11, w: 38 },
+    { dy: 12, w: 38 },
+    { dy: 13, w: 38 },
+    { dy: 14, w: 38 },
+    { dy: 15, w: 38 },
+    { dy: 16, w: 36 },
+    { dy: 17, w: 34 },
+    { dy: 18, w: 32 },
+    { dy: 19, w: 30 },
+    { dy: 20, w: 28 },
+    { dy: 21, w: 26 },
+    { dy: 22, w: 24 },
+    { dy: 23, w: 22 },
+    { dy: 24, w: 20 },
+    { dy: 25, w: 18 },
+  ];
+  const top = 72;
+  // Outline ring
+  for (const r of rows) {
+    px(C.out, cx - (r.w >> 1) - 1, top + r.dy, r.w + 2, 1);
+  }
+  // Skin fill
+  for (const r of rows) {
+    px(C.skinMid, cx - (r.w >> 1), top + r.dy, r.w, 1);
+  }
+  // Top sun-catch hi-lite
+  for (const r of rows) {
+    if (r.dy < 5) {
+      const inset = Math.max(2, r.dy + 4);
+      px(C.skinLit, cx - (r.w >> 1) + 2, top + r.dy, Math.max(1, r.w - 4 - inset), 1);
+    }
+  }
+  // Belly oval (lighter color, hangs slightly low)
+  for (let by = 8; by < 22; by++) {
+    const bw = Math.max(2, 18 - Math.abs(by - 15));
+    px(C.belly, cx - (bw >> 1), top + by, bw, 1);
+  }
+  // Belly hi-lite
+  px(C.skinHi, cx - 5, top + 10, 10, 2);
+  // Belly button
+  px(C.out,        cx - 1, top + 16, 2, 2);
+  px(C.skinShadow, cx,     top + 16, 1, 1);
+
+  // Right-side shadow band on the body
+  for (const r of rows) {
+    if (r.dy >= 5 && r.dy < 22) {
+      px(C.skinShadow, cx + (r.w >> 1) - 3, top + r.dy, 3, 1);
+    }
+  }
+}
+
+function drawArm(side) {
+  // side = -1 left arm (viewer's left, devil's right), +1 right arm
+  // Arm extends outward from the upper body (~y=78) to the hand
+  // Hand is the fist holding the trident
+  const shoulderX = 64 + side * 17;
+  const shoulderY = 78;
+  const handX = 64 + side * 30;
+  const handY = 86;
+  // Stepped diagonal limb (3 sections)
+  const segs = 8;
+  for (let i = 0; i < segs; i++) {
+    const t = i / (segs - 1);
+    const sx = (shoulderX + (handX - shoulderX) * t) | 0;
+    const sy = (shoulderY + (handY - shoulderY) * t) | 0;
+    // Arm thickness
+    const aw = 5;
+    px(C.out, sx - 2, sy - 2, aw, aw);
+    px(C.skinMid, sx - 1, sy - 1, aw - 2, aw - 2);
+    px(C.skinLit, sx - 1, sy - 1, aw - 2, 1);
+  }
+  // Hand / fist
+  px(C.out, handX - 3, handY - 3, 7, 8);
+  px(C.skinMid, handX - 2, handY - 2, 5, 6);
+  px(C.skinLit, handX - 2, handY - 2, 5, 1);
+  px(C.skinShadow, handX - 2, handY + 3, 5, 1);
+  // Knuckle outline ridges
+  px(C.out, handX - 1, handY,     1, 1);
+  px(C.out, handX + 1, handY,     1, 1);
+}
+
+function drawTrident(side) {
+  // side = -1 left (smaller), +1 right (bigger)
+  // Held in the corresponding hand
+  const handX = 64 + side * 30;
+  const handY = 86;
+  // Shaft from hand position upward
+  const shaftTop = side === 1 ? 36 : 46;     // right trident is taller
+  const shaftBottom = handY + 12;
+  const shaftX = handX;
+  // Shaft
+  px(C.triOut,  shaftX - 1, shaftTop, 4, shaftBottom - shaftTop);
+  px(C.triDark, shaftX,     shaftTop, 2, shaftBottom - shaftTop);
+  px(C.triMid,  shaftX,     shaftTop, 1, shaftBottom - shaftTop);
+  px(C.triLit,  shaftX,     shaftTop, 1, Math.max(1, ((shaftBottom - shaftTop) / 3) | 0));
+  // Crossbar (where the 3 prongs join)
+  const xb_y = shaftTop;
+  px(C.triOut,  shaftX - 6, xb_y - 1, 14, 3);
+  px(C.triDark, shaftX - 5, xb_y,     12, 1);
+  px(C.triMid,  shaftX - 5, xb_y,     12, 1);
+  px(C.triLit,  shaftX - 5, xb_y,     12, 1);
+  // 3 prongs (sharp triangular points)
+  // Center prong (longest)
+  const cpx = shaftX;
+  const cpTopY = xb_y - 10;
+  for (let i = 0; i < 10; i++) {
+    const w = (i < 8) ? 2 : (i < 9 ? 1 : 1);
+    px(C.triOut,  cpx - 1, cpTopY + i, w + 2, 1);
+    px(C.triMid,  cpx,     cpTopY + i, w,     1);
+    px(C.triSpec, cpx,     cpTopY + i, 1,     1);
+  }
+  // Sharp tip
+  px(C.triOut,  cpx,     cpTopY - 1, 1, 1);
+  // Side prongs (shorter, splaying outward)
+  // Left prong
+  const lpx = shaftX - 4;
+  const lpTopY = xb_y - 7;
+  for (let i = 0; i < 7; i++) {
+    px(C.triOut,  lpx - 1, lpTopY + i, 3, 1);
+    px(C.triMid,  lpx,     lpTopY + i, 2, 1);
+    px(C.triLit,  lpx,     lpTopY + i, 1, 1);
+  }
+  // Curve the prong tip slightly outward
+  px(C.triOut,  lpx - 2, lpTopY + 1, 1, 2);
+  // Right prong (mirrored)
+  const rpx = shaftX + 3;
+  const rpTopY = xb_y - 7;
+  for (let i = 0; i < 7; i++) {
+    px(C.triOut,  rpx, rpTopY + i, 3, 1);
+    px(C.triMid,  rpx + 1, rpTopY + i, 2, 1);
+    px(C.triLit,  rpx + 1, rpTopY + i, 1, 1);
+  }
+  px(C.triOut,  rpx + 3, rpTopY + 1, 1, 2);
+  // Decorative wrap at the grip
+  px(C.skinShadow, shaftX - 1, handY + 4, 4, 2);
+  px(C.skinMid,    shaftX,     handY + 4, 2, 1);
+}
+
+function drawLegs() {
+  // 2 short stumpy legs at y=98-114
+  // Left leg
+  px(C.out,        53, 98, 9, 16);
+  px(C.skinMid,    54, 99, 7, 14);
+  px(C.skinLit,    54, 99, 7, 2);
+  px(C.skinShadow, 59, 100, 2, 12);
+  // Right leg
+  px(C.out,        66, 98, 9, 16);
+  px(C.skinMid,    67, 99, 7, 14);
+  px(C.skinLit,    67, 99, 7, 2);
+  px(C.skinShadow, 72, 100, 2, 12);
+
+  // Feet (small bare splayed feet)
+  // Left foot
+  px(C.out, 50, 113, 13, 5);
+  px(C.skinMid, 51, 114, 11, 3);
+  px(C.skinLit, 51, 114, 11, 1);
+  px(C.skinShadow, 51, 116, 11, 1);
+  // Toes (small bumps on top)
+  px(C.skinLit, 52, 113, 1, 1);
+  px(C.skinLit, 55, 113, 1, 1);
+  px(C.skinLit, 58, 113, 1, 1);
+  // Right foot
+  px(C.out, 65, 113, 13, 5);
+  px(C.skinMid, 66, 114, 11, 3);
+  px(C.skinLit, 66, 114, 11, 1);
+  px(C.skinShadow, 66, 116, 11, 1);
+  px(C.skinLit, 69, 113, 1, 1);
+  px(C.skinLit, 72, 113, 1, 1);
+  px(C.skinLit, 75, 113, 1, 1);
+}
+
+function drawTail() {
+  // S-curve tail from the back of the body (right side) curving down + out
+  // Then ending in an arrow-tip (the devil's spade)
+  const segs = [
+    { x: 82, y: 96 },
+    { x: 86, y: 98 },
+    { x: 90, y: 102 },
+    { x: 92, y: 107 },
+    { x: 92, y: 112 },
+    { x: 90, y: 116 },
+    { x: 86, y: 119 },
+    { x: 82, y: 120 },
+  ];
+  for (let i = 0; i < segs.length - 1; i++) {
+    const a = segs[i], b = segs[i + 1];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const steps = Math.max(Math.abs(dx), Math.abs(dy)) + 1;
+    for (let s = 0; s < steps; s++) {
+      const tt = steps === 1 ? 0 : s / (steps - 1);
+      const sx = (a.x + dx * tt) | 0;
+      const sy = (a.y + dy * tt) | 0;
+      px(C.out,     sx - 1, sy - 1, 4, 4);
+      px(C.skinMid, sx,     sy,     2, 2);
+      px(C.skinLit, sx,     sy,     2, 1);
+    }
+  }
+  // Arrow-tip / spade at the end
+  const tipX = segs[segs.length - 1].x - 4;
+  const tipY = segs[segs.length - 1].y;
+  // Spade shape: 7 wide × 5 tall with a notch at the back
+  px(C.out, tipX - 4, tipY - 2, 9, 6);
+  px(C.skinMid, tipX - 3, tipY - 1, 7, 4);
+  px(C.skinLit, tipX - 3, tipY - 1, 7, 1);
+  // Point on the left
+  px(C.out, tipX - 6, tipY, 2, 2);
+  px(C.skinMid, tipX - 5, tipY, 1, 1);
+  // Notch on the back (right)
+  px(C.out, tipX + 4, tipY - 1, 2, 4);
+}
+
+function drawFlame() {
+  // Flame floating above the head (y=2-22, x=58-72)
+  // Teardrop shape with inner glow + small drip below
+  // Outer outline
+  px(C.out, 62, 1, 4, 1);
+  px(C.out, 60, 2, 8, 1);
+  px(C.out, 58, 4, 12, 2);
+  px(C.out, 56, 6, 16, 4);
+  px(C.out, 58, 10, 12, 4);
+  px(C.out, 60, 14, 8, 4);
+  px(C.out, 62, 18, 4, 2);
+  // Outer flame layer
+  px(C.flameOut, 62, 2, 4, 1);
+  px(C.flameOut, 60, 3, 8, 1);
+  px(C.flameOut, 58, 5, 12, 1);
+  px(C.flameOut, 57, 6, 14, 4);
+  px(C.flameOut, 59, 10, 10, 4);
+  px(C.flameOut, 61, 14, 6, 4);
+  px(C.flameOut, 62, 18, 4, 1);
+  // Mid flame
+  px(C.flameMid, 62, 3, 4, 1);
+  px(C.flameMid, 60, 4, 8, 1);
+  px(C.flameMid, 59, 6, 10, 3);
+  px(C.flameMid, 60, 9, 8, 5);
+  px(C.flameMid, 62, 14, 4, 3);
+  // Inner flame
+  px(C.flameIn, 62, 4, 4, 1);
+  px(C.flameIn, 61, 6, 6, 2);
+  px(C.flameIn, 61, 8, 6, 6);
+  px(C.flameIn, 62, 14, 4, 1);
+  // Hot core
+  px(C.flameCore, 62, 7, 4, 1);
+  px(C.flameCore, 62, 9, 4, 4);
+  // White-hot center
+  px(C.flameWhite, 63, 9, 2, 2);
+  // Drip below the flame (small)
+  px(C.out,        63, 20, 2, 2);
+  px(C.flameOut,   63, 20, 2, 1);
+  px(C.flameMid,   63, 20, 2, 1);
+
+  // Curling flame tongue on top
+  px(C.out,      63, 0, 2, 1);
+  px(C.flameMid, 63, 0, 2, 1);
+}
+
+// ── MAIN DRAW ───────────────────────────────────────────────
+function drawDevil() {
+  ctx.clearRect(0, 0, 128, 128);
+
+  // Z-order: tridents (back) → horns → ears → head → hair → face
+  //           → body → arms → tail → legs → feet → flame
+  drawHorn(-1);
+  drawHorn(+1);
+  drawEar(-1);
+  drawEar(+1);
+  drawHead();
+  drawHair();
+  drawFace();
+  drawMouth();
+  drawTrident(-1);
+  drawTrident(+1);
+  drawBody();
+  drawArm(-1);
+  drawArm(+1);
+  drawTail();
+  drawLegs();
+  drawFlame();
+}
+
+drawDevil();
+
+// ── DOWNLOAD ────────────────────────────────────────────────
+document.getElementById('downloadBtn').addEventListener('click', () => {
+  // Render the 128×128 canvas at 4× into a fresh 512×512 canvas
+  // with imageSmoothingEnabled=false so the integer-scale pixel art
+  // exports with hard, sharp edges (no AA, no blur).
+  const dl = document.createElement('canvas');
+  dl.width = 512;
+  dl.height = 512;
+  const dctx = dl.getContext('2d');
+  dctx.imageSmoothingEnabled = false;
+  dctx.drawImage(cv, 0, 0, 512, 512);
+  dl.toBlob((blob) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'angel-devil-pixel-art-512.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }, 'image/png');
+});
+</script>
+</body>
+</html>
