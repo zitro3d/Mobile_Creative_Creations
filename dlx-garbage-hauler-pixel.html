@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v448-pixel-drone-thief';
+const DLX_BUILD = 'v448a-thief-2x-scale';
 
 (function() {
   // ---------- Device detection ----------
@@ -25598,9 +25598,14 @@ const DLX_BUILD = 'v448-pixel-drone-thief';
   function drawPixelDailyThief(tf) {
     ctx.save();
     ctx.imageSmoothingEnabled = false;
-    // Mockup native is 72×80 with hull centered roughly at (26, 23).
-    // Translate so mockup (26, 23) aligns with (tf.x, tf.y).
-    ctx.translate((Math.round(tf.x) - 26) | 0, (Math.round(tf.y) - 23) | 0);
+    // The old smooth-art thief was ~60×32 game-pixels. The mockup hull
+    // is only 40×16 native, so rendering 1:1 read minuscule on screen.
+    // Render at 2× scale: each mockup pixel becomes a 2×2 game-pixel
+    // block. Hull center (mockup 26,23) lands at (tf.x, tf.y).
+    const SCALE = 2;
+    ctx.translate(Math.round(tf.x) | 0, Math.round(tf.y) | 0);
+    ctx.scale(SCALE, SCALE);
+    ctx.translate(-26, -23);
     const t = frame;
     const hover = Math.round(Math.sin(t * 0.12));
     const oy = hover;
@@ -25795,7 +25800,10 @@ const DLX_BUILD = 'v448-pixel-drone-thief';
     blk(eyeHot ? '#ff4020' : '#a01a0a', 32, 31, 1, 1);
 
     // ─── CABLE + GLOWING-LED MAGNETIC CLAW ──────────────────
-    const cableLen = tf.cableLen || 0;
+    // tf.cableLen is in game-pixels; canvas is at 2× scale, so we
+    // divide by SCALE to get the mockup-pixel length the visual code
+    // expects. End result: cable on-screen length matches game state.
+    const cableLen = ((tf.cableLen || 0) / SCALE) | 0;
     const cableTopY = 30;
     const cableBottomY = cableTopY + cableLen;
     if (cableLen > 0) {
@@ -25853,9 +25861,10 @@ const DLX_BUILD = 'v448-pixel-drone-thief';
     }
 
     // Lock-on telegraph during the first 12 frames of 'lower'
-    // (geometric stepped pixels, no soft dashed line)
+    // (geometric stepped pixels). Divide by SCALE so the telegraph
+    // length matches the game-pixel distance to ground.
     if (tf.state === 'lower' && tf.stateFrames < 12) {
-      const telegraphLen = (PLAY_H - 30) - Math.round(tf.y);
+      const telegraphLen = (((PLAY_H - 30) - Math.round(tf.y)) / SCALE) | 0;
       for (let dy = 4; dy < telegraphLen; dy += 6) {
         blk('#ffd060', 25, 30 + dy, 1, 2);
       }
