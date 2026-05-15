@@ -127,6 +127,7 @@
     </div>
     <div class="controls">
       <button class="btn" data-target="devil" data-mode="character" data-size="512">DEVIL IDLE GIF</button>
+      <button class="btn" data-target="devil" data-mode="flame"     data-size="512">HOVER FLAME GIF</button>
       <button class="btn" data-target="devil" data-mode="poof"      data-size="512">POOF REVEAL GIF</button>
     </div>
   </div>
@@ -742,6 +743,80 @@ function drawFlame(t) {
   px(C.flameMid, 63 + tipShift, 0, 2, 1);
 }
 
+// ── HOVER FLAME — magical fire platform under the devil's feet ──
+// A wide flame "pad" the devil floats on. Independent layer so it
+// can be composited under the character in a video editor. 4-phase
+// flicker every 8 frames; rising sparks on a 20-frame cycle. Both
+// periods divide the 80-frame devil loop cleanly = seamless GIF.
+function drawHoverFlame(t) {
+  t = t | 0;
+  const cx = 64;
+
+  // 4-phase tongue heights (5 tongues per phase)
+  const phase = ((t / 2) | 0) & 3;
+  const TONGUES = [
+    [5, 7, 6, 8, 6],
+    [7, 5, 8, 6, 7],
+    [8, 6, 7, 8, 5],
+    [6, 8, 5, 7, 6],
+  ];
+  const tongueH = TONGUES[phase];
+
+  // ── OUTER GLOW (faint ground reflection, very wide) ──
+  px('#3a0808', cx - 22, 126, 44, 2);
+  px('#5a1010', cx - 20, 125, 40, 1);
+
+  // ── WIDE FLAME BASE (the "platform") ──
+  // Each row brighter as we move up
+  px('#7a1010', cx - 18, 124, 36, 1);
+  px('#a01818', cx - 16, 123, 32, 1);
+  px('#c83020', cx - 14, 122, 28, 1);
+  px('#e84020', cx - 12, 121, 24, 1);
+  px('#ff6020', cx - 10, 120, 20, 1);
+  px('#ff8030', cx - 8,  119, 16, 1);
+
+  // ── HOT INNER CORE (small, very bright) ──
+  px('#ffd060', cx - 6, 118, 12, 1);
+  px('#fff080', cx - 4, 117, 8, 1);
+  // White-hot center flickers between two shades
+  const coreHot = ((t / 3) | 0) & 1;
+  px(coreHot ? '#ffffff' : '#fff8d0', cx - 2, 116, 4, 1);
+
+  // ── FLAME TONGUES licking up (5 tapered cones) ──
+  const TONGUE_X = [-14, -7, 0, 7, 14];
+  for (let i = 0; i < 5; i++) {
+    const tx = cx + TONGUE_X[i];
+    const h  = tongueH[i];
+    const ty = 118; // tongue base (top of the inner core)
+    for (let dy = 0; dy < h; dy++) {
+      const yy = ty - dy;
+      const u  = dy / h;
+      const w  = Math.max(1, Math.round(4 * (1 - u)));
+      const xStart = tx - (w >> 1);
+      const color = dy === 0           ? '#ff6020'
+                  : u < 0.30           ? '#ff8030'
+                  : u < 0.60           ? '#ffd060'
+                  : u < 0.85           ? '#fff080'
+                  :                     '#ffffff';
+      px(color, xStart, yy, w, 1);
+    }
+  }
+
+  // ── RISING SPARKS / EMBERS ──
+  for (let i = 0; i < 10; i++) {
+    const sparkT = (t + i * 9) % 20;
+    if (sparkT >= 18) continue;
+    const angle    = (i / 10) * Math.PI * 2;
+    const baseDist = 8 + (i % 3) * 4;
+    const wob      = Math.round(Math.sin(t * 0.3 + i) * 2);
+    const x = (cx + Math.cos(angle) * baseDist + wob) | 0;
+    const y = (114 - sparkT * 1.2) | 0;
+    if (y < 80) continue;
+    const palette = ['#ffd060', '#ff6020', '#ffffff', '#ff4020'];
+    px(palette[i % 4], x, y, 1, 1);
+  }
+}
+
 // ── DEVIL MAIN DRAW (animated) ─────────────────────────────
 // `t` is the frame counter (0, 1, 2, ...).
 // `opts.showCharacter` (default true) — paint the devil body
@@ -753,8 +828,14 @@ function drawDevil(t, opts) {
   opts = opts || {};
   const showCharacter = opts.showCharacter !== false;
   const showPoof      = opts.showPoof      !== false;
+  const showFlame     = opts.showFlame     !== false;
 
   ctx.clearRect(0, 0, 128, 128);
+
+  // Hover flame UNDERNEATH the character so the devil reads as
+  // floating ON the flame platform. Drawn first so the character
+  // body overlaps the top edge of the flame.
+  if (showFlame) drawHoverFlame(t);
 
   if (showCharacter) {
     // HOVERING IN THE AIR — continuous slow vertical bob over the
@@ -1719,9 +1800,12 @@ function exportAngel(size, btn, mode) {
 }
 
 // Animated GIF export — modes:
-//   'character' = devil idle loop, NO poof, 80 frames (one mouth cycle)
-//   'poof'      = reveal particles only, NO devil, 75 frames (full poof)
-// Each frame ~33 ms (30 fps).
+//   'character' = devil idle loop, no poof, no flame   (80 frames)
+//   'flame'     = hover flame platform only             (80 frames)
+//   'poof'      = magical reveal particles only         (75 frames)
+// Each frame ~33 ms (30 fps). The three layers composite cleanly in
+// any video editor: flame at the bottom, character on top, poof
+// only at the entrance.
 function exportDevil(size, btn, mode) {
   if (typeof GIF === 'undefined') {
     alert('GIF library not loaded yet — try again in a moment');
@@ -1732,13 +1816,21 @@ function exportDevil(size, btn, mode) {
   btn.textContent = 'RECORDING…';
 
   // Mode setup — frame count + drawDevil options + filename
-  const isPoof = (mode === 'poof');
-  const FRAMES = isPoof ? 75 : 80;
+  let FRAMES, drawOpts, fileLabel;
+  if (mode === 'poof') {
+    FRAMES = 75;
+    drawOpts = { showCharacter: false, showPoof: true,  showFlame: false };
+    fileLabel = 'poof-reveal';
+  } else if (mode === 'flame') {
+    FRAMES = 80;
+    drawOpts = { showCharacter: false, showPoof: false, showFlame: true };
+    fileLabel = 'hover-flame';
+  } else {
+    FRAMES = 80;
+    drawOpts = { showCharacter: true,  showPoof: false, showFlame: false };
+    fileLabel = 'devil-idle';
+  }
   const FPS = 30;
-  const drawOpts = isPoof
-    ? { showCharacter: false, showPoof: true }
-    : { showCharacter: true,  showPoof: false };
-  const fileLabel = isPoof ? 'poof-reveal' : 'devil-idle';
 
   const srcCv = document.createElement('canvas');
   srcCv.width = 128; srcCv.height = 128;
