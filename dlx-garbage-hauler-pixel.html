@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v446o-tentacle-slower';
+const DLX_BUILD = 'v446p-tentacle-no-pop';
 
 (function() {
   // ---------- Device detection ----------
@@ -16172,6 +16172,22 @@ const DLX_BUILD = 'v446o-tentacle-slower';
 
   function drawPixelTentacle(sx, gy, tObj) {
     sx = sx | 0; gy = gy | 0;
+    // v446p — RISE + RETRACT animation matching the smooth-art
+    // logic (the pixel version was POPPING OFF when life expired
+    // because it always drew at full length).
+    //   life 0..60:        rising (reach 0 → 1)
+    //   life 60..maxLife-60: hold at full reach (1)
+    //   life maxLife-60..maxLife: retracting (reach 1 → 0)
+    let reach;
+    const life = tObj.life || 0;
+    const maxLife = tObj.maxLife || 240;
+    if (life < 60)               reach = life / 60;
+    else if (life < maxLife - 60) reach = 1;
+    else                          reach = Math.max(0, (maxLife - life) / 60);
+    // Fully retracted — skip drawing entirely so nothing renders
+    // during the final frame before the splice removes the object.
+    if (reach < 0.04) return;
+
     const waveSeed = tObj.waveSeed || 0;
     // Mound + slime palette also switched to wine tones.
     const MOUND_DARK = '#3a0a18';
@@ -16196,16 +16212,22 @@ const DLX_BUILD = 'v446o-tentacle-slower';
     // slower) for a more menacing, slow-motion slither.
     //   Speed history: 0.08 (v444) → 0.04 (v446b) → 0.025 (now)
     const wavePhase = (frame * 0.025) + waveSeed;
-    // Left  — thin (max body width 3), reaches higher than before
-    drawPixelTentacleArm(sx - 8, gy - 3, -Math.PI * 0.72, 110,
+    // Arm lengths scaled by reach so each tentacle grows out of
+    // the ground at spawn + retracts back into the ground at end.
+    // Left  — thin (max body width 3)
+    drawPixelTentacleArm(sx - 8, gy - 3, -Math.PI * 0.72, 110 * reach,
                          wavePhase,       3, false);
     // Right — medium (max body width 4)
-    drawPixelTentacleArm(sx + 8, gy - 3, -Math.PI * 0.32, 130,
+    drawPixelTentacleArm(sx + 8, gy - 3, -Math.PI * 0.32, 130 * reach,
                          wavePhase + 1.4, 4, false);
     // Center — thickest (max body width 5), LONGEST — reaches the
-    // full 150-px strike zone with the maw
-    drawPixelTentacleArm(sx,     gy - 4, -Math.PI * 0.52, 160,
-                         wavePhase + 0.7, 5, true);
+    // full 150-px strike zone with the maw. Only draws the maw
+    // when reach is close to 1 (full extension); during rise +
+    // retract, the maw is hidden so the tentacle looks like it's
+    // emerging from / returning to the dirt.
+    const showMaw = reach > 0.85;
+    drawPixelTentacleArm(sx,     gy - 4, -Math.PI * 0.52, 160 * reach,
+                         wavePhase + 0.7, 5, showMaw);
   }
 
   // ---------- Daily delivery course renderers ----------
