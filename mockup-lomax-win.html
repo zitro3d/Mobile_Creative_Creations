@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>LOMAX · WIN TOKEN — Pixel Art</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Helvetica Neue', system-ui, sans-serif;
+    background:
+      radial-gradient(ellipse 90% 60% at 50% -10%, oklch(0.30 0.10 38 / 0.20) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 0%, #1d1330 0%, #120a18 60%, #050308 100%);
+    color: #f4e8d8;
+    min-height: 100vh;
+    padding: 26px 16px 60px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage { max-width: 720px; margin: 0 auto; }
+
+  .pageHeader { text-align: center; margin-bottom: 22px; }
+  .pageHeader .kicker {
+    font-size: 10px; letter-spacing: 4px; font-weight: 800;
+    color: #ff9050; margin-bottom: 6px;
+  }
+  .pageHeader h1 {
+    font-family: Impact, 'Arial Black', sans-serif;
+    font-size: 32px; letter-spacing: 6px; color: #ffd060;
+    margin-bottom: 4px;
+  }
+  .pageHeader .sub {
+    font-size: 11px; line-height: 1.55; color: #c0a890;
+    max-width: 540px; margin: 8px auto 0;
+  }
+
+  .panel {
+    background: linear-gradient(180deg, #160e22 0%, #0a0612 100%);
+    border: 1.5px solid #3a2a4a;
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  .panel .panelLabel {
+    font-family: Impact, sans-serif;
+    font-size: 16px; letter-spacing: 3px;
+    color: #ffd060;
+    margin-bottom: 4px;
+  }
+  .panel .panelSub {
+    font-size: 11px; color: #806a90;
+    margin-bottom: 14px;
+  }
+
+  .canvasWrap {
+    background: #050308;
+    border: 1px solid #2a1a30;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex; justify-content: center; align-items: center;
+    padding: 16px;
+  }
+  canvas.pixelCanvas {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    display: block;
+    width: 100%;
+    max-width: 600px;
+    height: auto;
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <div class="pageHeader">
+    <div class="kicker">DLX HAULER · LOMAX</div>
+    <h1>WIN TOKEN</h1>
+    <p class="sub">
+      Lomax raises a glowing blue Win Token overhead — pixel-art
+      replica of the reference key art. The token shows a hovercar
+      etched in cyan with hover-circle lines beneath. Set against the
+      orange wasteland sky with a sun halo and floating debris.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="panelLabel">LOMAX · WIN SCREEN</div>
+    <div class="panelSub">
+      Native 200×320, image-rendering: pixelated. Token bobs + glows,
+      sparkles drift, sun halo pulses, cubes float.
+    </div>
+    <div class="canvasWrap">
+      <canvas id="stage" width="200" height="320" class="pixelCanvas"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────
+// Color palette
+// ─────────────────────────────────────────────────────────
+const C = {
+  // Sky / sun
+  skyTop:     '#5a2818',
+  skyMid:     '#a04828',
+  skyLow:     '#d86830',
+  skyHaze:    '#e88838',
+  sunCore:    '#fff8d0',
+  sunInner:   '#ffeb90',
+  sunMid:     '#ffc850',
+  sunOuter:   '#f08030',
+  sunHalo:    '#d05828',
+  // Lomax fur (sloth/bear brown)
+  furLight:   '#a07858',
+  furCore:    '#704830',
+  furDark:    '#3a2010',
+  furDeep:    '#1a0c04',
+  // Face mask (lighter snout / belly)
+  maskLight:  '#e8d0a0',
+  maskCore:   '#c8a878',
+  maskShadow: '#806040',
+  // Jumpsuit (blue/purple)
+  suitLight:  '#7878c8',
+  suitCore:   '#48489a',
+  suitDark:   '#2a2a6a',
+  suitDeep:   '#101038',
+  // Goggles
+  gogRim:     '#9a9aa0',
+  gogRimDark: '#48484e',
+  gogLens:    '#ffeb90',
+  gogLensHi:  '#fff8d0',
+  gogStrap:   '#1a0c04',
+  // Skull patch
+  skullWhite: '#e8e0d0',
+  skullDark:  '#181818',
+  // Outline
+  outline:    '#04060a',
+  // Token (Win)
+  tokGlow:    '#7eddeb',
+  tokGlowHot: '#bcecff',
+  tokCore:    '#1c5e6e',
+  tokDeep:    '#0a3038',
+  tokFace:    '#205870',
+  tokBorder:  '#9a9aa0',
+  tokBorderLi:'#cfd2d4',
+  // Sparkles + cubes
+  cubeLight:  '#e88838',
+  cubeCore:   '#a04828',
+  cubeDark:   '#5a2818',
+};
+
+// ─────────────────────────────────────────────────────────
+// Sky gradient (discrete bands) + sun halo
+// ─────────────────────────────────────────────────────────
+function drawSky(ctx, frame) {
+  // Vertical gradient bands — orange wasteland sky
+  const bands = [
+    { y:0,   h:30,  c:'#3a1810' },
+    { y:30,  h:30,  c:'#6a2818' },
+    { y:60,  h:40,  c:'#9a3820' },
+    { y:100, h:40,  c:'#bc4828' },
+    { y:140, h:40,  c:'#d05830' },
+    { y:180, h:40,  c:'#d86838' },
+    { y:220, h:40,  c:'#c85838' },
+    { y:260, h:60,  c:'#a04830' },
+  ];
+  bands.forEach(b => { ctx.fillStyle = b.c; ctx.fillRect(0, b.y, 200, b.h); });
+
+  // Sun halo behind character — large radial circle with glow rings
+  const cx = 100, cy = 120;
+  const haloPulse = Math.sin(frame * 0.04) * 0.15 + 0.85;
+  for (let r = 90; r >= 0; r--) {
+    let color;
+    if (r > 80) color = 'rgba(208, 88, 40, ' + (0.20 * haloPulse) + ')';
+    else if (r > 65) color = 'rgba(232, 136, 56, ' + (0.30 * haloPulse) + ')';
+    else if (r > 50) color = 'rgba(240, 128, 48, ' + (0.55 * haloPulse) + ')';
+    else if (r > 38) color = 'rgba(255, 200, 80, ' + (0.85 * haloPulse) + ')';
+    else if (r > 22) color = '#ffeb90';
+    else if (r > 12) color = '#fff8d0';
+    else              color = '#ffffff';
+    drawDisk(ctx, cx, cy, r, color);
+  }
+
+  // Horizon haze band
+  ctx.fillStyle = 'rgba(232,136,56,0.35)';
+  ctx.fillRect(0, 195, 200, 4);
+  ctx.fillStyle = 'rgba(232,136,56,0.20)';
+  ctx.fillRect(0, 200, 200, 8);
+
+  // Speckle dust on background (subtle texture)
+  ctx.fillStyle = 'rgba(20,8,4,0.25)';
+  for (let i = 0; i < 60; i++) {
+    const px = (i * 73 + 17) % 200;
+    const py = (i * 41 + 11) % 320;
+    ctx.fillRect(px, py, 1, 1);
+  }
+}
+
+function drawDisk(ctx, cx, cy, r, color) {
+  if (r <= 0) { ctx.fillStyle = color; ctx.fillRect(cx, cy, 1, 1); return; }
+  ctx.fillStyle = color;
+  for (let py = -r; py <= r; py++) {
+    for (let px = -r; px <= r; px++) {
+      if (px*px + py*py <= r*r) ctx.fillRect(cx+px, cy+py, 1, 1);
+    }
+  }
+}
+
+function strokeDisk(ctx, cx, cy, r, color) {
+  ctx.fillStyle = color;
+  for (let py = -r; py <= r; py++) {
+    for (let px = -r; px <= r; px++) {
+      const d = px*px + py*py;
+      if (d <= r*r && d > (r-1)*(r-1)) ctx.fillRect(cx+px, cy+py, 1, 1);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Floating cubes in background (isometric blocks)
+// ─────────────────────────────────────────────────────────
+function drawCubes(ctx, frame) {
+  const cubes = [
+    { x: 20,  y: 70,  s: 14, phase: 0 },
+    { x: 168, y: 90,  s: 16, phase: 1.2 },
+    { x: 12,  y: 220, s: 11, phase: 2.5 },
+    { x: 170, y: 240, s: 18, phase: 3.7 },
+    { x: 160, y: 165, s: 9,  phase: 4.5 },
+  ];
+  cubes.forEach(c => {
+    const bob = Math.round(Math.sin(frame * 0.03 + c.phase) * 2);
+    const cx = c.x, cy = c.y + bob, s = c.s;
+    // Front face
+    ctx.fillStyle = C.cubeCore; ctx.fillRect(cx, cy, s, s);
+    ctx.fillStyle = C.cubeLight; ctx.fillRect(cx, cy, s, 2);
+    ctx.fillStyle = C.cubeDark;  ctx.fillRect(cx, cy+s-2, s, 2);
+    ctx.fillStyle = C.outline;   ctx.fillRect(cx, cy, s, 1); ctx.fillRect(cx, cy+s-1, s, 1);
+    ctx.fillRect(cx, cy, 1, s); ctx.fillRect(cx+s-1, cy, 1, s);
+    // Top face (isometric)
+    ctx.fillStyle = C.cubeLight;
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(cx + i, cy - i - 1, s - i*2, 1);
+    }
+    ctx.fillStyle = C.outline;
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(cx + i, cy - i - 1, 1, 1);
+      ctx.fillRect(cx + s - i - 1, cy - i - 1, 1, 1);
+    }
+  });
+}
+
+// ─────────────────────────────────────────────────────────
+// Sparkles drifting through scene
+// ─────────────────────────────────────────────────────────
+function drawSparkles(ctx, frame) {
+  for (let i = 0; i < 24; i++) {
+    const baseX = (i * 31 + 13) % 200;
+    const baseY = (i * 53 + 7) % 320;
+    const drift = (frame + i * 11) % 80;
+    const sx = baseX;
+    const sy = (baseY + drift) % 320;
+    const phase = ((frame >> 1) + i * 5) % 16;
+    if (phase >= 12) continue;
+    ctx.fillStyle = phase < 4 ? '#ffffff' : (phase < 8 ? '#fff8d0' : '#ffeb90');
+    ctx.fillRect(sx, sy, 1, 1);
+    if (phase < 4) {
+      ctx.fillRect(sx-1, sy, 1, 1); ctx.fillRect(sx+1, sy, 1, 1);
+      ctx.fillRect(sx, sy-1, 1, 1); ctx.fillRect(sx, sy+1, 1, 1);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Win Token — rounded glowing square with hovercar etching
+// ─────────────────────────────────────────────────────────
+function drawToken(ctx, frame) {
+  const bob = Math.round(Math.sin(frame * 0.06) * 2);
+  const cx = 100, cy = 92 + bob;
+  const w = 60, h = 70;
+  const x0 = cx - (w >> 1), y0 = cy - (h >> 1);
+
+  // ── Outer cyan glow halo around token ──
+  const glowPulse = Math.sin(frame * 0.08) * 0.2 + 0.8;
+  for (let r = 50; r > 0; r -= 2) {
+    const a = (1 - r / 50) * 0.18 * glowPulse;
+    ctx.fillStyle = `rgba(126, 221, 235, ${a.toFixed(2)})`;
+    strokeDisk(ctx, cx, cy, r, ctx.fillStyle);
+  }
+
+  // ── Token body (rounded square — manually clipped corners) ──
+  // Outer chrome border
+  drawRoundedRect(ctx, x0, y0, w, h, 4, C.outline);
+  drawRoundedRect(ctx, x0+1, y0+1, w-2, h-2, 3, C.tokBorderLi);
+  drawRoundedRect(ctx, x0+2, y0+2, w-4, h-4, 3, C.tokBorder);
+  // Inner cyan face
+  drawRoundedRect(ctx, x0+4, y0+4, w-8, h-8, 2, C.tokDeep);
+  drawRoundedRect(ctx, x0+5, y0+5, w-10, h-10, 2, C.tokCore);
+  drawRoundedRect(ctx, x0+6, y0+6, w-12, h-12, 1, C.tokFace);
+
+  // Cyan inner glow tracing
+  ctx.fillStyle = C.tokGlow;
+  drawRoundedFrame(ctx, x0+3, y0+3, w-6, h-6, 2, C.tokGlow);
+
+  // Bottom darker band (depth feel)
+  ctx.fillStyle = C.tokDeep;
+  ctx.fillRect(x0+4, y0+h-9, w-8, 5);
+  ctx.fillStyle = C.tokCore;
+  ctx.fillRect(x0+4, y0+h-9, w-8, 1);
+
+  // ── Hovercar etching inside the token ──
+  drawTokenCar(ctx, cx, cy - 2, frame);
+
+  // ── Hover circle lines beneath the car ──
+  drawHoverCircles(ctx, cx, cy + 18, frame);
+
+  // ── Specular highlight on top of token ──
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.fillRect(x0+6, y0+5, 18, 1);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.30)';
+  ctx.fillRect(x0+6, y0+6, 22, 1);
+
+  // ── Sparkles at token corners ──
+  const sp = (frame >> 3) % 4;
+  ctx.fillStyle = '#ffffff';
+  if (sp === 0) { ctx.fillRect(x0-2, y0+6, 1, 1); ctx.fillRect(x0-3, y0+7, 1, 1); ctx.fillRect(x0-2, y0+8, 1, 1); ctx.fillRect(x0-1, y0+7, 1, 1); }
+  if (sp === 1) { ctx.fillRect(x0+w+1, y0+4, 1, 1); ctx.fillRect(x0+w+2, y0+5, 1, 1); ctx.fillRect(x0+w, y0+5, 1, 1); ctx.fillRect(x0+w+1, y0+6, 1, 1); }
+  if (sp === 2) { ctx.fillRect(x0-2, y0+h-8, 1, 1); ctx.fillRect(x0-3, y0+h-7, 1, 1); ctx.fillRect(x0-2, y0+h-6, 1, 1); }
+  if (sp === 3) { ctx.fillRect(x0+w+2, y0+h-6, 1, 1); ctx.fillRect(x0+w+3, y0+h-5, 1, 1); ctx.fillRect(x0+w+1, y0+h-5, 1, 1); }
+}
+
+function drawRoundedRect(ctx, x, y, w, h, r, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x + r, y, w - r*2, h);
+  ctx.fillRect(x, y + r, w, h - r*2);
+  // Corner approximation
+  for (let py = 0; py <= r; py++) {
+    for (let px = 0; px <= r; px++) {
+      const d = Math.sqrt((r-px)*(r-px) + (r-py)*(r-py));
+      if (d <= r) {
+        ctx.fillRect(x + px, y + py, 1, 1);
+        ctx.fillRect(x + w - 1 - px, y + py, 1, 1);
+        ctx.fillRect(x + px, y + h - 1 - py, 1, 1);
+        ctx.fillRect(x + w - 1 - px, y + h - 1 - py, 1, 1);
+      }
+    }
+  }
+}
+
+function drawRoundedFrame(ctx, x, y, w, h, r, color) {
+  ctx.fillStyle = color;
+  // Top + bottom edges
+  ctx.fillRect(x + r, y, w - r*2, 1);
+  ctx.fillRect(x + r, y + h - 1, w - r*2, 1);
+  ctx.fillRect(x, y + r, 1, h - r*2);
+  ctx.fillRect(x + w - 1, y + r, 1, h - r*2);
+  // Corner stipple
+  for (let py = 0; py <= r; py++) {
+    for (let px = 0; px <= r; px++) {
+      const d = Math.sqrt((r-px)*(r-px) + (r-py)*(r-py));
+      if (d <= r && d > r - 1) {
+        ctx.fillRect(x + px, y + py, 1, 1);
+        ctx.fillRect(x + w - 1 - px, y + py, 1, 1);
+        ctx.fillRect(x + px, y + h - 1 - py, 1, 1);
+        ctx.fillRect(x + w - 1 - px, y + h - 1 - py, 1, 1);
+      }
+    }
+  }
+}
+
+// Tiny hovercar etching for inside the token — cyan outlined silhouette.
+function drawTokenCar(ctx, cx, cy, frame) {
+  // ~24w × 12h car silhouette
+  const x = cx - 12, y = cy - 8;
+  // Body
+  ctx.fillStyle = C.tokGlow;
+  ctx.fillRect(x+2, y+5, 20, 5);
+  // Cabin / dome
+  ctx.fillRect(x+7, y+2, 10, 4);
+  ctx.fillRect(x+8, y+1, 8, 1);
+  // Engine pods (two on bottom corners)
+  ctx.fillRect(x+1, y+7, 4, 3);
+  ctx.fillRect(x+19, y+7, 4, 3);
+  // Headlight pip
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x+21, y+6, 1, 1);
+  // Cabin window highlight
+  ctx.fillRect(x+9, y+3, 3, 1);
+  // Outline (darker cyan)
+  ctx.fillStyle = C.tokDeep;
+  ctx.fillRect(x+2, y+4, 20, 1); // body top edge
+  ctx.fillRect(x+2, y+10, 20, 1);// body bot edge
+  ctx.fillRect(x+7, y+1, 1, 4); ctx.fillRect(x+16, y+1, 1, 4); // cabin sides
+}
+
+function drawHoverCircles(ctx, cx, cy, frame) {
+  // 3 elliptical curves spreading outward, animating outward
+  const phase = (frame >> 2) % 3;
+  const radii = [6, 10, 14];
+  radii.forEach((r, i) => {
+    const a = (i === phase) ? 1.0 : ((i === (phase+2)%3) ? 0.6 : 0.3);
+    ctx.fillStyle = `rgba(126, 221, 235, ${a.toFixed(2)})`;
+    // Draw a flattened ellipse outline (curved line)
+    for (let px = -r; px <= r; px++) {
+      const py = Math.round(Math.sqrt(Math.max(0, r*r - px*px)) * 0.35);
+      ctx.fillRect(cx + px, cy + py, 1, 1);
+    }
+  });
+}
+
+// ─────────────────────────────────────────────────────────
+// Lomax character — arms raised, holding the win token aloft
+// ─────────────────────────────────────────────────────────
+function drawLomax(ctx, frame) {
+  const breathe = Math.round(Math.sin(frame * 0.04) * 1);
+  const baseY = 215 + breathe;
+  const cx = 100;
+
+  // ── ARMS (raised, behind body so they reach up to the token) ──
+  // Left arm: from shoulder (78, 218) up to hand (60, 102)
+  // Right arm: from shoulder (122, 218) up to hand (140, 102)
+  drawArm(ctx, 78, baseY + 3, 60, 102, 'L');
+  drawArm(ctx, 122, baseY + 3, 140, 102, 'R');
+
+  // ── BODY ──
+  drawBody(ctx, cx, baseY);
+
+  // ── SKULL & CROSSBONES patch on chest ──
+  drawSkullPatch(ctx, cx, baseY + 38);
+
+  // ── BELT ──
+  ctx.fillStyle = C.furDeep;
+  ctx.fillRect(cx-22, baseY + 60, 44, 4);
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx-22, baseY + 60, 44, 1); ctx.fillRect(cx-22, baseY + 63, 44, 1);
+  // Skull buckle
+  ctx.fillStyle = C.gogRim;
+  ctx.fillRect(cx-3, baseY + 59, 6, 6);
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx-3, baseY + 59, 6, 1); ctx.fillRect(cx-3, baseY + 64, 6, 1);
+  ctx.fillRect(cx-3, baseY + 59, 1, 6); ctx.fillRect(cx+2, baseY + 59, 1, 6);
+  ctx.fillStyle = C.skullDark;
+  ctx.fillRect(cx-2, baseY + 60, 4, 4);
+  ctx.fillStyle = C.skullWhite;
+  ctx.fillRect(cx-1, baseY + 61, 1, 1); ctx.fillRect(cx+1, baseY + 61, 1, 1);
+
+  // ── LEGS (lower stubby) ──
+  drawLegs(ctx, cx, baseY + 64);
+
+  // ── HEAD (after body — overlaps shoulders) ──
+  drawHead(ctx, cx, baseY - 16, frame);
+
+  // ── GOGGLES (on top of head, pushed up — aviator) ──
+  drawGoggles(ctx, cx, baseY - 50, frame);
+}
+
+function drawArm(ctx, sx, sy, hx, hy, side) {
+  // Draw an arm as a chunky stroke from shoulder to hand
+  // Using line interpolation with thickness
+  const steps = 30;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const px = Math.round(sx + (hx - sx) * t);
+    const py = Math.round(sy + (hy - sy) * t);
+    // Arm thickness varies (thicker at shoulder, thinner at wrist)
+    const thick = Math.round(7 - t * 2);
+    // Outline
+    ctx.fillStyle = C.outline;
+    ctx.fillRect(px - (thick>>1) - 1, py - (thick>>1), thick + 2, thick);
+    // Main suit
+    ctx.fillStyle = C.suitCore;
+    ctx.fillRect(px - (thick>>1), py - (thick>>1), thick, thick - 1);
+    // Highlight (top edge)
+    ctx.fillStyle = C.suitLight;
+    ctx.fillRect(px - (thick>>1), py - (thick>>1), thick, 1);
+    // Shadow
+    ctx.fillStyle = C.suitDark;
+    ctx.fillRect(px - (thick>>1), py + (thick>>1) - 1, thick, 1);
+  }
+  // Hand (open, with 3 fur claws)
+  drawHand(ctx, hx, hy, side);
+}
+
+function drawHand(ctx, hx, hy, side) {
+  // Hand palm (round brown)
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(hx - 5, hy - 6, 10, 10);
+  ctx.fillStyle = C.furCore;
+  ctx.fillRect(hx - 4, hy - 5, 8, 8);
+  ctx.fillStyle = C.furLight;
+  ctx.fillRect(hx - 4, hy - 5, 8, 2);
+  ctx.fillStyle = C.furDark;
+  ctx.fillRect(hx - 4, hy + 2, 8, 1);
+  // Three claws extending up (sloth claws)
+  for (let i = 0; i < 3; i++) {
+    const dx = -3 + i*3;
+    ctx.fillStyle = C.outline;
+    ctx.fillRect(hx + dx, hy - 12, 2, 8);
+    ctx.fillStyle = C.furLight;
+    ctx.fillRect(hx + dx, hy - 12, 1, 6);
+    ctx.fillStyle = C.furDark;
+    ctx.fillRect(hx + dx + 1, hy - 12, 1, 6);
+    // Claw tip (chrome / sharp)
+    ctx.fillStyle = C.maskLight;
+    ctx.fillRect(hx + dx, hy - 13, 2, 1);
+  }
+}
+
+function drawBody(ctx, cx, by) {
+  // Outline
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx - 24, by, 48, 64);
+  // Suit (blue/purple)
+  ctx.fillStyle = C.suitDark; ctx.fillRect(cx - 23, by + 1, 46, 62);
+  ctx.fillStyle = C.suitCore; ctx.fillRect(cx - 23, by + 4, 46, 50);
+  ctx.fillStyle = C.suitLight; ctx.fillRect(cx - 22, by + 4, 44, 2);
+  // Shoulders rounded
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx - 25, by + 3, 2, 6); ctx.fillRect(cx + 23, by + 3, 2, 6);
+  ctx.fillStyle = C.suitCore;
+  ctx.fillRect(cx - 24, by + 3, 1, 6); ctx.fillRect(cx + 23, by + 3, 1, 6);
+  // Center seam (jacket zipper / opening)
+  ctx.fillStyle = C.suitDeep;
+  ctx.fillRect(cx, by + 6, 1, 50);
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx - 1, by + 6, 1, 50);
+  // Belly fur sticking out at bottom edge of jacket (sloth chunk)
+  ctx.fillStyle = C.furCore;
+  ctx.fillRect(cx - 14, by + 54, 28, 6);
+  ctx.fillStyle = C.maskCore;
+  ctx.fillRect(cx - 12, by + 54, 24, 3);
+}
+
+function drawSkullPatch(ctx, cx, py) {
+  // White circular patch
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx - 13, py - 12, 26, 24);
+  ctx.fillStyle = C.suitDeep;
+  ctx.fillRect(cx - 12, py - 11, 24, 22);
+  // Inner circle (white skull background)
+  ctx.fillStyle = C.skullWhite;
+  for (let py2 = -10; py2 <= 10; py2++) {
+    for (let px = -11; px <= 11; px++) {
+      if (px*px*0.85 + py2*py2 <= 100) ctx.fillRect(cx + px, py + py2, 1, 1);
+    }
+  }
+  // SKULL pixel art
+  ctx.fillStyle = C.skullDark;
+  // Cranium
+  ctx.fillRect(cx - 5, py - 8, 10, 6);
+  ctx.fillRect(cx - 4, py - 9, 8, 1);
+  // Eye sockets
+  ctx.fillStyle = C.skullWhite;
+  ctx.fillRect(cx - 3, py - 6, 2, 2); ctx.fillRect(cx + 1, py - 6, 2, 2);
+  // Nose
+  ctx.fillStyle = C.skullWhite;
+  ctx.fillRect(cx, py - 3, 1, 1);
+  // Jaw teeth
+  ctx.fillStyle = C.skullDark;
+  ctx.fillRect(cx - 4, py - 2, 8, 3);
+  ctx.fillStyle = C.skullWhite;
+  ctx.fillRect(cx - 3, py - 1, 1, 1); ctx.fillRect(cx - 1, py - 1, 1, 1);
+  ctx.fillRect(cx + 1, py - 1, 1, 1); ctx.fillRect(cx + 3, py - 1, 1, 1);
+  // Crossed bones (diagonal X behind/below the skull)
+  ctx.fillStyle = C.skullDark;
+  for (let i = 0; i < 10; i++) {
+    ctx.fillRect(cx - 8 + i, py + 1 + i, 2, 1);
+    ctx.fillRect(cx + 9 - i, py + 1 + i, 2, 1);
+  }
+  // Bone end knobs
+  ctx.fillRect(cx - 9, py + 1, 3, 2);
+  ctx.fillRect(cx + 7, py + 1, 3, 2);
+  ctx.fillRect(cx + 1, py + 10, 3, 2);
+  ctx.fillRect(cx - 4, py + 10, 3, 2);
+}
+
+function drawLegs(ctx, cx, ly) {
+  // 2 stubby legs in dark suit
+  ctx.fillStyle = C.outline; ctx.fillRect(cx - 18, ly, 14, 24);
+  ctx.fillStyle = C.outline; ctx.fillRect(cx + 4,  ly, 14, 24);
+  ctx.fillStyle = C.suitDark;
+  ctx.fillRect(cx - 17, ly + 1, 12, 22); ctx.fillRect(cx + 5, ly + 1, 12, 22);
+  ctx.fillStyle = C.suitCore;
+  ctx.fillRect(cx - 17, ly + 1, 12, 16); ctx.fillRect(cx + 5, ly + 1, 12, 16);
+  ctx.fillStyle = C.suitLight;
+  ctx.fillRect(cx - 17, ly + 1, 12, 2); ctx.fillRect(cx + 5, ly + 1, 12, 2);
+  // Boots (dark)
+  ctx.fillStyle = C.outline; ctx.fillRect(cx - 19, ly + 22, 16, 8);
+  ctx.fillStyle = C.outline; ctx.fillRect(cx + 3,  ly + 22, 16, 8);
+  ctx.fillStyle = C.furDeep;
+  ctx.fillRect(cx - 18, ly + 23, 14, 6); ctx.fillRect(cx + 4, ly + 23, 14, 6);
+  ctx.fillStyle = C.furDark;
+  ctx.fillRect(cx - 18, ly + 23, 14, 2); ctx.fillRect(cx + 4, ly + 23, 14, 2);
+}
+
+function drawHead(ctx, cx, hy, frame) {
+  // Round head outline
+  ctx.fillStyle = C.outline;
+  for (let py = -16; py <= 16; py++) {
+    for (let px = -18; px <= 18; px++) {
+      const d = px*px*0.7 + py*py;
+      if (d <= 256 && d > 240) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+  // Fur fill
+  ctx.fillStyle = C.furCore;
+  for (let py = -15; py <= 15; py++) {
+    for (let px = -17; px <= 17; px++) {
+      if (px*px*0.7 + py*py <= 240) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+  // Top fur highlight
+  ctx.fillStyle = C.furLight;
+  for (let py = -15; py <= -8; py++) {
+    for (let px = -14; px <= 14; px++) {
+      if (px*px*0.7 + py*py <= 240) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+  // Side fur shadow
+  ctx.fillStyle = C.furDark;
+  for (let py = 8; py <= 15; py++) {
+    for (let px = -17; px <= 17; px++) {
+      if (px*px*0.7 + py*py <= 240) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+
+  // Cream face mask (mask around eyes/snout)
+  ctx.fillStyle = C.maskCore;
+  for (let py = -2; py <= 12; py++) {
+    for (let px = -10; px <= 10; px++) {
+      if (px*px*0.6 + py*py <= 100) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+  ctx.fillStyle = C.maskLight;
+  for (let py = -1; py <= 6; py++) {
+    for (let px = -9; px <= 9; px++) {
+      if (px*px*0.6 + py*py <= 80) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+
+  // Eyes (looking up at the token — half-closed, white pips)
+  ctx.fillStyle = C.skullDark;
+  ctx.fillRect(cx - 7, hy - 1, 3, 1); ctx.fillRect(cx + 4, hy - 1, 3, 1);
+  ctx.fillStyle = C.skullWhite;
+  ctx.fillRect(cx - 6, hy - 2, 2, 2); ctx.fillRect(cx + 5, hy - 2, 2, 2);
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx - 6, hy - 1, 1, 1); ctx.fillRect(cx + 5, hy - 1, 1, 1);
+
+  // Nose (small brown triangle)
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx - 2, hy + 4, 4, 2);
+  ctx.fillStyle = C.furDeep;
+  ctx.fillRect(cx - 1, hy + 4, 2, 1);
+  ctx.fillStyle = C.furDark;
+  ctx.fillRect(cx - 1, hy + 5, 2, 1);
+
+  // Mouth (open in awe, looking up)
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx - 4, hy + 8, 8, 4);
+  ctx.fillStyle = C.skullDark;
+  ctx.fillRect(cx - 3, hy + 9, 6, 2);
+  ctx.fillStyle = C.maskShadow;
+  ctx.fillRect(cx - 3, hy + 11, 6, 1);
+
+  // Cheeks / smile bumps
+  ctx.fillStyle = C.maskShadow;
+  ctx.fillRect(cx - 6, hy + 7, 2, 1); ctx.fillRect(cx + 4, hy + 7, 2, 1);
+
+  // Side ears (small tufts)
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx - 19, hy - 6, 3, 5); ctx.fillRect(cx + 16, hy - 6, 3, 5);
+  ctx.fillStyle = C.furCore;
+  ctx.fillRect(cx - 18, hy - 5, 2, 3); ctx.fillRect(cx + 16, hy - 5, 2, 3);
+  ctx.fillStyle = C.maskCore;
+  ctx.fillRect(cx - 18, hy - 4, 1, 1); ctx.fillRect(cx + 17, hy - 4, 1, 1);
+}
+
+function drawGoggles(ctx, cx, gy, frame) {
+  // Aviator goggles pushed up onto forehead — 2 lenses + strap
+  // Strap across head
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx - 16, gy + 2, 32, 3);
+  ctx.fillStyle = C.gogStrap;
+  ctx.fillRect(cx - 16, gy + 3, 32, 1);
+  // Strap fabric texture
+  ctx.fillStyle = C.furDark;
+  for (let i = 0; i < 6; i++) ctx.fillRect(cx - 14 + i*5, gy + 3, 1, 1);
+
+  // Left lens
+  ctx.fillStyle = C.outline;
+  for (let py = -5; py <= 5; py++) {
+    for (let px = -5; px <= 5; px++) {
+      const d = px*px + py*py;
+      if (d <= 25 && d > 16) ctx.fillRect(cx - 8 + px, gy + py, 1, 1);
+    }
+  }
+  ctx.fillStyle = C.gogRim;
+  for (let py = -4; py <= 4; py++) {
+    for (let px = -4; px <= 4; px++) {
+      const d = px*px + py*py;
+      if (d <= 16 && d > 9) ctx.fillRect(cx - 8 + px, gy + py, 1, 1);
+    }
+  }
+  ctx.fillStyle = C.gogLens;
+  for (let py = -3; py <= 3; py++) {
+    for (let px = -3; px <= 3; px++) {
+      if (px*px + py*py <= 9) ctx.fillRect(cx - 8 + px, gy + py, 1, 1);
+    }
+  }
+  ctx.fillStyle = C.gogLensHi;
+  ctx.fillRect(cx - 10, gy - 2, 2, 1); ctx.fillRect(cx - 10, gy - 1, 1, 1);
+
+  // Right lens
+  ctx.fillStyle = C.outline;
+  for (let py = -5; py <= 5; py++) {
+    for (let px = -5; px <= 5; px++) {
+      const d = px*px + py*py;
+      if (d <= 25 && d > 16) ctx.fillRect(cx + 8 + px, gy + py, 1, 1);
+    }
+  }
+  ctx.fillStyle = C.gogRim;
+  for (let py = -4; py <= 4; py++) {
+    for (let px = -4; px <= 4; px++) {
+      const d = px*px + py*py;
+      if (d <= 16 && d > 9) ctx.fillRect(cx + 8 + px, gy + py, 1, 1);
+    }
+  }
+  ctx.fillStyle = C.gogLens;
+  for (let py = -3; py <= 3; py++) {
+    for (let px = -3; px <= 3; px++) {
+      if (px*px + py*py <= 9) ctx.fillRect(cx + 8 + px, gy + py, 1, 1);
+    }
+  }
+  ctx.fillStyle = C.gogLensHi;
+  ctx.fillRect(cx + 6, gy - 2, 2, 1); ctx.fillRect(cx + 6, gy - 1, 1, 1);
+
+  // Lens bridge connector
+  ctx.fillStyle = C.gogRim;
+  ctx.fillRect(cx - 3, gy, 6, 2);
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(cx - 3, gy - 1, 6, 1); ctx.fillRect(cx - 3, gy + 2, 6, 1);
+}
+
+// ─────────────────────────────────────────────────────────
+// Foreground rubble at the bottom (rocks)
+// ─────────────────────────────────────────────────────────
+function drawRubble(ctx) {
+  // Dark silhouette band of rocks at the very bottom
+  ctx.fillStyle = '#2a1208';
+  ctx.fillRect(0, 310, 200, 10);
+  // Rock bumps
+  for (let i = 0; i < 8; i++) {
+    const rx = 10 + i * 25;
+    const rs = 4 + (i % 3) * 2;
+    ctx.fillStyle = '#2a1208';
+    ctx.fillRect(rx - rs, 308 - rs, rs*2, rs*2);
+    ctx.fillStyle = '#3a1810';
+    ctx.fillRect(rx - rs, 308 - rs, rs*2, 1);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Render loop
+// ─────────────────────────────────────────────────────────
+function render(frame) {
+  const c = document.getElementById('stage');
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  drawSky(ctx, frame);
+  drawCubes(ctx, frame);
+  drawSparkles(ctx, frame);
+  drawLomax(ctx, frame);
+  drawToken(ctx, frame);
+  drawRubble(ctx);
+}
+
+let frame = 0;
+function tick() {
+  frame++;
+  render(frame);
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+
+</body>
+</html>
