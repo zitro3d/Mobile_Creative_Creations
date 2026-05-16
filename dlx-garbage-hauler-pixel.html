@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v448O-pixel-pickup-particles';
+const DLX_BUILD = 'v448P-bigger-pickup-particles';
 
 (function() {
   // ---------- Device detection ----------
@@ -11644,15 +11644,30 @@ const DLX_BUILD = 'v448O-pixel-pickup-particles';
   // Pickup sparks use a dedicated array so they don't get cleared with sparks on death
   let pickupSparks = [];
   function emitPickupSparks(x, y, color, count) {
+    // Stationary central flash — 3 chunky squares with a slight horizontal
+    // spread, decaying fast (gone in ~10 frames). Gives every burst a
+    // strong CENTER beat before the flying chunks scatter out.
+    for (let i = 0; i < 3; i++) {
+      pickupSparks.push({
+        x: x + (i - 1) * 2,
+        y,
+        vx: 0,
+        vy: -0.25,
+        life: 1,
+        decay: 0.10 + i * 0.035,
+        color: color,
+      });
+    }
+    // Flying chunks — radial spread.
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
-      const sp = 1.8 + Math.random() * 2.6;
+      const sp = 2.2 + Math.random() * 3.0;
       pickupSparks.push({
         x, y,
         vx: Math.cos(a) * sp,
         vy: Math.sin(a) * sp,
         life: 1,
-        decay: 0.035 + Math.random() * 0.025,
+        decay: 0.025 + Math.random() * 0.022,
         color: color,
       });
     }
@@ -11668,22 +11683,25 @@ const DLX_BUILD = 'v448O-pixel-pickup-particles';
   }
   function drawPickupSparks() {
     if (pickupSparks.length === 0) return;
-    // Geometric pixel particles — Neo-16-bit style. 4-step size decay
-    // (4→3→2→1 px squares) instead of smooth shrink, integer-snapped
-    // position, no blur, no alpha fade. White-hot core for the first
-    // beat of life so the burst reads as "incandescent → cooling".
+    // Geometric pixel particles — Neo-16-bit. 6-step size decay
+    // (6→5→4→3→2→1 px squares), integer-snapped, no blur, no alpha.
+    // White-hot inner core for the first half of life so the burst
+    // reads as "incandescent → cooling → fading".
     for (const s of pickupSparks) {
-      const sz = s.life > 0.70 ? 4
-              : s.life > 0.45 ? 3
-              : s.life > 0.20 ? 2
+      const sz = s.life > 0.85 ? 6
+              : s.life > 0.65 ? 5
+              : s.life > 0.45 ? 4
+              : s.life > 0.25 ? 3
+              : s.life > 0.10 ? 2
               : 1;
       const ix = (s.x | 0) - (sz >> 1);
       const iy = (s.y | 0) - (sz >> 1);
       ctx.fillStyle = s.color;
       ctx.fillRect(ix, iy, sz, sz);
-      if (s.life > 0.75 && sz >= 3) {
+      if (s.life > 0.60 && sz >= 4) {
+        const cs = sz - 2;
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(ix + 1, iy + 1, sz - 2, sz - 2);
+        ctx.fillRect(ix + 1, iy + 1, cs, cs);
       }
     }
   }
