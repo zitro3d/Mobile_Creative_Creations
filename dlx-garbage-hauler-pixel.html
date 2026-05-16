@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449U-meteor-chunkier-cracks';
+const DLX_BUILD = 'v449V-meteor-12-crack-templates';
 
 (function() {
   // ---------- Device detection ----------
@@ -15926,6 +15926,30 @@ const DLX_BUILD = 'v449U-meteor-chunkier-cracks';
     // life. Cleaner silhouette.
   }
 
+  // 12 ember/crack templates spread across the meteor body. Each
+  // entry is {dx, dy, w, h, p} — dx/dy are pixel offsets from the
+  // meteor center, w/h are chunk size, p selects which of the 3
+  // independent flicker phases (cA / cB / cC) tints this segment.
+  // The drawPixelLavaBallAlt fn picks 4 entries per meteor via seed
+  // hash, so cracks appear at varied body positions (top, bottom,
+  // sides, corners, center) instead of every meteor having the same
+  // centered cross. 12⁴ = 20 k raw combinations; effective distinct
+  // looking variations easily 50+.
+  const METEOR_CRACK_TEMPLATES = [
+    { dx: -2, dy: -2, w: 2, h: 2, p: 0 },   // top-left pool
+    { dx:  1, dy: -2, w: 2, h: 2, p: 1 },   // top-right pool
+    { dx: -2, dy:  1, w: 2, h: 2, p: 2 },   // bottom-left pool
+    { dx:  1, dy:  1, w: 2, h: 2, p: 0 },   // bottom-right pool
+    { dx: -2, dy:  0, w: 4, h: 1, p: 1 },   // horizontal vein
+    { dx:  0, dy: -2, w: 1, h: 4, p: 2 },   // vertical vein
+    { dx: -1, dy: -2, w: 3, h: 1, p: 0 },   // top edge crack
+    { dx: -1, dy:  2, w: 3, h: 1, p: 1 },   // bottom edge crack
+    { dx:  2, dy: -1, w: 1, h: 3, p: 2 },   // right edge crack
+    { dx: -2, dy: -1, w: 1, h: 3, p: 0 },   // left edge crack
+    { dx:  1, dy: -1, w: 2, h: 1, p: 1 },   // small NE crack
+    { dx: -2, dy:  1, w: 2, h: 1, p: 2 },   // small SW crack
+  ];
+
   // ── ALT FIREBALL — "METEOR" rocky chunk with ember trail ─────────
   // Same envelope + trajectory + life cycle as drawPixelLavaBall, but
   // a chunky rock silhouette (browns + grays) with surface cracks +
@@ -15962,48 +15986,39 @@ const DLX_BUILD = 'v449U-meteor-chunkier-cracks';
     const cA = crackHues[flickA];
     const cB = crackHues[flickB];
     const cC = crackHues[flickC];
-    const ph = (Math.abs(lb.seed) * 1.7) % 4;
-    if (ph < 1) {
-      // Horizontal main vein + diagonal sub-veins — now 2-px thick
-      // veins with 2×2 hot pools instead of 1-px lines.
-      pxFill(cx - 2, cy - 1, 4, 2, cA);   // 4×2 main horizontal vein
-      pxFill(cx + 1, cy + 2, 2, 1, cB);   // bottom-right tail
-      pxFill(cx - 2, cy - 2, 2, 1, cC);   // top-left tail
-      pxFill(cx + 2, cy + 1, 2, 1, cA);   // right pool spur
-      pxFill(cx - 2, cy + 1, 2, 1, cB);   // left pool spur
-    } else if (ph < 2) {
-      // Vertical main vein + horizontal cross
-      pxFill(cx - 1, cy - 2, 2, 4, cA);   // 2×4 main vertical vein
-      pxFill(cx - 2, cy,     3, 2, cB);   // 3×2 horizontal cross
-      pxFill(cx + 2, cy + 1, 1, 1, cC);   // right spot
-      pxFill(cx + 1, cy - 2, 1, 1, cA);   // top-right spot
-      pxFill(cx - 2, cy + 2, 2, 1, cB);   // bottom-left tail
-    } else if (ph < 3) {
-      // Diagonal Y-shape with chunky branches
-      pxFill(cx - 1, cy - 2, 3, 1, cA);   // top horizontal
-      pxFill(cx,     cy - 1, 2, 2, cB);   // 2×2 center pool
-      pxFill(cx + 1, cy + 1, 2, 2, cC);   // 2×2 bottom-right pool
-      pxFill(cx - 2, cy + 1, 2, 1, cA);   // bottom-left vein
-      pxFill(cx - 1, cy,     1, 1, cB);   // tiny middle dot
-    } else {
-      // Lightning fork
-      pxFill(cx + 1, cy - 2, 2, 2, cA);   // 2×2 top-right pool
-      pxFill(cx - 1, cy,     2, 1, cB);   // middle horizontal
-      pxFill(cx - 2, cy + 1, 3, 1, cA);   // wider bottom vein
-      pxFill(cx - 2, cy - 1, 2, 1, cC);   // top-left vein
-      pxFill(cx + 1, cy + 2, 2, 1, cB);   // bottom tail
-    }
-    // ── MOLTEN CORE — brightest spot, pulses through coreHues. Now
-    // 2×2 chunks (was 1×1 pixels) so the "burning inside" really pops.
+    // 12 ember/crack templates spread across the meteor body. Each
+    // entry = {dx, dy, w, h, p} where p selects one of the 3 flicker
+    // phases (cA / cB / cC). Each meteor picks 4 templates from this
+    // table via seed-hash math so the cracks live at DIFFERENT body
+    // positions — top, bottom, sides, diagonals, corners — instead of
+    // every meteor having the same centered cross.
+    const tpl = METEOR_CRACK_TEMPLATES;
+    const seedI = Math.abs((lb.seed * 31) | 0);
+    const N = tpl.length;
+    const phases = [cA, cB, cC];
+    // 4 picks with coprime offsets (3, 5, 7 all coprime with 12) so
+    // consecutive picks rarely collide.
+    const i0 =  seedI                      % N;
+    const i1 = (seedI / 3  + 3 |  0)       % N;
+    const i2 = (seedI / 7  + 7 |  0)       % N;
+    const i3 = (seedI / 13 + 11 | 0)       % N;
+    const t0 = tpl[i0], t1 = tpl[i1], t2 = tpl[i2], t3 = tpl[i3];
+    pxFill(cx + t0.dx, cy + t0.dy, t0.w, t0.h, phases[t0.p]);
+    pxFill(cx + t1.dx, cy + t1.dy, t1.w, t1.h, phases[t1.p]);
+    pxFill(cx + t2.dx, cy + t2.dy, t2.w, t2.h, phases[t2.p]);
+    pxFill(cx + t3.dx, cy + t3.dy, t3.w, t3.h, phases[t3.p]);
+    // ── MOLTEN CORE — brightest spot, 2×2 chunks pulsing through
+    // coreHues. The lead spot rides slightly toward the front of the
+    // meteor; the second (when r ≥ 6) sits off-axis at a seed-rotated
+    // position so it's not always in the same place either.
     if (r >= 4) {
       const coreOffX = Math.round(fdx * 1);
       const coreOffY = Math.round(fdy * 1);
       pxFill(cx + coreOffX, cy + coreOffY, 2, 2, coreHues[flickA]);
       if (r >= 6) {
-        // Second pulsing molten spot off-axis for extra "burning
-        // inside" feel.
-        const sx = (cx + pdx * (r * 0.4)) | 0;
-        const sy = (cy + pdy * (r * 0.4)) | 0;
+        const ang = (lb.seed * 0.7) % (Math.PI * 2);
+        const sx = (cx + Math.cos(ang) * (r * 0.45)) | 0;
+        const sy = (cy + Math.sin(ang) * (r * 0.45)) | 0;
         pxFill(sx, sy, 2, 2, coreHues[flickB]);
       }
     }
