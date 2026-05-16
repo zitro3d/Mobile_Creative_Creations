@@ -1788,6 +1788,14 @@
   #pwDouble     { border-color: #ffd280; } #pwDouble     .pwFill { background: #ffd280; }
   #pwMagnet     { border-color: #ff6b9d; } #pwMagnet     .pwFill { background: #ff6b9d; }
   #pwGhost      { border-color: #b8ffe8; } #pwGhost      .pwFill { background: #b8ffe8; }
+  /* Critical state — powerup is about to expire (frac < 20 %).
+     Pulses the icon + bar so the player gets a clear "act now"
+     warning instead of a silent fade. */
+  @keyframes pwCriticalPulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.40; }
+  }
+  .pwIcon.critical { animation: pwCriticalPulse 0.36s linear infinite; }
 
   #gate {
     position: fixed;
@@ -2376,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449E-pixel-stun-forcefield-ghost-auras';
+const DLX_BUILD = 'v449F-revive-score-floaters-and-critical-warnings';
 
 (function() {
   // ---------- Device detection ----------
@@ -4688,9 +4696,82 @@ const DLX_BUILD = 'v449E-pixel-stun-forcefield-ghost-auras';
   // + score-pulse, no extra text. Stub functions kept as no-ops
   // so existing call-sites compile without churn.)
   let scoreFloaters = [];
-  function emitScoreFloater() { /* removed in v408 */ }
-  function updateScoreFloaters() { /* removed in v408 */ }
-  function drawScoreFloaters() { /* removed in v408 */ }
+
+  // Pixel-art digit font — 3×5 cells per glyph (encoded as 5 row-bits,
+  // MSB = leftmost pixel). Used by score floaters and any other in-world
+  // numeric label so the typeface matches the v448+ pixel language.
+  const _PX_DIGIT_BITS = {
+    '0': [0b111, 0b101, 0b101, 0b101, 0b111],
+    '1': [0b010, 0b110, 0b010, 0b010, 0b111],
+    '2': [0b111, 0b001, 0b111, 0b100, 0b111],
+    '3': [0b111, 0b001, 0b111, 0b001, 0b111],
+    '4': [0b101, 0b101, 0b111, 0b001, 0b001],
+    '5': [0b111, 0b100, 0b111, 0b001, 0b111],
+    '6': [0b111, 0b100, 0b111, 0b101, 0b111],
+    '7': [0b111, 0b001, 0b010, 0b010, 0b010],
+    '8': [0b111, 0b101, 0b111, 0b101, 0b111],
+    '9': [0b111, 0b101, 0b111, 0b001, 0b111],
+    '+': [0b000, 0b010, 0b111, 0b010, 0b000],
+  };
+  function pxDrawText(text, x, y, color, outline) {
+    for (let ci = 0; ci < text.length; ci++) {
+      const bits = _PX_DIGIT_BITS[text[ci]];
+      if (!bits) { x += 4; continue; }
+      if (outline) {
+        ctx.fillStyle = outline;
+        for (let dy = 0; dy < 5; dy++) {
+          const row = bits[dy];
+          for (let dx = 0; dx < 3; dx++) {
+            if ((row >> (2 - dx)) & 1) ctx.fillRect(x + dx - 1, y + dy - 1, 3, 3);
+          }
+        }
+      }
+      ctx.fillStyle = color;
+      for (let dy = 0; dy < 5; dy++) {
+        const row = bits[dy];
+        for (let dx = 0; dx < 3; dx++) {
+          if ((row >> (2 - dx)) & 1) ctx.fillRect(x + dx, y + dy, 1, 1);
+        }
+      }
+      x += 4;
+    }
+  }
+
+  // Score floaters — revived in v449F. Pixel "+5 / +15" stamps that
+  // rise from the pickup point and fade out over 36 frames. Removed
+  // in v408 because the legacy text version conflicted with smoothed
+  // particle bursts; the pixel version matches the v448+ language.
+  function emitScoreFloater(x, y, points, color) {
+    const text = '+' + points;
+    const w = text.length * 4 - 1;
+    scoreFloaters.push({
+      x: (x | 0) - (w >> 1),
+      y: y | 0,
+      text,
+      color: color || '#ffd060',
+      age: 0,
+      maxAge: 36,
+    });
+  }
+  function updateScoreFloaters() {
+    for (let i = scoreFloaters.length - 1; i >= 0; i--) {
+      const f = scoreFloaters[i];
+      f.age++;
+      if (f.age >= f.maxAge) scoreFloaters.splice(i, 1);
+    }
+  }
+  function drawScoreFloaters() {
+    if (scoreFloaters.length === 0) return;
+    ctx.save();
+    ctx.shadowBlur = 0;
+    for (const f of scoreFloaters) {
+      const t = f.age / f.maxAge;
+      const yOff = -t * 28;          // rise 28 px over the lifespan
+      ctx.globalAlpha = 1 - t * t;   // ease-out fade
+      pxDrawText(f.text, f.x, (f.y + yOff) | 0, f.color, '#1a0a06');
+    }
+    ctx.restore();
+  }
 
   // ---------- The Dispatcher ----------
   // Snarky DLX voice surfaced via the level-banner channel. Quote pools:
@@ -33978,12 +34059,17 @@ const DLX_BUILD = 'v449E-pixel-stun-forcefield-ghost-auras';
       // amber chunks. Replaces 3 ctx.arc + shadowBlur=22 calls with
       // a single drawImage + 6 fillRects.
       const fadeA = Math.min(1, forceFieldFrames / 60);
+      // Last 1 sec: alternate between full + 40 % opacity every 4
+      // frames so the bubble visibly FLICKERS as it dies, not just
+      // a smooth fade. Pairs with the existing forceFieldExpire pip.
+      const expiringFlicker = forceFieldFrames < 60 && (((frame >> 2) & 1) === 0)
+                              ? 0.40 : 1.0;
       const rA = ((BIRD_R + 22) + Math.sin(frame * 0.22) * 2.0) | 0;
       const pxA = bird.x | 0;
       const pyA = bird.y | 0;
       ctx.save();
       ctx.shadowBlur = 0;
-      ctx.globalAlpha = fadeA;
+      ctx.globalAlpha = fadeA * expiringFlicker;
       const rim = _getRingRim(rA, 'rgba(255, 224, 128, 0.85)', '#fff080');
       ctx.drawImage(rim, pxA - rA, pyA - rA);
       // Six tick-mark sparks rotating around the ring
@@ -38857,6 +38943,10 @@ const DLX_BUILD = 'v449E-pixel-stun-forcefield-ghost-auras';
   function setHud(el, active, frac) {
     if (!el) return;
     el.classList.toggle('active', !!active);
+    // Critical when the powerup is active and below 20 % — drives
+    // the .critical CSS animation so the bar pulses as a "running
+    // out" warning before it dies.
+    el.classList.toggle('critical', !!active && frac > 0 && frac < 0.20);
     const fill = el.querySelector('.pwFill');
     if (fill) fill.style.transform = 'scaleX(' + Math.max(0, Math.min(1, frac)) + ')';
   }
