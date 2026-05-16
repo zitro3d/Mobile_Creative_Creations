@@ -85,6 +85,20 @@
   }
   .compareTitle.hld { color: #7eddeb; }
 
+  .compareGrid3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 900px) {
+    .compareGrid3 { grid-template-columns: 1fr; }
+  }
+  .compareDesc {
+    font-size: 11px; line-height: 1.5;
+    color: #806a90;
+    margin: 4px 0 10px;
+  }
+
   /* Fleet grid */
   .fleetGrid {
     display: grid;
@@ -255,6 +269,40 @@
     </div>
     <div class="canvasWrap">
       <canvas id="perspStage" width="200" height="100" class="pixelCanvas"></canvas>
+    </div>
+  </div>
+
+  <!-- ISO PROJECTION OPTIONS A/B/C -->
+  <div class="panel">
+    <div class="panelLabel">A · ISO PROJECTION OPTIONS — A / B / C</div>
+    <div class="panelSub">
+      Same box, same world dimensions (24×12×10), same three-value face
+      lighting (top brightest, sun-side mid, shadow-side darkest), same
+      cast shadow. Pick the projection you want and I'll redraw the full
+      rig in it — body, engine cylinders, cockpit, fin, cargo, the works.
+    </div>
+    <div class="compareGrid3">
+      <div class="compareCell">
+        <div class="compareTitle">A · 2:1 DIMETRIC</div>
+        <div class="compareDesc">Pixel-art iso standard (Diablo, SimCity 2000, Transport Tycoon). Both horizontal axes at 2px right / 1px up — clean diagonal edges on every pixel grid.</div>
+        <div class="canvasWrap">
+          <canvas id="projA" width="200" height="140" class="pixelCanvas"></canvas>
+        </div>
+      </div>
+      <div class="compareCell">
+        <div class="compareTitle">B · TRUE 30°/30° ISO</div>
+        <div class="compareDesc">Engineering iso — matches the reference diagram exactly. Both horizontal axes at 30°. Diagonals stairstep when snapped to pixel grid (the projection penalty for pixel art).</div>
+        <div class="canvasWrap">
+          <canvas id="projB" width="200" height="140" class="pixelCanvas"></canvas>
+        </div>
+      </div>
+      <div class="compareCell">
+        <div class="compareTitle">C · CABINET OBLIQUE</div>
+        <div class="compareDesc">Side-scroller friendly. Forward axis stays horizontal (good for left-right scrolling); depth projects upper-right at 45° foreshortened 50%. Reads as 3D but keeps motion side-on.</div>
+        <div class="canvasWrap">
+          <canvas id="projC" width="200" height="140" class="pixelCanvas"></canvas>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3002,11 +3050,246 @@ function renderHeroPerspective(frame) {
   pxRigPerspective(ctx, rigX, rigY, frame);
 }
 
+// ═════════════════════════════════════════════════════════
+// ISO PROJECTION OPTIONS — A/B/C
+// Same box, same three-value face lighting, three projections.
+// Scanline polygon fill + Bresenham outlines = clean pixel art.
+// ═════════════════════════════════════════════════════════
+
+// Three projection functions.
+// All take (f, l, t) in world units: f=forward, l=left/depth, t=up (height).
+// Returned: {x, y} in screen pixels relative to the projection origin.
+const ISO_PROJ = {
+  // A · 2:1 dimetric (Diablo/SimCity 2000 style).
+  // Both horizontal axes: 2px horizontal / 1px vertical.
+  A: (f, l, t) => ({ x: f*2 - l*2, y: f + l - t }),
+
+  // B · True 30°/30° iso (engineering iso, matches user reference).
+  // cos(30°)≈0.866, sin(30°)=0.5. Snaps to int → stairsteps.
+  B: (f, l, t) => ({
+    x: Math.round(f*0.866 - l*0.866),
+    y: Math.round(f*0.5 + l*0.5 - t),
+  }),
+
+  // C · Cabinet oblique. Forward axis stays horizontal; depth
+  // projects upper-right at 45° foreshortened to 50%.
+  C: (f, l, t) => ({ x: f + l*0.5, y: -l*0.5 - t }),
+};
+
+// Generic pixel-art scanline fill of a 4-vertex convex polygon.
+function fillIsoPolygon(ctx, vertices, color) {
+  ctx.fillStyle = color;
+  const ys = vertices.map(v => Math.round(v.y));
+  const yMin = Math.min(...ys), yMax = Math.max(...ys);
+  for (let y = yMin; y <= yMax; y++) {
+    let xMin = Infinity, xMax = -Infinity;
+    for (let i = 0; i < vertices.length; i++) {
+      const v1 = vertices[i], v2 = vertices[(i+1) % vertices.length];
+      const y1 = Math.round(v1.y), y2 = Math.round(v2.y);
+      if (y1 === y2) {
+        if (y === y1) {
+          xMin = Math.min(xMin, v1.x, v2.x);
+          xMax = Math.max(xMax, v1.x, v2.x);
+        }
+        continue;
+      }
+      const lo = Math.min(y1, y2), hi = Math.max(y1, y2);
+      if (y < lo || y > hi) continue;
+      const t = (y - v1.y) / (v2.y - v1.y);
+      const x = v1.x + (v2.x - v1.x) * t;
+      xMin = Math.min(xMin, x);
+      xMax = Math.max(xMax, x);
+    }
+    if (xMin !== Infinity) {
+      const x0 = Math.round(xMin), x1 = Math.round(xMax);
+      ctx.fillRect(x0, y, x1 - x0 + 1, 1);
+    }
+  }
+}
+
+// Bresenham line, snaps to pixel grid.
+function drawIsoLine(ctx, p1, p2, color) {
+  ctx.fillStyle = color;
+  let x0 = Math.round(p1.x), y0 = Math.round(p1.y);
+  let x1 = Math.round(p2.x), y1 = Math.round(p2.y);
+  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+  while (true) {
+    ctx.fillRect(x0, y0, 1, 1);
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x0 += sx; }
+    if (e2 <  dx) { err += dx; y0 += sy; }
+  }
+}
+
+// Draw a 3D box with three visible faces (top, front, side) and outlines.
+// palette: { top, front, side, outline, accent }
+function drawIsoBox(ctx, project, ox, oy, Lf, Ll, H, palette) {
+  const p = (f, l, t) => {
+    const pt = project(f, l, t);
+    return { x: pt.x + ox, y: pt.y + oy };
+  };
+
+  // 8 corners
+  const v000 = p(0,  0,  0);
+  const vF00 = p(Lf, 0,  0);
+  const v0L0 = p(0,  Ll, 0);
+  const vFL0 = p(Lf, Ll, 0);
+  const v00T = p(0,  0,  H);
+  const vF0T = p(Lf, 0,  H);
+  const v0LT = p(0,  Ll, H);
+  const vFLT = p(Lf, Ll, H);
+
+  // FILL — three visible faces (top brightest, near-side mid, far-side shadow)
+  // Z-order: side first (back), then front, then top (so top covers cleanly)
+  fillIsoPolygon(ctx, [v0L0, vFL0, vFLT, v0LT], palette.side);    // L face (lower-left)
+  fillIsoPolygon(ctx, [vF00, vFL0, vFLT, vF0T], palette.front);   // F face (lower-right)
+  fillIsoPolygon(ctx, [v00T, vF0T, vFLT, v0LT], palette.top);     // TOP face
+
+  // OUTLINES — visible edges only (front 3 corners + back top corner)
+  const O = palette.outline;
+  // Top face edges
+  drawIsoLine(ctx, v00T, vF0T, O);
+  drawIsoLine(ctx, vF0T, vFLT, O);
+  drawIsoLine(ctx, vFLT, v0LT, O);
+  drawIsoLine(ctx, v0LT, v00T, O);
+  // Vertical edges (where two side faces meet)
+  drawIsoLine(ctx, vF00, vF0T, O);
+  drawIsoLine(ctx, v0L0, v0LT, O);
+  drawIsoLine(ctx, vFL0, vFLT, O);
+  // Bottom edges of visible faces
+  drawIsoLine(ctx, vF00, vFL0, O);
+  drawIsoLine(ctx, v0L0, vFL0, O);
+
+  // Single accent pip on the top-front corner (sun-catch / glint)
+  if (palette.accent) {
+    const a = p(Lf - 2, 1, H);
+    ctx.fillStyle = palette.accent;
+    ctx.fillRect(Math.round(a.x), Math.round(a.y), 2, 1);
+  }
+}
+
+// Cast shadow polygon on the "ground" — projected bottom of the box.
+function drawIsoShadow(ctx, project, ox, oy, Lf, Ll) {
+  const p = (f, l) => {
+    const pt = project(f, l, 0);
+    return { x: pt.x + ox, y: pt.y + oy };
+  };
+  const v0 = p(0,  0);
+  const v1 = p(Lf, 0);
+  const v2 = p(Lf, Ll);
+  const v3 = p(0,  Ll);
+  // Semi-transparent dark
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  fillIsoPolygon(ctx, [v0, v1, v2, v3], 'rgba(0,0,0,0.45)');
+}
+
+// Subtle ground band beneath the box.
+function drawGroundBand(ctx, w, h) {
+  ctx.fillStyle = '#1a0820';
+  ctx.fillRect(0, h - 22, w, 22);
+  ctx.fillStyle = '#28102a';
+  ctx.fillRect(0, h - 22, w, 1);
+  // Subtle stipple
+  ctx.fillStyle = '#28162a';
+  for (let i = 0; i < 28; i++) {
+    const px = (i * 23 + 11) % w;
+    const py = (h - 18) + ((i * 7) % 16);
+    ctx.fillRect(px, py, 1, 1);
+  }
+}
+
+// Per-projection render functions
+const ISO_PALETTE = {
+  top:     '#7ed4dc',   // hullLight — sun-lit
+  front:   '#3aa8b8',   // hullCore — sun-side
+  side:    '#1c5e6e',   // hullDark — shadow-side
+  outline: '#04181c',   // very dark teal (no pure black)
+  accent:  '#ffffff',   // bright pip
+};
+
+function renderProj(id, projKey) {
+  const c = document.getElementById(id);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, c.width, c.height);
+  drawGroundBand(ctx, c.width, c.height);
+
+  const project = ISO_PROJ[projKey];
+
+  // Same box dimensions for every projection
+  const Lf = 24, Ll = 12, H = 10;
+
+  // Position box so that its bottom is on the ground, centered horizontally.
+  // We need to figure out the origin point.
+  // For projection A (2:1):
+  //   The box's lowest point on screen is at (Lf, Ll, 0) which projects to
+  //     y = Lf + Ll = 24+12 = 36 below the origin.
+  //   Set origin so this lowest point sits just above ground band.
+  let ox, oy;
+  if (projKey === 'A') {
+    // Center the bounding rect: width = 2*Lf+2*Ll = 72, height = Lf+Ll+H = 46
+    ox = c.width/2 + (Ll*2 - Lf*2)/2;  // center around screen
+    oy = c.height - 30 - (Lf + Ll);      // bottom of box (Lf+Ll=36) sits above ground
+  } else if (projKey === 'B') {
+    // 30° iso: width = 2*Lf*0.866 ≈ 41.6, but with Ll=12 too, full width ≈ 41.6
+    // For symmetric placement, origin shifted slightly right
+    ox = c.width/2 + Math.round((Ll*0.866 - Lf*0.866)/2);
+    oy = c.height - 30 - Math.round(Lf*0.5 + Ll*0.5);
+  } else {
+    // Cabinet: width = Lf + Ll*0.5 = 30
+    ox = c.width/2 - Math.round((Lf + Ll*0.5)/2);
+    oy = c.height - 30;  // bottom-front-left of box sits just above ground
+  }
+
+  // Draw cast shadow first
+  drawIsoShadow(ctx, project, ox, oy + 1, Lf, Ll);
+
+  // Draw the box
+  drawIsoBox(ctx, project, ox, oy, Lf, Ll, H, ISO_PALETTE);
+
+  // Axis labels (small text-ish marks at the corners — pixel-art arrow heads)
+  drawAxisLabels(ctx, project, ox, oy, Lf, Ll, H);
+}
+
+// Draw small pixel-art labels at the three axis endpoints (T, F, L)
+function drawAxisLabels(ctx, project, ox, oy, Lf, Ll, H) {
+  const labelColor = '#ffd060';
+  const p = (f, l, t) => {
+    const pt = project(f, l, t);
+    return { x: Math.round(pt.x + ox), y: Math.round(pt.y + oy) };
+  };
+  // T arrow (top, above the topmost corner of top face)
+  const topApex = p(0, 0, H);
+  ctx.fillStyle = labelColor;
+  ctx.fillRect(topApex.x, topApex.y - 6, 1, 4);
+  ctx.fillRect(topApex.x - 1, topApex.y - 6, 3, 1);
+  ctx.fillStyle = '#080808'; ctx.fillRect(topApex.x, topApex.y - 7, 1, 1);
+  // F arrow (front, lower-right corner of bottom)
+  const fApex = p(Lf, 0, 0);
+  ctx.fillStyle = labelColor;
+  ctx.fillRect(fApex.x + 3, fApex.y, 4, 1);
+  ctx.fillRect(fApex.x + 6, fApex.y - 1, 1, 3);
+  // L arrow (left/depth, lower-left corner of bottom)
+  const lApex = p(0, Ll, 0);
+  ctx.fillStyle = labelColor;
+  ctx.fillRect(lApex.x - 6, lApex.y, 4, 1);
+  ctx.fillRect(lApex.x - 6, lApex.y - 1, 1, 3);
+}
+
 // ─────────────────────────────────────────────────────────
 // Animation loop
 // ─────────────────────────────────────────────────────────
 buildFleet();
 buildHover();
+
+// Static iso comparison — render once
+renderProj('projA', 'A');
+renderProj('projB', 'B');
+renderProj('projC', 'C');
 
 let frame = 0;
 function tick() {
