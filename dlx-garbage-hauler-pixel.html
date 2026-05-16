@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449O-fire-bolt-bigger-graduated-embers';
+const DLX_BUILD = 'v449P-fire-bolt-head-pulse-faster-breathe';
 
 (function() {
   // ---------- Device detection ----------
@@ -15848,13 +15848,17 @@ const DLX_BUILD = 'v449O-fire-bolt-bigger-graduated-embers';
     const pdy = fdx;
 
     // 4-frame anim cycle (~15 fps) drives the ember COUNT (discrete
-    // "puffs" of shedding), but the TAIL length uses a continuous slow
-    // sine so the bolt breathes smoothly instead of jittering. Wider
-    // amplitude was making the silhouette look unstable in v449L.
+    // "puffs" of shedding). The TAIL + HEAD use continuous sines at
+    // different frequencies so the bolt feels alive on every frame.
     const frameIdx = ((lb.life / 4) | 0) & 3;
-    const tailMod = 1.0 + 0.18 * Math.sin(lb.life * 0.07 + lb.seed);
+    // Tail breathe — faster + bigger amplitude than v449M so the
+    // whip is visible at moving-projectile speed.
+    const tailMod = 1.0 + 0.22 * Math.sin(lb.life * 0.13 + lb.seed);
     const baseTailLen = r * 2.7 * tailMod;
     const boxR = Math.ceil(r + baseTailLen) + 2;
+    // Head pulse — drives white-core size + forward push so the
+    // leading edge visibly "licks" out and back through the cycle.
+    const headPulse = Math.sin(lb.life * 0.22 + lb.seed * 2.7);   // -1..1
 
     // Single-layer teardrop rasterizer (row-runs of fillRect).
     function rasterTeardrop(rDelta, tailDelta, color) {
@@ -15900,16 +15904,18 @@ const DLX_BUILD = 'v449O-fire-bolt-bigger-graduated-embers';
     rasterTeardrop(-4, -4,   '#ffd060');   // yellow inner band
 
     // ── WHITE-HOT SPOT — a small bright center inside the yellow body,
-    // NOT the dominant feature. The reference has the yellow flame body
-    // wrapping a small white hot-spot, not a giant white disc.
+    // NOT the dominant feature. Pulses size + forward offset on the
+    // headPulse sine so the leading edge "licks" out and back, giving
+    // the bolt visible per-frame life.
     if (r >= 3) {
-      const headOffX = Math.round(fdx * Math.max(1, r * 0.3));
-      const headOffY = Math.round(fdy * Math.max(1, r * 0.3));
-      // Pale-yellow rim sits inside the yellow band, white core inside
-      // the pale rim. Both well-sized to leave the yellow body visible
-      // around the head.
-      const palR = Math.max(1, (r * 0.55) | 0);
-      const wR   = Math.max(1, (r * 0.35) | 0);
+      // Forward push pulses: 0.25 r → 0.40 r over the cycle.
+      const headPush = Math.max(1, r * (0.32 + headPulse * 0.08));
+      const headOffX = Math.round(fdx * headPush);
+      const headOffY = Math.round(fdy * headPush);
+      // Pale rim + white core both expand/contract ±1 px with the pulse.
+      const sizeBoost = headPulse > 0 ? 1 : 0;
+      const palR = Math.max(1, ((r * 0.55) | 0) + sizeBoost);
+      const wR   = Math.max(1, ((r * 0.35) | 0) + sizeBoost);
       drawPixelSmokePuff(cx + headOffX, cy + headOffY, palR, '#ffe890');
       drawPixelSmokePuff(cx + headOffX, cy + headOffY, wR,   '#ffffff');
     }
