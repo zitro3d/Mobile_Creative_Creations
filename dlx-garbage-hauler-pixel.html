@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449Z-crash-burst-no-smoke-denser-rays';
+const DLX_BUILD = 'v450A-crash-burst-no-scorch-8-px-rays';
 
 (function() {
   // ---------- Device detection ----------
@@ -11910,13 +11910,10 @@ const DLX_BUILD = 'v449Z-crash-burst-no-smoke-denser-rays';
         gravity: 0.20,
       });
     }
-    // 3) SCORCH MARK — a dark splotch that lingers at the impact
-    //    point and fades very slowly. Reads as a burn scar.
-    //    (Smoke layer was removed in v449Z — user request: pure
-    //    burst with no smoke after the impact.)
-    crashEffects.push({
-      type: 'scorch', x: cx, y: cy, life: 1, decay: 0.006,
-    });
+    // 3) SCORCH MARK removed in v450A — user request: that dark splotch
+    //    at the impact point read as a "black center ball" sticking
+    //    around after the burst. Crash burst is now: rays + hull
+    //    debris only, no smoke and no scorch.
   }
 
   function updateCrashEffects() {
@@ -11967,17 +11964,16 @@ const DLX_BUILD = 'v449Z-crash-burst-no-smoke-denser-rays';
           }
         };
         ctx.globalAlpha = fadeAlpha;
-        // 1) RAYS — 14 directions × 7 pixels each. Pixels start just
-        // outside the ring and march outward to the ray tip. Dense
-        // enough that consecutive pixels are 2-3 units apart, so the
-        // rays read as continuous beams, not spaced dots.
+        // 1) RAYS — 14 directions × 8 pixels each. Slightly denser
+        // than v449Z (was 7) per user request — gaps ~2-3 px so each
+        // ray reads as a near-continuous beam of spaced dots.
         if (e.spikes) {
-          // 7 distance fractions from 0.32 (just past ring) → 1.0 (tip)
-          const RAY_FRACS  = [0.32, 0.46, 0.58, 0.70, 0.80, 0.90, 1.00];
-          const RAY_COLORS = ['#ffae28', '#ff8028', '#ff6020',
+          // 8 distance fractions from 0.30 (just past ring) → 1.0 (tip)
+          const RAY_FRACS  = [0.30, 0.42, 0.53, 0.63, 0.73, 0.82, 0.91, 1.00];
+          const RAY_COLORS = ['#ffae28', '#ff8028', '#ff6020', '#e85020',
                               '#c84020', '#a01a0a', '#7a0c08', '#5a0808'];
-          // Size taper: thick near the core, 1 px at the tip
-          const RAY_SIZES  = [2, 2, 2, 2, 1, 1, 1];
+          // Size taper: 2×2 chunks for first 4, 1×1 specks for last 4
+          const RAY_SIZES  = [2, 2, 2, 2, 1, 1, 1, 1];
           for (const s of e.spikes) {
             const reach = spikeMaxR * s.lengthMul;
             if (reach < ringR + 1) continue;
@@ -11985,10 +11981,10 @@ const DLX_BUILD = 'v449Z-crash-burst-no-smoke-denser-rays';
             const dy = Math.sin(s.angle);
             const ppx = -Math.sin(s.angle);
             const ppy =  Math.cos(s.angle);
-            for (let k = 0; k < 7; k++) {
+            for (let k = 0; k < 8; k++) {
               const dist = reach * RAY_FRACS[k];
               if (dist < ringR) continue;
-              const jit = s.perpJit[k];
+              const jit = s.perpJit[k % s.perpJit.length];
               const xp = (e.x + dx * dist + ppx * jit) | 0;
               const yp = (e.y + dy * dist + ppy * jit) | 0;
               const sz = RAY_SIZES[k];
