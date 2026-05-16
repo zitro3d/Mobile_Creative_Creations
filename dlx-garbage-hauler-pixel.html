@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v450C-rig-damage-grand-extension';
+const DLX_BUILD = 'v450D-cargo-falls-with-wreck';
 
 (function() {
   // ---------- Device detection ----------
@@ -4241,6 +4241,10 @@ const DLX_BUILD = 'v450C-rig-damage-grand-extension';
   try { muted = localStorage.getItem('dlx_muted_v2') === '1'; } catch (e) {}
 
   let bird, pipes, sparks, exhaust, score, best, frame, flashAlpha, burstFrames, shakeFrames, scorePulse, thrusterFrames, flapCount, pipeSpawnCount;
+  // Frames after a crash before the cargo detaches from the rig and
+  // starts falling on its own. Gives a brief "still tethered" beat
+  // before gravity takes over.
+  let cargoFallDelay = 0;
   // Pro-tier ship feedback (v329):
   //   kickbackFrames: small 2px camera shake fired by the Freighter on
   //     each flap, ~100ms (6 frames at 60fps). Independent of the bigger
@@ -7005,6 +7009,7 @@ const DLX_BUILD = 'v450C-rig-damage-grand-extension';
     crashEffects = [];
     scoreFloaters = [];
     exhaust = [];
+    cargoFallDelay = 0;
     score = 0;
     runTokens = 0;
     frame = 0;
@@ -10579,6 +10584,9 @@ const DLX_BUILD = 'v450C-rig-damage-grand-extension';
           // hull was overlapping the burst at the rig's center).
           const impactX = bird.x + BIRD_R + 6;
           emitRigCrashBurst(impactX, bird.y);
+          // Cargo falls with the wreck — brief delay so the bond
+          // reads as "still tethered then breaks loose".
+          if (cargo && cargo.attached && !cargo.lost) cargoFallDelay = 8;
           if (score > best) {
             best = score;
             localStorage.setItem('flappy_best_ios_v2', String(best));
@@ -10614,6 +10622,28 @@ const DLX_BUILD = 'v450C-rig-damage-grand-extension';
         }
         bird.vy = 0;
         bird.y = floorY - BIRD_R;
+      }
+      // Cargo falls with the wreck. 8-frame delay so the bond reads
+      // as still-tethered briefly before breaking loose, then gravity
+      // pulls the crate down until it lands on the dune surface.
+      if (cargo && cargo.attached && !cargo.lost) {
+        if (cargoFallDelay > 0) {
+          cargoFallDelay--;
+          // Still tethered — drag the cargo down with the falling rig
+          cargo.x += (bird.x - 60 - cargo.x) * 0.20;
+          cargo.y += (bird.y - 4  - cargo.y) * 0.20;
+        } else {
+          cargo.vy = Math.min((cargo.vy || 0) + GRAVITY, MAX_FALL);
+          cargo.y += cargo.vy;
+          let cargoFloorY = PLAY_H;
+          if (isDaily && typeof terrainHeightAt === 'function') {
+            cargoFloorY = terrainHeightAt(cargo.x + dailyScrollX);
+          }
+          if (cargo.y >= cargoFloorY - 8) {
+            cargo.y = cargoFloorY - 8;
+            cargo.vy = 0;
+          }
+        }
       }
       updateSparks();
       updatePickupSparks();    // keep any residual pickup sparks animating
