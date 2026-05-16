@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449K-fire-bolt-shrink-white-hotspot';
+const DLX_BUILD = 'v449L-fire-bolt-embers-and-tail-pulse';
 
 (function() {
   // ---------- Device detection ----------
@@ -15847,10 +15847,11 @@ const DLX_BUILD = 'v449K-fire-bolt-shrink-white-hotspot';
     const pdx = -fdy;
     const pdy = fdx;
 
-    // 4-frame anim cycle (~15 fps) — tail length pulses subtly so the
-    // bolt feels alive without the silhouette dancing too much.
+    // 4-frame anim cycle (~15 fps). Tail factors swing wider than the
+    // v449J version so the bolt visibly STRETCHES and SNAPS BACK as
+    // it travels — "tail gets longer and shorter as it changes shape".
     const frameIdx = ((lb.life / 4) | 0) & 3;
-    const tailFactors = [2.2, 2.4, 2.6, 2.4];
+    const tailFactors = [1.8, 2.6, 3.6, 2.4];
     const baseTailLen = r * tailFactors[frameIdx];
     const boxR = Math.ceil(r + baseTailLen) + 2;
 
@@ -15912,20 +15913,32 @@ const DLX_BUILD = 'v449K-fire-bolt-shrink-white-hotspot';
       drawPixelSmokePuff(cx + headOffX, cy + headOffY, wR,   '#ffffff');
     }
 
-    // ── SHEDDING EMBERS — small dim sparks trailing the tail tip.
-    // Fewer than the previous version (was 0/2/4/6 over the 4-frame
-    // cycle) so the reference's clean silhouette stays readable.
-    const emberCounts = [0, 1, 2, 2];
+    // ── SHEDDING EMBERS — chunky hot embers breaking off the tail.
+    // Two streams (alternating ± perpendicular offset) of color-graded
+    // embers fading from white-hot at the head end of the trail to
+    // dark red at the trail tip. The 1-2 freshest are 2×2 chunks so
+    // they pop against the silhouette; older ones are 1-px specks.
+    const emberCounts = [4, 6, 8, 6];
     const ec = emberCounts[frameIdx];
+    const emberColors = [
+      '#ffffff', '#ffe890', '#ffd060', '#ffae28',
+      '#e87028', '#c84020', '#8a1408', '#5a0a04',
+    ];
     for (let i = 0; i < ec; i++) {
-      const dist = baseTailLen + 1 + i * 2;
-      const wob = Math.sin(lb.life * 0.3 + i * 1.7 + lb.seed) * (r * 0.4);
+      const dist = baseTailLen + 2 + i * 1.8 + ((i + frameIdx) & 1);
+      // Alternating ± stream + per-ember wobble so embers don't line up
+      const stream = (i & 1) === 0 ? 1 : -1;
+      const wob = (Math.sin(lb.life * 0.3 + i * 1.7 + lb.seed) * 0.5
+                  + stream * 0.45) * r;
       const ex = (cx - fdx * dist + pdx * wob) | 0;
       const ey = (cy - fdy * dist + pdy * wob) | 0;
-      const color = i === 0 ? '#ffd060'
-                  : i === 1 ? '#e87028'
-                  :           '#8a1408';
-      pxFill(ex, ey, 1, 1, color);
+      const color = emberColors[Math.min(i, emberColors.length - 1)];
+      if (i < 2 && r >= 5) {
+        // Freshest 2 embers: 2×2 chunks for visible "hot spark" feel
+        pxFill(ex - 1, ey - 1, 2, 2, color);
+      } else {
+        pxFill(ex, ey, 1, 1, color);
+      }
     }
   }
 
