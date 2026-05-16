@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449Q-fire-bolt-real-ember-particles';
+const DLX_BUILD = 'v449R-fire-bolt-no-swirl-vertical-wisp';
 
 (function() {
   // ---------- Device detection ----------
@@ -15920,42 +15920,37 @@ const DLX_BUILD = 'v449Q-fire-bolt-real-ember-particles';
       drawPixelSmokePuff(cx + headOffX, cy + headOffY, wR,   '#ffffff');
     }
 
-    // ── SHEDDING EMBERS — real particle system attached to the lava
-    // ball. Each ember spawns at the tail tip with random initial
-    // velocity, drifts off, and DIES after its own lifespan instead
-    // of swirling along a sin formula. New ones spawn randomly each
-    // frame so the stream looks organic — particles wisp off the tail
-    // instead of orbiting it.
+    // ── SHEDDING EMBERS — simple particle system. Each ember spawns
+    // AT THE TAIL TIP (no bolt-relative perpendicular jitter — that
+    // caused the swirl because pdx/pdy rotated as the bolt arced
+    // through gravity, fanning consecutive spawns into a curve).
+    // Once spawned, embers drift straight UP in world space (heat
+    // rises) with tiny world-space horizontal jitter, then die.
     if (!lb.embers) lb.embers = [];
-    // 1) Update existing embers — drift, slight buoyancy upward,
-    //    velocity damp, age out.
+    // 1) Update existing embers — pure linear motion, light horiz
+    //    damp. No buoyancy/gravity tricks that could curve their path.
     for (let i = lb.embers.length - 1; i >= 0; i--) {
       const e = lb.embers[i];
       e.x  += e.vx;
       e.y  += e.vy;
-      e.vx *= 0.94;
-      e.vy = e.vy * 0.94 - 0.05;
+      e.vx *= 0.97;
       e.life -= e.decay;
       if (e.life <= 0) lb.embers.splice(i, 1);
     }
-    // 2) Spawn 1 new ember most frames (skip ~25 % so density varies).
-    //    Position: a random spot near the tail tip with perpendicular
-    //    jitter. Velocity: small sideways drift, very mild backward
-    //    push (the lava ball does the main "moving forward" so embers
-    //    naturally trail behind in world space).
-    if (Math.random() < 0.75) {
-      const tipDist = baseTailLen + Math.random() * 4;
-      const perpOff = (Math.random() - 0.5) * r * 1.4;
-      const driftPerp = (Math.random() - 0.5) * 0.55;
-      const driftBack = -0.10 - Math.random() * 0.25;
+    // 2) Spawn at most 1 ember per frame, ~50 % chance per frame.
+    //    Position: dead-center on the tail tip with ±1 px world jitter.
+    //    Velocity: upward + tiny world-space horizontal scatter. No
+    //    pdx/pdy or fdx/fdy involvement — same axis regardless of
+    //    where the bolt is flying.
+    if (Math.random() < 0.55) {
       lb.embers.push({
-        x: lb.x - fdx * tipDist + pdx * perpOff,
-        y: lb.y - fdy * tipDist + pdy * perpOff,
-        vx: pdx * driftPerp + fdx * driftBack,
-        vy: pdy * driftPerp + fdy * driftBack,
+        x: lb.x - fdx * baseTailLen + (Math.random() - 0.5) * 2,
+        y: lb.y - fdy * baseTailLen + (Math.random() - 0.5) * 2,
+        vx: (Math.random() - 0.5) * 0.5,
+        vy: -0.45 - Math.random() * 0.45,            // straight up (heat)
         life: 1,
-        decay: 0.05 + Math.random() * 0.05,         // ~13-20 frame life
-        size: 2 + ((Math.random() * 3) | 0),        // 2 / 3 / 4 px chunks
+        decay: 0.06 + Math.random() * 0.05,          // ~10-16 frame life
+        size: 2 + ((Math.random() * 3) | 0),         // 2 / 3 / 4 px chunks
       });
     }
     // 3) Draw all live embers — color + size fade by remaining life.
