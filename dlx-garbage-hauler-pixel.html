@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449F-revive-score-floaters-and-critical-warnings';
+const DLX_BUILD = 'v449G-stepped-halos-meet-in-the-middle';
 
 (function() {
   // ---------- Device detection ----------
@@ -11987,6 +11987,18 @@ const DLX_BUILD = 'v449F-revive-score-floaters-and-critical-warnings';
     }
   }
   function emitPickupSparks(x, y, color, count) {
+    // Soft stepped-halo flash at the burst origin — gives every pickup
+    // burst the impact of a "small explosion of light" before the
+    // chunks fly. Tinted to match the pickup color. Decays in ~10
+    // frames so it doesn't linger.
+    pickupSparks.push({
+      x, y, vx: 0, vy: 0,
+      life: 1, decay: 0.12,
+      type: 'halo',
+      haloR: count >= 18 ? 22 : (count >= 12 ? 18 : 14),
+      haloRgb: _hexToRgb(color),
+      haloKey: 'pickup-' + color,
+    });
     // Stationary central flash — 3 chunky squares with a slight horizontal
     // spread, decaying fast (gone in ~10 frames). Gives every burst a
     // strong CENTER beat before the flying chunks scatter out.
@@ -12026,11 +12038,22 @@ const DLX_BUILD = 'v449F-revive-score-floaters-and-critical-warnings';
   }
   function drawPickupSparks() {
     if (pickupSparks.length === 0) return;
-    // Geometric pixel particles — Neo-16-bit. 6-step size decay
+    // Pass 1 — soft halo flashes at burst origins. Drawn first so the
+    // chunky squares fly THROUGH the glow on the next pass.
+    for (const s of pickupSparks) {
+      if (s.type !== 'halo') continue;
+      const halo = _getSteppedHalo(s.haloR, s.haloKey, s.haloRgb);
+      const a = Math.max(0, s.life);
+      ctx.globalAlpha = a * a;   // ease-out fade so it pops then fades
+      ctx.drawImage(halo.canvas, (s.x | 0) - halo.half, (s.y | 0) - halo.half);
+    }
+    ctx.globalAlpha = 1;
+    // Pass 2 — geometric pixel particles, Neo-16-bit. 6-step size decay
     // (6→5→4→3→2→1 px squares), integer-snapped, no blur, no alpha.
     // White-hot inner core for the first half of life so the burst
     // reads as "incandescent → cooling → fading".
     for (const s of pickupSparks) {
+      if (s.type === 'halo') continue;
       const sz = s.life > 0.85 ? 6
               : s.life > 0.65 ? 5
               : s.life > 0.45 ? 4
@@ -33735,10 +33758,11 @@ const DLX_BUILD = 'v449F-revive-score-floaters-and-critical-warnings';
       ctx.shadowBlur = 0;
       const bcx = bird.x | 0;
       const bcy = bird.y | 0;
-      // Cached cyan halo rim
+      // Stepped cyan halo — gives the stun crackle a "field of energy"
+      // glow vs. the chunky lightning bolts on top.
       const haloR = BIRD_R + 24;
-      const halo = _getRingRim(haloR, 'rgba(120, 200, 255, 0.55)', '#9bd2ff');
-      ctx.drawImage(halo, bcx - haloR, bcy - haloR);
+      const halo = _getSteppedHalo(haloR, 'stun', [140, 220, 255]);
+      ctx.drawImage(halo.canvas, bcx - halo.half, bcy - halo.half);
       // 5 forked-lightning bolts orbiting the rig
       for (let i = 0; i < 5; i++) {
         const a0 = (frame * 0.4 + i * 1.7) % (Math.PI * 2);
@@ -34070,8 +34094,10 @@ const DLX_BUILD = 'v449F-revive-score-floaters-and-critical-warnings';
       ctx.save();
       ctx.shadowBlur = 0;
       ctx.globalAlpha = fadeA * expiringFlicker;
-      const rim = _getRingRim(rA, 'rgba(255, 224, 128, 0.85)', '#fff080');
-      ctx.drawImage(rim, pxA - rA, pyA - rA);
+      // Stepped amber halo — bright rim with outer atmosphere + inner
+      // refraction glow. Reads as a real energy bubble vs. a thin ring.
+      const halo = _getSteppedHalo(rA, 'forcefield', [255, 215, 110]);
+      ctx.drawImage(halo.canvas, pxA - halo.half, pyA - halo.half);
       // Six tick-mark sparks rotating around the ring
       const tickAng = frame * 0.08;
       ctx.fillStyle = '#fff0a0';
@@ -34190,45 +34216,82 @@ const DLX_BUILD = 'v449F-revive-score-floaters-and-critical-warnings';
     ctx.restore();
   }
 
-  // Generic pixel-art rim cache — built once per (radius, color,
-  // topHighlight) combo. Used by every shield/aura that needs a
-  // pulsing 2-px ring around the rig. Replaces per-frame ctx.arc +
-  // shadowBlur (slow on iOS) with a single drawImage call.
-  const _ringRimCache = {};
-  function _getRingRim(r, fillColor, topHighlight) {
-    const key = r + '|' + fillColor + '|' + (topHighlight || '');
-    if (_ringRimCache[key]) return _ringRimCache[key];
-    const size = r * 2 + 1;
+  function _hexToRgb(hex) {
+    if (hex.charAt(0) === '#') hex = hex.slice(1);
+    if (hex.length === 3) {
+      return [parseInt(hex[0] + hex[0], 16),
+              parseInt(hex[1] + hex[1], 16),
+              parseInt(hex[2] + hex[2], 16)];
+    }
+    return [parseInt(hex.slice(0, 2), 16),
+            parseInt(hex.slice(2, 4), 16),
+            parseInt(hex.slice(4, 6), 16)];
+  }
+
+  // Stepped pixel-art halo — a "meet-in-the-middle" between a soft
+  // smooth glow and pure pixel art. Built from 5 concentric 2-px
+  // bands at decreasing alpha (outer atmosphere → bright rim →
+  // inner refraction → faint center hint) + a white-hot top crown
+  // highlight. Reads as a gradient bubble while staying chunky/pixel.
+  // Cached per (radius, color-key) — usually 4-6 entries per effect
+  // for the lifetime of a session. Replaces per-frame ctx.arc +
+  // shadowBlur with a single drawImage call.
+  const _haloCache = {};
+  function _getSteppedHalo(r, key, rgb, opts) {
+    const cacheKey = r + '|' + key;
+    const hit = _haloCache[cacheKey];
+    if (hit) return hit;
+    opts = opts || {};
+    const padding = 7;
+    const half = r + padding;
+    const size = half * 2 + 1;
     const c = document.createElement('canvas');
     c.width = size; c.height = size;
     const cctx = c.getContext('2d');
-    const innerR = r - 2;
-    cctx.fillStyle = fillColor;
-    for (let dy = -r; dy <= r; dy++) {
-      const dxOut = Math.floor(Math.sqrt(r * r - dy * dy));
-      if (Math.abs(dy) >= innerR) {
-        cctx.fillRect(r - dxOut, r + dy, dxOut * 2 + 1, 1);
-      } else {
-        const dxIn = Math.floor(Math.sqrt(innerR * innerR - dy * dy));
-        cctx.fillRect(r - dxOut, r + dy, dxOut - dxIn, 1);
-        cctx.fillRect(r + dxIn + 1, r + dy, dxOut - dxIn, 1);
+    const drawBand = (radius, thick, alpha) => {
+      if (radius < 1) return;
+      cctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')';
+      const innerR = Math.max(0, radius - thick);
+      for (let dy = -radius; dy <= radius; dy++) {
+        const dxOut = Math.floor(Math.sqrt(radius * radius - dy * dy));
+        if (innerR <= 0 || Math.abs(dy) >= innerR) {
+          cctx.fillRect(half - dxOut, half + dy, dxOut * 2 + 1, 1);
+        } else {
+          const dxIn = Math.floor(Math.sqrt(innerR * innerR - dy * dy));
+          cctx.fillRect(half - dxOut, half + dy, dxOut - dxIn, 1);
+          cctx.fillRect(half + dxIn + 1, half + dy, dxOut - dxIn, 1);
+        }
       }
-    }
-    if (topHighlight) {
-      cctx.fillStyle = topHighlight;
+    };
+    // Default band stack — overridable via opts.bands as
+    // [[radiusOffset, thick, alpha], ...]
+    const bands = opts.bands || [
+      [+6, 2, 0.10],   // outer atmosphere
+      [+3, 2, 0.28],   // outer halo step
+      [ 0, 2, 0.90],   // bright main rim
+      [-3, 2, 0.32],   // inner refraction glow
+      [-6, 2, 0.12],   // faint inner core hint
+    ];
+    for (const b of bands) drawBand(r + b[0], b[1], b[2]);
+    // Top-of-bubble crown highlight (white tint, top 3 rows of the
+    // main rim) gives the halo dimensionality. Skip with opts.noCrown.
+    if (!opts.noCrown) {
+      cctx.fillStyle = 'rgba(255, 255, 255, ' + (opts.crownAlpha || 0.55) + ')';
+      const innerR = Math.max(0, r - 2);
       for (let dy = -r; dy < -r + 3; dy++) {
         const dxOut = Math.floor(Math.sqrt(r * r - dy * dy));
-        if (dy >= -innerR) {
-          const dxIn = Math.floor(Math.sqrt(innerR * innerR - dy * dy));
-          cctx.fillRect(r - dxOut, r + dy, dxOut - dxIn, 1);
-          cctx.fillRect(r + dxIn + 1, r + dy, dxOut - dxIn, 1);
+        if (Math.abs(dy) >= innerR) {
+          cctx.fillRect(half - dxOut, half + dy, dxOut * 2 + 1, 1);
         } else {
-          cctx.fillRect(r - dxOut, r + dy, dxOut * 2 + 1, 1);
+          const dxIn = Math.floor(Math.sqrt(innerR * innerR - dy * dy));
+          cctx.fillRect(half - dxOut, half + dy, dxOut - dxIn, 1);
+          cctx.fillRect(half + dxIn + 1, half + dy, dxOut - dxIn, 1);
         }
       }
     }
-    _ringRimCache[key] = c;
-    return c;
+    const result = { canvas: c, half: half };
+    _haloCache[cacheKey] = result;
+    return result;
   }
 
   function drawShieldBubble() {
@@ -34239,8 +34302,8 @@ const DLX_BUILD = 'v449F-revive-score-floaters-and-critical-warnings';
     const r = ((BIRD_R + 18) + Math.sin(frame * 0.15) * 1.5) | 0;
     const cx = bird.x | 0;
     const cy = bird.y | 0;
-    const rim = _getRingRim(r, 'rgba(155, 210, 255, 0.85)', '#a8e0ff');
-    ctx.drawImage(rim, cx - r, cy - r);
+    const halo = _getSteppedHalo(r, 'shield', [155, 210, 255]);
+    ctx.drawImage(halo.canvas, cx - halo.half, cy - halo.half);
     // Charge pips around the top — chunky pixel dots with dark outline
     for (let i = 0; i < shieldCharges; i++) {
       const a = -Math.PI / 2 + (i - (shieldCharges - 1) / 2) * 0.35;
@@ -34267,8 +34330,19 @@ const DLX_BUILD = 'v449F-revive-score-floaters-and-critical-warnings';
     const cy = bird.y | 0;
     const base = BIRD_R + 16;
     const r = (base + Math.sin(frame * 0.18) * 2) | 0;
-    const rim = _getRingRim(r, 'rgba(184, 255, 232, 0.75)', '#d8fff0');
-    ctx.drawImage(rim, cx - r, cy - r);
+    // Stepped mint halo — softer outer atmosphere (more ethereal) with
+    // a slightly less harsh main rim than the shield. Phasing-mode feel.
+    const halo = _getSteppedHalo(r, 'ghost', [184, 255, 232], {
+      bands: [
+        [+6, 2, 0.14],   // outer ghost-glow
+        [+3, 2, 0.32],
+        [ 0, 2, 0.78],   // softer rim than shield
+        [-3, 2, 0.30],
+        [-6, 2, 0.16],
+      ],
+      crownAlpha: 0.40,
+    });
+    ctx.drawImage(halo.canvas, cx - halo.half, cy - halo.half);
     // Orbiting mint chunks — slightly faster than the magnet ring so
     // ghost mode reads as "energetic / unstable" rather than "steady"
     const phase = frame * 0.045;
