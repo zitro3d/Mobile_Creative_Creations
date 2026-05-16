@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449V-meteor-12-crack-templates';
+const DLX_BUILD = 'v449W-crash-spiked-impact-blast';
 
 (function() {
   // ---------- Device detection ----------
@@ -11853,11 +11853,30 @@ const DLX_BUILD = 'v449V-meteor-12-crack-templates';
   // it's a catastrophe, not a pickup.
   let crashEffects = [];
   function emitRigCrashBurst(cx, cy) {
-    // 1) FIREBALL — single expanding concentric-disc effect.
-    //    Renders as dark-red → red → orange → yellow → white rings
-    //    growing outward, then fading.
+    // 1) IMPACT BLAST — asymmetric spiked burst (yellow eye + red ring
+    //    + spikes radiating outward in varied lengths). Replaces the
+    //    old concentric-disc fireball with a chunky pixel impact that
+    //    reads as "thing got HIT" instead of "thing is on fire".
+    //    Pre-compute the spike geometry per blast so every crash gets
+    //    a unique silhouette.
+    const numSpikes = 14;
+    const spikes = [];
+    for (let i = 0; i < numSpikes; i++) {
+      spikes.push({
+        angle: (i / numSpikes) * Math.PI * 2 + (Math.random() - 0.5) * 0.22,
+        lengthMul: 0.55 + Math.random() * 0.85,        // 0.55-1.40
+        perpJit: [
+          (Math.random() - 0.5) * 2.0,
+          (Math.random() - 0.5) * 2.5,
+          (Math.random() - 0.5) * 3.0,
+          (Math.random() - 0.5) * 3.5,
+        ],
+      });
+    }
     crashEffects.push({
-      type: 'fireball', x: cx, y: cy, age: 0, maxAge: 30,
+      type: 'fireball', x: cx, y: cy,
+      age: 0, maxAge: 36,
+      spikes,
     });
     // 2) HULL DEBRIS — 16 elongated rectangles tumbling outward in
     //    rig palette (yellow / teal / orange / dark). Heavy gravity
@@ -11931,13 +11950,18 @@ const DLX_BUILD = 'v449V-meteor-12-crack-templates';
     if (crashEffects.length === 0) return;
     for (const e of crashEffects) {
       if (e.type === 'fireball') {
-        // Expanding concentric pixel discs — dark-red outer to
-        // white-hot core. Rapid expansion in the first third, then
-        // plateaus and fades.
+        // Impact blast — asymmetric spike pattern. The size envelope
+        // grows fast over the first 30 % of life, plateaus through
+        // the middle, then fades over the last 25 %. Spike-pixel
+        // positions were pre-computed at emit time so the silhouette
+        // is stable per-explosion (not swirling every frame).
         const t = e.age / e.maxAge;
         if (t >= 1) continue;
-        const r = Math.min(t * 3, 1) * 30;
-        if (r < 1) continue;
+        const sizeT     = t < 0.30 ? t / 0.30 : 1;
+        const fadeAlpha = t < 0.75 ? 1 : 1 - (t - 0.75) / 0.25;
+        const coreR     = 3 + sizeT * 4;          // 3 → 7
+        const ringR     = 7 + sizeT * 6;          // 7 → 13
+        const spikeMaxR = 34 * sizeT;             // 0 → 34
         const pxDisc = (rad, color) => {
           if (rad < 1) return;
           ctx.fillStyle = color;
@@ -11947,12 +11971,50 @@ const DLX_BUILD = 'v449V-meteor-12-crack-templates';
             ctx.fillRect(((e.x - dxR) | 0), ((e.y + dy) | 0), dxR * 2 + 1, 1);
           }
         };
-        pxDisc(r,         '#5a0808');
-        pxDisc(r * 0.78,  '#a01a0a');
-        pxDisc(r * 0.58,  '#ff4030');
-        pxDisc(r * 0.40,  '#ff8028');
-        pxDisc(r * 0.25,  '#ffd060');
-        if (t < 0.55) pxDisc(r * 0.12, '#ffffff');
+        ctx.globalAlpha = fadeAlpha;
+        // 1) RADIATING SPIKES — drawn FIRST so the ring covers their
+        // base and they read as bursting OUT of the explosion.
+        if (e.spikes) {
+          const SPIKE_FRACS  = [0.55, 0.72, 0.88, 1.0];
+          const SPIKE_COLORS = ['#ff6020', '#c84020', '#a01a0a', '#5a0808'];
+          const SPIKE_SIZES  = [2, 2, 1, 1];
+          for (const s of e.spikes) {
+            const reach = spikeMaxR * s.lengthMul;
+            if (reach < ringR) continue;
+            const dx = Math.cos(s.angle);
+            const dy = Math.sin(s.angle);
+            const ppx = -Math.sin(s.angle);
+            const ppy =  Math.cos(s.angle);
+            for (let k = 0; k < 4; k++) {
+              const f = SPIKE_FRACS[k];
+              const dist = reach * f;
+              if (dist < ringR - 1) continue;
+              const jit = s.perpJit[k];
+              const xp = (e.x + dx * dist + ppx * jit) | 0;
+              const yp = (e.y + dy * dist + ppy * jit) | 0;
+              const sz = SPIKE_SIZES[k];
+              ctx.fillStyle = SPIKE_COLORS[k];
+              ctx.fillRect(xp, yp, sz, sz);
+            }
+          }
+        }
+        // 2) RED RING — dark-red outer rim wrapping the molten core.
+        pxDisc(ringR,     '#a01a0a');
+        pxDisc(ringR - 2, '#c84020');
+        // 3) ORANGE TRANSITION
+        pxDisc(coreR + 2, '#ff8028');
+        // 4) YELLOW CORE
+        pxDisc(coreR,     '#ffd060');
+        // 5) WHITE-HOT EYE — peak heat in the middle of the burst.
+        //    Visible during the early + mid phases only.
+        if (t > 0.05 && t < 0.65) {
+          pxDisc(Math.max(1, coreR - 2), '#fff8d0');
+        }
+        if (t < 0.45) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect((e.x - 1) | 0, (e.y - 1) | 0, 2, 2);
+        }
+        ctx.globalAlpha = 1;
       } else if (e.type === 'debris') {
         // Elongated rotated rectangle — reads as a tumbling hull
         // shard, NOT a square pixel-spark.
