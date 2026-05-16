@@ -244,17 +244,16 @@
 
   <!-- 3D PERSPECTIVE EXPERIMENT -->
   <div class="panel">
-    <div class="panelLabel">A · 3D PERSPECTIVE · ROAD KILL</div>
+    <div class="panelLabel">A · 2.5D · 3-QUARTER PERSPECTIVE</div>
     <div class="panelSub">
-      Built on the original baseline — same rig, same animation.
-      Camera tilted slightly downward so top faces become visible
-      on each part. Stronger directional lighting (sun upper-right),
-      specular pips on chrome + dome, soft drop-shadow on a subtle
-      ground plane underneath. Neo pixel-art style preserved
-      (hard pixels, layered shading bands, dark outlines).
+      Side-scroller view with a subtle 3-quarter camera tilt — top
+      surfaces read as proper decks, cylinders show real top caps,
+      the cockpit reads as a hemisphere, and a textured ground plane
+      with foreshortened cast shadows sells the depth. Sun upper-right,
+      shadow lower-left. Rig bobs gently to sell hovering.
     </div>
     <div class="canvasWrap">
-      <canvas id="perspStage" width="200" height="80" class="pixelCanvas"></canvas>
+      <canvas id="perspStage" width="200" height="100" class="pixelCanvas"></canvas>
     </div>
   </div>
 
@@ -2673,86 +2672,99 @@ function renderHeroHld(frame) {
 }
 
 // ═════════════════════════════════════════════════════════
-// 3D PERSPECTIVE — camera tilted slightly down on the hero rig.
-// Builds on the original (same palette `C`, same outlines).
-// Adds: top faces, directional lighting (sun upper-right),
-// specular pips, and a ground-plane cast shadow.
+// 2.5D · 3-QUARTER PERSPECTIVE
+// Side-scroller view with a subtle isometric camera tilt — top
+// surfaces are visible as proper decks, cylinders show top caps,
+// the dome reads as a hemisphere, and a real ground plane + cast
+// shadow sell the depth. Neo pixel-art (hard pixels, banded shading,
+// dark outlines) preserved throughout.
 // ═════════════════════════════════════════════════════════
 
-// Soft cast shadow ellipse (gradient alpha from center)
 function drawCastShadow(ctx, cx, cy, rx, ry) {
-  for (let py = -ry; py <= ry; py++) {
-    for (let px = -rx; px <= rx; px++) {
-      const d = (px*px)/(rx*rx) + (py*py)/(ry*ry);
-      if (d > 1) continue;
-      const a = (1 - d) * 0.55;
-      ctx.fillStyle = `rgba(0, 0, 0, ${a.toFixed(2)})`;
-      ctx.fillRect(cx+px, cy+py, 1, 1);
-    }
+  for (let py = -ry; py <= ry; py++) for (let px = -rx; px <= rx; px++) {
+    const d = (px*px)/(rx*rx) + (py*py)/(ry*ry);
+    if (d > 1) continue;
+    const a = (1 - d) * 0.6;
+    ctx.fillStyle = `rgba(0, 0, 0, ${a.toFixed(2)})`;
+    ctx.fillRect(cx+px, cy+py, 1, 1);
   }
 }
 
-// Subtle ground plane (faint horizon line + slight wash below)
 function drawGroundPlane(ctx) {
-  // Slight band of warmer dark beneath the rig — implies ground
-  ctx.fillStyle = '#1a0820';
-  ctx.fillRect(0, 65, 200, 15);
-  // 1-pixel horizon line lighter for separation
-  ctx.fillStyle = '#28102a';
-  ctx.fillRect(0, 65, 200, 1);
-  // Faint ground speckle
+  // Horizon band
+  ctx.fillStyle = '#1a0820'; ctx.fillRect(0, 70, 200, 30);
+  ctx.fillStyle = '#3a1830'; ctx.fillRect(0, 70, 200, 1);
+  // Receding perspective lines (faint dither)
+  ctx.fillStyle = 'rgba(90,40,72,0.45)';
+  for (let i = 0; i < 6; i++) {
+    const nearX = 10 + i * 36;
+    const farX  = 90 + i * 4;
+    const len = 28;
+    for (let t = 0; t <= len; t++) {
+      const tt = t / len;
+      const px = Math.round(nearX + (farX - nearX) * tt);
+      const py = 99 - Math.round(tt * 29);
+      if (py < 71) break;
+      if ((px + py) % 2 === 0) ctx.fillRect(px, py, 1, 1);
+    }
+  }
+  // Ground speckle
   ctx.fillStyle = '#28162a';
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 36; i++) {
     const px = (i * 23 + 11) % 200;
-    const py = 67 + ((i * 7) % 12);
+    const py = 72 + ((i * 7) % 26);
+    ctx.fillRect(px, py, 1, 1);
+  }
+  ctx.fillStyle = '#4a2840';
+  for (let i = 0; i < 14; i++) {
+    const px = (i * 41 + 17) % 200;
+    const py = 76 + ((i * 11) % 20);
     ctx.fillRect(px, py, 1, 1);
   }
 }
 
-// Specular highlight pip — single bright pixel at sun-catch position
-function specPip(ctx, x, y, color) {
-  ctx.fillStyle = color || '#ffffff';
-  ctx.fillRect(x, y, 1, 1);
-}
-
+// 2.5D hero rig — top decks visible, cylinder caps, hemispherical dome
 function pxRigPerspective(ctx, ox, oy, frame) {
   ctx.imageSmoothingEnabled = false;
   const x = ox|0, y = oy|0;
 
-  // ── BODY with TOP FACE visible (camera tilted down) ──
-  // Top face — narrower than side face (perspective foreshortening)
+  // ── BODY ────────────────────────────────────────────────
+  // TOP DECK — 7px deck above side face
   ctx.fillStyle = C.outline;
-  ctx.fillRect(x+8, y+18, 46, 1);              // top edge
-  ctx.fillRect(x+7, y+19, 1, 4); ctx.fillRect(x+54, y+19, 1, 4); // side edges of top face
-  // Top face main fill (sun-lit)
-  ctx.fillStyle = C.hullLight; ctx.fillRect(x+8, y+19, 46, 3);
-  // Top face transition row into side face
-  ctx.fillStyle = C.hullCore;  ctx.fillRect(x+8, y+22, 46, 1);
-  // Bright sun pip on upper-right of top face
-  ctx.fillStyle = '#fff8e8';   ctx.fillRect(x+40, y+19, 10, 1);
-  ctx.fillStyle = '#d8f0f0';   ctx.fillRect(x+40, y+20, 10, 1);
-  // Tiny rivets/details on top face
+  ctx.fillRect(x+9, y+15, 44, 1);
+  ctx.fillRect(x+8, y+16, 1, 6); ctx.fillRect(x+53, y+16, 1, 6);
+  ctx.fillStyle = '#e8f4f6';   ctx.fillRect(x+9, y+16, 44, 1);
+  ctx.fillStyle = C.hullLight; ctx.fillRect(x+9, y+17, 44, 3);
+  ctx.fillStyle = C.hullCore;  ctx.fillRect(x+9, y+20, 44, 1);
+  ctx.fillStyle = C.hullDark;  ctx.fillRect(x+9, y+21, 44, 1);
+  // Sun pip on upper-right of deck
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(x+40, y+16, 12, 1);
+  ctx.fillStyle = '#fff8e8'; ctx.fillRect(x+40, y+17, 12, 1);
+  // Rivets on deck
   ctx.fillStyle = C.hullDark;
-  ctx.fillRect(x+12, y+20, 1, 1); ctx.fillRect(x+22, y+20, 1, 1); ctx.fillRect(x+32, y+20, 1, 1);
+  ctx.fillRect(x+12, y+18, 1, 1); ctx.fillRect(x+22, y+18, 1, 1);
+  ctx.fillRect(x+32, y+18, 1, 1); ctx.fillRect(x+42, y+18, 1, 1);
+  // Antenna mount
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+21, y+19, 3, 2);
+  ctx.fillStyle = C.chrome;     ctx.fillRect(x+21, y+19, 3, 1);
 
-  // Body side face (was at y+22, shifted to y+23 to make room for top)
-  ctx.fillStyle = C.outline;  ctx.fillRect(x+6, y+23, 50, 14);
-  ctx.fillStyle = C.hullDeep; ctx.fillRect(x+6, y+33, 50, 4);
+  // SIDE FACE — front face camera sees
+  ctx.fillStyle = C.outline;  ctx.fillRect(x+6, y+22, 50, 14);
+  ctx.fillStyle = C.hullCore; ctx.fillRect(x+6, y+23, 50, 6);
   ctx.fillStyle = C.hullDark; ctx.fillRect(x+6, y+29, 50, 4);
-  ctx.fillStyle = C.hullCore; ctx.fillRect(x+6, y+24, 50, 6);
-  ctx.fillStyle = C.hullLight; ctx.fillRect(x+8, y+24, 46, 1);
-  // Right-side sun-lit edge highlight
-  ctx.fillStyle = '#a8e0e8'; ctx.fillRect(x+44, y+24, 12, 1);
-  // Yellow caution stripe (with bright top edge for 3D feel)
+  ctx.fillStyle = C.hullDeep; ctx.fillRect(x+6, y+33, 50, 3);
+  ctx.fillStyle = '#a8e0e8'; ctx.fillRect(x+8, y+23, 46, 1);
   ctx.fillStyle = '#fff8a0'; ctx.fillRect(x+8, y+31, 46, 1);
-  ctx.fillStyle = C.yellow;  ctx.fillRect(x+8, y+32, 46, 1);
+  ctx.fillStyle = C.yellow;     ctx.fillRect(x+8, y+32, 46, 1);
   ctx.fillStyle = C.yellowDeep; ctx.fillRect(x+8, y+33, 46, 1);
-  // Rust
-  ctx.fillStyle = C.rust; ctx.fillRect(x+18, y+26, 3, 2); ctx.fillRect(x+34, y+28, 4, 2);
+  ctx.fillStyle = C.rust;     ctx.fillRect(x+18, y+26, 3, 2); ctx.fillRect(x+34, y+28, 4, 2);
   ctx.fillStyle = C.rustDark; ctx.fillRect(x+19, y+28, 1, 1);
+  // Right-edge sun-side
+  ctx.fillStyle = '#a8e0e8';   ctx.fillRect(x+55, y+23, 1, 12);
+  ctx.fillStyle = C.hullLight; ctx.fillRect(x+54, y+23, 1, 13);
 
-  // ── FIN (vertical — minor perspective adjustment) ──
-  { const wX=x+8, wTop=y+6, wBase=y+23, wCols=12;
+  // ── FIN ─────────────────────────────────────────────────
+  { const wX=x+8, wTop=y+5, wBase=y+22, wCols=12;
     for (let i=0; i<wCols; i++) {
       const cx=wX+i, cTop=wTop+i;
       if (cTop > wBase) break;
@@ -2764,12 +2776,13 @@ function pxRigPerspective(ctx, ox, oy, frame) {
       ctx.fillStyle = C.outline; ctx.fillRect(cx, wBase, 1, 1);
     }
     ctx.fillStyle = C.outline; ctx.fillRect(wX, wTop, 1, wBase-wTop+1);
-    // Sun-lit right edge of fin
-    ctx.fillStyle = '#a8e0e8'; ctx.fillRect(wX+wCols-1, wTop+wCols-1, 1, 1);
+    ctx.fillStyle = '#a8e0e8';
+    ctx.fillRect(wX+wCols-1, wTop+wCols-1, 1, 1);
+    ctx.fillRect(wX+wCols-2, wTop+wCols-2, 1, 1);
   }
 
-  // ── ANTENNA ──
-  { const antX=x+22, antBot=y+23, antTop=y+3;
+  // ── ANTENNA ─────────────────────────────────────────────
+  { const antX=x+22, antBot=y+19, antTop=y+0;
     const antLen=antBot-antTop;
     const wPhase=frame*0.05, wMax=2;
     for (let i=0; i<antLen; i++) {
@@ -2781,134 +2794,132 @@ function pxRigPerspective(ctx, ox, oy, frame) {
     ctx.fillStyle = C.podGlow; ctx.fillRect(antX+tipSway, antTop-1, 1, 1);
   }
 
-  // ── BUBBLE COCKPIT with spherical 3D shading ──
-  ctx.fillStyle = C.outline; ctx.fillRect(x+22, y+11, 20, 13);
-  // Top hemisphere — bright chrome wash
-  ctx.fillStyle = C.chromeLight;
-  ctx.fillRect(x+25, y+10, 14, 1);
-  ctx.fillRect(x+24, y+11, 16, 1);
-  // Bright sun pip (upper-right of dome)
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(x+34, y+10, 5, 1);
-  ctx.fillRect(x+36, y+11, 3, 1);
-  // Mid dome shading
+  // ── COCKPIT DOME — hemisphere with stronger top wash ────
+  ctx.fillStyle = C.outline; ctx.fillRect(x+22, y+8, 20, 14);
+  ctx.fillStyle = '#ffffff';     ctx.fillRect(x+28, y+7, 8, 1);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+25, y+8, 14, 1);
+  ctx.fillStyle = '#ffffff';     ctx.fillRect(x+33, y+8, 5, 1);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+24, y+9, 16, 1);
+  ctx.fillStyle = '#fff8e8';     ctx.fillRect(x+33, y+9, 5, 1);
   ctx.fillStyle = C.domeFrame;
-  ctx.fillRect(x+24, y+12, 16, 3);
-  ctx.fillRect(x+23, y+15, 18, 2);
-  // Glass
-  ctx.fillStyle = C.glassDark; ctx.fillRect(x+24, y+15, 16, 7);
-  ctx.fillStyle = 'rgba(126,221,235,0.45)'; ctx.fillRect(x+24, y+15, 16, 1);
-  ctx.fillStyle = 'rgba(180,230,245,0.30)'; ctx.fillRect(x+26, y+16, 5, 1);
-  // Diagonal glass reflection
-  ctx.fillStyle = 'rgba(255,255,255,0.78)';
-  ctx.fillRect(x+25, y+15, 2, 1); ctx.fillRect(x+26, y+16, 2, 1);
-  ctx.fillRect(x+27, y+17, 2, 1); ctx.fillRect(x+28, y+18, 2, 1); ctx.fillRect(x+29, y+19, 2, 1);
+  ctx.fillRect(x+24, y+10, 16, 2);
+  ctx.fillRect(x+23, y+12, 18, 1);
+  ctx.fillStyle = C.chrome; ctx.fillRect(x+23, y+11, 1, 1); ctx.fillRect(x+40, y+11, 1, 1);
+  ctx.fillStyle = C.glassDark; ctx.fillRect(x+24, y+13, 16, 7);
+  ctx.fillStyle = 'rgba(126,221,235,0.55)'; ctx.fillRect(x+24, y+13, 16, 1);
+  ctx.fillStyle = 'rgba(180,230,245,0.30)'; ctx.fillRect(x+26, y+14, 5, 1);
+  ctx.fillStyle = 'rgba(255,255,255,0.80)';
+  ctx.fillRect(x+25, y+13, 2, 1); ctx.fillRect(x+26, y+14, 2, 1);
+  ctx.fillRect(x+27, y+15, 2, 1); ctx.fillRect(x+28, y+16, 2, 1); ctx.fillRect(x+29, y+17, 2, 1);
   ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.fillRect(x+34, y+15, 1, 1); ctx.fillRect(x+35, y+16, 1, 1);
-  ctx.fillRect(x+36, y+17, 1, 1); ctx.fillRect(x+37, y+18, 1, 1);
-  // Driver
-  ctx.fillStyle = '#0a0a14'; ctx.fillRect(x+31, y+17, 5, 4);
-  ctx.fillStyle = '#1a1a26'; ctx.fillRect(x+32, y+17, 3, 1);
-  // Steering wheel ring
+  ctx.fillRect(x+34, y+13, 1, 1); ctx.fillRect(x+35, y+14, 1, 1);
+  ctx.fillRect(x+36, y+15, 1, 1); ctx.fillRect(x+37, y+16, 1, 1);
+  ctx.fillStyle = '#0a0a14'; ctx.fillRect(x+31, y+15, 5, 4);
+  ctx.fillStyle = '#1a1a26'; ctx.fillRect(x+32, y+15, 3, 1);
   ctx.fillStyle = C.podGlow;
+  ctx.fillRect(x+27, y+16, 1, 1); ctx.fillRect(x+29, y+16, 1, 1);
   ctx.fillRect(x+27, y+18, 1, 1); ctx.fillRect(x+29, y+18, 1, 1);
-  ctx.fillRect(x+27, y+20, 1, 1); ctx.fillRect(x+29, y+20, 1, 1);
-  ctx.fillRect(x+28, y+19, 1, 1);
-  // Dome shadow underneath (cast onto body)
-  ctx.fillStyle = C.domeShadow; ctx.fillRect(x+23, y+22, 18, 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x+24, y+23, 16, 1);
+  ctx.fillRect(x+28, y+17, 1, 1);
+  // Dome cast shadow on body deck
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.fillRect(x+24, y+20, 16, 1);
+  ctx.fillStyle = C.domeShadow; ctx.fillRect(x+23, y+20, 18, 2);
 
-  // ── FRONT GRILLE with top edge ──
-  ctx.fillStyle = C.outline; ctx.fillRect(x+44, y+23, 12, 9);
-  // Top face of grille (sun-lit)
-  ctx.fillStyle = C.hullLight; ctx.fillRect(x+45, y+22, 10, 1);
-  ctx.fillStyle = '#fff8e8'; ctx.fillRect(x+50, y+22, 5, 1);
-  // Grille face
-  ctx.fillStyle = C.hullDark; ctx.fillRect(x+45, y+24, 10, 7);
-  ctx.fillStyle = C.hullCore; ctx.fillRect(x+45, y+24, 10, 1);
+  // ── FRONT GRILLE with top deck ──────────────────────────
+  ctx.fillStyle = C.outline;   ctx.fillRect(x+45, y+20, 11, 1);
+  ctx.fillStyle = C.hullLight; ctx.fillRect(x+45, y+21, 11, 1);
+  ctx.fillStyle = '#fff8e8';   ctx.fillRect(x+50, y+21, 5, 1);
+  ctx.fillStyle = C.outline; ctx.fillRect(x+44, y+22, 12, 10);
+  ctx.fillStyle = C.hullDark; ctx.fillRect(x+45, y+22, 10, 9);
+  ctx.fillStyle = C.hullCore; ctx.fillRect(x+45, y+22, 10, 1);
   ctx.fillStyle = C.outline;
-  ctx.fillRect(x+47, y+25, 1, 5); ctx.fillRect(x+50, y+25, 1, 5); ctx.fillRect(x+53, y+25, 1, 5);
-  // Headlights with brighter sun-side
+  ctx.fillRect(x+47, y+24, 1, 6); ctx.fillRect(x+50, y+24, 1, 6); ctx.fillRect(x+53, y+24, 1, 6);
   ctx.fillStyle = C.yellow;
-  ctx.fillRect(x+47, y+22, 2, 1); ctx.fillRect(x+50, y+22, 2, 1); ctx.fillRect(x+53, y+22, 2, 1);
+  ctx.fillRect(x+47, y+21, 2, 1); ctx.fillRect(x+50, y+21, 2, 1); ctx.fillRect(x+53, y+21, 2, 1);
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(x+47, y+22, 1, 1); ctx.fillRect(x+50, y+22, 1, 1); ctx.fillRect(x+53, y+22, 1, 1);
+  ctx.fillRect(x+47, y+21, 1, 1); ctx.fillRect(x+50, y+21, 1, 1); ctx.fillRect(x+53, y+21, 1, 1);
 
-  // ── ENGINE POD with TOP LIDS on each cylinder segment ──
-  // Bell back (14w × 16h)
-  ctx.fillStyle = C.outline; ctx.fillRect(x+12, y+37, 14, 16);
-  // Top lid — slight chrome rim (body shadows the top, so it's cool grey not white)
-  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+13, y+37, 12, 1);
-  ctx.fillStyle = C.chrome;     ctx.fillRect(x+13, y+38, 12, 1);
-  // Bright pip on upper-right corner (sun wraps around)
-  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+22, y+37, 3, 1);
-  ctx.fillStyle = '#ffffff';     ctx.fillRect(x+23, y+37, 2, 1);
-  // Side face
-  ctx.fillStyle = C.podGrey;    ctx.fillRect(x+13, y+39, 12, 11);
-  // Right-edge highlight (sun side)
-  ctx.fillStyle = C.chrome;     ctx.fillRect(x+24, y+39, 1, 10);
-  // Bottom shadow
-  ctx.fillStyle = C.podBlack;   ctx.fillRect(x+13, y+51, 12, 1);
+  // ── ENGINE POD — cylinders with real TOP CAPS ───────────
+  // Bell back (14w × 16h side face + 3-row cap above)
+  ctx.fillStyle = C.outline; ctx.fillRect(x+12, y+34, 14, 18);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+13, y+34, 12, 1);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+13, y+35, 12, 1);
+  ctx.fillStyle = '#ffffff';     ctx.fillRect(x+19, y+35, 6, 1);
+  ctx.fillStyle = C.chrome;      ctx.fillRect(x+13, y+36, 12, 1);
+  ctx.fillStyle = C.podGrey;     ctx.fillRect(x+13, y+37, 12, 13);
+  ctx.fillStyle = C.chrome;      ctx.fillRect(x+24, y+37, 1, 13);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+24, y+38, 1, 1);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+13, y+50, 12, 1);
+  ctx.fillStyle = C.podBlack;    ctx.fillRect(x+13, y+51, 12, 1);
 
-  // Narrow waist (10w × 12h)
-  ctx.fillStyle = C.outline;     ctx.fillRect(x+26, y+39, 10, 12);
-  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+26, y+39, 10, 1);
-  ctx.fillStyle = C.chrome;      ctx.fillRect(x+26, y+40, 10, 1);
-  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+33, y+39, 3, 1);
-  ctx.fillStyle = '#ffffff';     ctx.fillRect(x+34, y+39, 2, 1);
-  ctx.fillStyle = C.podGrey;     ctx.fillRect(x+26, y+41, 10, 7);
-  ctx.fillStyle = C.chrome;      ctx.fillRect(x+35, y+41, 1, 7);
+  // Waist (10w × 12h side face + 3-row cap)
+  ctx.fillStyle = C.outline; ctx.fillRect(x+26, y+36, 10, 14);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+26, y+36, 10, 1);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+26, y+37, 10, 1);
+  ctx.fillStyle = '#ffffff';     ctx.fillRect(x+31, y+37, 5, 1);
+  ctx.fillStyle = C.chrome;      ctx.fillRect(x+26, y+38, 10, 1);
+  ctx.fillStyle = C.podGrey;     ctx.fillRect(x+26, y+39, 10, 9);
+  ctx.fillStyle = C.chrome;      ctx.fillRect(x+35, y+39, 1, 9);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+35, y+40, 1, 1);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+26, y+48, 10, 1);
   ctx.fillStyle = C.podBlack;    ctx.fillRect(x+26, y+49, 10, 1);
 
-  // Front nose (8w × 10h)
-  ctx.fillStyle = C.outline;     ctx.fillRect(x+36, y+40, 8, 10);
-  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+37, y+40, 6, 1);
-  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+41, y+40, 2, 1);
-  ctx.fillStyle = '#ffffff';     ctx.fillRect(x+42, y+40, 1, 1);
-  ctx.fillStyle = C.podGrey;     ctx.fillRect(x+37, y+41, 6, 7);
-  ctx.fillStyle = C.chrome;      ctx.fillRect(x+42, y+41, 1, 7);
-  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+28, y+35, 6, 3);
-  ctx.fillStyle = C.chrome;      ctx.fillRect(x+28, y+35, 6, 1);
+  // Nose (8w × 10h side face + 3-row cap)
+  ctx.fillStyle = C.outline; ctx.fillRect(x+36, y+37, 8, 12);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+37, y+37, 6, 1);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+37, y+38, 6, 1);
+  ctx.fillStyle = '#ffffff';     ctx.fillRect(x+40, y+38, 3, 1);
+  ctx.fillStyle = C.chrome;      ctx.fillRect(x+37, y+39, 6, 1);
+  ctx.fillStyle = C.podGrey;     ctx.fillRect(x+37, y+40, 6, 7);
+  ctx.fillStyle = C.chrome;      ctx.fillRect(x+42, y+40, 1, 7);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+42, y+41, 1, 1);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+37, y+47, 6, 1);
+  ctx.fillStyle = C.podBlack;    ctx.fillRect(x+37, y+48, 6, 1);
 
-  // Rear nozzle (4w × 8h)
-  ctx.fillStyle = C.podBlack;    ctx.fillRect(x+8, y+41, 4, 8);
-  ctx.fillStyle = C.podGlow;     ctx.fillRect(x+9, y+43, 3, 5);
-  ctx.fillStyle = C.flameCore;   ctx.fillRect(x+10, y+44, 2, 3);
+  // Strut (chrome connector)
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+28, y+32, 6, 2);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+28, y+32, 6, 1);
+
+  // Rear nozzle
+  ctx.fillStyle = C.podBlack;  ctx.fillRect(x+8, y+38, 4, 9);
+  ctx.fillStyle = C.podGlow;   ctx.fillRect(x+9, y+40, 3, 6);
+  ctx.fillStyle = C.flameCore; ctx.fillRect(x+10, y+41, 2, 4);
+  ctx.fillStyle = C.chrome;    ctx.fillRect(x+8, y+38, 4, 1);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+10, y+38, 2, 1);
 
   // Turbine vents
   ctx.fillStyle = C.podBlack;
-  ctx.fillRect(x+16, y+42, 1, 6); ctx.fillRect(x+19, y+42, 1, 6); ctx.fillRect(x+22, y+42, 1, 6);
-  ctx.fillRect(x+29, y+43, 1, 5); ctx.fillRect(x+33, y+43, 1, 5);
+  ctx.fillRect(x+16, y+40, 1, 7); ctx.fillRect(x+19, y+40, 1, 7); ctx.fillRect(x+22, y+40, 1, 7);
+  ctx.fillRect(x+29, y+41, 1, 6); ctx.fillRect(x+33, y+41, 1, 6);
 
-  // Yellow caution stripe on engine (with top sun-lit edge)
-  ctx.fillStyle = '#fff8a0'; ctx.fillRect(x+14, y+47, 22, 1);
-  ctx.fillStyle = C.yellow;     ctx.fillRect(x+14, y+48, 22, 1);
-  ctx.fillStyle = C.yellowDeep; ctx.fillRect(x+14, y+49, 22, 1);
+  // Yellow caution stripe on engine
+  ctx.fillStyle = '#fff8a0'; ctx.fillRect(x+14, y+45, 22, 1);
+  ctx.fillStyle = C.yellow;     ctx.fillRect(x+14, y+46, 22, 1);
+  ctx.fillStyle = C.yellowDeep; ctx.fillRect(x+14, y+47, 22, 1);
 
   // Front intake
-  ctx.fillStyle = C.podBlack; ctx.fillRect(x+40, y+42, 4, 7);
-  ctx.fillStyle = '#1a1a1e';  ctx.fillRect(x+41, y+43, 3, 5);
-  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+41, y+45, 3, 1);
+  ctx.fillStyle = C.podBlack; ctx.fillRect(x+40, y+40, 4, 6);
+  ctx.fillStyle = '#1a1a1e';  ctx.fillRect(x+41, y+41, 3, 4);
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+41, y+43, 3, 1);
 
-  // Chain anchor port (with top edge)
-  ctx.fillStyle = C.outline;  ctx.fillRect(x+2, y+29, 5, 5);
-  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+3, y+29, 3, 1);
-  ctx.fillStyle = C.podGrey;  ctx.fillRect(x+3, y+30, 3, 3);
-  ctx.fillStyle = C.podGlow;  ctx.fillRect(x+4, y+31, 1, 1);
+  // Chain anchor port
+  ctx.fillStyle = C.outline;    ctx.fillRect(x+2, y+27, 5, 5);
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+3, y+27, 3, 1);
+  ctx.fillStyle = C.podGrey;    ctx.fillRect(x+3, y+28, 3, 3);
+  ctx.fillStyle = C.podGlow;    ctx.fillRect(x+4, y+29, 1, 1);
 }
 
-// Cargo box with top face visible (3D)
 function pxCargoPersp(ctx, ox, oy) {
   ctx.imageSmoothingEnabled = false;
   const x=ox|0, y=oy|0;
-  // Top face (tilted)
-  ctx.fillStyle = C.cargoFrame; ctx.fillRect(x-1, y-2, 28, 2);
-  ctx.fillStyle = C.cargoOuter; ctx.fillRect(x, y-1, 26, 1);
-  // Inner top trim
-  ctx.fillStyle = C.cargoInner; ctx.fillRect(x+2, y-1, 22, 1);
-  // Sun pip on top
-  ctx.fillStyle = C.cargoHi; ctx.fillRect(x+18, y-1, 6, 1);
-  // Front face — same as original
+  // TOP FACE (sun-lit deck)
+  ctx.fillStyle = C.cargoFrame; ctx.fillRect(x-1, y-4, 28, 1);
+  ctx.fillStyle = C.cargoOuter; ctx.fillRect(x,   y-3, 26, 1);
+  ctx.fillStyle = '#5a4838';    ctx.fillRect(x+1, y-2, 24, 1);
+  ctx.fillStyle = '#7a5848';    ctx.fillRect(x+12, y-2, 12, 1);
+  ctx.fillStyle = C.cargoOuter; ctx.fillRect(x+1, y-1, 24, 1);
+  ctx.fillStyle = C.cargoFrame; ctx.fillRect(x-1, y-3, 1, 3); ctx.fillRect(x+26, y-3, 1, 3);
+  // Front face
   ctx.fillStyle = C.cargoFrame; ctx.fillRect(x-1, y-1, 28, 28);
   ctx.fillStyle = C.cargoOuter; ctx.fillRect(x, y, 26, 26);
   ctx.fillStyle = C.cargoFrame; ctx.fillRect(x+5, y+5, 16, 16);
@@ -2920,8 +2931,8 @@ function pxCargoPersp(ctx, ox, oy) {
   ctx.fillStyle = C.cargoRivet;
   ctx.fillRect(x+1, y+1, 3, 3); ctx.fillRect(x+22, y+1, 3, 3);
   ctx.fillRect(x+1, y+22, 3, 3); ctx.fillRect(x+22, y+22, 3, 3);
-  // Right-side sun-lit edge
-  ctx.fillStyle = C.cargoHi; ctx.fillRect(x+25, y+1, 1, 24);
+  ctx.fillStyle = C.cargoHi;  ctx.fillRect(x+25, y+1, 1, 24);
+  ctx.fillStyle = '#ffe070';  ctx.fillRect(x+25, y+4, 1, 4);
 }
 
 function renderHeroPerspective(frame) {
@@ -2929,16 +2940,15 @@ function renderHeroPerspective(frame) {
   if (!c) return;
   const ctx = c.getContext('2d');
   ctx.clearRect(0, 0, c.width, c.height);
-  // Subtle ground plane
   drawGroundPlane(ctx);
-  // Cast shadows below cargo + rig
-  drawCastShadow(ctx, 57,  71, 18, 3);  // cargo shadow
-  drawCastShadow(ctx, 140, 72, 32, 4);  // rig shadow
-  // Cargo + chain + flame + rig
-  const rigX=115, rigY=5;
-  pxCargoPersp(ctx, 44, rigY+15);
-  pxChain(ctx, 76, rigY+29, rigX+4, rigY+29, frame);
-  pxFlame(ctx, rigX+8, rigY+45, frame);
+  drawCastShadow(ctx, 57,  82, 20, 4);
+  drawCastShadow(ctx, 140, 84, 38, 5);
+  const bob = Math.round(Math.sin(frame * 0.05) * 1);
+  const cargoBob = Math.round(Math.sin(frame * 0.045) * 1);
+  const rigX=115, rigY=8 + bob;
+  pxCargoPersp(ctx, 44, rigY+14 + cargoBob);
+  pxChain(ctx, 76, rigY+28 + cargoBob, rigX+4, rigY+28, frame);
+  pxFlame(ctx, rigX+8, rigY+43, frame);
   pxRigPerspective(ctx, rigX, rigY, frame);
 }
 
