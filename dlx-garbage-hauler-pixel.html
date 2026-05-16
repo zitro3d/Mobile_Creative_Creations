@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449C-cache-exhaust-bandit-halos';
+const DLX_BUILD = 'v449D-pixel-shield-bubble-and-magnet-ring';
 
 (function() {
   // ---------- Device detection ----------
@@ -33937,18 +33937,33 @@ const DLX_BUILD = 'v449C-cache-exhaust-bandit-halos';
   }
 
   function drawMagnetRing() {
+    // Pixel-art magnet field — two concentric rings of pink chunks
+    // orbiting in opposite directions. Replaces the smooth-art arcs +
+    // shadowBlur halo. Reads as "magnetic flux pulling stuff inward".
     ctx.save();
-    ctx.translate(bird.x, bird.y);
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = '#ff6b9d';
+    ctx.shadowBlur = 0;
+    const cx = bird.x | 0;
+    const cy = bird.y | 0;
     const r = 120 + Math.sin(frame * 0.18) * 6;
-    ctx.strokeStyle = 'rgba(255, 107, 157, 0.25)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = 'rgba(255, 107, 157, 0.45)';
-    ctx.setLineDash([4, 8]);
-    ctx.beginPath(); ctx.arc(0, 0, r * 0.65, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
+    // Outer ring — 32 small chunks, slow CW
+    const phaseA = frame * 0.018;
+    ctx.fillStyle = 'rgba(255, 107, 157, 0.55)';
+    for (let i = 0; i < 32; i++) {
+      const a = (i / 32) * Math.PI * 2 + phaseA;
+      const ox = (cx + Math.cos(a) * r) | 0;
+      const oy = (cy + Math.sin(a) * r) | 0;
+      ctx.fillRect(ox - 1, oy - 1, 2, 2);
+    }
+    // Inner ring — 18 brighter chunks, faster CCW
+    const innerR = r * 0.65;
+    const phaseB = -frame * 0.025;
+    ctx.fillStyle = 'rgba(255, 107, 157, 0.85)';
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2 + phaseB;
+      const ox = (cx + Math.cos(a) * innerR) | 0;
+      const oy = (cy + Math.sin(a) * innerR) | 0;
+      ctx.fillRect(ox - 1, oy - 1, 3, 3);
+    }
     ctx.restore();
   }
 
@@ -34095,32 +34110,67 @@ const DLX_BUILD = 'v449C-cache-exhaust-bandit-halos';
     ctx.restore();
   }
 
+  // Cached pixel-art shield rim canvases — built once per integer
+  // radius. The pulse only sweeps ±1.5 px so there are typically 4-5
+  // distinct cache entries for the lifetime of a session. Replaces
+  // a per-frame ctx.arc + shadowBlur=16 (slow on iOS) with a single
+  // drawImage call.
+  const _shieldRimCache = {};
+  function _getShieldRim(r) {
+    if (_shieldRimCache[r]) return _shieldRimCache[r];
+    const size = r * 2 + 1;
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const cctx = c.getContext('2d');
+    const innerR = r - 2;
+    cctx.fillStyle = 'rgba(155, 210, 255, 0.85)';
+    for (let dy = -r; dy <= r; dy++) {
+      const dxOut = Math.floor(Math.sqrt(r * r - dy * dy));
+      if (Math.abs(dy) >= innerR) {
+        cctx.fillRect(r - dxOut, r + dy, dxOut * 2 + 1, 1);
+      } else {
+        const dxIn = Math.floor(Math.sqrt(innerR * innerR - dy * dy));
+        cctx.fillRect(r - dxOut, r + dy, dxOut - dxIn, 1);
+        cctx.fillRect(r + dxIn + 1, r + dy, dxOut - dxIn, 1);
+      }
+    }
+    // Top-of-bubble crown highlight gives the rim dimensionality
+    cctx.fillStyle = '#a8e0ff';
+    for (let dy = -r; dy < -r + 3; dy++) {
+      const dxOut = Math.floor(Math.sqrt(r * r - dy * dy));
+      if (dy >= -innerR) {
+        const dxIn = Math.floor(Math.sqrt(innerR * innerR - dy * dy));
+        cctx.fillRect(r - dxOut, r + dy, dxOut - dxIn, 1);
+        cctx.fillRect(r + dxIn + 1, r + dy, dxOut - dxIn, 1);
+      } else {
+        cctx.fillRect(r - dxOut, r + dy, dxOut * 2 + 1, 1);
+      }
+    }
+    _shieldRimCache[r] = c;
+    return c;
+  }
+
   function drawShieldBubble() {
     ctx.save();
+    ctx.shadowBlur = 0;
     // v432: pixel rig body+engine is ~50px tall vs legacy ~28px, so
     // the aura needs more padding (was BIRD_R + 10) to wrap visibly.
-    const r = BIRD_R + 18 + Math.sin(frame * 0.15) * 1.5;
-    ctx.translate(bird.x, bird.y);
-    ctx.shadowBlur = 16;
-    ctx.shadowColor = '#9bd2ff';
-    // Glowing ring
-    ctx.strokeStyle = 'rgba(155, 210, 255, 0.85)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.stroke();
-    // Faint fill
-    ctx.fillStyle = 'rgba(155, 210, 255, 0.1)';
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fill();
-    // Charge pips around the top
+    const r = ((BIRD_R + 18) + Math.sin(frame * 0.15) * 1.5) | 0;
+    const cx = bird.x | 0;
+    const cy = bird.y | 0;
+    const rim = _getShieldRim(r);
+    ctx.drawImage(rim, cx - r, cy - r);
+    // Charge pips around the top — chunky pixel dots with dark outline
     for (let i = 0; i < shieldCharges; i++) {
       const a = -Math.PI / 2 + (i - (shieldCharges - 1) / 2) * 0.35;
-      ctx.fillStyle = '#9bd2ff';
-      ctx.beginPath();
-      ctx.arc(Math.cos(a) * r, Math.sin(a) * r, 2.2, 0, Math.PI * 2);
-      ctx.fill();
+      const px = (cx + Math.cos(a) * r) | 0;
+      const py = (cy + Math.sin(a) * r) | 0;
+      ctx.fillStyle = '#1a0a06';
+      ctx.fillRect(px - 2, py - 2, 5, 5);
+      ctx.fillStyle = '#7eddeb';
+      ctx.fillRect(px - 1, py - 1, 3, 3);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(px, py, 1, 1);
     }
     ctx.restore();
   }
