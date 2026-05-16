@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449P-fire-bolt-head-pulse-faster-breathe';
+const DLX_BUILD = 'v449Q-fire-bolt-real-ember-particles';
 
 (function() {
   // ---------- Device detection ----------
@@ -15920,51 +15920,53 @@ const DLX_BUILD = 'v449P-fire-bolt-head-pulse-faster-breathe';
       drawPixelSmokePuff(cx + headOffX, cy + headOffY, wR,   '#ffffff');
     }
 
-    // ── SHEDDING EMBERS — chunky hot embers visibly breaking off the
-    // tail. Pushed further behind the tail tip + bigger chunk sizes
-    // + wider perpendicular spread than v449L so they read as DISCRETE
-    // sparks against the body, not part of the silhouette.
-    const emberCounts = [4, 6, 8, 6];
-    const ec = emberCounts[frameIdx];
-    // Warm-only ember palette — white / pale-yellow were vanishing
-    // against the bright sand. These all contrast against the desert
-    // background while still reading as hot fire breaking off the tail.
-    const emberColors = [
-      '#ffae28',   // bright hot orange (freshest)
-      '#e87028',   // orange
-      '#d85020',   // red-orange
-      '#c84020',   // red
-      '#a02818',   // deep red
-      '#8a1408',   // dark red
-      '#6a0a04',   // very dark red
-      '#5a0a04',   // extreme tail tip
-    ];
-    for (let i = 0; i < ec; i++) {
-      // Spread embers further behind the tail tip (i * 2.5 instead of
-      // 1.8) so they trail clearly outside the bolt silhouette.
-      const dist = baseTailLen + 3 + i * 2.5 + ((i + frameIdx) & 1);
-      // Wider perpendicular scatter so embers SPRAY OUT instead of
-      // riding along the axis.
-      const stream = (i & 1) === 0 ? 1 : -1;
-      const wob = (Math.sin(lb.life * 0.3 + i * 1.7 + lb.seed) * 0.7
-                  + stream * 0.65) * r;
-      const ex = (cx - fdx * dist + pdx * wob) | 0;
-      const ey = (cy - fdy * dist + pdy * wob) | 0;
-      const color = emberColors[Math.min(i, emberColors.length - 1)];
-      // Graduated ember sizes for visible "comet-tail" feel:
-      //   freshest 5×5, then 4×4, 3×3, two 2×2's, then 1-px specks.
-      // r-gate scales the chunk sizes down for small bolts so they
-      // don't look like fluffy clouds.
-      let size;
-      if      (i === 0 && r >= 4)  size = 5;
-      else if (i === 0)            size = 3;
-      else if (i === 1 && r >= 4)  size = 4;
-      else if (i === 1)            size = 2;
-      else if (i === 2 && r >= 4)  size = 3;
-      else if (i <= 4 && r >= 5)   size = 2;
-      else                         size = 1;
+    // ── SHEDDING EMBERS — real particle system attached to the lava
+    // ball. Each ember spawns at the tail tip with random initial
+    // velocity, drifts off, and DIES after its own lifespan instead
+    // of swirling along a sin formula. New ones spawn randomly each
+    // frame so the stream looks organic — particles wisp off the tail
+    // instead of orbiting it.
+    if (!lb.embers) lb.embers = [];
+    // 1) Update existing embers — drift, slight buoyancy upward,
+    //    velocity damp, age out.
+    for (let i = lb.embers.length - 1; i >= 0; i--) {
+      const e = lb.embers[i];
+      e.x  += e.vx;
+      e.y  += e.vy;
+      e.vx *= 0.94;
+      e.vy = e.vy * 0.94 - 0.05;
+      e.life -= e.decay;
+      if (e.life <= 0) lb.embers.splice(i, 1);
+    }
+    // 2) Spawn 1 new ember most frames (skip ~25 % so density varies).
+    //    Position: a random spot near the tail tip with perpendicular
+    //    jitter. Velocity: small sideways drift, very mild backward
+    //    push (the lava ball does the main "moving forward" so embers
+    //    naturally trail behind in world space).
+    if (Math.random() < 0.75) {
+      const tipDist = baseTailLen + Math.random() * 4;
+      const perpOff = (Math.random() - 0.5) * r * 1.4;
+      const driftPerp = (Math.random() - 0.5) * 0.55;
+      const driftBack = -0.10 - Math.random() * 0.25;
+      lb.embers.push({
+        x: lb.x - fdx * tipDist + pdx * perpOff,
+        y: lb.y - fdy * tipDist + pdy * perpOff,
+        vx: pdx * driftPerp + fdx * driftBack,
+        vy: pdy * driftPerp + fdy * driftBack,
+        life: 1,
+        decay: 0.05 + Math.random() * 0.05,         // ~13-20 frame life
+        size: 2 + ((Math.random() * 3) | 0),        // 2 / 3 / 4 px chunks
+      });
+    }
+    // 3) Draw all live embers — color + size fade by remaining life.
+    for (const e of lb.embers) {
+      let color, size;
+      if      (e.life > 0.75) { color = '#ffae28'; size = e.size;     }
+      else if (e.life > 0.50) { color = '#e87028'; size = Math.max(1, e.size - 1); }
+      else if (e.life > 0.25) { color = '#c84020'; size = Math.max(1, e.size - 2); }
+      else                    { color = '#8a1408'; size = 1; }
       const half = size >> 1;
-      pxFill(ex - half, ey - half, size, size, color);
+      pxFill((e.x | 0) - half, (e.y | 0) - half, size, size, color);
     }
   }
 
