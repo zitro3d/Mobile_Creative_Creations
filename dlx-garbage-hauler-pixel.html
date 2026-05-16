@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v450F-pixel-dust-and-dispatch-foundation-depth';
+const DLX_BUILD = 'v450G-rigsheet-debug-export-page';
 
 (function() {
   // ---------- Device detection ----------
@@ -36353,7 +36353,108 @@ const DLX_BUILD = 'v450F-pixel-dust-and-dispatch-foundation-depth';
   let _fpsLast = 0;
   let _fpsFrames = 0;
   let _fpsCurrent = 0;
+
+  // Debug sprite-sheet export page — toggle with ?rigsheet=1 in the URL.
+  // Renders the HERO RIG (clean + smashed) and AERIAL THIEF on a checkered
+  // transparency background at 4× zoom so collaborators can screenshot
+  // clean references for Aseprite. Skips all gameplay update/render.
+  const _rigSheetMode = typeof location !== 'undefined'
+                     && location.search.indexOf('rigsheet=1') >= 0;
+  function _rigSheetChecker(x, y, w, h, sz) {
+    for (let cy = 0; cy < h; cy += sz) {
+      for (let cx = 0; cx < w; cx += sz) {
+        const light = (((cx / sz) | 0) + ((cy / sz) | 0)) & 1;
+        ctx.fillStyle = light ? '#3a3a48' : '#2a2a36';
+        ctx.fillRect(x + cx, y + cy,
+                     Math.min(sz, w - cx), Math.min(sz, h - cy));
+      }
+    }
+    // 1-px outline so the panel edge reads clearly
+    ctx.strokeStyle = '#6a6a78';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - 0.5, y - 0.5, w + 1, h + 1);
+  }
+  function drawRigSheet() {
+    // Dark page background
+    ctx.fillStyle = '#1a1a22';
+    ctx.fillRect(0, 0, W, H);
+    // Header
+    ctx.imageSmoothingEnabled = true;
+    ctx.fillStyle = '#fce0a8';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('DLX SPRITE SHEET · ?rigsheet=1', 10, 8);
+    ctx.fillStyle = '#a0a8b8';
+    ctx.font = '10px sans-serif';
+    ctx.fillText('4× preview · grab a screenshot for Aseprite', 10, 24);
+
+    // ── HERO RIG · ROAD KILL · clean ─────────────────────────
+    let panelY = 44;
+    const rigZoom = 3;
+    const rigDw = 58 * rigZoom;   // 174
+    const rigDh = 52 * rigZoom;   // 156
+    const rigDx = ((W - rigDw) / 2) | 0;
+    ctx.fillStyle = '#fce0a8';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText('HERO RIG · ROAD KILL  (clean)', rigDx, panelY);
+    panelY += 14;
+    _rigSheetChecker(rigDx, panelY, rigDw, rigDh, 8);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(rigDx, panelY);
+    ctx.scale(rigZoom, rigZoom);
+    pxRoadkillRig(ctx, 0, 0, frame, false);
+    ctx.restore();
+    panelY += rigDh + 8;
+
+    // ── HERO RIG · ROAD KILL · smashed B-alt ─────────────────
+    ctx.fillStyle = '#fce0a8';
+    ctx.fillText('HERO RIG · ROAD KILL  (B-alt · smashed)', rigDx, panelY);
+    panelY += 14;
+    _rigSheetChecker(rigDx, panelY, rigDw, rigDh, 8);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(rigDx, panelY);
+    ctx.scale(rigZoom, rigZoom);
+    pxRoadkillRig(ctx, 0, 0, frame, true);
+    ctx.restore();
+    panelY += rigDh + 8;
+
+    // ── AERIAL THIEF · DLX gunship ───────────────────────────
+    // drawPixelDailyThief() does its own internal ctx.scale(2, 2), so
+    // a 2× outer zoom produces an effective 4× pixel size. Sprite is
+    // 56 wide × 36 tall in mockup units → 224 × 144 displayed.
+    const thiefZoom = 2;
+    const thiefDw = 56 * thiefZoom * 2;
+    const thiefDh = 36 * thiefZoom * 2;
+    const thiefDx = ((W - thiefDw) / 2) | 0;
+    ctx.fillStyle = '#fce0a8';
+    ctx.fillText('AERIAL THIEF  (DLX gunship · variant 1)', thiefDx, panelY);
+    panelY += 14;
+    _rigSheetChecker(thiefDx, panelY, thiefDw, thiefDh, 8);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    // Center the thief inside the panel. The function translates to
+    // tf.x, tf.y then scales 2× then translates (-26, -23) to put
+    // mockup origin at the desired spot. Center of mockup is (26, 18)
+    // so we anchor at (thiefDx + thiefDw/2, panelY + thiefDh/2) and
+    // shift by the (-26, -18) mockup offset times the 2× internal scale.
+    ctx.translate(thiefDx + (thiefDw / 2), panelY + (thiefDh / 2));
+    ctx.scale(thiefZoom, thiefZoom);
+    const fakeTf = { x: 0, y: -5, vx: -1, vy: 0, cableLen: 6,
+                     state: 'cruise', stateFrames: 0, variant: 0 };
+    drawPixelDailyThief(fakeTf);
+    ctx.restore();
+  }
+
   function loop(t) {
+    if (_rigSheetMode) {
+      frame++;
+      drawRigSheet();
+      requestAnimationFrame(loop);
+      return;
+    }
     if (_fpsShow) {
       _fpsFrames++;
       if (t - _fpsLast >= 500) {
