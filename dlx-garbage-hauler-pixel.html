@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v448W-pixel-powerup-capsules';
+const DLX_BUILD = 'v448X-crash-explosion-actually-visible';
 
 (function() {
   // ---------- Device detection ----------
@@ -10491,9 +10491,13 @@ const DLX_BUILD = 'v448W-pixel-powerup-capsules';
           safeVibrate([10, 20, 10]);
         } else {
           state = STATE_OVER;
-          flashAlpha = 0.85;
-          shakeFrames = 12;
+          flashAlpha = 1.0;
+          shakeFrames = 20;
           breakCombo();
+          // Sharp impact bang FIRST — radial yellow/white sparks for
+          // the initial moment of contact, before the fireball billows
+          // out. Reads like "BANG → fireball → smoke column".
+          emitImpactBang(bird.x, bird.y);
           emitRigExplosion(bird.x, bird.y);
           if (score > best) {
             best = score;
@@ -10502,10 +10506,10 @@ const DLX_BUILD = 'v448W-pixel-powerup-capsules';
           safeVibrate([30, 40, 30]);
           playSound('crash');
           stopThemeAmbient(0.5);
-          // Note: resume point is no longer cleared on death — the saved
-          // level persists so the player keeps picking up where they
-          // were. The start-screen reset button wipes it manually.
-          setTimeout(showGameOver, 200);
+          // Hold the playfield long enough for the explosion to play
+          // out (fire ~33 fr, smoke ~80 fr) before the game-over
+          // screen takes over. Was 200 ms = too fast to see.
+          setTimeout(showGameOver, 1300);
         }
       }
     } else if (state === STATE_OVER) {
@@ -10517,6 +10521,8 @@ const DLX_BUILD = 'v448W-pixel-powerup-capsules';
         bird.y = PLAY_H - BIRD_R;
       }
       updateSparks();
+      updatePickupSparks();   // keep the crash fire/smoke animating
+      updateScoreFloaters();
       if (flashAlpha > 0) flashAlpha = Math.max(0, flashAlpha - 0.08);
     }
   }
@@ -10554,6 +10560,36 @@ const DLX_BUILD = 'v448W-pixel-powerup-capsules';
         glow: '#ffd066',
         drag: 0.93,
         gravity: 0.05,
+      });
+    }
+  }
+
+  // Sharp impact bang — first beat of a crash, played before the
+  // fireball/smoke. Fast radial white-hot sparks + stationary shock
+  // squares at the contact point. Decays in ~14 frames so the
+  // fireball can take over.
+  function emitImpactBang(cx, cy) {
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2 + Math.random() * 0.3;
+      const sp = 4.0 + Math.random() * 2.5;
+      pickupSparks.push({
+        x: cx, y: cy,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp,
+        life: 1,
+        decay: 0.07 + Math.random() * 0.03,
+        color: Math.random() < 0.5 ? '#ffffff' : '#ffd060',
+      });
+    }
+    // Stationary white "shock" squares clustered at the contact point.
+    for (let i = 0; i < 6; i++) {
+      pickupSparks.push({
+        x: cx + (Math.random() - 0.5) * 6,
+        y: cy + (Math.random() - 0.5) * 6,
+        vx: 0, vy: 0,
+        life: 1,
+        decay: 0.14 + Math.random() * 0.06,
+        color: '#ffffff',
       });
     }
   }
