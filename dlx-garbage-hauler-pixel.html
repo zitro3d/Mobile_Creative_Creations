@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449I-cargo-crate-and-recovery-polish';
+const DLX_BUILD = 'v449J-fire-bolt-pixel-redesign';
 
 (function() {
   // ---------- Device detection ----------
@@ -15832,32 +15832,33 @@ const DLX_BUILD = 'v449I-cargo-crate-and-recovery-polish';
   //     growth: 0 → 2 → 4 → 6). Each ember floats with perpendicular
   //     sine wobble and fades hot → cool by distance from the tail.
   function drawPixelLavaBall(lb) {
+    // FIRE BOLT — pixel-art fireball projectile. Matches the reference
+    // mockup (large white-hot head, layered yellow/orange/red flame body,
+    // dark-red tapered tail). Direction comes from the velocity vector,
+    // so the same sprite renders correctly at any angle.
     const cx = Math.round(lb.x);
     const cy = Math.round(lb.y);
     const r = Math.max(3, Math.round(lb.r));
 
-    // Velocity unit vector
+    // Velocity unit vector — fdx/fdy is forward, pdx/pdy is perpendicular.
     const speed = Math.sqrt(lb.vx * lb.vx + lb.vy * lb.vy) || 1;
     const fdx = lb.vx / speed;
     const fdy = lb.vy / speed;
     const pdx = -fdy;
     const pdy = fdx;
 
-    // 4-frame anim cycle (4 game frames per anim frame ≈ 15fps)
+    // 4-frame anim cycle (~15 fps) — tail length pulses subtly so the
+    // bolt feels alive without the silhouette dancing too much.
     const frameIdx = ((lb.life / 4) | 0) & 3;
-    // Tail length — slightly varies per frame for organic feel
-    const tailFactors = [2.8, 3.0, 3.2, 3.4];
+    const tailFactors = [2.2, 2.4, 2.6, 2.4];
     const baseTailLen = r * tailFactors[frameIdx];
-
-    // Bounding box for the rasterizer
     const boxR = Math.ceil(r + baseTailLen) + 2;
 
-    // Rasterize one teardrop layer (solid silhouette, not a chain
-    // of circles). Each color band is one fillRect per row.
-    function rasterTeardrop(rDelta, color) {
+    // Single-layer teardrop rasterizer (row-runs of fillRect).
+    function rasterTeardrop(rDelta, tailDelta, color) {
       const layerR = r + rDelta;
       if (layerR <= 0) return;
-      const layerTail = Math.max(1, baseTailLen + rDelta * 0.7);
+      const layerTail = Math.max(1, baseTailLen + tailDelta);
       for (let dy = -boxR; dy <= boxR; dy++) {
         let runStart = null;
         for (let dx = -boxR; dx <= boxR; dx++) {
@@ -15886,56 +15887,43 @@ const DLX_BUILD = 'v449I-cargo-crate-and-recovery-polish';
       }
     }
 
-    // ── COLOR LAYERS — outer rim → inner main band ──
-    rasterTeardrop(+1, '#7a1a10');   // outer dim halo
-    rasterTeardrop( 0, '#c84020');   // red rim
-    rasterTeardrop(-1, '#e87028');   // orange
-    rasterTeardrop(-2, '#ff9050');   // hot orange
-    rasterTeardrop(-3, '#ffd060');   // bright yellow (main interior)
+    // ── COLOR BANDS — outer (dark red tail) → inner (bright yellow) ──
+    // Each layer shrinks both the head radius AND the tail length so
+    // the bands stack concentrically along the teardrop axis.
+    rasterTeardrop(+1, +1.5, '#5a0a04');   // very dark red — extreme tail tip
+    rasterTeardrop( 0,  0,   '#8a1408');   // dark red — outer body rim
+    rasterTeardrop(-1, -1,   '#c84020');   // red-orange
+    rasterTeardrop(-2, -2,   '#e87028');   // orange flame
+    rasterTeardrop(-3, -3,   '#ffae28');   // bright orange-yellow
+    rasterTeardrop(-4, -4,   '#ffd060');   // yellow inner band
 
-    // ── GRADIENT CORE — white → pale yellow → bright yellow ──
-    // Nested discs at the leading edge form a smooth gradient
-    // from white center outward into the surrounding yellow band.
-    if (r >= 4) {
-      const coreOffX = Math.round(fdx * 2);
-      const coreOffY = Math.round(fdy * 2);
-      // Bright yellow disc (overlaps with the yellow band but
-      // creates a slightly brighter inner zone)
-      if (r >= 6) drawPixelSmokePuff(cx + coreOffX, cy + coreOffY, 2, '#ffe080');
-      // Pale yellow disc
-      drawPixelSmokePuff(cx + coreOffX, cy + coreOffY, 1, '#fff4d0');
-      // 1-pixel white core (the hottest spot)
-      pxFill(cx + coreOffX, cy + coreOffY, 1, 1, '#ffffff');
+    // ── WHITE-HOT HEAD — the dominant feature of the reference.
+    // A big pale-yellow rim with a slightly smaller white-hot core,
+    // both anchored at the leading edge so they read as "this end
+    // is the front of the bolt".
+    if (r >= 3) {
+      const headOffX = Math.round(fdx * Math.max(1, r * 0.4));
+      const headOffY = Math.round(fdy * Math.max(1, r * 0.4));
+      const palR = Math.max(1, r - 2);
+      const wR   = Math.max(1, r - 3);
+      drawPixelSmokePuff(cx + headOffX, cy + headOffY, palR, '#ffe890');
+      drawPixelSmokePuff(cx + headOffX, cy + headOffY, wR,   '#ffffff');
     }
 
-    // ── EMBERS SHEDDING off the back of the tail ──
-    // Per-frame ember count grows then resets:
-    //   frame 0: 0 (clean teardrop)
-    //   frame 1: 2 (one starting to break off)
-    //   frame 2: 4 (mid shedding)
-    //   frame 3: 6 (full shedding)
-    const emberCounts = [0, 2, 4, 6];
+    // ── SHEDDING EMBERS — small dim sparks trailing the tail tip.
+    // Fewer than the previous version (was 0/2/4/6 over the 4-frame
+    // cycle) so the reference's clean silhouette stays readable.
+    const emberCounts = [0, 1, 2, 2];
     const ec = emberCounts[frameIdx];
     for (let i = 0; i < ec; i++) {
-      // Distance behind the tail tip — older embers further out
-      const dist = baseTailLen + 1 + i * 2 + ((i + frameIdx) % 2);
-      // Perpendicular wobble — alternates above/below tail axis
-      const wob = Math.sin(lb.life * 0.3 + i * 1.7 + lb.seed) * (r * 0.6);
+      const dist = baseTailLen + 1 + i * 2;
+      const wob = Math.sin(lb.life * 0.3 + i * 1.7 + lb.seed) * (r * 0.4);
       const ex = (cx - fdx * dist + pdx * wob) | 0;
       const ey = (cy - fdy * dist + pdy * wob) | 0;
-      // Color fades hot → cool by ember age (closer = hotter)
-      let color;
-      if (i === 0)      color = '#ffffff';
-      else if (i === 1) color = '#ffd060';
-      else if (i === 2) color = '#ff9050';
-      else if (i === 3) color = '#e87028';
-      else if (i === 4) color = '#c84020';
-      else              color = '#7a1a10';
+      const color = i === 0 ? '#ffd060'
+                  : i === 1 ? '#e87028'
+                  :           '#8a1408';
       pxFill(ex, ey, 1, 1, color);
-      // Bigger ember (2x2) for the freshest one on frame 3
-      if (frameIdx === 3 && i === 0) {
-        pxFill(ex + 1, ey, 1, 1, '#fff4d0');
-      }
     }
   }
 
