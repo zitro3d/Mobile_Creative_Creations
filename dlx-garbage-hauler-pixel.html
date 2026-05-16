@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v448X-crash-explosion-actually-visible';
+const DLX_BUILD = 'v448Y-wreck-lands-on-terrain';
 
 (function() {
   // ---------- Device detection ----------
@@ -10513,12 +10513,27 @@ const DLX_BUILD = 'v448X-crash-explosion-actually-visible';
         }
       }
     } else if (state === STATE_OVER) {
-      if (bird.y + BIRD_R < PLAY_H) {
+      // Find the actual ground surface at the rig's world position
+      // (the dune top in daily mode) so the wreck lands on the
+      // terrain, not at the bottom frame edge.
+      let floorY = PLAY_H;
+      if (isDaily && typeof terrainHeightAt === 'function') {
+        floorY = terrainHeightAt(bird.x + dailyScrollX);
+      }
+      if (bird.y + BIRD_R < floorY) {
         bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
         bird.y += bird.vy;
         bird.rot = Math.min(1.6, bird.rot + 0.05);
       } else {
-        bird.y = PLAY_H - BIRD_R;
+        // Touchdown — secondary impact burst at the moment the wreck
+        // hits the dune. bird.vy > 1.5 ensures it only fires once on
+        // the falling-→-landed transition, not every frame after.
+        if (bird.vy > 1.5) {
+          emitImpactBang(bird.x, floorY);
+          shakeFrames = Math.max(shakeFrames, 10);
+        }
+        bird.vy = 0;
+        bird.y = floorY - BIRD_R;
       }
       updateSparks();
       updatePickupSparks();   // keep the crash fire/smoke animating
