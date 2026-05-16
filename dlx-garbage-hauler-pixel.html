@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v448Z-crash-fireball-and-coin-recovery-fix';
+const DLX_BUILD = 'v449A-perf-drop-shadowBlur-add-fps-overlay';
 
 (function() {
   // ---------- Device detection ----------
@@ -33264,10 +33264,11 @@ const DLX_BUILD = 'v448Z-crash-fireball-and-coin-recovery-fix';
 
   function drawSparks() {
     if (sparks.length === 0) return;
+    // shadowBlur per-particle was a major mobile perf cost (~1ms / 10
+    // sparks on iOS Safari). Dropped — sparks render as crisp filled
+    // shapes with no glow, consistent with v448+ pixel-art language.
     for (const s of sparks) {
       ctx.save();
-      ctx.shadowBlur = 12;
-      ctx.shadowColor = s.glow;
       ctx.globalAlpha = Math.max(0, s.life);
       ctx.fillStyle = s.color;
       ctx.translate(s.x, s.y);
@@ -35785,10 +35786,38 @@ const DLX_BUILD = 'v448Z-crash-fireball-and-coin-recovery-fix';
   }
 
   let last = 0;
+  // Tiny FPS overlay for perf diagnosis — toggle with ?fps=1 in the URL.
+  // Top-left corner, colored red when frame rate drops below 50.
+  const _fpsShow = typeof location !== 'undefined'
+                   && location.search.indexOf('fps=1') >= 0;
+  let _fpsLast = 0;
+  let _fpsFrames = 0;
+  let _fpsCurrent = 0;
   function loop(t) {
+    if (_fpsShow) {
+      _fpsFrames++;
+      if (t - _fpsLast >= 500) {
+        _fpsCurrent = Math.round(_fpsFrames * 1000 / (t - _fpsLast || 1));
+        _fpsLast = t;
+        _fpsFrames = 0;
+      }
+    }
     // Fixed-ish step to smooth iOS variable rAF
     update();
     render();
+    if (_fpsShow) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(4, 4, 72, 18);
+      ctx.fillStyle = _fpsCurrent < 50 ? '#ff4030'
+                     : _fpsCurrent < 58 ? '#ffae42'
+                     : '#7eddeb';
+      ctx.font = 'bold 12px ui-monospace, monospace';
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      ctx.fillText(_fpsCurrent + ' FPS', 10, 7);
+      ctx.restore();
+    }
     requestAnimationFrame(loop);
   }
 
