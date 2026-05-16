@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v448M-dispatch-mounts-and-berm-blend';
+const DLX_BUILD = 'v448N-harpooner-thief-from-below';
 
 (function() {
   // ---------- Device detection ----------
@@ -8974,24 +8974,34 @@ const DLX_BUILD = 'v448M-dispatch-mounts-and-berm-blend';
           // right.
           const isOrgTf = currentDeliveryLevel
             && currentDeliveryLevel.obstacleTheme === 'organic';
-          const spawnY = isOrgTf
-            ? 40 + Math.random() * (PLAY_H * 0.30)   // organic: stay high
-            : 40 + Math.random() * (PLAY_H * 0.55);  // sunset: full upper half
+          // Variant pick. Organic biome keeps the 2 original hulls (the
+          // upward-firing harpooner doesn't fit the slime aesthetic);
+          // sunset rolls between all 3 evenly.
+          const tfVariant = isOrgTf
+            ? (Math.random() < 0.5 ? 0 : 1)
+            : (Math.random() < 0.34 ? 2 : (Math.random() < 0.5 ? 0 : 1));
+          // Spawn altitude. Variants 0/1 = upper half (drop the claw
+          // DOWN onto the rig). Variant 2 (HARPOONER) = lower half
+          // (fire the harpoon UP at the rig's cargo from below).
+          const spawnY = (tfVariant === 2)
+            ? PLAY_H * 0.55 + Math.random() * (PLAY_H * 0.18)
+            : (isOrgTf
+                ? 40 + Math.random() * (PLAY_H * 0.30)
+                : 40 + Math.random() * (PLAY_H * 0.55));
           const _tfSpdMul = (currentDeliveryLevel
             && currentDeliveryLevel.obstacleSpeedMul) || 1.0;
           dailyThieves.push({
             x: isOrgTf ? -50 : W + 50,
             y: spawnY,
             vx: isOrgTf
-              ? (1.5 + Math.random() * 0.6)              // organic: chase right
+              ? (1.5 + Math.random() * 0.6)
               : (-1.7 - Math.random() * 0.5) * _tfSpdMul,
             cableLen: 0,
             state: 'cruise',
             stateFrames: 0,
-            // variant: 0 = sleek swept fighter, 1 = blocky dredger barge.
-            // Pixel level dispatches on this so the fleet reads as
-            // multiple distinct hulls (same gang, different chassis).
-            variant: Math.random() < 0.5 ? 0 : 1,
+            // variant: 0 = sleek swept fighter (claw down), 1 = blocky
+            // dredger barge (claw down), 2 = harpooner (harpoon UP).
+            variant: tfVariant,
           });
           // Slower cadence in organic — tongue strikes are punchy so
           // they don't need to come in waves like the gunship thief.
@@ -9034,8 +9044,14 @@ const DLX_BUILD = 'v448M-dispatch-mounts-and-berm-blend';
             // TOP of the head and reaches FORWARD-and-DOWN. Tip lands
             // in front of the slime (positive x) at cargo's altitude.
             // Sunset gunship: cable drops straight down from underside.
+            // HARPOONER (variant 2): magnet is the barbed tip rising
+            // STRAIGHT UP from the breach (barrel top is ~38 game px
+            // above the hull center).
+            const isHarpooner = tf.variant === 2;
             const magnetX = tf.x + (_orgTf ? 22 : 0);
-            const magnetY = tf.y + (_orgTf ? 4 : 12) + tf.cableLen;
+            const magnetY = isHarpooner
+              ? tf.y - 38 - tf.cableLen
+              : tf.y + (_orgTf ? 4 : 12) + tf.cableLen;
             if (cargo && cargo.attached && !cargo.lost) {
               const ddx = magnetX - cargo.x;
               const ddy = magnetY - cargo.y;
@@ -27451,7 +27467,322 @@ const DLX_BUILD = 'v448M-dispatch-mounts-and-berm-blend';
     ctx.restore();
   }
 
-  function drawDailyDrones() {
+  // ── ALT THIEF VARIANT — "HARPOONER" top-gun cargo sniper ─────
+  // Third pirate fleet sibling. Cruises BELOW the rig along the dune
+  // line, fires a barbed harpoon STRAIGHT UP to snatch cargo from
+  // below. Compact retracted launcher when idle; the harpoon extends
+  // out of the barrel during charge-up; once fired the harpoon flies
+  // up trailing a chain back to the breach. Same pirate brand as the
+  // other two (skull-and-crossbones panel, hot-rod flame strips,
+  // glowing-LED accents). Hull-center anchor at mockup (28, 35).
+  function drawPixelDailyThiefHarpooner(tf) {
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    const SCALE = 2;
+    ctx.translate(Math.round(tf.x) | 0, Math.round(tf.y) | 0);
+    ctx.scale(SCALE, SCALE);
+    ctx.translate(-28, -35);
+
+    const t = frame;
+    const hover = Math.round(Math.sin(t * 0.12));
+    const oy = hover;
+    const O = '#04060a';
+    const blk = (color, x, y, w, h) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(x | 0, (y + oy) | 0, w | 0, h | 0);
+    };
+
+    // State-derived flags
+    const inChargePhase = (tf.state === 'lower' && tf.stateFrames < 12);
+    const isFlying = (tf.state === 'lower' && tf.stateFrames >= 12)
+                   || tf.state === 'retract';
+    const showLoaded = !isFlying;
+
+    // Phase animations
+    const eyeHot = ((t >> 3) & 1);
+    const flamePhase = (t >> 1) & 3;
+    const thrFlame = (t & 1) ? 2 : 1;
+    // Charge LED ramps during the lock-on phase; stays peak while flying.
+    const chargePhase = inChargePhase
+      ? Math.min(3, Math.floor(tf.stateFrames / 3))
+      : (isFlying ? 3 : 0);
+    // Tip retraction: 10 = stowed; 0 = fully out of the launcher.
+    const tipRetraction = inChargePhase
+      ? Math.max(0, 10 - Math.floor((tf.stateFrames / 11) * 10))
+      : (showLoaded ? 10 : 0);
+
+    // ── MAIN HULL ───────────────────────────────────────────
+    blk(O,         4, 28, 48, 14);
+    blk('#0a0a14', 5, 29, 46, 12);
+    blk('#15151c', 5, 30, 46, 10);
+    blk('#2a2230', 5, 30, 46,  3);
+    blk('#3a3045', 5, 30, 46,  1);
+    blk('#6a0a12', 5, 40, 46,  1);
+    blk('#4a3a50', 5, 33, 1, 6);
+    blk('#4a3a50', 50, 33, 1, 6);
+    for (const sxx of [10, 44]) {
+      blk(O, sxx, 30, 1, 10);
+      blk('#3a3045', sxx + 1, 30, 1, 1);
+    }
+
+    // ── HOT-ROD FLAME STRIPS ──
+    blk('#c83820', 5, 29, 46, 2);
+    for (let i = 0; i < 46; i++) {
+      if (((i + 1) % 6) < 4) blk('#ff8028', 5 + i, 29, 1, 1);
+    }
+    for (const yx of [8, 17, 36, 44]) blk('#ffd060', yx, 30, 2, 1);
+    for (const wx of [9, 18, 37, 45]) blk('#ffffff', wx, 30, 1, 1);
+
+    // ── BATTLE DAMAGE ──
+    blk('#1a0a06', 46, 38, 4, 3);
+    blk('#3a2230', 46, 38, 4, 1);
+    blk('#1a0a06', 38, 36, 3, 2);
+    blk('#3a2230', 38, 36, 3, 1);
+    blk(O, 7, 39, 1, 1);
+    blk('#1a0a06', 14, 40, 2, 1);
+
+    // ── SKULL-AND-CROSSBONES PANEL ──
+    const sx = 16, sy = 31;
+    blk(O, sx - 1, sy - 1, 22, 11);
+    blk('#5a0808', sx, sy, 20, 9);
+    blk('#a01a0a', sx + 1, sy + 1, 18, 7);
+    blk('#ff4020', sx + 1, sy + 1, 18, 1);
+    blk('#5a0808', sx + 1, sy + 7, 18, 1);
+    blk('#a0a4a8', sx + 1, sy + 1, 1, 1);
+    blk('#a0a4a8', sx + 18, sy + 1, 1, 1);
+    blk('#a0a4a8', sx + 1, sy + 7, 1, 1);
+    blk('#a0a4a8', sx + 18, sy + 7, 1, 1);
+    const drawBone = (x1, y1, x2, y2, knobR) => {
+      const steps = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1));
+      for (let i = 0; i <= steps; i++) {
+        const u = i / steps;
+        const ax = (x1 + (x2 - x1) * u) | 0;
+        const ay = (y1 + (y2 - y1) * u) | 0;
+        blk(O, ax - 1, ay, 3, 1);
+        blk(O, ax, ay - 1, 1, 3);
+        blk('#f4e8d8', ax, ay, 1, 1);
+        blk('#a88858', ax, ay + 1, 1, 1);
+      }
+      for (const k of [[x1, y1], [x2, y2]]) {
+        blk(O, k[0] - knobR, k[1] - knobR, knobR * 2 + 1, knobR * 2 + 1);
+        blk('#f4e8d8', k[0] - 1, k[1] - 1, 3, 3);
+        blk('#ffffff', k[0] - 1, k[1] - 1, 1, 1);
+      }
+    };
+    drawBone(sx + 3, sy + 2, sx + 17, sy + 7, 2);
+    drawBone(sx + 17, sy + 2, sx + 3, sy + 7, 2);
+    const kx = sx + 6, ky = sy + 1;
+    blk(O, kx + 2, ky,     4, 1);
+    blk(O, kx + 1, ky + 1, 6, 1);
+    blk(O, kx,     ky + 2, 8, 3);
+    blk(O, kx + 1, ky + 5, 6, 1);
+    blk(O, kx + 2, ky + 6, 4, 1);
+    blk('#f4e8d8', kx + 2, ky + 1, 4, 1);
+    blk('#f4e8d8', kx + 1, ky + 2, 6, 3);
+    blk('#f4e8d8', kx + 2, ky + 5, 4, 1);
+    blk('#ffffff', kx + 3, ky + 1, 2, 1);
+    blk('#a88858', kx + 1, ky + 4, 6, 1);
+    blk(O, kx + 2, ky + 3, 1, 1);
+    blk(O, kx + 5, ky + 3, 1, 1);
+    if ((t >> 3) & 1) {
+      blk('#ff4020', kx + 2, ky + 3, 1, 1);
+      blk('#ff4020', kx + 5, ky + 3, 1, 1);
+    }
+    blk(O, kx + 3, ky + 4, 2, 1);
+
+    // ── COCKPIT (forward, x 4-16, y 22-30) ──
+    blk(O,         4, 22, 14, 8);
+    blk('#0a0a14', 5, 23, 12, 6);
+    blk('#15151c', 5, 23, 12, 4);
+    blk('#2a2230', 5, 23, 12, 2);
+    blk('#3a3045', 5, 23, 12, 1);
+    blk(O, 6, 24, 10, 4);
+    blk('#1a0a06', 7, 25, 8, 2);
+    blk(eyeHot ? '#ff4020' : '#a01a0a',  7, 25, 3, 1);
+    blk(eyeHot ? '#ff4020' : '#a01a0a', 11, 25, 4, 1);
+    if (eyeHot) {
+      blk('#ffd060',  7, 25, 1, 1);
+      blk('#ffd060', 12, 25, 1, 1);
+    }
+    blk('#4a3a50', 5, 23, 12, 1);
+
+    // ── TWIN REAR ENGINES + PLUMES ──
+    blk(O, 51, 30, 4, 5);
+    blk('#2a2230', 52, 31, 3, 3);
+    blk('#4a3a50', 52, 31, 3, 1);
+    blk(O, 52, 33, 3, 1);
+    blk(O, 51, 37, 4, 5);
+    blk('#2a2230', 52, 38, 3, 3);
+    blk('#4a3a50', 52, 38, 3, 1);
+    blk(O, 52, 40, 3, 1);
+    const flameLen = [5, 7, 6, 8][flamePhase];
+    const outerC = eyeHot ? '#e87028' : '#c83878';
+    const midC   = eyeHot ? '#ffd83d' : '#ff80c0';
+    const coreC  = '#ffffff';
+    const drawFlameR = (cxF, cyF, length, oc, mc, cc) => {
+      const layers = [
+        { len: length,                 thick: 4, color: oc },
+        { len: (length * 2 / 3) | 0,   thick: 3, color: mc },
+        { len: (length / 3) | 0,       thick: 1, color: cc },
+      ];
+      for (const L of layers) {
+        if (L.len < 1) continue;
+        for (let i = 0; i < L.len; i++) {
+          const u = i / L.len;
+          const tt = Math.max(1, Math.round(L.thick * (1 - u)));
+          const half = (tt - 1) >> 1;
+          blk(L.color, cxF + i, cyF - half, 1, tt);
+        }
+      }
+    };
+    drawFlameR(55, 32, flameLen, outerC, midC, coreC);
+    drawFlameR(55, 39, flameLen, outerC, midC, coreC);
+
+    // ── BELLY HAZARD STRIPES + UNDERBELLY THRUSTERS ──
+    for (let i = 0; i < 11; i++) {
+      blk('#ffd83d', 6 + i * 4, 41, 2, 1);
+    }
+    blk(eyeHot ? '#ff4020' : '#a01a0a', 26, 42, 2, 1);
+    for (const tx_ of [12, 38]) {
+      blk(O, tx_ - 1, 42, 4, 2);
+      blk('#2a2230', tx_, 42, 2, 1);
+      blk('#3a3045', tx_, 42, 2, 1);
+      blk('#ff8028', tx_, 43, 2, thrFlame + 1);
+      blk('#ffd060', tx_, 43, 2, thrFlame);
+      blk('#ffffff', tx_, 43, 1, 1);
+    }
+
+    // ── BREACH HOUSING (heavy mount, y 20-30) ──
+    blk(O,         20, 20, 16, 10);
+    blk('#0a0a14', 21, 21, 14,  8);
+    blk('#15151c', 21, 22, 14,  6);
+    blk('#2a2230', 21, 22, 14,  2);
+    blk('#3a3045', 21, 22, 14,  1);
+    for (const [bx, by] of [[22, 22], [33, 22], [22, 28], [33, 28]]) {
+      blk(O, bx, by, 1, 1);
+      blk('#a0a4a8', bx, by, 1, 1);
+    }
+    blk(O,         19, 23, 1, 5);
+    blk('#5a5e68', 19, 23, 1, 5);
+    blk('#a0a4a8', 19, 23, 1, 1);
+    blk(O,         36, 23, 1, 5);
+    blk('#5a5e68', 36, 23, 1, 5);
+    blk('#a0a4a8', 36, 23, 1, 1);
+
+    // Charge indicator bar
+    blk(O, 24, 25, 9, 3);
+    blk('#1a0a06', 25, 26, 7, 1);
+    const fillCols = ['#a01a0a', '#ff4020', '#ffd060', '#ffffff'];
+    for (let i = 0; i < chargePhase + 2; i++) {
+      blk(fillCols[Math.min(i, 3)], 25 + i, 26, 1, 1);
+    }
+
+    // ── HARPOON LAUNCHER BARREL (compact stub at y 16-20) ──
+    blk(O,         26, 16, 4, 5);
+    blk('#5a5e68', 27, 16, 2, 5);
+    blk('#a0a4a8', 27, 16, 1, 5);
+    blk(O,         26, 18, 4, 1);
+    blk('#3a2a1a', 27, 18, 2, 1);
+
+    // ── LOADED HARPOON (visible when not flying) ──
+    if (showLoaded) {
+      const glowCol = chargePhase >= 2
+        ? (eyeHot ? '#ffd060' : '#ff8028')
+        : (eyeHot ? '#ff4020' : '#a01a0a');
+      blk(glowCol, 27, 19, 2, 1);
+
+      // Shaft (visible portion between tip bottom and barrel top)
+      const shaftStart = tipRetraction + 6;
+      const shaftEnd = 15;
+      if (shaftStart <= shaftEnd) {
+        const shaftH = shaftEnd - shaftStart + 1;
+        blk(O,         26, shaftStart, 1, shaftH);
+        blk(O,         28, shaftStart, 1, shaftH);
+        blk('#a0a4a8', 27, shaftStart, 1, shaftH);
+      }
+
+      // Barbed tip at tipRetraction
+      const ty = tipRetraction;
+      blk(O,        27, ty,     1, 1);
+      blk(O,        26, ty + 1, 1, 1);
+      blk('#a0a4a8', 27, ty + 1, 1, 1);
+      blk(O,        28, ty + 1, 1, 1);
+      blk(O,        25, ty + 2, 1, 1);
+      blk('#a0a4a8', 26, ty + 2, 3, 1);
+      blk(O,        29, ty + 2, 1, 1);
+      blk(O,        25, ty + 3, 1, 1);
+      blk('#a0a4a8', 27, ty + 3, 1, 1);
+      blk(O,        29, ty + 3, 1, 1);
+      blk(O,        26, ty + 4, 1, 1);
+      blk('#a0a4a8', 27, ty + 4, 1, 1);
+      blk(O,        28, ty + 4, 1, 1);
+      blk(O,        26, ty + 5, 1, 1);
+      blk('#a0a4a8', 27, ty + 5, 1, 1);
+      blk(O,        28, ty + 5, 1, 1);
+      if (eyeHot) {
+        blk('#ffffff', 27, ty + 1, 1, 1);
+        blk('#ffffff', 27, ty + 2, 1, 1);
+      }
+    }
+
+    // ── FLYING HARPOON + CHAIN (during fire / reel) ──
+    if (isFlying) {
+      const cableLenPx = ((tf.cableLen || 0) / SCALE) | 0;
+      // Chain from barrel top (y=15) trailing up to the flying tip.
+      for (let cy = 14; cy > 14 - cableLenPx; cy -= 2) {
+        blk('#9a9aa0', 28, cy, 1, 1);
+        if (cy - 1 > 14 - cableLenPx) {
+          blk('#5a5a60', 28, cy - 1, 1, 1);
+        }
+      }
+      // Flying harpoon: tip + shaft above the barrel.
+      // Tip top y = 14 - cableLenPx - 5 (tip is 6 tall, sits at top)
+      const tipBaseY = 14 - cableLenPx;       // bottom of shaft
+      const shaftLen = 3;                     // 3 px shaft
+      const shaftTopY = tipBaseY - shaftLen;  // top of shaft / bottom of tip
+      const ftY = shaftTopY - 5;              // top of tip
+      // Shaft
+      blk(O,         26, shaftTopY, 1, shaftLen + 1);
+      blk(O,         28, shaftTopY, 1, shaftLen + 1);
+      blk('#a0a4a8', 27, shaftTopY, 1, shaftLen + 1);
+      // Barbed tip
+      blk(O,        27, ftY,     1, 1);
+      blk(O,        26, ftY + 1, 1, 1);
+      blk('#a0a4a8', 27, ftY + 1, 1, 1);
+      blk(O,        28, ftY + 1, 1, 1);
+      blk(O,        25, ftY + 2, 1, 1);
+      blk('#a0a4a8', 26, ftY + 2, 3, 1);
+      blk(O,        29, ftY + 2, 1, 1);
+      blk(O,        25, ftY + 3, 1, 1);
+      blk('#a0a4a8', 27, ftY + 3, 1, 1);
+      blk(O,        29, ftY + 3, 1, 1);
+      blk(O,        26, ftY + 4, 1, 1);
+      blk('#a0a4a8', 27, ftY + 4, 1, 1);
+      blk(O,        28, ftY + 4, 1, 1);
+      if (eyeHot) blk('#ffffff', 27, ftY + 1, 1, 1);
+    }
+
+    // ── LASER-SIGHT TELEGRAPH during charge phase ──
+    if (inChargePhase) {
+      // Red dashes ascending from above the harpoon tip toward the rig.
+      // Length ~60 mockup px; pulse offset animates the dashes upward.
+      const offset = tf.stateFrames % 4;
+      const startY = tipRetraction - 2;
+      for (let dy = 0; dy < 60; dy += 4) {
+        const yy = startY - dy - offset;
+        if (yy > startY - 60) {
+          blk('#ff4020', 28, yy, 1, 2);
+        }
+      }
+      // Reticle at the far end
+      blk('#ff4020', 27, startY - 60, 3, 1);
+      blk('#ffd060', 28, startY - 60, 1, 1);
+    }
+
+    ctx.restore();
+  }
+
+
     if (!isDaily || !dailyDrones.length) return;
     if (isPixelHorizonLevel()) {
       for (const dr of dailyDrones) {
@@ -27581,8 +27912,9 @@ const DLX_BUILD = 'v448M-dispatch-mounts-and-berm-blend';
     if (!isDaily || !dailyThieves.length) return;
     if (isPixelHorizonLevel()) {
       for (const tf of dailyThieves) {
-        if (tf.variant === 1) drawPixelDailyThiefAlt(tf);
-        else                  drawPixelDailyThief(tf);
+        if (tf.variant === 2)      drawPixelDailyThiefHarpooner(tf);
+        else if (tf.variant === 1) drawPixelDailyThiefAlt(tf);
+        else                       drawPixelDailyThief(tf);
       }
       return;
     }
