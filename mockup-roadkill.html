@@ -306,6 +306,21 @@
     </div>
   </div>
 
+  <!-- ISO REDRAW · FULL HAULER -->
+  <div class="panel">
+    <div class="panelLabel">A · ISO REDRAW · ROAD KILL (2:1 DIMETRIC)</div>
+    <div class="panelSub">
+      Full hauler redrawn in 2:1 dimetric. Every part is an actual 3D
+      primitive — body, three engine-pod segments, cockpit, fin, antenna,
+      cargo cube — built as iso boxes with locked three-value face
+      lighting (top brightest, sun-side mid, shadow-side darkest), clean
+      outlines, foreshortened ground shadow. Rig bobs gently in place.
+    </div>
+    <div class="canvasWrap">
+      <canvas id="isoFullStage" width="240" height="160" class="pixelCanvas"></canvas>
+    </div>
+  </div>
+
   <!-- FLEET -->
   <div class="panel">
     <div class="panelLabel">B · FLEET · 8 RIG VARIANTS</div>
@@ -3280,6 +3295,290 @@ function drawAxisLabels(ctx, project, ox, oy, Lf, Ll, H) {
   ctx.fillRect(lApex.x - 6, lApex.y - 1, 1, 3);
 }
 
+// ═════════════════════════════════════════════════════════
+// FULL HAULER · 2:1 DIMETRIC ISO REDRAW
+// All parts are real iso 3D primitives with locked 3-value face
+// lighting. No 2D side-view rectangles anywhere on the rig.
+// ═════════════════════════════════════════════════════════
+
+const projIso = ISO_PROJ.A;
+
+// Iso box drawn at a world position (wf, wl, wt) with size (lf, ll, h)
+function isoBoxAt(ctx, ox, oy, wf, wl, wt, lf, ll, h, P) {
+  const p = (f, l, t) => {
+    const pt = projIso(wf+f, wl+l, wt+t);
+    return { x: pt.x + ox, y: pt.y + oy };
+  };
+  const v000 = p(0, 0, 0);
+  const vF00 = p(lf, 0, 0);
+  const v0L0 = p(0, ll, 0);
+  const vFL0 = p(lf, ll, 0);
+  const v00T = p(0, 0, h);
+  const vF0T = p(lf, 0, h);
+  const v0LT = p(0, ll, h);
+  const vFLT = p(lf, ll, h);
+  // Fills (locked 3 values, sun upper-right)
+  fillIsoPolygon(ctx, [v0L0, vFL0, vFLT, v0LT], P.side);    // L face (shadow side, lower-left)
+  fillIsoPolygon(ctx, [vF00, vFL0, vFLT, vF0T], P.front);   // F face (mid, lower-right)
+  fillIsoPolygon(ctx, [v00T, vF0T, vFLT, v0LT], P.top);     // TOP (brightest)
+  // Outlines (visible edges only)
+  const O = P.outline;
+  drawIsoLine(ctx, v00T, vF0T, O);
+  drawIsoLine(ctx, vF0T, vFLT, O);
+  drawIsoLine(ctx, vFLT, v0LT, O);
+  drawIsoLine(ctx, v0LT, v00T, O);
+  drawIsoLine(ctx, vF00, vF0T, O);
+  drawIsoLine(ctx, v0L0, v0LT, O);
+  drawIsoLine(ctx, vFL0, vFLT, O);
+  drawIsoLine(ctx, vF00, vFL0, O);
+  drawIsoLine(ctx, v0L0, vFL0, O);
+}
+
+// Iso cast shadow on the ground (rhombus footprint of a box)
+function isoShadowAt(ctx, ox, oy, wf, wl, lf, ll, alpha) {
+  const p = (f, l) => {
+    const pt = projIso(wf+f, wl+l, 0);
+    return { x: pt.x + ox, y: pt.y + oy };
+  };
+  const a = p(0, 0), b = p(lf, 0), c = p(lf, ll), d = p(0, ll);
+  fillIsoPolygon(ctx, [a, b, c, d], `rgba(0,0,0,${alpha})`);
+}
+
+// Iso line from world point to world point
+function isoWorldLine(ctx, ox, oy, w1, w2, color) {
+  const p1 = projIso(w1[0], w1[1], w1[2]);
+  const p2 = projIso(w2[0], w2[1], w2[2]);
+  drawIsoLine(ctx, { x: p1.x + ox, y: p1.y + oy }, { x: p2.x + ox, y: p2.y + oy }, color);
+}
+
+// Palettes — three-value locked per part
+const PAL = {
+  hull: {
+    top:     '#7ed4dc',
+    front:   '#3aa8b8',
+    side:    '#1c5e6e',
+    outline: '#04181c',
+  },
+  cockpit: {
+    top:     '#d8e6ec',
+    front:   '#7898a8',
+    side:    '#384858',
+    outline: '#04181c',
+  },
+  engine: {
+    top:     '#cfd2d4',
+    front:   '#7a7a82',
+    side:    '#3a3a48',
+    outline: '#100828',
+  },
+  fin: {
+    top:     '#7ed4dc',
+    front:   '#1c5e6e',
+    side:    '#0a3038',
+    outline: '#04181c',
+  },
+  cargo: {
+    top:     '#c89858',
+    front:   '#806038',
+    side:    '#382818',
+    outline: '#1a0a08',
+  },
+  nozzle: {
+    top:     '#48484e',
+    front:   '#28282e',
+    side:    '#100828',
+    outline: '#04060a',
+  },
+};
+
+function renderHaulerIso(frame) {
+  const c = document.getElementById('isoFullStage');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  // Soft ground band at the bottom of the canvas
+  ctx.fillStyle = '#1a0820';
+  ctx.fillRect(0, c.height - 30, c.width, 30);
+  ctx.fillStyle = '#28102a';
+  ctx.fillRect(0, c.height - 30, c.width, 1);
+  ctx.fillStyle = '#28162a';
+  for (let i = 0; i < 32; i++) {
+    const px = (i * 23 + 11) % c.width;
+    const py = (c.height - 26) + ((i * 7) % 24);
+    ctx.fillRect(px, py, 1, 1);
+  }
+
+  // World origin in screen space — place rig roughly centered
+  const ox = 130, oy = 70;
+
+  // Gentle bob
+  const bob = Math.round(Math.sin(frame * 0.05) * 1);
+  const oyB = oy + bob;
+  const cargoBob = Math.round(Math.sin(frame * 0.045) * 1);
+
+  // ── CAST SHADOWS on the ground (drawn first, before any object) ──
+  // Project each part's bottom rhombus to the ground (offset down to land below the rig)
+  const shadowY = oy + 38; // ground line position in screen-y
+  // Cargo shadow
+  isoShadowAt(ctx, ox, shadowY, -18, 0, 8, 8, 0.45);
+  // Engine pod / body shadow (one merged blob)
+  isoShadowAt(ctx, ox, shadowY, -1, -1, 22, 10, 0.55);
+
+  // ── CARGO BOX (drawn first — back of scene) ──
+  isoBoxAt(ctx, ox, oyB + cargoBob, -18, 1, 0, 8, 7, 7, PAL.cargo);
+  // Cargo "X" detail on front face (yellow center)
+  {
+    const cp = (f, l, t) => {
+      const pt = projIso(-18+f, 1+l, t);
+      return { x: pt.x + ox, y: pt.y + oyB + cargoBob };
+    };
+    const a = cp(8, 2, 5), b = cp(8, 5, 5), cC = cp(8, 5, 2), d = cp(8, 2, 2);
+    fillIsoPolygon(ctx, [a, b, cC, d], '#a08428');
+    const a2 = cp(8, 2.5, 4.5), b2 = cp(8, 4.5, 4.5), c2 = cp(8, 4.5, 2.5), d2 = cp(8, 2.5, 2.5);
+    fillIsoPolygon(ctx, [a2, b2, c2, d2], '#ffd040');
+  }
+
+  // ── CHAIN (cargo back to rig back) ──
+  // Line from cargo's right-top-back corner to rig's left-back corner
+  ctx.fillStyle = '#1850c0';
+  isoWorldLine(ctx, ox, oyB, [-10, 4, 4], [-1, 4, 4], '#1850c0');
+  // Glowing chain beads
+  for (let i = 0; i < 6; i++) {
+    const t = i / 5;
+    const wf = -10 + t * 9;
+    const pt = projIso(wf, 4, 4);
+    const pulse = (Math.sin(frame * 0.16 + i * 0.75) + 1) * 0.5;
+    const s = pulse > 0.6 ? 2 : 1;
+    ctx.fillStyle = '#3090ff';
+    ctx.fillRect(pt.x + ox - s, pt.y + oyB - s, s*2+1, s*2+1);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(pt.x + ox, pt.y + oyB, 1, 1);
+  }
+
+  // ── REAR NOZZLE (small box at the back of body, where flame exits) ──
+  isoBoxAt(ctx, ox, oyB, -2, 3, 1, 2, 2, 3, PAL.nozzle);
+  // Glow inside nozzle
+  {
+    const np = (f, l, t) => {
+      const pt = projIso(-2+f, 3+l, t);
+      return { x: pt.x + ox, y: pt.y + oyB };
+    };
+    const a = np(0, 0.5, 3.5), b = np(0, 1.5, 3.5), c2 = np(0, 1.5, 1.5), d = np(0, 0.5, 1.5);
+    fillIsoPolygon(ctx, [a, b, c2, d], '#7eddeb');
+    const a2 = np(0, 0.8, 3), b2 = np(0, 1.2, 3), c3 = np(0, 1.2, 2), d2 = np(0, 0.8, 2);
+    fillIsoPolygon(ctx, [a2, b2, c3, d2], '#ffffff');
+  }
+  // Flame trail behind the nozzle (extends to upper-left in screen space)
+  drawIsoFlame(ctx, ox, oyB, -2, 4, 2.5, frame);
+
+  // ── ENGINE POD (3 segments below body, narrowing toward front) ──
+  // Drawn BEFORE body so body's bottom occludes engine pod tops
+  isoBoxAt(ctx, ox, oyB,  1, 1, -6, 6, 6, 6, PAL.engine);   // bell back
+  isoBoxAt(ctx, ox, oyB,  7, 2, -4, 5, 4, 4, PAL.engine);   // waist
+  isoBoxAt(ctx, ox, oyB, 12, 2.5, -3, 4, 3, 3, PAL.engine); // nose
+
+  // ── BODY ──
+  isoBoxAt(ctx, ox, oyB, 0, 0, 0, 18, 8, 6, PAL.hull);
+  // Yellow caution stripe on the F face (lower band)
+  {
+    const sp = (f, l, t) => {
+      const pt = projIso(f, l, t);
+      return { x: pt.x + ox, y: pt.y + oyB };
+    };
+    // F face is at f=18 (front of vehicle, lower-right on screen)
+    const a = sp(18, 0, 1.5), b = sp(18, 8, 1.5), c2 = sp(18, 8, 0.5), d = sp(18, 0, 0.5);
+    fillIsoPolygon(ctx, [a, b, c2, d], '#ffc628');
+    const a2 = sp(18, 0, 1), b2 = sp(18, 8, 1), c3 = sp(18, 8, 0.5), d2 = sp(18, 0, 0.5);
+    fillIsoPolygon(ctx, [a2, b2, c3, d2], '#a06820');
+  }
+  // Headlight pip on front-face upper-right
+  {
+    const hp = projIso(18, 1.5, 4.5);
+    ctx.fillStyle = '#fff5a0';
+    ctx.fillRect(hp.x + ox, hp.y + oyB, 2, 1);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(hp.x + ox, hp.y + oyB, 1, 1);
+  }
+
+  // ── FIN (back-top, vertical wedge as a tall narrow box) ──
+  isoBoxAt(ctx, ox, oyB, 0.5, 3.5, 6, 4, 1, 7, PAL.fin);
+
+  // ── COCKPIT DOME (mid-back, on top of body) ──
+  isoBoxAt(ctx, ox, oyB, 7, 2, 6, 6, 4, 4, PAL.cockpit);
+  // Dome highlight pip on the top face (sun-catch)
+  {
+    const hp = projIso(8, 2.5, 10);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(hp.x + ox, hp.y + oyB, 3, 1);
+    ctx.fillRect(hp.x + ox, hp.y + oyB + 1, 2, 1);
+  }
+  // Glass on the F face of cockpit (sun-side)
+  {
+    const gp = (f, l, t) => {
+      const pt = projIso(7+f, 2+l, t);
+      return { x: pt.x + ox, y: pt.y + oyB };
+    };
+    // F face at f=6 of cockpit (right side, where pilot looks out)
+    const a = gp(6, 0.5, 9), b = gp(6, 3.5, 9), c2 = gp(6, 3.5, 7), d = gp(6, 0.5, 7);
+    fillIsoPolygon(ctx, [a, b, c2, d], '#142028');
+    // Cyan reflection on glass
+    const a2 = gp(6, 0.5, 9), b2 = gp(6, 3.5, 9), c3 = gp(6, 3.5, 8.5), d2 = gp(6, 0.5, 8.5);
+    fillIsoPolygon(ctx, [a2, b2, c3, d2], '#7eddeb');
+  }
+
+  // ── ANTENNA (thin vertical line on top of cockpit) ──
+  isoWorldLine(ctx, ox, oyB, [8, 2.5, 10], [8, 2.5, 16], '#48484e');
+  // Glowing tip
+  {
+    const tp = projIso(8, 2.5, 16);
+    ctx.fillStyle = '#7eddeb';
+    ctx.fillRect(tp.x + ox, tp.y + oyB - 1, 1, 1);
+  }
+}
+
+// Animated cyan flame trail extending behind the rig (upper-left in iso)
+function drawIsoFlame(ctx, ox, oy, wf, wl, wt, frame) {
+  const flick = Math.floor(Math.sin(frame * 0.45) * 2);
+  // Flame extends in the -F direction (further behind the rig)
+  // Each "step" backwards reduces flame radius
+  for (let i = 0; i < 20; i++) {
+    const wfStep = wf - i;
+    const r = Math.max(0.3, 2.5 - i * 0.12);
+    const center = projIso(wfStep, wl, wt);
+    const cx = center.x + ox, cy = center.y + oy;
+    // Draw flame as concentric ellipses (outer to inner)
+    const rx = Math.round(r * 2.4 + flick * (i < 4 ? 0.3 : 0));
+    const ry = Math.round(r * 1.2);
+    const colors =
+      i < 4 ? ['#0838a0', '#1060e0', '#3090ff', '#bcecff', '#ffffff'] :
+      i < 10 ? ['#0838a0', '#1060e0', '#3090ff'] :
+      ['#0838a0', '#1060e0'];
+    for (let k = 0; k < colors.length; k++) {
+      const krx = Math.max(1, rx - k);
+      const kry = Math.max(1, ry - Math.floor(k * 0.5));
+      ctx.fillStyle = colors[k];
+      // Fill iso-style ellipse (2:1 ratio)
+      for (let dy = -kry; dy <= kry; dy++) {
+        const xRange = krx * Math.sqrt(1 - (dy*dy)/(kry*kry));
+        const xMin = -Math.round(xRange), xMax = Math.round(xRange);
+        ctx.fillRect(cx + xMin, cy + dy, xMax - xMin + 1, 1);
+      }
+    }
+  }
+  // Sparks trailing further behind
+  ctx.fillStyle = '#bcecff';
+  for (let i = 0; i < 5; i++) {
+    const a = frame * 0.05 + i * 1.5;
+    const d = 3 + Math.sin(frame * 0.3 + i) * 2;
+    const sf = wf - 18 - Math.floor(Math.abs(Math.sin(a)) * d);
+    const sl = wl + Math.floor(Math.cos(a) * 2);
+    const sp = projIso(sf, sl, wt);
+    ctx.fillRect(sp.x + ox, sp.y + oy, 1, 1);
+  }
+}
+
 // ─────────────────────────────────────────────────────────
 // Animation loop
 // ─────────────────────────────────────────────────────────
@@ -3298,6 +3597,7 @@ function tick() {
   renderHeroOrigCompare(frame);
   renderHeroHld(frame);
   renderHeroPerspective(frame);
+  renderHaulerIso(frame);
   renderFleet(frame);
   renderHover(frame);
   requestAnimationFrame(tick);
