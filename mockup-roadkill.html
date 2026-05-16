@@ -67,6 +67,24 @@
     height: auto;
   }
 
+  /* Compare grid (original vs HLD) */
+  .compareGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 720px) {
+    .compareGrid { grid-template-columns: 1fr; }
+  }
+  .compareCell .canvasWrap { padding: 12px; }
+  .compareTitle {
+    font-family: Impact, sans-serif;
+    font-size: 14px; letter-spacing: 3px;
+    color: #ffd060;
+    margin-bottom: 6px;
+  }
+  .compareTitle.hld { color: #7eddeb; }
+
   /* Fleet grid */
   .fleetGrid {
     display: grid;
@@ -195,6 +213,32 @@
         font-size: 11px; color: #806a90;
         font-family: 'Helvetica Neue', sans-serif;
       ">Records 3 sec of animation @ 30fps and downloads as GIF.</span>
+    </div>
+  </div>
+
+  <!-- HLD A/B COMPARISON -->
+  <div class="panel">
+    <div class="panelLabel">A · HLD COMPARISON · ROAD KILL</div>
+    <div class="panelSub">
+      Side-by-side: same rig, same animation. Left is the existing
+      baseline. Right is a Hyper Light Drifter pass — no outlines,
+      Bayer-dithered atmospheric sky, parallax ruin silhouettes, sun
+      halo, cyan glow bleed at the engine + flame, magenta antenna
+      tip, dust motes, glowing cyan driver eyes.
+    </div>
+    <div class="compareGrid">
+      <div class="compareCell">
+        <div class="compareTitle">ORIGINAL</div>
+        <div class="canvasWrap">
+          <canvas id="origStage" width="200" height="80" class="pixelCanvas"></canvas>
+        </div>
+      </div>
+      <div class="compareCell">
+        <div class="compareTitle hld">HLD PASS</div>
+        <div class="canvasWrap">
+          <canvas id="hldStage" width="200" height="80" class="pixelCanvas"></canvas>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -2276,6 +2320,342 @@ function renderHover(frame) {
   });
 }
 
+// ═════════════════════════════════════════════════════════
+// HLD COMPARISON — Hyper Light Drifter pass on hero rig
+// ═════════════════════════════════════════════════════════
+const H = {
+  hullCore:'#3aa8b8', hullLight:'#7ed4dc', hullDark:'#1c5e6e', hullDeep:'#0a3038',
+  hullSilho:'#04181c',
+  yellow:'#ffc628', yellowDeep:'#a06820',
+  rust:'#c83828', rustDark:'#7a1a10',
+  domeFrame:'#9098a4', domeShadow:'#4a4a5c',
+  glassDark:'#0a2038',
+  chrome:'#9a9aa0', chromeLight:'#cfd2d4', chromeDark:'#3a3a48',
+  podGrey:'#28282e', podSilho:'#100828',
+  podGlow:'#7eddeb', podGlowHot:'#bcecff',
+  cargoOuter:'#3a2818', cargoFrame:'#1a0a08', cargoInner:'#a0822a', cargoHi:'#ffd454', cargoRivet:'#7a6028',
+  chainCore:'#ffffff', chainGlow:'#3090ff', chainDark:'#1850c0',
+  flameCore:'#ffffff', flameHot:'#bcecff', flameMid:'#3090ff', flameOuter:'#1060e0', flameDeep:'#0838a0',
+  magenta:'#ff5cc8', magentaHot:'#ffb0e8',
+  skyTop:'#3a0830', skyUpper:'#601830', skyMid:'#982830',
+  skyHaze:'#c84028', skyHorizon:'#e8602a',
+  ruinFar:'#5a2030', ruinNear:'#3a1028', ground:'#1a0820',
+  dust:'#ffc870',
+};
+const BAYER = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+
+function drawSkyHLD(ctx, frame) {
+  const stops = [
+    { y:0.00, c:H.skyTop }, { y:0.25, c:H.skyUpper }, { y:0.50, c:H.skyMid },
+    { y:0.75, c:H.skyHaze }, { y:1.00, c:H.skyHorizon },
+  ];
+  for (let py = 0; py < 80; py++) {
+    const t = py / 80;
+    let lo = stops[0], hi = stops[stops.length-1];
+    for (let i = 0; i < stops.length-1; i++) {
+      if (t >= stops[i].y && t <= stops[i+1].y) { lo = stops[i]; hi = stops[i+1]; break; }
+    }
+    const local = (t - lo.y) / (hi.y - lo.y);
+    for (let px = 0; px < 200; px++) {
+      const bt = BAYER[py & 3][px & 3] / 16;
+      ctx.fillStyle = (bt < local) ? hi.c : lo.c;
+      ctx.fillRect(px, py, 1, 1);
+    }
+  }
+  // Sun halo (upper right)
+  const sunX = 165, sunY = 20, sunR = 16;
+  for (let py = -sunR; py <= sunR; py++) {
+    for (let px = -sunR; px <= sunR; px++) {
+      const d2 = px*px + py*py;
+      if (d2 > sunR*sunR) continue;
+      const t = Math.sqrt(d2) / sunR;
+      const bt = BAYER[(sunY+py) & 3][(sunX+px) & 3] / 16;
+      let col;
+      if (t < 0.30) col = '#ffffff';
+      else if (t < 0.50) col = '#ffeb90';
+      else if (t < 0.75) col = (bt < 0.6) ? '#ffc850' : null;
+      else col = (bt < 0.35) ? '#f08030' : null;
+      if (col) { ctx.fillStyle = col; ctx.fillRect(sunX+px, sunY+py, 1, 1); }
+    }
+  }
+}
+
+function drawRuinsHLD(ctx, frame) {
+  const far = [{x:6,w:10,h:16},{x:22,w:8,h:12},{x:178,w:12,h:22}];
+  far.forEach(s => {
+    for (let py = 0; py < s.h; py++) for (let px = 0; px < s.w; px++) {
+      const bt = BAYER[(60-s.h+py)&3][(s.x+px)&3]/16;
+      const e = Math.min(py/2,(s.h-py)/2,px/2,(s.w-px)/2,1);
+      if (bt < e) { ctx.fillStyle = H.ruinFar; ctx.fillRect(s.x+px, 60-s.h+py, 1, 1); }
+    }
+  });
+  const near = [{x:0,w:14,h:22},{x:36,w:10,h:18},{x:170,w:18,h:28},{x:190,w:10,h:16}];
+  near.forEach(s => {
+    for (let py = 0; py < s.h; py++) for (let px = 0; px < s.w; px++) {
+      const bt = BAYER[(72-s.h+py)&3][(s.x+px)&3]/16;
+      const e = Math.min(py/2,(s.h-py)/2,px/2,(s.w-px)/2,1);
+      if (bt < e) { ctx.fillStyle = H.ruinNear; ctx.fillRect(s.x+px, 72-s.h+py, 1, 1); }
+    }
+  });
+  ctx.fillStyle = H.ground; ctx.fillRect(0, 72, 200, 8);
+  for (let i = 0; i < 12; i++) {
+    const rx = 6 + i*17, rs = 3 + (i%3);
+    for (let py = 0; py <= rs; py++) for (let px = -rs; px <= rs; px++) {
+      if (px*px + py*py <= rs*rs) { ctx.fillStyle = H.ground; ctx.fillRect(rx+px, 72+py-rs, 1, 1); }
+    }
+  }
+}
+
+function drawDustHLD(ctx, frame) {
+  for (let i = 0; i < 18; i++) {
+    const baseX = (i*31+13)%200, baseY = (i*53+7)%80;
+    const drift = ((frame*0.6)+i*7)%80;
+    const sx = baseX + Math.round(Math.sin(frame*0.03+i)*2);
+    const sy = (baseY - drift + 80) % 80;
+    const phase = ((frame>>1)+i*5)%16;
+    if (phase >= 12) continue;
+    const a = (1-phase/12)*0.6;
+    const bt = BAYER[sy&3][sx&3]/16;
+    if (bt < a) { ctx.fillStyle = (i%5===0) ? '#fff0a0' : H.dust; ctx.fillRect(sx, sy, 1, 1); }
+  }
+}
+
+function drawGlowBleed(ctx, cx, cy, radius, color) {
+  for (let py = -radius; py <= radius; py++) for (let px = -radius; px <= radius; px++) {
+    const d2 = px*px + py*py;
+    if (d2 > radius*radius || d2 < 4) continue;
+    const t = 1 - Math.sqrt(d2)/radius;
+    const bt = BAYER[(cy+py)&3][(cx+px)&3]/16;
+    if (bt < t*0.55) { ctx.fillStyle = color; ctx.fillRect(cx+px, cy+py, 1, 1); }
+  }
+}
+
+function pxRigHLD(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox|0, y = oy|0;
+  // Cyan glow bleed at engine
+  drawGlowBleed(ctx, x+10, y+44, 16, H.podGlow);
+  // Body
+  ctx.fillStyle = H.hullSilho; ctx.fillRect(x+6, y+22, 50, 14);
+  ctx.fillStyle = H.hullDeep;  ctx.fillRect(x+6, y+32, 50, 4);
+  ctx.fillStyle = H.hullDark;  ctx.fillRect(x+6, y+28, 50, 4);
+  ctx.fillStyle = H.hullCore;  ctx.fillRect(x+6, y+23, 50, 6);
+  // Dithered light/core transition on top edge
+  for (let px = 8; px < 54; px++) for (let py = 23; py < 25; py++) {
+    const bt = BAYER[(y+py)&3][(x+px)&3]/16;
+    const t = 1 - (py-23)/2;
+    ctx.fillStyle = (bt < t) ? H.hullLight : H.hullCore;
+    ctx.fillRect(x+px, y+py, 1, 1);
+  }
+  ctx.fillStyle = H.yellow;     ctx.fillRect(x+8, y+31, 46, 1);
+  ctx.fillStyle = H.yellowDeep; ctx.fillRect(x+8, y+32, 46, 1);
+  ctx.fillStyle = H.rust;     ctx.fillRect(x+18, y+25, 3, 2); ctx.fillRect(x+34, y+27, 4, 2);
+  ctx.fillStyle = H.rustDark; ctx.fillRect(x+19, y+27, 1, 1);
+  // Fin
+  { const wX=x+8, wTop=y+6, wBase=y+22, wCols=12;
+    for (let i=0; i<wCols; i++) {
+      const cx=wX+i, cTop=wTop+i;
+      if (cTop > wBase) break;
+      ctx.fillStyle = H.hullSilho; ctx.fillRect(cx, cTop, 1, 1);
+      if (cTop+1 < wBase) { ctx.fillStyle = H.hullDark; ctx.fillRect(cx, cTop+1, 1, wBase-cTop-1); }
+      if (i>0 && cTop+1<wBase) { ctx.fillStyle = H.hullCore; ctx.fillRect(cx, cTop+1, 1, 1); }
+      if (i>1 && i<wCols-3 && cTop+2<wBase-4) { ctx.fillStyle = H.hullLight; ctx.fillRect(cx, cTop+2, 1, 1); }
+      ctx.fillStyle = H.hullDeep;  ctx.fillRect(cx, wBase-1, 1, 1);
+      ctx.fillStyle = H.hullSilho; ctx.fillRect(cx, wBase, 1, 1);
+    }
+    ctx.fillStyle = H.hullSilho; ctx.fillRect(wX, wTop, 1, wBase-wTop+1);
+  }
+  // Antenna with MAGENTA tip
+  { const antX=x+22, antBot=y+22, antTop=y+2;
+    const antLen=antBot-antTop;
+    const wPhase=frame*0.05, wMax=2;
+    for (let i=0; i<antLen; i++) {
+      const segY=antBot-i, t=i/(antLen-1);
+      const sway=Math.round(Math.sin(wPhase + i*0.20) * t*t * wMax);
+      ctx.fillStyle = H.chromeDark; ctx.fillRect(antX+sway, segY, 1, 1);
+    }
+    const tipSway=Math.round(Math.sin(wPhase + (antLen-1)*0.20) * wMax);
+    ctx.fillStyle = H.magentaHot;
+    ctx.fillRect(antX+tipSway-1, antTop-1, 1, 1); ctx.fillRect(antX+tipSway+1, antTop-1, 1, 1);
+    ctx.fillRect(antX+tipSway, antTop-2, 1, 1); ctx.fillRect(antX+tipSway, antTop, 1, 1);
+    ctx.fillStyle = H.magenta; ctx.fillRect(antX+tipSway, antTop-1, 1, 1);
+  }
+  // Cockpit
+  ctx.fillStyle = H.hullSilho; ctx.fillRect(x+22, y+10, 20, 13);
+  ctx.fillStyle = H.domeFrame;
+  ctx.fillRect(x+25, y+9, 14, 2); ctx.fillRect(x+24, y+11, 16, 3); ctx.fillRect(x+23, y+14, 18, 2);
+  ctx.fillStyle = H.glassDark; ctx.fillRect(x+24, y+14, 16, 7);
+  ctx.fillStyle = 'rgba(126,221,235,0.55)'; ctx.fillRect(x+24, y+14, 16, 1);
+  ctx.fillStyle = 'rgba(180,230,245,0.35)'; ctx.fillRect(x+26, y+15, 5, 1);
+  ctx.fillStyle = 'rgba(255,255,255,0.82)';
+  ctx.fillRect(x+25, y+14, 2, 1); ctx.fillRect(x+26, y+15, 2, 1);
+  ctx.fillRect(x+27, y+16, 2, 1); ctx.fillRect(x+28, y+17, 2, 1); ctx.fillRect(x+29, y+18, 2, 1);
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.fillRect(x+34, y+14, 1, 1); ctx.fillRect(x+35, y+15, 1, 1);
+  ctx.fillRect(x+36, y+16, 1, 1); ctx.fillRect(x+37, y+17, 1, 1);
+  ctx.fillStyle = H.glassDark; ctx.fillRect(x+31, y+16, 5, 4);
+  // Glowing cyan eyes
+  ctx.fillStyle = H.podGlowHot;
+  ctx.fillRect(x+32, y+17, 1, 1); ctx.fillRect(x+34, y+17, 1, 1);
+  ctx.fillStyle = H.podGlow;
+  ctx.fillRect(x+27, y+17, 1, 1); ctx.fillRect(x+29, y+17, 1, 1);
+  ctx.fillRect(x+27, y+19, 1, 1); ctx.fillRect(x+29, y+19, 1, 1);
+  ctx.fillRect(x+28, y+18, 1, 1);
+  ctx.fillStyle = H.domeShadow; ctx.fillRect(x+23, y+21, 18, 2);
+  // Front grille
+  ctx.fillStyle = H.hullSilho; ctx.fillRect(x+44, y+22, 12, 9);
+  ctx.fillStyle = H.hullDark;  ctx.fillRect(x+45, y+23, 10, 7);
+  ctx.fillStyle = H.hullCore;  ctx.fillRect(x+45, y+23, 10, 1);
+  ctx.fillStyle = H.hullSilho;
+  ctx.fillRect(x+47, y+24, 1, 5); ctx.fillRect(x+50, y+24, 1, 5); ctx.fillRect(x+53, y+24, 1, 5);
+  ctx.fillStyle = H.yellow;
+  ctx.fillRect(x+47, y+21, 2, 1); ctx.fillRect(x+50, y+21, 2, 1); ctx.fillRect(x+53, y+21, 2, 1);
+  ctx.fillStyle = '#fff5a0';
+  ctx.fillRect(x+47, y+21, 1, 1); ctx.fillRect(x+50, y+21, 1, 1); ctx.fillRect(x+53, y+21, 1, 1);
+  // Engine pod
+  ctx.fillStyle = H.podSilho; ctx.fillRect(x+12, y+36, 14, 16);
+  ctx.fillStyle = H.podGrey;  ctx.fillRect(x+13, y+37, 12, 14);
+  ctx.fillStyle = H.chromeDark; ctx.fillRect(x+13, y+37, 12, 1);
+  ctx.fillStyle = H.podSilho; ctx.fillRect(x+13, y+50, 12, 1);
+  ctx.fillStyle = H.podSilho; ctx.fillRect(x+26, y+38, 10, 12);
+  ctx.fillStyle = H.podGrey;  ctx.fillRect(x+26, y+39, 10, 10);
+  ctx.fillStyle = H.chromeDark; ctx.fillRect(x+26, y+39, 10, 1);
+  ctx.fillStyle = H.podSilho; ctx.fillRect(x+26, y+48, 10, 1);
+  ctx.fillStyle = H.podSilho; ctx.fillRect(x+36, y+39, 8, 10);
+  ctx.fillStyle = H.podGrey;  ctx.fillRect(x+37, y+40, 6, 8);
+  ctx.fillStyle = H.chromeDark; ctx.fillRect(x+37, y+40, 6, 1);
+  ctx.fillStyle = H.chromeDark; ctx.fillRect(x+28, y+34, 6, 3);
+  // Rear nozzle with hot cyan core
+  ctx.fillStyle = H.podSilho; ctx.fillRect(x+8, y+40, 4, 8);
+  ctx.fillStyle = H.podGlow;     ctx.fillRect(x+9, y+42, 3, 5);
+  ctx.fillStyle = H.podGlowHot;  ctx.fillRect(x+10, y+43, 2, 3);
+  ctx.fillStyle = H.flameCore;   ctx.fillRect(x+10, y+44, 1, 1);
+  ctx.fillStyle = H.podSilho;
+  ctx.fillRect(x+16, y+41, 1, 6); ctx.fillRect(x+19, y+41, 1, 6); ctx.fillRect(x+22, y+41, 1, 6);
+  ctx.fillRect(x+29, y+42, 1, 5); ctx.fillRect(x+33, y+42, 1, 5);
+  ctx.fillStyle = H.yellow;     ctx.fillRect(x+14, y+47, 22, 1);
+  ctx.fillStyle = H.yellowDeep; ctx.fillRect(x+14, y+48, 22, 1);
+  ctx.fillStyle = H.podSilho; ctx.fillRect(x+40, y+41, 4, 7);
+  ctx.fillStyle = '#1a1a1e';  ctx.fillRect(x+41, y+42, 3, 5);
+  ctx.fillStyle = H.chromeDark; ctx.fillRect(x+41, y+44, 3, 1);
+  // Chain port
+  ctx.fillStyle = H.podSilho; ctx.fillRect(x+2, y+28, 5, 5);
+  ctx.fillStyle = H.podGrey;  ctx.fillRect(x+3, y+29, 3, 3);
+  ctx.fillStyle = H.podGlow;  ctx.fillRect(x+4, y+30, 1, 1);
+}
+
+function pxCargoHLD(ctx, ox, oy) {
+  ctx.imageSmoothingEnabled = false;
+  const x=ox|0, y=oy|0;
+  ctx.fillStyle = H.cargoFrame; ctx.fillRect(x-1, y-1, 28, 28);
+  ctx.fillStyle = H.cargoOuter; ctx.fillRect(x, y, 26, 26);
+  ctx.fillStyle = H.cargoFrame; ctx.fillRect(x+5, y+5, 16, 16);
+  ctx.fillStyle = H.cargoInner; ctx.fillRect(x+6, y+6, 14, 14);
+  ctx.fillStyle = H.cargoHi; ctx.fillRect(x+7, y+7, 8, 3); ctx.fillRect(x+7, y+12, 4, 7);
+  ctx.fillStyle = H.cargoFrame;
+  ctx.fillRect(x, y+10, 5, 1); ctx.fillRect(x, y+16, 5, 1);
+  ctx.fillRect(x+21, y+10, 5, 1); ctx.fillRect(x+21, y+16, 5, 1);
+  ctx.fillStyle = H.cargoRivet;
+  ctx.fillRect(x+1, y+1, 3, 3); ctx.fillRect(x+22, y+1, 3, 3);
+  ctx.fillRect(x+1, y+22, 3, 3); ctx.fillRect(x+22, y+22, 3, 3);
+}
+
+function pxChainHLD(ctx, x1, y1, x2, y2, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const linkCount=5, dx=(x2-x1)/linkCount, dy=(y2-y1)/linkCount;
+  ctx.fillStyle = H.chainDark;
+  for (let t=0; t<1; t+=0.04) ctx.fillRect((x1+(x2-x1)*t)|0, (y1+(y2-y1)*t)|0, 1, 1);
+  for (let i=0; i<=linkCount; i++) {
+    const bx=(x1+dx*i)|0, by=(y1+dy*i)|0;
+    const pulse=(Math.sin(frame*0.16+i*0.75)+1)*0.5;
+    const s=pulse>0.6?2:1;
+    // Dithered glow halo
+    for (let py=-s-1; py<=s+1; py++) for (let px=-s-1; px<=s+1; px++) {
+      if (Math.abs(px)+Math.abs(py) <= s+1) {
+        const bt = BAYER[(by+py)&3][(bx+px)&3]/16;
+        if (bt < 0.35) { ctx.fillStyle = H.chainGlow; ctx.fillRect(bx+px, by+py, 1, 1); }
+      }
+    }
+    ctx.fillStyle = H.chainGlow; ctx.fillRect(bx-s, by-s, s*2+1, s*2+1);
+    ctx.fillStyle = H.chainCore; ctx.fillRect(bx, by, 1, 1);
+  }
+}
+
+function pxFlameHLD(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x=ox|0, y=oy|0;
+  const flick=Math.floor(Math.sin(frame*0.45)*2);
+  const flick2=Math.floor(Math.cos(frame*0.32)*1.5);
+  // Big dithered outer glow bleeding into the sky
+  for (let i = 0; i < 44; i++) {
+    const h = Math.max(1, 22 - Math.floor(i*0.4));
+    for (let dy = -(h>>1)-3; dy <= (h>>1)+3; dy++) {
+      const dist = Math.abs(dy) / ((h>>1)+3);
+      const t = 1 - dist;
+      const px = x-i, py = y+dy;
+      if (px<0 || px>=200 || py<0 || py>=80) continue;
+      const bt = BAYER[py&3][px&3]/16;
+      if (bt < t*0.35) { ctx.fillStyle = H.flameDeep; ctx.fillRect(px, py, 1, 1); }
+    }
+  }
+  ctx.fillStyle = H.flameDeep;
+  for (let i=0; i<36; i++) {
+    const h=Math.max(1, 18-Math.floor(i*0.5)+flick);
+    ctx.fillRect(x-i, y-(h>>1)+flick2, 1, h);
+  }
+  ctx.fillStyle = H.flameMid;
+  for (let i=0; i<28; i++) {
+    const h=Math.max(1, 14-Math.floor(i*0.5)+(flick>>1));
+    ctx.fillRect(x-i, y-(h>>1), 1, h);
+  }
+  ctx.fillStyle = H.flameHot;
+  for (let i=0; i<20; i++) {
+    const h=Math.max(1, 10-Math.floor(i*0.5));
+    ctx.fillRect(x-i, y-(h>>1), 1, h);
+  }
+  ctx.fillStyle = H.flameCore;
+  for (let i=0; i<12; i++) {
+    const h=Math.max(1, 6-Math.floor(i*0.4));
+    ctx.fillRect(x-i, y-(h>>1), 1, h);
+  }
+  ctx.fillRect(x, y-5, 5, 10);
+  ctx.fillRect(x+1, y-6, 3, 12);
+  ctx.fillStyle = H.flameHot;
+  for (let i=0; i<6; i++) {
+    const a=frame*0.05+i*1.5;
+    const d=5+Math.sin(frame*0.3+i)*3;
+    ctx.fillRect((x-30-Math.floor(Math.abs(Math.sin(a))*d))|0,
+                 (y+Math.floor(Math.cos(a)*5))|0, 1, 1);
+  }
+}
+
+function renderHeroOrigCompare(frame) {
+  const c = document.getElementById('origStage');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  const rigX=115, rigY=10;
+  pxCargo(ctx, 44, rigY+14);
+  pxChain(ctx, 76, rigY+28, rigX+4, rigY+28, frame);
+  pxFlame(ctx, rigX+8, rigY+44, frame);
+  pxRig(ctx, rigX, rigY, frame);
+}
+
+function renderHeroHld(frame) {
+  const c = document.getElementById('hldStage');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  drawSkyHLD(ctx, frame);
+  drawRuinsHLD(ctx, frame);
+  drawDustHLD(ctx, frame);
+  const rigX=115, rigY=10;
+  pxCargoHLD(ctx, 44, rigY+14);
+  pxChainHLD(ctx, 76, rigY+28, rigX+4, rigY+28, frame);
+  pxFlameHLD(ctx, rigX+8, rigY+44, frame);
+  pxRigHLD(ctx, rigX, rigY, frame);
+}
+
 // ─────────────────────────────────────────────────────────
 // Animation loop
 // ─────────────────────────────────────────────────────────
@@ -2286,6 +2666,8 @@ let frame = 0;
 function tick() {
   frame++;
   renderPixel(frame);
+  renderHeroOrigCompare(frame);
+  renderHeroHld(frame);
   renderFleet(frame);
   renderHover(frame);
   requestAnimationFrame(tick);
