@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449H-magnet-ring-stepped-halos';
+const DLX_BUILD = 'v449I-cargo-crate-and-recovery-polish';
 
 (function() {
   // ---------- Device detection ----------
@@ -8907,6 +8907,7 @@ const DLX_BUILD = 'v449H-magnet-ring-stepped-halos';
               cargo.y = bird.y - 4;
               cargo.vy = 0;
               emitPickupSparks(bird.x, bird.y, '#ff60a0', 28);
+              flashCargoRecovery();
               playSound('cargoRestore');
             }
             if (p.kind === 'scrapCog') {
@@ -8955,6 +8956,7 @@ const DLX_BUILD = 'v449H-magnet-ring-stepped-halos';
               const wasLost = cargo && cargo.lost;
               const wasDetached = cargo && !cargo.attached;
               if (cargo) {
+                const wasGone = cargo.lost || !cargo.attached;
                 cargo.lost = false;
                 cargo.attached = true;
                 clearCargoStealFlags(cargo);
@@ -8963,6 +8965,10 @@ const DLX_BUILD = 'v449H-magnet-ring-stepped-halos';
                 cargo.y = bird.y;
                 cargo.vy = 0;
                 emitPickupSparks(cargo.x, cargo.y, '#ff60a0', 18);
+                // Only flash if cargo was actually recovered (not the
+                // already-attached score-bonus case that magnetBox also
+                // triggers).
+                if (wasGone) flashCargoRecovery();
               }
               // Flash a pink recall beam from the pickup point to the
               // cargo so the player can see the recall fire
@@ -9799,6 +9805,7 @@ const DLX_BUILD = 'v449H-magnet-ring-stepped-halos';
                   cargo.y = bird.y - 4;
                   cargo.vy = 0;
                   cargo.hasBonus = isPremium;
+                  flashCargoRecovery();
                   grantScore(dropoffPts);
                   addCombo();
                   scorePulse = 1;
@@ -11586,6 +11593,7 @@ const DLX_BUILD = 'v449H-magnet-ring-stepped-halos';
               cargo.y = bird.y - 4;
               cargo.vy = 0;
               emitPickupSparks(cargo.x, cargo.y, '#ffd060', 28);
+              flashCargoRecovery();
               playSound('cargoRestore');
             }
             ref.state = 'flee';
@@ -12082,6 +12090,23 @@ const DLX_BUILD = 'v449H-magnet-ring-stepped-halos';
   // bandit drop) so an enemy can't keep "carrying" the cargo after
   // recovery and create dual-ownership state. Different paths used to
   // clear different subsets of flags — this guarantees a clean slate.
+  // Big celebratory pink halo at the cargo's position the moment it's
+  // recovered — fires from every recovery path so the player gets an
+  // unmistakable "your cargo is back" beat at the cargo itself
+  // (separate from the burst that fires at the pickup point).
+  function flashCargoRecovery() {
+    if (!cargo) return;
+    pickupSparks.push({
+      x: cargo.x, y: cargo.y,
+      vx: 0, vy: 0,
+      life: 1, decay: 0.05,
+      type: 'halo',
+      haloR: 28,
+      haloRgb: [255, 96, 160],
+      haloKey: 'cargo-recover',
+    });
+  }
+
   function clearCargoStealFlags(cargo) {
     if (!cargo) return;
     if (cargo.banditRef)       cargo.banditRef.carrying = false;
@@ -29772,65 +29797,62 @@ const DLX_BUILD = 'v449H-magnet-ring-stepped-halos';
       ? Math.max(-0.25, Math.min(0.25, (bird.y - cargo.y) * 0.03))
       : 0;
     ctx.rotate(tilt);
+    // PRIORITY bonus — gold stepped halo drawn FIRST so the wood
+    // covers the inner bands and only the outer atmosphere wraps
+    // the crate's silhouette in a warm glow.
+    if (cargo.hasBonus) {
+      const pulse = ((frame >> 3) & 1);
+      const haloR = 22 + pulse;
+      const bonusHalo = _getSteppedHalo(haloR, 'cargo-bonus', [255, 220, 80]);
+      ctx.drawImage(bonusHalo.canvas, -bonusHalo.half, -bonusHalo.half);
+    }
     // v429-pixel: ROAD KILL pixel-art wood crate (28×28) from the
     // mockup-roadkill mockup, centered on cargo origin.
     pxRoadkillCargo(ctx, -14, -14);
     const w = 28, h = 28;
     // Magnetic-receiver bead on the front of the crate (rig-facing side)
+    // — cyan stepped halo + chunky pixel bead in white/cyan.
     if (cargo.attached) {
-      ctx.shadowBlur = 6;
-      ctx.shadowColor = '#60d0ff';
-      ctx.fillStyle = '#a0f0ff';
-      ctx.beginPath();
-      ctx.arc(w / 2 + 1, 0, 2, 0, Math.PI * 2);
-      ctx.fill();
+      const beadX = (w >> 1) + 1;
+      const beadHalo = _getSteppedHalo(4, 'cargo-bead', [120, 230, 255], {
+        bands: [[+2, 2, 0.32], [0, 2, 0.85]],
+        noCrown: true,
+      });
+      ctx.drawImage(beadHalo.canvas, beadX - beadHalo.half, -beadHalo.half);
       ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(w / 2 + 0.6, -0.4, 0.7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
+      ctx.fillRect(beadX - 1, -1, 2, 2);
+      ctx.fillStyle = '#a0f0ff';
+      ctx.fillRect(beadX, 0, 1, 1);
     }
-    // PRIORITY BONUS layer — gold trim + halo + antenna with pink
-    // LED. Drawn over the regular cargo so the player knows their
-    // cargo is now "upgraded" until a bandit takes it.
+    // PRIORITY BONUS — gold trim + antenna with pink LED. Drawn over
+    // the regular cargo so the player knows their cargo is "upgraded"
+    // until a bandit takes it.
     if (cargo.hasBonus) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      const tB = frame * 0.08;
-      const pulseB = 0.85 + Math.sin(tB) * 0.15;
-      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 22);
-      halo.addColorStop(0, 'rgba(255, 220, 80, ' + (0.55 * pulseB) + ')');
-      halo.addColorStop(1, 'rgba(255, 220, 80, 0)');
-      ctx.fillStyle = halo;
-      ctx.beginPath();
-      ctx.arc(0, 0, 22, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      // Gold-trim outline around the crate
-      ctx.strokeStyle = '#ffd040';
-      ctx.lineWidth = 1.6;
-      ctx.strokeRect(-w / 2 - 1, -h / 2 - 1, w + 2, h + 2);
-      // Antenna mast + blinking pink LED beacon on top
+      // Chunky gold-pixel border around the crate
+      ctx.fillStyle = '#ffd040';
+      ctx.fillRect(-(w >> 1) - 1, -(h >> 1) - 1, w + 2, 1);
+      ctx.fillRect(-(w >> 1) - 1,  (h >> 1),     w + 2, 1);
+      ctx.fillRect(-(w >> 1) - 1, -(h >> 1),     1, h);
+      ctx.fillRect( (w >> 1),     -(h >> 1),     1, h);
+      // Antenna mast on top of the caution stripe
       ctx.fillStyle = '#3a2c12';
-      ctx.fillRect(-1, -h / 2 - 4, 2, 4);
+      ctx.fillRect(-1, -(h >> 1) - 4, 2, 4);
+      // Pink LED beacon — blink with stepped pink halo when lit
       const ledOn = ((frame * 0.06) % 1) < 0.5;
-      ctx.fillStyle = ledOn ? '#ff60a0' : '#3a1838';
-      ctx.beginPath();
-      ctx.arc(0, -h / 2 - 5, 1.6, 0, Math.PI * 2);
-      ctx.fill();
-      // Halo around the LED when it's lit
+      const ledY = -(h >> 1) - 5;
       if (ledOn) {
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        const ledHalo = ctx.createRadialGradient(0, -h / 2 - 5, 0,
-                                                  0, -h / 2 - 5, 5);
-        ledHalo.addColorStop(0, 'rgba(255, 100, 200, 0.7)');
-        ledHalo.addColorStop(1, 'rgba(255, 100, 200, 0)');
-        ctx.fillStyle = ledHalo;
-        ctx.beginPath();
-        ctx.arc(0, -h / 2 - 5, 5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
+        const ledHalo = _getSteppedHalo(4, 'cargo-led', [255, 100, 200], {
+          bands: [[+2, 2, 0.40], [0, 2, 0.90]],
+          noCrown: true,
+        });
+        ctx.drawImage(ledHalo.canvas, -ledHalo.half, ledY - ledHalo.half);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-1, ledY - 1, 2, 2);
+        ctx.fillStyle = '#ff60a0';
+        ctx.fillRect(0, ledY, 1, 1);
+      } else {
+        ctx.fillStyle = '#5a1838';
+        ctx.fillRect(-1, ledY - 1, 2, 2);
       }
       // PRIORITY mini-tag on top of the caution stripe
       ctx.fillStyle = '#3a2c12';
