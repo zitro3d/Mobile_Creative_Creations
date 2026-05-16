@@ -1564,6 +1564,89 @@ function particleBurst(ctx, x, y, w, h, frame, color, density) {
   ctx.globalAlpha = 1;
 }
 
+// ── Wasteland weathering: rust, scratches, stickers, patches, holes ──
+function pxRust(ctx, x, y, w, h) {
+  ctx.fillStyle = '#7a1a10'; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = '#c83828'; ctx.fillRect(x+1, y, Math.max(1, w-1), 1);
+  if (w >= 3 && h >= 2) { ctx.fillStyle = '#a02818'; ctx.fillRect(x, y+h-1, 2, 1); }
+}
+function pxScratch(ctx, x, y, len, color) {
+  ctx.fillStyle = color || '#080808';
+  for (let i = 0; i < len; i++) ctx.fillRect(x+i, y + (i % 2), 1, 1);
+}
+function pxSticker(ctx, x, y, w, h, bg, fg) {
+  ctx.fillStyle = C.outline; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = bg;        ctx.fillRect(x, y, w-1, h-1);
+  ctx.fillStyle = fg;
+  for (let i = 0; i < (w-2)/2; i++) ctx.fillRect(x+1+i*2, y+1, 1, 1);
+}
+function pxBulletHole(ctx, x, y) {
+  ctx.fillStyle = '#000';    ctx.fillRect(x, y, 2, 2);
+  ctx.fillStyle = '#383838';
+  ctx.fillRect(x-1, y-1, 1, 1); ctx.fillRect(x+2, y-1, 1, 1);
+  ctx.fillRect(x-1, y+2, 1, 1); ctx.fillRect(x+2, y+2, 1, 1);
+}
+function pxPanelPatch(ctx, x, y, w, h, color) {
+  ctx.fillStyle = C.outline; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = color;     ctx.fillRect(x, y, w-1, h-1);
+  ctx.fillStyle = C.chromeDark;
+  ctx.fillRect(x, y, 1, 1);     ctx.fillRect(x+w-2, y, 1, 1);
+  ctx.fillRect(x, y+h-2, 1, 1); ctx.fillRect(x+w-2, y+h-2, 1, 1);
+}
+function pxDecal(ctx, x, y, color, glyph) {
+  // glyph: 'skull' | 'star' | 'chevron' | 'num8' | 'num13'
+  ctx.fillStyle = color;
+  if (glyph === 'skull') {
+    ctx.fillRect(x, y, 4, 3);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x+1, y+1, 1, 1); ctx.fillRect(x+2, y+1, 1, 1);
+    ctx.fillStyle = color;
+    ctx.fillRect(x+1, y+3, 1, 1); ctx.fillRect(x+3, y+3, 1, 1);
+  } else if (glyph === 'star') {
+    ctx.fillRect(x+1, y, 1, 1);
+    ctx.fillRect(x, y+1, 3, 1);
+    ctx.fillRect(x+1, y+2, 1, 1);
+  } else if (glyph === 'chevron') {
+    ctx.fillRect(x, y+1, 5, 1);
+    ctx.fillRect(x+1, y, 3, 1);
+    ctx.fillRect(x+2, y-1, 1, 1);
+  } else if (glyph === 'num8') {
+    ctx.fillRect(x, y, 3, 1); ctx.fillRect(x, y+2, 3, 1); ctx.fillRect(x, y+4, 3, 1);
+    ctx.fillRect(x, y+1, 1, 1); ctx.fillRect(x+2, y+1, 1, 1);
+    ctx.fillRect(x, y+3, 1, 1); ctx.fillRect(x+2, y+3, 1, 1);
+  } else if (glyph === 'num13') {
+    ctx.fillRect(x, y, 1, 5);
+    ctx.fillRect(x+2, y, 3, 1); ctx.fillRect(x+2, y+2, 3, 1); ctx.fillRect(x+2, y+4, 3, 1);
+    ctx.fillRect(x+4, y+1, 1, 1); ctx.fillRect(x+4, y+3, 1, 1);
+  }
+}
+function pxDriverEyes(ctx, x, y, frame, color) {
+  ctx.fillStyle = '#0a0a14'; ctx.fillRect(x, y, 4, 2);
+  const blink = (frame >> 5) % 24;
+  if (blink !== 0) {
+    ctx.fillStyle = color || '#7eddeb';
+    ctx.fillRect(x, y, 1, 1); ctx.fillRect(x+3, y, 1, 1);
+  }
+}
+
+// Rainbow flame jet — each column cycles through rainbow palette,
+// creating a moving multi-color trail.
+function rainbowFlameJet(ctx, x, y, len, frame) {
+  const rainbow = ['#ff4040','#ff8030','#ffd040','#40c850','#3090ff','#c050ff'];
+  const flick  = Math.floor(Math.sin(frame * 0.5) * 2);
+  const flick2 = Math.floor(Math.cos(frame * 0.32) * 1);
+  const offset = (frame >> 1) % rainbow.length;
+  for (let i = 0; i < len; i++) {
+    const colorIdx = (i + offset) % rainbow.length;
+    const h = Math.max(1, Math.floor(7 - i * 0.35) + flick);
+    ctx.fillStyle = rainbow[colorIdx];
+    ctx.fillRect(x - i, y - (h >> 1) + flick2, 1, h);
+  }
+  // White-hot core right at nozzle
+  ctx.fillStyle = '#ffffff';
+  for (let i = 0; i < 5; i++) ctx.fillRect(x - i, y - 1, 1, 2);
+}
+
 // ── 1. DUNERIDER (Hover SUV — magnetic levitation) ──
 function hovDunerider(ctx, ox, oy, frame) {
   ctx.imageSmoothingEnabled = false;
@@ -1596,8 +1679,19 @@ function hovDunerider(ctx, ox, oy, frame) {
   ctx.fillStyle = P.core; ctx.fillRect(x+5, y+23, 50, 2);
   ctx.fillStyle = P.light; ctx.fillRect(x+6, y+23, 48, 1);
   ctx.fillStyle = P.dark; ctx.fillRect(x+8, y+26, 44, 1);
+  // Mud splatter + rust spots on body (wasteland weathering)
+  ctx.fillStyle = '#5a3818';
+  ctx.fillRect(x+10, y+29, 5, 1); ctx.fillRect(x+24, y+30, 6, 1); ctx.fillRect(x+42, y+29, 4, 1);
   ctx.fillStyle = '#a08868';
   ctx.fillRect(x+12, y+27, 3, 1); ctx.fillRect(x+30, y+28, 4, 1);
+  pxRust(ctx, x+18, y+25, 3, 2);
+  pxRust(ctx, x+36, y+24, 2, 2);
+  // "4×4" sticker on door
+  pxSticker(ctx, x+22, y+25, 8, 3, '#ffd040', '#080808');
+  // Paint scratch along belt-line
+  pxScratch(ctx, x+34, y+24, 8);
+  // Driver eyes glowing through windshield
+  pxDriverEyes(ctx, x+27, y+15, frame, '#ffd040');
   ctx.fillStyle = C.outline; ctx.fillRect(x+50, y+24, 6, 7);
   ctx.fillStyle = C.chrome; ctx.fillRect(x+51, y+25, 5, 5);
   ctx.fillStyle = C.chrome;
@@ -1664,6 +1758,21 @@ function hovCargomule(ctx, ox, oy, frame) {
   ctx.fillStyle = C.outline; ctx.fillRect(x+1, y+22, 2, 7);
   ctx.fillStyle = P.core; ctx.fillRect(x+1, y+22, 2, 6);
   ctx.fillStyle = P.deep; ctx.fillRect(x+2, y+28, 54, 1);
+  // ── Cobbled-together wasteland weathering ──
+  // Mismatched yellow door panel (different vehicle, welded on)
+  pxPanelPatch(ctx, x+34, y+20, 9, 7, '#a06820');
+  ctx.fillStyle = '#ffd040'; ctx.fillRect(x+35, y+21, 7, 1);
+  // Big rust spots
+  pxRust(ctx, x+8, y+25, 4, 2);
+  pxRust(ctx, x+50, y+22, 3, 2);
+  pxRust(ctx, x+4, y+30, 3, 1);
+  // Peeling paint scratches
+  pxScratch(ctx, x+20, y+24, 10);
+  pxScratch(ctx, x+24, y+22, 6, '#7a1a10');
+  // "MULE-X" sticker on cab door
+  pxSticker(ctx, x+24, y+21, 8, 3, '#080808', '#ff80ff');
+  // Driver eyes
+  pxDriverEyes(ctx, x+30, y+15, frame, '#ff80ff');
   vehPlate(ctx, x+44, y+27, 8, 3, '#ffd040');
   // 4 flat anti-grav corner pads (rectangular, not round)
   hoverPlate(ctx, x+4, y+30, 8, 3, frame, '#c050ff');
@@ -1711,6 +1820,13 @@ function hovJetrod(ctx, ox, oy, frame) {
   ctx.fillStyle = C.outline; ctx.fillRect(x+22, y+15, 16, 8);
   ctx.fillStyle = P.dark; ctx.fillRect(x+23, y+15, 14, 2);
   vehWindow(ctx, x+23, y+17, 14, 5, { tint:'#0a1a26' });
+  // Driver eyes (red — angry hot-rodder)
+  pxDriverEyes(ctx, x+29, y+18, frame, '#ff4020');
+  // Skull decal on hood + racing "8"
+  pxDecal(ctx, x+25, y+24, '#fff0a0', 'skull');
+  pxDecal(ctx, x+32, y+24, '#fff0a0', 'num8');
+  // Burn marks near jet engine
+  pxScratch(ctx, x+10, y+24, 8, '#3a0808');
   // Ram intake on hood
   ctx.fillStyle = C.outline; ctx.fillRect(x+40, y+18, 12, 5);
   ctx.fillStyle = C.chromeDark; ctx.fillRect(x+41, y+19, 10, 3);
@@ -1778,28 +1894,29 @@ function hovSlipstream(ctx, ox, oy, frame) {
   ctx.fillStyle = P.dark; ctx.fillRect(x+8, y+25, 42, 1);
   ctx.fillStyle = C.outline; ctx.fillRect(x+50, y+23, 6, 2);
   ctx.fillStyle = '#bcecff'; ctx.fillRect(x+51, y+24, 5, 1);
-  // ── TWIN large plasma engines at the rear (BLUE FLAMES) ──
-  // Upper engine housing
+  // Driver eyes (toxic green — manic racer)
+  pxDriverEyes(ctx, x+31, y+19, frame, '#a0ff80');
+  // Racing sponsor sticker on door
+  pxSticker(ctx, x+34, y+25, 6, 2, '#ffd040', '#080808');
+  // Sponsor decal on hood
+  pxDecal(ctx, x+24, y+22, '#a0ff80', 'star');
+  // Small scratch on rear quarter
+  pxScratch(ctx, x+18, y+27, 6);
+  // ── TWIN large plasma engines at the rear (GREEN flames) ──
   ctx.fillStyle = C.outline;     ctx.fillRect(x+1, y+20, 6, 5);
   ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+2, y+20, 5, 1);
   ctx.fillStyle = C.podBlack;    ctx.fillRect(x+2, y+21, 5, 4);
   ctx.fillStyle = C.chromeLight; ctx.fillRect(x+2, y+20, 1, 5);
-  // Lower engine housing
   ctx.fillStyle = C.outline;     ctx.fillRect(x+1, y+26, 6, 5);
   ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+2, y+26, 5, 1);
   ctx.fillStyle = C.podBlack;    ctx.fillRect(x+2, y+27, 5, 4);
   ctx.fillStyle = C.chromeLight; ctx.fillRect(x+2, y+26, 1, 5);
-  // Twin BLUE flame trails
-  rearFlameJet(ctx, x+1, y+22, 20, frame,   { core:'#ffffff', hot:'#bcecff', mid:'#3090ff', outer:'#0838a0' });
-  rearFlameJet(ctx, x+1, y+28, 20, frame+5, { core:'#ffffff', hot:'#bcecff', mid:'#3090ff', outer:'#0838a0' });
+  // Twin GREEN flame trails (toxic plasma)
+  rearFlameJet(ctx, x+1, y+22, 20, frame,   { core:'#ffffff', hot:'#d0ffa0', mid:'#40c850', outer:'#103a08' });
+  rearFlameJet(ctx, x+1, y+28, 20, frame+5, { core:'#ffffff', hot:'#d0ffa0', mid:'#40c850', outer:'#103a08' });
   vehPlate(ctx, x+38, y+32, 8, 2, '#ffd040');
-  // Flat plasma underbelly strip (replaces the 4 round rings — no wheels)
-  hoverSkirt(ctx, x+8, y+35, 44, frame, '#7eddeb');
-  // Particle trail (cyan/white sparks)
-  particleBurst(ctx, x+4, y+38, 52, 3, frame, '#bcecff', 14);
-  particleBurst(ctx, x+4, y+40, 52, 2, frame, '#3090ff', 10);
-  // Motion streaks behind body
-  motionStreaks(ctx, x-6, y+16, 16, 28, 8, frame, '#bcecff');
+  // Flat green plasma underbelly strip (no particles — sleek racer)
+  hoverSkirt(ctx, x+8, y+35, 44, frame, '#40c850');
 }
 
 // ── 5. EXEC LIMO (Hover luxury — mag-lev rails) ──
@@ -1852,12 +1969,12 @@ function hovExeclimo(ctx, ox, oy, frame) {
   ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+3, y+32, 54, 1);
   ctx.fillStyle = '#ffd040';
   for (let i = 0; i < 6; i++) ctx.fillRect(x+8+i*9, y+31, 1, 1);
-  // Gold underglow + particle trail
+  // Gold underglow only (NO particles — pristine luxury)
   hoverSkirt(ctx, x+3, y+33, 54, frame, '#ffd040');
-  particleBurst(ctx, x+4, y+37, 52, 3, frame, '#fff0a0', 12);
-  particleBurst(ctx, x+4, y+39, 52, 2, frame, '#ffd040', 8);
-  // Motion streaks
-  motionStreaks(ctx, x-6, y+18, 14, 26, 7, frame, '#ffd060');
+  // Subtle chrome CEO emblem on door
+  pxSticker(ctx, x+22, y+25, 4, 3, '#ffd040', '#080808');
+  // Driver / chauffeur eyes (gold glow — high society)
+  pxDriverEyes(ctx, x+28, y+16, frame, '#ffd040');
 }
 
 // ── 6. TIMEDRIFTER (Hover DeLorean — flux drive + corner plates) ──
@@ -1927,16 +2044,17 @@ function hovTimedrifter(ctx, ox, oy, frame) {
     core:'#ffffff', hot:'#e0f8ff', mid:'#7eddeb', outer:'#1850c0'
   });
   vehPlate(ctx, x+38, y+28, 8, 2, '#ffd040');
+  // Doc Brown's eyes through the windshield (wild white-grey)
+  pxDriverEyes(ctx, x+29, y+19, frame, '#ffffff');
+  // Brushed metal hand-rubbed scuffs (subtle)
+  pxScratch(ctx, x+12, y+24, 8, '#787880');
+  pxScratch(ctx, x+30, y+27, 10, '#787880');
   // 4 flat corner BTTF hover plates (rectangular, not round)
   hoverPlate(ctx, x+6, y+30, 8, 3, frame,    '#bcecff');
   hoverPlate(ctx, x+19, y+30, 8, 3, frame+3, '#bcecff');
   hoverPlate(ctx, x+32, y+30, 8, 3, frame+6, '#bcecff');
   hoverPlate(ctx, x+45, y+30, 8, 3, frame+9, '#bcecff');
-  // Flux particle trail (cyan-white)
-  particleBurst(ctx, x+4, y+37, 52, 3, frame, '#bcecff', 14);
-  particleBurst(ctx, x+4, y+39, 52, 2, frame, '#7eddeb', 10);
-  // Motion streaks
-  motionStreaks(ctx, x-6, y+20, 12, 28, 8, frame, '#bcecff');
+  // (No particle trail — DeLorean stays clean / iconic)
 }
 
 // ── 7. NOVA-RAM (Hover muscle — twin ion thrusters) ──
@@ -1990,18 +2108,22 @@ function hovNovaram(ctx, ox, oy, frame) {
   ctx.fillStyle = C.chromeDark;  ctx.fillRect(x-1, y+27, 6, 1);
   ctx.fillStyle = C.podBlack;    ctx.fillRect(x-1, y+28, 6, 4);
   ctx.fillStyle = C.chromeLight; ctx.fillRect(x-1, y+27, 1, 5);
-  // Twin long ion-purple flame trails
-  rearFlameJet(ctx, x-2, y+23, 22, frame,   { core:'#ffffff', hot:'#c0a0ff', mid:'#80a0ff', outer:'#3040c0' });
-  rearFlameJet(ctx, x-2, y+30, 22, frame+5, { core:'#ffffff', hot:'#c0a0ff', mid:'#80a0ff', outer:'#3040c0' });
+  // Twin PINK/MAGENTA flame trails (custom paint contrast)
+  rearFlameJet(ctx, x-2, y+23, 22, frame,   { core:'#ffffff', hot:'#ffc0e0', mid:'#ff40a0', outer:'#80105a' });
+  rearFlameJet(ctx, x-2, y+30, 22, frame+5, { core:'#ffffff', hot:'#ffc0e0', mid:'#ff40a0', outer:'#80105a' });
   vehPlate(ctx, x+44, y+27, 8, 3, '#080808');
-  // Plasma underskirt (orange-red flickering, no round wheels)
+  // Battle damage — bullet holes
+  pxBulletHole(ctx, x+22, y+24);
+  pxBulletHole(ctx, x+40, y+22);
+  // Racing "13" decal on door
+  pxDecal(ctx, x+18, y+23, '#ffffff', 'num13');
+  // Driver eyes (pink — wild custom builder)
+  pxDriverEyes(ctx, x+28, y+15, frame, '#ff40a0');
+  // Burn-mark scratch under the engines
+  pxScratch(ctx, x+4, y+27, 12, '#3a0808');
+  // Pink plasma underskirt (no particles — flame trails carry the energy)
   const fl = ((frame >> 1) % 6) < 3;
-  hoverSkirt(ctx, x+4, y+33, 52, frame, fl ? '#ff4020' : '#ff8030');
-  // Heavy ion spark trail
-  particleBurst(ctx, x+4, y+37, 52, 3, frame, '#c0a0ff', 14);
-  particleBurst(ctx, x+4, y+39, 52, 3, frame, '#ff8030', 10);
-  // Motion streaks
-  motionStreaks(ctx, x-8, y+15, 22, 30, 9, frame, '#a0c0ff');
+  hoverSkirt(ctx, x+4, y+33, 52, frame, fl ? '#ff40a0' : '#ff80c0');
 }
 
 // ── 8. STARCROSS (Hover winged cruiser — fusion cores) ──
@@ -2076,19 +2198,29 @@ function hovStarcross(ctx, ox, oy, frame) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(x+6, y+27, 3, 2); ctx.fillRect(x+51, y+27, 3, 2);
   ctx.globalAlpha = 1;
-  // FIRE from each wing engine — long white-hot fusion trails
-  rearFlameJet(ctx, x+2, y+28, 24, frame,   { core:'#ffffff', hot:'#ffd040', mid:'#ff8030', outer:'#a01810' });
-  rearFlameJet(ctx, x+58, y+28, 6, frame+5, { core:'#ffffff', hot:'#ffd040', mid:'#ff8030', outer:'#a01810' });
-  // Forward jet inlet glow on right engine (since vehicle faces right)
+  // FIRE from each wing engine — long RAINBOW trails (show-off pilot)
+  rainbowFlameJet(ctx, x+2, y+28, 24, frame);
+  rainbowFlameJet(ctx, x+58, y+28, 6, frame+5);
+  // Forward jet inlet glow on right engine
   ctx.fillStyle = '#bcecff';
   ctx.fillRect(x+56, y+27, 2, 2);
   ctx.fillStyle = '#ffffff'; ctx.fillRect(x+56, y+27, 1, 1);
-  vehPlate(ctx, x+38, y+28, 4, 2, '#a0e0ff');
+  // Squadron chevron stripes on each wing
+  pxDecal(ctx, x+4, y+24, '#ff2020', 'chevron');
+  pxDecal(ctx, x+50, y+24, '#20ff20', 'chevron');
+  // Star + squadron number on fuselage
+  pxDecal(ctx, x+22, y+20, '#ffd040', 'star');
+  pxDecal(ctx, x+38, y+22, '#ffffff', 'num8');
+  // Pilot eyes — cyan goggles
+  pxDriverEyes(ctx, x+29, y+15, frame, '#7eddeb');
+  vehPlate(ctx, x+44, y+28, 4, 2, '#a0e0ff');
   // Underbelly anti-grav (flat, no rounds)
   hoverSkirt(ctx, x+10, y+33, 40, frame, '#bcecff');
-  // Heavy fusion particle trail
-  particleBurst(ctx, x+4, y+38, 52, 3, frame, '#fff0a0', 16);
-  particleBurst(ctx, x+4, y+40, 52, 2, frame, '#ffd040', 10);
+  // Rainbow particle trail
+  const rainbow = ['#ff4040','#ff8030','#ffd040','#40c850','#3090ff','#c050ff'];
+  for (let r = 0; r < 6; r++) {
+    particleBurst(ctx, x+4, y+38, 52, 3, frame + r*4, rainbow[r], 4);
+  }
   // Motion streaks
   motionStreaks(ctx, x-8, y+18, 16, 32, 10, frame, '#fff0a0');
 }
@@ -2106,21 +2238,21 @@ const HOVERCRAFTS = [
   { id:'jetrod',      name:'JETROD',      tag:'Hover hot rod. Big rear jet turbine with long flame trail + 3 underbelly burst jets. Tail fins, ram intake.',
     type:'Hover hot rod / Jet turbine', render:hovJetrod, plate:'BURNOUT',
     swatches:['#181820','#383848','#ff4020','#ff8030','#ffd040','#ffffff','#cfd2d4','#a01810'] },
-  { id:'slipstream',  name:'SLIPSTREAM',  tag:'Hover sports wedge. TWIN big plasma engines firing long BLUE FLAMES out the rear. Plasma underskirt, rear wing.',
-    type:'Hover sports / Twin blue plasma', render:hovSlipstream, plate:'VNM 001',
-    swatches:['#2a8038','#60c878','#104820','#7eddeb','#3090ff','#bcecff','#ffffff','#0838a0'] },
+  { id:'slipstream',  name:'SLIPSTREAM',  tag:'Hover sports wedge. TWIN plasma engines spitting TOXIC GREEN flames. Star decal, sponsor sticker, sleek (no particles).',
+    type:'Hover sports / Twin green plasma', render:hovSlipstream, plate:'VNM 001',
+    swatches:['#2a8038','#60c878','#104820','#40c850','#d0ffa0','#ffffff','#ffd040','#103a08'] },
   { id:'execlimo',    name:'EXEC LIMO',   tag:'Hover luxury limo. Long chrome exhaust pipes running the chassis + twin gold-flame rear tips. Mag-lev rails.',
     type:'Hover luxury / Chrome side-pipes', render:hovExeclimo, plate:'CEO 1',
     swatches:['#181820','#383848','#cfd2d4','#e8e0d0','#ffd040','#fff0a0','#a06820','#c83828'] },
   { id:'timedrifter', name:'TIMEDRIFTER', tag:'Hover DeLorean. Long cyan flux flame trail from Mr. Fusion. Gull-wings UP, 4 flat BTTF hover plates.',
     type:'Hover exotic / Cyan flux flame', render:hovTimedrifter, plate:'OUTATIME',
     swatches:['#b8b8c0','#e8e8f0','#787880','#7eddeb','#bcecff','#e0f8ff','#1850c0','#ffd040'] },
-  { id:'novaram',     name:'NOVA-RAM',    tag:'Hover muscle car. TWIN big ion thrusters with long ion-violet flame trails. Plasma underskirt, hood scoop.',
-    type:'Hover muscle / Twin ion engines', render:hovNovaram, plate:'NOVA SS',
-    swatches:['#e07020','#ffa050','#803010','#80a0ff','#a0c0ff','#c0a0ff','#ff8030','#ffffff'] },
-  { id:'starcross',   name:'STARCROSS',   tag:'Hover sky-cruiser. WINGS WITH FUSION ENGINES MOUNTED ON THEM, each blasting fire out the back. Wing-tip blink.',
-    type:'Hover winged / Wing-mounted engines + fire', render:hovStarcross, plate:'STAR 88',
-    swatches:['#e0e8f0','#ffffff','#7080a0','#304060','#fff0a0','#ffd040','#ff8030','#bcecff'] },
+  { id:'novaram',     name:'NOVA-RAM',    tag:'Hover muscle car. TWIN ion thrusters spitting HOT PINK flames. Bullet holes, "13" racing decal, burn marks. Battle-worn.',
+    type:'Hover muscle / Twin pink ion', render:hovNovaram, plate:'NOVA SS',
+    swatches:['#e07020','#ffa050','#803010','#ff40a0','#ffc0e0','#ff80c0','#80105a','#3a0808'] },
+  { id:'starcross',   name:'STARCROSS',   tag:'Hover sky-cruiser. WING-MOUNTED engines firing RAINBOW flames. Squadron chevrons, star + "8" decals, rainbow particle trail.',
+    type:'Hover winged / Wing-mounted rainbow', render:hovStarcross, plate:'STAR 88',
+    swatches:['#ff4040','#ff8030','#ffd040','#40c850','#3090ff','#c050ff','#ffffff','#e0e8f0'] },
 ];
 
 function buildHover() {
