@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v450A-crash-burst-no-scorch-8-px-rays';
+const DLX_BUILD = 'v450B-smashed-rig-alt-and-flame-swirl';
 
 (function() {
   // ---------- Device detection ----------
@@ -33711,25 +33711,35 @@ const DLX_BUILD = 'v450A-crash-burst-no-scorch-8-px-rays';
     const flareH = Math.max(1, Math.floor(9 * level));
     ctx.fillRect(x, y - (flareH >> 1), flareW, flareH);
 
-    // Sparks trailing in the wake — 8 hot-cyan motes that swirl close
-    // to the nozzle (v431: pulled in from x-36 to x-12; the user felt
-    // they were drifting too far behind the engine).
-    if (level > 0.35) {
-      ctx.fillStyle = C.flameHot;
-      const sparkCount = 8;
+    // Sparks trailing in the wake — 12 hot motes that swirl close to
+    // the nozzle. Bumped from 8 motes / 1-2 px / threshold > 0.35 in
+    // v449 to 12 motes / 2-3 px / threshold > 0.20 so the swirl reads
+    // at normal flight throttle and against the blue flame. Color
+    // cycles white → pale cyan → bright cyan via a 4-frame phase so
+    // each mote pops as a discrete spark instead of blending in.
+    if (level > 0.20) {
+      const sparkCount = 12;
+      const phaseShift = (frame >> 2);
       for (let i = 0; i < sparkCount; i++) {
-        const a = frame * 0.05 + i * 1.5;
-        const d = 4 + Math.sin(frame * 0.3 + i) * 3;
-        const sx = (x - 12 - Math.floor(Math.abs(Math.sin(a)) * d * level)) | 0;
-        const sy = (y + Math.floor(Math.cos(a) * 5)) | 0;
-        const sz = (level > 0.7 && (i & 1)) ? 2 : 1;
+        const a = frame * 0.07 + i * 1.4;
+        const d = 7 + Math.sin(frame * 0.28 + i) * 4;
+        const sx = (x - 14 - Math.floor(Math.abs(Math.sin(a)) * d * level)) | 0;
+        const sy = (y + Math.floor(Math.cos(a) * 8)) | 0;
+        const phase = (i + phaseShift) & 3;
+        let color, sz;
+        if      (phase === 0) { color = '#ffffff';  sz = 2; }
+        else if (phase === 1) { color = '#dceeff';  sz = 2; }
+        else if (phase === 2) { color = '#bcecff';  sz = 2; }
+        else                  { color = '#7eddeb';  sz = 1; }
+        if (level > 0.7 && (i & 1)) sz += 1;
+        ctx.fillStyle = color;
         ctx.fillRect(sx, sy, sz, sz);
       }
     }
   }
 
 
-  function pxRoadkillRig(ctx, ox, oy, frame) {
+  function pxRoadkillRig(ctx, ox, oy, frame, smashed) {
       ctx.imageSmoothingEnabled = false;
       const x = ox | 0, y = oy | 0;
       const C = PXC;
@@ -33808,18 +33818,73 @@ const DLX_BUILD = 'v450A-crash-burst-no-scorch-8-px-rays';
       ctx.fillRect(x+28, y+18, 1, 1);
       ctx.fillStyle = C.domeShadow; ctx.fillRect(x+23, y+21, 18, 2);
   
-      // Front grille (12-wide, was 16)
-      ctx.fillStyle = C.outline; ctx.fillRect(x+44, y+22, 12, 9);
-      ctx.fillStyle = C.hullDark; ctx.fillRect(x+45, y+23, 10, 7);
-      ctx.fillStyle = C.hullCore; ctx.fillRect(x+45, y+23, 10, 1);
-      // 3 vertical slats (was 4)
-      ctx.fillStyle = C.outline;
-      ctx.fillRect(x+47, y+24, 1, 5); ctx.fillRect(x+50, y+24, 1, 5); ctx.fillRect(x+53, y+24, 1, 5);
-      // 3 yellow headlight dots (was 4)
-      ctx.fillStyle = C.yellow;
-      ctx.fillRect(x+47, y+21, 2, 1); ctx.fillRect(x+50, y+21, 2, 1); ctx.fillRect(x+53, y+21, 2, 1);
-      ctx.fillStyle = '#fff5a0';
-      ctx.fillRect(x+47, y+21, 1, 1); ctx.fillRect(x+50, y+21, 1, 1); ctx.fillRect(x+53, y+21, 1, 1);
+      if (!smashed) {
+        // Front grille (12-wide, was 16) — clean / intact version
+        ctx.fillStyle = C.outline; ctx.fillRect(x+44, y+22, 12, 9);
+        ctx.fillStyle = C.hullDark; ctx.fillRect(x+45, y+23, 10, 7);
+        ctx.fillStyle = C.hullCore; ctx.fillRect(x+45, y+23, 10, 1);
+        // 3 vertical slats (was 4)
+        ctx.fillStyle = C.outline;
+        ctx.fillRect(x+47, y+24, 1, 5); ctx.fillRect(x+50, y+24, 1, 5); ctx.fillRect(x+53, y+24, 1, 5);
+        // 3 yellow headlight dots (was 4)
+        ctx.fillStyle = C.yellow;
+        ctx.fillRect(x+47, y+21, 2, 1); ctx.fillRect(x+50, y+21, 2, 1); ctx.fillRect(x+53, y+21, 2, 1);
+        ctx.fillStyle = '#fff5a0';
+        ctx.fillRect(x+47, y+21, 1, 1); ctx.fillRect(x+50, y+21, 1, 1); ctx.fillRect(x+53, y+21, 1, 1);
+      } else {
+        // SMASHED front — grille caved in on the LEFT half, right half
+        // disintegrated. Jagged dark outline around the surviving stub,
+        // hot embers + exposed wire spark in the breakage. 6 columns
+        // missing entirely (x+50 to x+56 just empty / shows world
+        // behind). Two headlights smashed out, leftmost survives.
+        const emFlick = (frame >> 2) & 1;
+        const wireFlick = (frame >> 3) & 1;
+        // Crumpled left stub of the grille — dark outline + dark fill
+        ctx.fillStyle = C.outline;
+        ctx.fillRect(x+44, y+22, 5, 1);   // top
+        ctx.fillRect(x+44, y+22, 1, 9);   // left edge
+        ctx.fillRect(x+44, y+30, 5, 1);   // bottom
+        // Jagged break edge on the right — irregular zigzag of outline pixels
+        ctx.fillRect(x+48, y+23, 1, 2);
+        ctx.fillRect(x+49, y+24, 1, 1);
+        ctx.fillRect(x+50, y+25, 1, 1);
+        ctx.fillRect(x+49, y+26, 1, 1);
+        ctx.fillRect(x+48, y+27, 1, 1);
+        ctx.fillRect(x+49, y+28, 1, 1);
+        ctx.fillRect(x+48, y+29, 1, 1);
+        // Charred dark interior
+        ctx.fillStyle = '#0a0408';
+        ctx.fillRect(x+45, y+23, 3, 7);
+        ctx.fillRect(x+48, y+25, 1, 2);   // pocket in the break
+        // 1 surviving slat (others gone)
+        ctx.fillStyle = C.outline;
+        ctx.fillRect(x+47, y+24, 1, 5);
+        // 1 surviving headlight (left), other two are dark sockets above
+        ctx.fillStyle = C.yellow;     ctx.fillRect(x+47, y+21, 2, 1);
+        ctx.fillStyle = '#fff5a0';    ctx.fillRect(x+47, y+21, 1, 1);
+        // Dark sockets where the other 2 lights were
+        ctx.fillStyle = '#1a0a06';
+        ctx.fillRect(x+50, y+21, 2, 1);
+        ctx.fillRect(x+53, y+21, 2, 1);
+        // Hot embers in the breakage — flickering
+        ctx.fillStyle = emFlick ? '#ff8028' : '#c84020';
+        ctx.fillRect(x+50, y+24, 1, 1);
+        ctx.fillStyle = '#ffae28';
+        ctx.fillRect(x+51, y+27, 1, 1);
+        ctx.fillStyle = emFlick ? '#c84020' : '#ff4020';
+        ctx.fillRect(x+50, y+29, 1, 1);
+        // Exposed wire spark (cyan, blinks)
+        if (wireFlick) {
+          ctx.fillStyle = '#7eddeb';
+          ctx.fillRect(x+46, y+27, 1, 1);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(x+46, y+26, 1, 1);
+        }
+        // Scorch streak across the body's right side (where the front used to attach)
+        ctx.fillStyle = '#1a0a06';
+        ctx.fillRect(x+50, y+33, 4, 1);
+        ctx.fillRect(x+52, y+34, 3, 1);
+      }
   
       // Engine pod (34-wide total, was 46)
       // Bell back (14×16, was 18×16)
@@ -34007,7 +34072,11 @@ const DLX_BUILD = 'v450A-crash-burst-no-scorch-8-px-rays';
     ctx.save();
     ctx.imageSmoothingEnabled = false;
     pxRoadkillFlame(ctx, pxFlameLevel, frame);
-    pxRoadkillRig(ctx, -31, -38, frame);
+    // After a crash (STATE_OVER) draw the B-alt smashed front: grille
+    // caved on the left half, right half disintegrated with embers +
+    // exposed wires + scorch streaks.
+    const smashed = (state === STATE_OVER);
+    pxRoadkillRig(ctx, -31, -38, frame, smashed);
     ctx.restore();
   }
 
