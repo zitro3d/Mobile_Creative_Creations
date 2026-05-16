@@ -1497,6 +1497,73 @@ function hoverJetBurst(ctx, x, y, frame, color, len) {
   ctx.fillRect(x, y, 1, 2);
 }
 
+// Motion streaks behind a moving vehicle (suggests forward speed).
+function motionStreaks(ctx, x, y, height, length, count, frame, color) {
+  for (let i = 0; i < count; i++) {
+    const phase = (frame * 2 + i * 7) % (length + 8);
+    if (phase >= length) continue;
+    const px = Math.floor(x - phase);
+    const py = y + Math.floor((i / count) * height);
+    const seg = Math.max(2, Math.floor(length / 6));
+    const alpha = (1 - phase / length) * 0.5;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.fillRect(px, py, seg, 1);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Tapered horizontal flame jet pointing left (rear exhaust).
+function rearFlameJet(ctx, x, y, len, frame, palette) {
+  const flick  = Math.floor(Math.sin(frame * 0.5) * 2);
+  const flick2 = Math.floor(Math.cos(frame * 0.32) * 1);
+  ctx.fillStyle = palette.outer;
+  for (let i = 0; i < len; i++) {
+    const h = Math.max(1, Math.floor(7 - i * 0.35) + flick);
+    ctx.fillRect(x - i, y - (h >> 1) + flick2, 1, h);
+  }
+  ctx.fillStyle = palette.mid;
+  const midLen = Math.floor(len * 0.72);
+  for (let i = 0; i < midLen; i++) {
+    const h = Math.max(1, Math.floor(5 - i * 0.35));
+    ctx.fillRect(x - i, y - (h >> 1), 1, h);
+  }
+  ctx.fillStyle = palette.hot;
+  const hotLen = Math.floor(len * 0.45);
+  for (let i = 0; i < hotLen; i++) {
+    const h = Math.max(1, Math.floor(3 - i * 0.25));
+    ctx.fillRect(x - i, y - (h >> 1), 1, h);
+  }
+  ctx.fillStyle = palette.core;
+  for (let i = 0; i < Math.min(5, Math.floor(len * 0.3)); i++) {
+    ctx.fillRect(x - i, y - 1, 1, 2);
+  }
+}
+
+// Chrome exhaust pipe segment (horizontal, with outline).
+function exhaustPipe(ctx, x, y, w) {
+  ctx.fillStyle = C.outline;     ctx.fillRect(x, y, w, 3);
+  ctx.fillStyle = C.chrome;      ctx.fillRect(x, y+1, w, 1);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x, y, w, 1);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x, y+2, w, 1);
+}
+
+// Dense particle burst (sparks/dust trailing back from the vehicle).
+function particleBurst(ctx, x, y, w, h, frame, color, density) {
+  density = density || 10;
+  ctx.fillStyle = color;
+  for (let i = 0; i < density; i++) {
+    const phase = (frame + i * 3) % 30;
+    if (phase >= 24) continue;
+    const px = Math.floor(x - phase * (w / 24));
+    const py = y + Math.floor((i / density) * h) + (Math.floor(phase / 4) % 2);
+    const alpha = (1 - phase / 24) * 0.75;
+    ctx.globalAlpha = alpha;
+    ctx.fillRect(px, py, 1, 1);
+  }
+  ctx.globalAlpha = 1;
+}
+
 // ── 1. DUNERIDER (Hover SUV — magnetic levitation) ──
 function hovDunerider(ctx, ox, oy, frame) {
   ctx.imageSmoothingEnabled = false;
@@ -1538,11 +1605,19 @@ function hovDunerider(ctx, ox, oy, frame) {
   vehHeadlight(ctx, x+47, y+24, 4, 3, frame);
   for (let i = 0; i < 4; i++) { ctx.fillStyle = '#1a1a20'; ctx.fillRect(x+48+i, y+28, 1, 2); }
   vehPlate(ctx, x+44, y+30, 8, 2, '#ffd040');
-  // Mag-lev skirt + lift fans
-  hoverSkirt(ctx, x+4, y+33, 52, frame, '#7eddeb');
-  hoverDuct(ctx, x+12, y+33, 4, frame, '#7eddeb');
-  hoverDuct(ctx, x+46, y+33, 4, frame, '#7eddeb');
-  hoverDust(ctx, x+18, y+39, 28, frame, '#a8d4dc');
+  // Chrome side exhaust pipes (chassis-mounted, running front-to-rear)
+  exhaustPipe(ctx, x+6, y+32, 38);
+  // Rear flame jet (orange) exits at the back-left
+  rearFlameJet(ctx, x+6, y+33, 16, frame, {
+    core:'#ffffff', hot:'#ffd040', mid:'#ff8030', outer:'#a01810'
+  });
+  // Mag-lev skirt (cyan glow along underside, no round wheels)
+  hoverSkirt(ctx, x+8, y+36, 46, frame, '#7eddeb');
+  // Heavy sand particle trail (much more than before)
+  particleBurst(ctx, x+6, y+37, 50, 4, frame, '#e8c890', 14);
+  particleBurst(ctx, x+6, y+39, 50, 3, frame, '#a08868', 10);
+  // Motion streaks behind the body
+  motionStreaks(ctx, x-2, y+22, 10, 22, 6, frame, '#e8c890');
 }
 
 // ── 2. CARGO MULE (Hover pickup — ducted lift fans) ──
@@ -1590,15 +1665,23 @@ function hovCargomule(ctx, ox, oy, frame) {
   ctx.fillStyle = P.core; ctx.fillRect(x+1, y+22, 2, 6);
   ctx.fillStyle = P.deep; ctx.fillRect(x+2, y+28, 54, 1);
   vehPlate(ctx, x+44, y+27, 8, 3, '#ffd040');
-  // 4 anti-grav corner pads
+  // 4 flat anti-grav corner pads (rectangular, not round)
   hoverPlate(ctx, x+4, y+30, 8, 3, frame, '#c050ff');
   hoverPlate(ctx, x+18, y+30, 8, 3, frame, '#c050ff');
   hoverPlate(ctx, x+32, y+30, 8, 3, frame, '#c050ff');
   hoverPlate(ctx, x+46, y+30, 8, 3, frame, '#c050ff');
-  // Ducted lift fans
-  hoverDuct(ctx, x+14, y+34, 3, frame, '#c050ff');
-  hoverDuct(ctx, x+48, y+34, 3, frame, '#c050ff');
-  hoverDust(ctx, x+12, y+39, 36, frame, '#d090ff');
+  // Twin chrome exhaust stacks at the rear, capped with PURPLE FLAME
+  ctx.fillStyle = C.outline;     ctx.fillRect(x-1, y+19, 4, 4); ctx.fillRect(x-1, y+24, 4, 4);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x,   y+20, 3, 2); ctx.fillRect(x,   y+25, 3, 2);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x,   y+19, 3, 1); ctx.fillRect(x,   y+24, 3, 1);
+  // Two purple flame jets
+  rearFlameJet(ctx, x-1, y+21, 14, frame,    { core:'#ffe0ff', hot:'#ff80ff', mid:'#c050ff', outer:'#6010a0' });
+  rearFlameJet(ctx, x-1, y+26, 14, frame+6,  { core:'#ffe0ff', hot:'#ff80ff', mid:'#c050ff', outer:'#6010a0' });
+  // Heavy purple particle trail
+  particleBurst(ctx, x+6, y+37, 50, 4, frame, '#d090ff', 14);
+  particleBurst(ctx, x+4, y+39, 52, 3, frame, '#6020a0', 10);
+  // Motion streaks
+  motionStreaks(ctx, x-4, y+15, 18, 24, 7, frame, '#c050ff');
 }
 
 // ── 3. JETROD (Hover hot rod — jet turbine) ──
@@ -1642,18 +1725,24 @@ function hovJetrod(ctx, ox, oy, frame) {
   ctx.fillStyle = C.chromeDark;
   ctx.fillRect(x-1, y+24, 10, 1); ctx.fillRect(x-1, y+28, 10, 1);
   ctx.fillStyle = C.podBlack; ctx.fillRect(x-4, y+24, 3, 7);
-  ctx.fillStyle = '#ff8030'; ctx.fillRect(x-3, y+25, 2, 5);
-  ctx.fillStyle = '#ffd040'; ctx.fillRect(x-3, y+26, 2, 3);
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(x-3, y+27, 2, 1);
+  // Big rear flame trail from jet engine
+  rearFlameJet(ctx, x-4, y+27, 22, frame, {
+    core:'#ffffff', hot:'#ffd040', mid:'#ff8030', outer:'#a01810'
+  });
   vehPlate(ctx, x+38, y+30, 8, 2, '#ffd040');
-  // Underbelly thrust jets
-  hoverJetBurst(ctx, x+14, y+32, frame,   '#ff8030', 6);
-  hoverJetBurst(ctx, x+30, y+32, frame+5, '#ff8030', 6);
-  hoverJetBurst(ctx, x+42, y+32, frame+9, '#ff8030', 5);
+  // Underbelly thrust jets (3, the favorite element — kept and enhanced)
+  hoverJetBurst(ctx, x+14, y+32, frame,   '#ff8030', 7);
+  hoverJetBurst(ctx, x+30, y+32, frame+5, '#ff8030', 7);
+  hoverJetBurst(ctx, x+42, y+32, frame+9, '#ff8030', 6);
   ctx.fillStyle = C.outline;
   ctx.fillRect(x+12, y+31, 5, 2); ctx.fillRect(x+28, y+31, 5, 2); ctx.fillRect(x+40, y+31, 5, 2);
   ctx.fillStyle = C.chromeDark;
   ctx.fillRect(x+13, y+31, 3, 1); ctx.fillRect(x+29, y+31, 3, 1); ctx.fillRect(x+41, y+31, 3, 1);
+  // Spark shower from underbelly jets
+  particleBurst(ctx, x+8, y+39, 42, 4, frame, '#ffd040', 16);
+  particleBurst(ctx, x+8, y+41, 42, 3, frame, '#ff8030', 10);
+  // Motion streaks
+  motionStreaks(ctx, x-6, y+18, 14, 26, 8, frame, '#ffd040');
 }
 
 // ── 4. SLIPSTREAM (Hover sports — anti-grav rings + plasma) ──
@@ -1689,27 +1778,28 @@ function hovSlipstream(ctx, ox, oy, frame) {
   ctx.fillStyle = P.dark; ctx.fillRect(x+8, y+25, 42, 1);
   ctx.fillStyle = C.outline; ctx.fillRect(x+50, y+23, 6, 2);
   ctx.fillStyle = '#bcecff'; ctx.fillRect(x+51, y+24, 5, 1);
-  // Twin plasma thrusters
-  const exhPulse = (frame >> 2) % 4 < 2;
-  ctx.fillStyle = C.podBlack;
-  ctx.fillRect(x+2, y+24, 2, 2); ctx.fillRect(x+2, y+27, 2, 2);
-  ctx.fillStyle = exhPulse ? '#7eddeb' : '#3a90c0';
-  ctx.fillRect(x, y+25, 2, 1); ctx.fillRect(x, y+28, 2, 1);
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(x, y+25, 1, 1); ctx.fillRect(x, y+28, 1, 1);
-  ctx.globalAlpha = 0.6;
-  ctx.fillRect(x-2, y+25, 2, 1); ctx.fillRect(x-2, y+28, 2, 1);
-  ctx.globalAlpha = 0.3;
-  ctx.fillRect(x-4, y+25, 2, 1); ctx.fillRect(x-4, y+28, 2, 1);
-  ctx.globalAlpha = 1;
-  vehPlate(ctx, x+38, y+28, 8, 2, '#ffd040');
-  // 4 anti-grav rings
-  hoverRing(ctx, x+10, y+32, 3, frame, '#ff20c0');
-  hoverRing(ctx, x+22, y+32, 3, frame, '#ff20c0');
-  hoverRing(ctx, x+34, y+32, 3, frame, '#ff20c0');
-  hoverRing(ctx, x+46, y+32, 3, frame, '#ff20c0');
-  ctx.globalAlpha = 0.18;
-  ctx.fillStyle = '#ff20c0'; ctx.fillRect(x+4, y+36, 48, 1);
-  ctx.globalAlpha = 1;
+  // ── TWIN large plasma engines at the rear (BLUE FLAMES) ──
+  // Upper engine housing
+  ctx.fillStyle = C.outline;     ctx.fillRect(x+1, y+20, 6, 5);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+2, y+20, 5, 1);
+  ctx.fillStyle = C.podBlack;    ctx.fillRect(x+2, y+21, 5, 4);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+2, y+20, 1, 5);
+  // Lower engine housing
+  ctx.fillStyle = C.outline;     ctx.fillRect(x+1, y+26, 6, 5);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+2, y+26, 5, 1);
+  ctx.fillStyle = C.podBlack;    ctx.fillRect(x+2, y+27, 5, 4);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+2, y+26, 1, 5);
+  // Twin BLUE flame trails
+  rearFlameJet(ctx, x+1, y+22, 20, frame,   { core:'#ffffff', hot:'#bcecff', mid:'#3090ff', outer:'#0838a0' });
+  rearFlameJet(ctx, x+1, y+28, 20, frame+5, { core:'#ffffff', hot:'#bcecff', mid:'#3090ff', outer:'#0838a0' });
+  vehPlate(ctx, x+38, y+32, 8, 2, '#ffd040');
+  // Flat plasma underbelly strip (replaces the 4 round rings — no wheels)
+  hoverSkirt(ctx, x+8, y+35, 44, frame, '#7eddeb');
+  // Particle trail (cyan/white sparks)
+  particleBurst(ctx, x+4, y+38, 52, 3, frame, '#bcecff', 14);
+  particleBurst(ctx, x+4, y+40, 52, 2, frame, '#3090ff', 10);
+  // Motion streaks behind body
+  motionStreaks(ctx, x-6, y+16, 16, 28, 8, frame, '#bcecff');
 }
 
 // ── 5. EXEC LIMO (Hover luxury — mag-lev rails) ──
@@ -1746,18 +1836,28 @@ function hovExeclimo(ctx, ox, oy, frame) {
   ctx.fillStyle = '#c83828'; ctx.fillRect(x+2, y+22, 2, 6);
   ctx.fillStyle = '#ff7050'; ctx.fillRect(x+2, y+22, 1, 1);
   vehPlate(ctx, x+5, y+28, 8, 2, '#e8e0d0');
-  // Mag-lev rails
-  ctx.fillStyle = C.outline; ctx.fillRect(x+3, y+30, 54, 3);
+  // ── Long chrome exhaust pipes running both sides → rear tips ──
+  exhaustPipe(ctx, x+8, y+19, 44);
+  // Rear chrome tips (where flame exits)
+  ctx.fillStyle = C.outline;     ctx.fillRect(x+1, y+18, 4, 4); ctx.fillRect(x+1, y+27, 4, 4);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+2, y+19, 3, 2); ctx.fillRect(x+2, y+28, 3, 2);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+2, y+18, 3, 1); ctx.fillRect(x+2, y+27, 1, 1);
+  // Twin gold-orange flame jets
+  rearFlameJet(ctx, x+1, y+20, 14, frame,   { core:'#ffffff', hot:'#fff0a0', mid:'#ffd040', outer:'#a06820' });
+  rearFlameJet(ctx, x+1, y+29, 14, frame+7, { core:'#ffffff', hot:'#fff0a0', mid:'#ffd040', outer:'#a06820' });
+  // Mag-lev rails (flat, kept)
+  ctx.fillStyle = C.outline;     ctx.fillRect(x+3, y+30, 54, 3);
   ctx.fillStyle = C.chromeLight; ctx.fillRect(x+3, y+30, 54, 1);
-  ctx.fillStyle = C.chrome; ctx.fillRect(x+3, y+31, 54, 1);
-  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+3, y+32, 54, 1);
+  ctx.fillStyle = C.chrome;      ctx.fillRect(x+3, y+31, 54, 1);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+3, y+32, 54, 1);
   ctx.fillStyle = '#ffd040';
   for (let i = 0; i < 6; i++) ctx.fillRect(x+8+i*9, y+31, 1, 1);
+  // Gold underglow + particle trail
   hoverSkirt(ctx, x+3, y+33, 54, frame, '#ffd040');
-  ctx.globalAlpha = 0.4;
-  ctx.fillStyle = '#ffd060';
-  ctx.fillRect(x+15, y+37, 1, 1); ctx.fillRect(x+30, y+38, 1, 1); ctx.fillRect(x+45, y+37, 1, 1);
-  ctx.globalAlpha = 1;
+  particleBurst(ctx, x+4, y+37, 52, 3, frame, '#fff0a0', 12);
+  particleBurst(ctx, x+4, y+39, 52, 2, frame, '#ffd040', 8);
+  // Motion streaks
+  motionStreaks(ctx, x-6, y+18, 14, 26, 7, frame, '#ffd060');
 }
 
 // ── 6. TIMEDRIFTER (Hover DeLorean — flux drive + corner plates) ──
@@ -1819,18 +1919,24 @@ function hovTimedrifter(ctx, ox, oy, frame) {
   ctx.fillStyle = C.outline; ctx.fillRect(x+50, y+24, 6, 2);
   ctx.fillStyle = '#fff0a0'; ctx.fillRect(x+51, y+24, 5, 1);
   ctx.fillStyle = C.podBlack; ctx.fillRect(x+1, y+25, 2, 4);
-  ctx.fillStyle = '#bcecff'; ctx.fillRect(x, y+26, 2, 2);
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(x, y+26, 1, 1);
-  ctx.globalAlpha = 0.55;
-  ctx.fillStyle = '#bcecff'; ctx.fillRect(x-3, y+27, 3, 1);
-  ctx.globalAlpha = 0.3; ctx.fillRect(x-6, y+27, 3, 1);
-  ctx.globalAlpha = 1;
+  // Mr. Fusion rear chrome cap
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+1, y+25, 2, 1);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+1, y+28, 2, 1);
+  // Strong BLUE flame trail from Mr. Fusion
+  rearFlameJet(ctx, x+1, y+27, 24, frame, {
+    core:'#ffffff', hot:'#e0f8ff', mid:'#7eddeb', outer:'#1850c0'
+  });
   vehPlate(ctx, x+38, y+28, 8, 2, '#ffd040');
-  // 4 corner BTTF hover plates
+  // 4 flat corner BTTF hover plates (rectangular, not round)
   hoverPlate(ctx, x+6, y+30, 8, 3, frame,    '#bcecff');
   hoverPlate(ctx, x+19, y+30, 8, 3, frame+3, '#bcecff');
   hoverPlate(ctx, x+32, y+30, 8, 3, frame+6, '#bcecff');
   hoverPlate(ctx, x+45, y+30, 8, 3, frame+9, '#bcecff');
+  // Flux particle trail (cyan-white)
+  particleBurst(ctx, x+4, y+37, 52, 3, frame, '#bcecff', 14);
+  particleBurst(ctx, x+4, y+39, 52, 2, frame, '#7eddeb', 10);
+  // Motion streaks
+  motionStreaks(ctx, x-6, y+20, 12, 28, 8, frame, '#bcecff');
 }
 
 // ── 7. NOVA-RAM (Hover muscle — twin ion thrusters) ──
@@ -1873,29 +1979,29 @@ function hovNovaram(ctx, ox, oy, frame) {
   ctx.fillStyle = C.outline; ctx.fillRect(x+55, y+21, 2, 7);
   ctx.fillStyle = C.chrome; ctx.fillRect(x+55, y+21, 1, 7);
   vehHeadlight(ctx, x+52, y+22, 3, 2, frame);
-  // Twin ion thrusters
-  ctx.fillStyle = C.outline; ctx.fillRect(x-2, y+22, 6, 4);
-  ctx.fillStyle = C.chromeDark; ctx.fillRect(x-1, y+22, 5, 1);
-  ctx.fillStyle = C.podBlack; ctx.fillRect(x-1, y+23, 5, 3);
-  const ionPulse = (frame >> 2) % 4;
-  const ionColors = ['#80a0ff', '#a0c0ff', '#80a0ff', '#6080e0'];
-  ctx.fillStyle = ionColors[ionPulse]; ctx.fillRect(x-2, y+24, 4, 1);
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(x-2, y+24, 1, 1);
-  ctx.fillStyle = C.outline; ctx.fillRect(x-2, y+27, 6, 4);
-  ctx.fillStyle = C.chromeDark; ctx.fillRect(x-1, y+27, 5, 1);
-  ctx.fillStyle = C.podBlack; ctx.fillRect(x-1, y+28, 5, 2);
-  ctx.fillStyle = ionColors[(ionPulse+2)%4]; ctx.fillRect(x-2, y+29, 4, 1);
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(x-2, y+29, 1, 1);
-  ctx.globalAlpha = 0.5;
-  ctx.fillStyle = '#80a0ff'; ctx.fillRect(x-6, y+24, 4, 1); ctx.fillRect(x-6, y+29, 4, 1);
-  ctx.globalAlpha = 0.25;
-  ctx.fillRect(x-10, y+24, 4, 1); ctx.fillRect(x-10, y+29, 4, 1);
-  ctx.globalAlpha = 1;
+  // ── BIG twin ion thrusters (rear) with long flame trails ──
+  // Upper engine
+  ctx.fillStyle = C.outline;     ctx.fillRect(x-2, y+21, 7, 5);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x-1, y+21, 6, 1);
+  ctx.fillStyle = C.podBlack;    ctx.fillRect(x-1, y+22, 6, 4);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x-1, y+21, 1, 5);
+  // Lower engine
+  ctx.fillStyle = C.outline;     ctx.fillRect(x-2, y+27, 7, 5);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x-1, y+27, 6, 1);
+  ctx.fillStyle = C.podBlack;    ctx.fillRect(x-1, y+28, 6, 4);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x-1, y+27, 1, 5);
+  // Twin long ion-purple flame trails
+  rearFlameJet(ctx, x-2, y+23, 22, frame,   { core:'#ffffff', hot:'#c0a0ff', mid:'#80a0ff', outer:'#3040c0' });
+  rearFlameJet(ctx, x-2, y+30, 22, frame+5, { core:'#ffffff', hot:'#c0a0ff', mid:'#80a0ff', outer:'#3040c0' });
   vehPlate(ctx, x+44, y+27, 8, 3, '#080808');
-  // Plasma underskirt
+  // Plasma underskirt (orange-red flickering, no round wheels)
   const fl = ((frame >> 1) % 6) < 3;
-  hoverSkirt(ctx, x+4, y+30, 52, frame, fl ? '#ff4020' : '#ff8030');
-  hoverDust(ctx, x+10, y+36, 40, frame, '#ff8030');
+  hoverSkirt(ctx, x+4, y+33, 52, frame, fl ? '#ff4020' : '#ff8030');
+  // Heavy ion spark trail
+  particleBurst(ctx, x+4, y+37, 52, 3, frame, '#c0a0ff', 14);
+  particleBurst(ctx, x+4, y+39, 52, 3, frame, '#ff8030', 10);
+  // Motion streaks
+  motionStreaks(ctx, x-8, y+15, 22, 30, 9, frame, '#a0c0ff');
 }
 
 // ── 8. STARCROSS (Hover winged cruiser — fusion cores) ──
@@ -1948,59 +2054,73 @@ function hovStarcross(ctx, ox, oy, frame) {
   const blink = (frame >> 3) % 2;
   ctx.fillStyle = blink ? '#ff2020' : '#601010'; ctx.fillRect(x, y+22, 1, 1);
   ctx.fillStyle = blink ? '#20ff20' : '#106010'; ctx.fillRect(x+59, y+22, 1, 1);
-  // Twin fusion engines under wings
-  ctx.fillStyle = C.outline; ctx.fillRect(x+2, y+26, 10, 6);
-  ctx.fillStyle = C.podGrey; ctx.fillRect(x+3, y+27, 9, 4);
-  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+3, y+27, 9, 1);
+  // ── TWIN fusion engines MOUNTED ON THE WINGS (with fire) ──
+  // Left wing engine pod (pylon hanging below wing-tip)
+  ctx.fillStyle = C.outline;     ctx.fillRect(x+2, y+25, 10, 7);
+  ctx.fillStyle = C.podGrey;     ctx.fillRect(x+3, y+26, 9, 5);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+3, y+26, 9, 1);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+3, y+30, 9, 1);
+  // Pylon strut to wing
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+6, y+24, 3, 2);
+  // Right wing engine pod
+  ctx.fillStyle = C.outline;     ctx.fillRect(x+48, y+25, 10, 7);
+  ctx.fillStyle = C.podGrey;     ctx.fillRect(x+48, y+26, 9, 5);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+48, y+26, 9, 1);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+48, y+30, 9, 1);
+  ctx.fillStyle = C.chromeDark;  ctx.fillRect(x+51, y+24, 3, 2);
+  // Fusion core glow inside each pod
   const fusionPulse = Math.sin(frame * 0.25) * 0.4 + 0.6;
   ctx.globalAlpha = fusionPulse;
-  ctx.fillStyle = '#fff0a0'; ctx.fillRect(x+5, y+28, 5, 2);
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(x+6, y+28, 3, 2);
+  ctx.fillStyle = '#fff0a0';
+  ctx.fillRect(x+5, y+27, 5, 2); ctx.fillRect(x+50, y+27, 5, 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x+6, y+27, 3, 2); ctx.fillRect(x+51, y+27, 3, 2);
   ctx.globalAlpha = 1;
-  ctx.fillStyle = P.trim; ctx.fillRect(x+1, y+27, 2, 4);
-  ctx.fillStyle = '#fff0a0'; ctx.fillRect(x, y+28, 2, 2);
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(x, y+28, 1, 1);
-  ctx.fillStyle = C.outline; ctx.fillRect(x+48, y+26, 10, 6);
-  ctx.fillStyle = C.podGrey; ctx.fillRect(x+48, y+27, 9, 4);
-  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+48, y+27, 9, 1);
-  ctx.globalAlpha = fusionPulse;
-  ctx.fillStyle = '#fff0a0'; ctx.fillRect(x+50, y+28, 5, 2);
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(x+51, y+28, 3, 2);
-  ctx.globalAlpha = 1;
+  // FIRE from each wing engine — long white-hot fusion trails
+  rearFlameJet(ctx, x+2, y+28, 24, frame,   { core:'#ffffff', hot:'#ffd040', mid:'#ff8030', outer:'#a01810' });
+  rearFlameJet(ctx, x+58, y+28, 6, frame+5, { core:'#ffffff', hot:'#ffd040', mid:'#ff8030', outer:'#a01810' });
+  // Forward jet inlet glow on right engine (since vehicle faces right)
+  ctx.fillStyle = '#bcecff';
+  ctx.fillRect(x+56, y+27, 2, 2);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(x+56, y+27, 1, 1);
   vehPlate(ctx, x+38, y+28, 4, 2, '#a0e0ff');
-  // Underbelly anti-grav
-  hoverSkirt(ctx, x+10, y+32, 40, frame, '#bcecff');
-  hoverDust(ctx, x+14, y+37, 32, frame, '#e0f0ff');
+  // Underbelly anti-grav (flat, no rounds)
+  hoverSkirt(ctx, x+10, y+33, 40, frame, '#bcecff');
+  // Heavy fusion particle trail
+  particleBurst(ctx, x+4, y+38, 52, 3, frame, '#fff0a0', 16);
+  particleBurst(ctx, x+4, y+40, 52, 2, frame, '#ffd040', 10);
+  // Motion streaks
+  motionStreaks(ctx, x-8, y+18, 16, 32, 10, frame, '#fff0a0');
 }
 
 // ─────────────────────────────────────────────────────────
 // Hover fleet config + grid builder
 // ─────────────────────────────────────────────────────────
 const HOVERCRAFTS = [
-  { id:'dunerider',   name:'DUNERIDER',   tag:'Hover SUV. Magnetic skirt + twin lift fans. Roof light bar, antenna.',
-    type:'Hover SUV / Mag-lev', render:hovDunerider, plate:'DUNE 4X4',
-    swatches:['#c89858','#e8c890','#7a5828','#7eddeb','#fff0a0','#ffd060','#1a1a20','#a8d4dc'] },
-  { id:'cargomule',   name:'CARGO MULE',  tag:'Hover pickup. 4 anti-grav corner pads + ducted lift fans. Side stabilizer fins.',
-    type:'Hover pickup / Ducted fan', render:hovCargomule, plate:'MULE-X',
-    swatches:['#c83828','#ff6040','#7a1a10','#c050ff','#d090ff','#9a9aa0','#a0822a','#0a1a26'] },
-  { id:'jetrod',      name:'JETROD',      tag:'Hover hot rod. Big rear jet turbine, ram intake, twin tail fins, underbelly burst jets.',
+  { id:'dunerider',   name:'DUNERIDER',   tag:'Hover SUV. Chrome side exhaust pipes + rear orange flame jet. Heavy sand particle trail, motion streaks.',
+    type:'Hover SUV / Mag-lev + jet exhaust', render:hovDunerider, plate:'DUNE 4X4',
+    swatches:['#c89858','#e8c890','#7a5828','#7eddeb','#ffd040','#ff8030','#e8c890','#a08868'] },
+  { id:'cargomule',   name:'CARGO MULE',  tag:'Hover pickup. Twin chrome stacks blasting PURPLE FLAMES out the rear. 4 flat corner pads, side stabilizer fins.',
+    type:'Hover pickup / Twin purple flame', render:hovCargomule, plate:'MULE-X',
+    swatches:['#c83828','#ff6040','#7a1a10','#c050ff','#ff80ff','#ffe0ff','#6010a0','#9a9aa0'] },
+  { id:'jetrod',      name:'JETROD',      tag:'Hover hot rod. Big rear jet turbine with long flame trail + 3 underbelly burst jets. Tail fins, ram intake.',
     type:'Hover hot rod / Jet turbine', render:hovJetrod, plate:'BURNOUT',
-    swatches:['#181820','#383848','#ff4020','#ff8030','#ffd040','#ffffff','#cfd2d4','#080808'] },
-  { id:'slipstream',  name:'SLIPSTREAM',  tag:'Hover sports wedge. 4 anti-grav rings + twin plasma exhaust. Rear wing.',
-    type:'Hover sports / Anti-grav rings', render:hovSlipstream, plate:'VNM 001',
-    swatches:['#2a8038','#60c878','#104820','#7eddeb','#ffffff','#ff20c0','#bcecff','#080808'] },
-  { id:'execlimo',    name:'EXEC LIMO',   tag:'Hover luxury limo. Mag-lev chrome rails with gold underglow. Vinyl roof, hood ornament.',
-    type:'Hover luxury / Mag-lev rails', render:hovExeclimo, plate:'CEO 1',
-    swatches:['#181820','#383848','#cfd2d4','#e8e0d0','#ffd040','#c83828','#ff7050','#080808'] },
-  { id:'timedrifter', name:'TIMEDRIFTER', tag:'Hover DeLorean. Gull-wings UP, flux capacitor pulse, 4 corner BTTF hover plates, Mr. Fusion.',
-    type:'Hover exotic / Flux drive', render:hovTimedrifter, plate:'OUTATIME',
-    swatches:['#b8b8c0','#e8e8f0','#787880','#7eddeb','#bcecff','#3090ff','#ffd040','#080808'] },
-  { id:'novaram',     name:'NOVA-RAM',    tag:'Hover muscle car. Twin ion thrusters + plasma underskirt. Hood scoop, racing stripes.',
-    type:'Hover muscle / Ion drive', render:hovNovaram, plate:'NOVA SS',
-    swatches:['#e07020','#ffa050','#803010','#80a0ff','#a0c0ff','#ff4020','#ff8030','#e8e0d0'] },
-  { id:'starcross',   name:'STARCROSS',   tag:'Hover sky-cruiser. Big wings + tip fins, twin fusion engines, anti-grav belly glow. Wing-tip blink.',
-    type:'Hover winged / Fusion core', render:hovStarcross, plate:'STAR 88',
-    swatches:['#e0e8f0','#ffffff','#7080a0','#304060','#3090ff','#fff0a0','#ff2020','#20ff20'] },
+    swatches:['#181820','#383848','#ff4020','#ff8030','#ffd040','#ffffff','#cfd2d4','#a01810'] },
+  { id:'slipstream',  name:'SLIPSTREAM',  tag:'Hover sports wedge. TWIN big plasma engines firing long BLUE FLAMES out the rear. Plasma underskirt, rear wing.',
+    type:'Hover sports / Twin blue plasma', render:hovSlipstream, plate:'VNM 001',
+    swatches:['#2a8038','#60c878','#104820','#7eddeb','#3090ff','#bcecff','#ffffff','#0838a0'] },
+  { id:'execlimo',    name:'EXEC LIMO',   tag:'Hover luxury limo. Long chrome exhaust pipes running the chassis + twin gold-flame rear tips. Mag-lev rails.',
+    type:'Hover luxury / Chrome side-pipes', render:hovExeclimo, plate:'CEO 1',
+    swatches:['#181820','#383848','#cfd2d4','#e8e0d0','#ffd040','#fff0a0','#a06820','#c83828'] },
+  { id:'timedrifter', name:'TIMEDRIFTER', tag:'Hover DeLorean. Long cyan flux flame trail from Mr. Fusion. Gull-wings UP, 4 flat BTTF hover plates.',
+    type:'Hover exotic / Cyan flux flame', render:hovTimedrifter, plate:'OUTATIME',
+    swatches:['#b8b8c0','#e8e8f0','#787880','#7eddeb','#bcecff','#e0f8ff','#1850c0','#ffd040'] },
+  { id:'novaram',     name:'NOVA-RAM',    tag:'Hover muscle car. TWIN big ion thrusters with long ion-violet flame trails. Plasma underskirt, hood scoop.',
+    type:'Hover muscle / Twin ion engines', render:hovNovaram, plate:'NOVA SS',
+    swatches:['#e07020','#ffa050','#803010','#80a0ff','#a0c0ff','#c0a0ff','#ff8030','#ffffff'] },
+  { id:'starcross',   name:'STARCROSS',   tag:'Hover sky-cruiser. WINGS WITH FUSION ENGINES MOUNTED ON THEM, each blasting fire out the back. Wing-tip blink.',
+    type:'Hover winged / Wing-mounted engines + fire', render:hovStarcross, plate:'STAR 88',
+    swatches:['#e0e8f0','#ffffff','#7080a0','#304060','#fff0a0','#ffd040','#ff8030','#bcecff'] },
 ];
 
 function buildHover() {
