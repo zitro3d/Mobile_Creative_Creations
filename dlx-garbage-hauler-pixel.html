@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449B-cargo-state-bug-fixes';
+const DLX_BUILD = 'v449C-cache-exhaust-bandit-halos';
 
 (function() {
   // ---------- Device detection ----------
@@ -33252,29 +33252,46 @@ const DLX_BUILD = 'v449B-cargo-state-bug-fixes';
     return x - Math.floor(x);
   }
 
+  // Cached exhaust-puff canvases — one per palette (sooty/dirty/smoke).
+  // Replaces a per-particle ctx.createRadialGradient call that was
+  // running 20-40× per frame during thrust. drawImage of a 32×32
+  // pre-baked canvas is dramatically faster on iOS Safari.
+  const SOOTY_STOPS = [
+    [0,    'rgba(50, 50, 56, 0.95)'],
+    [0.45, 'rgba(80, 60, 40, 0.55)'],
+    [0.85, 'rgba(140, 70, 30, 0.20)'],
+    [1,    'rgba(0, 0, 0, 0)'],
+  ];
+  let _exhaustCache = { pal: null, sooty: null, dirty: null, smoke: null };
+  function _buildExhaustPuff(stops) {
+    const size = 32;
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const cctx = c.getContext('2d');
+    const g = cctx.createRadialGradient(size / 2, size / 2, 0,
+                                         size / 2, size / 2, size / 2);
+    for (const s of stops) g.addColorStop(s[0], s[1]);
+    cctx.fillStyle = g;
+    cctx.fillRect(0, 0, size, size);
+    return c;
+  }
+
   function drawExhaust() {
     if (exhaust.length === 0) return;
     const pal = trailPalette();
-    // Pro-tier polish (v329): sooty exhaust palette for organic-theme
-    // levels. Greasy charcoal core with a dark-orange ember rim.
-    const sootyStops = [
-      [0,    'rgba(50, 50, 56, 0.95)'],
-      [0.45, 'rgba(80, 60, 40, 0.55)'],
-      [0.85, 'rgba(140, 70, 30, 0.20)'],
-      [1,    'rgba(0, 0, 0, 0)'],
-    ];
+    if (_exhaustCache.pal !== pal) {
+      _exhaustCache.sooty = _buildExhaustPuff(SOOTY_STOPS);
+      _exhaustCache.dirty = _buildExhaustPuff(pal.dirtyStops);
+      _exhaustCache.smoke = _buildExhaustPuff(pal.smokeStops);
+      _exhaustCache.pal = pal;
+    }
     ctx.save();
     for (const p of exhaust) {
       ctx.globalAlpha = Math.max(0, p.a);
-      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
-      const stops = p.sooty
-        ? sootyStops
-        : (p.dirty ? pal.dirtyStops : pal.smokeStops);
-      for (const s of stops) g.addColorStop(s[0], s[1]);
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
+      const img = p.sooty ? _exhaustCache.sooty
+                : (p.dirty ? _exhaustCache.dirty : _exhaustCache.smoke);
+      const d = p.r * 2;
+      ctx.drawImage(img, p.x - p.r, p.y - p.r, d, d);
     }
     ctx.restore();
   }
@@ -34914,8 +34931,33 @@ const DLX_BUILD = 'v449B-cargo-state-bug-fixes';
       }
     }
   }
+  // Pre-rendered bandit halo discs — built once, drawn with drawImage
+  // every frame instead of recreating the radial gradient per-bandit.
+  let _banditHalos = null;
+  function _getBanditHalos() {
+    if (_banditHalos) return _banditHalos;
+    const make = (r, c1, c0) => {
+      const size = r * 2;
+      const c = document.createElement('canvas');
+      c.width = size; c.height = size;
+      const cctx = c.getContext('2d');
+      const g = cctx.createRadialGradient(r, r, 0, r, r, r);
+      g.addColorStop(0, c1);
+      g.addColorStop(1, c0);
+      cctx.fillStyle = g;
+      cctx.fillRect(0, 0, size, size);
+      return c;
+    };
+    _banditHalos = {
+      lamp: make(16, 'rgba(255, 220, 120, 0.75)', 'rgba(255, 220, 120, 0)'),
+      tail: make(10, 'rgba(255, 60, 60, 0.7)',    'rgba(255, 60, 60, 0)'),
+    };
+    return _banditHalos;
+  }
+
   function drawDailyBanditHalos() {
     if (!isDaily || !dailyDlxBandits.length) return;
+    const halos = _getBanditHalos();
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const bd of dailyDlxBandits) {
@@ -34923,28 +34965,14 @@ const DLX_BUILD = 'v449B-cargo-state-bug-fixes';
       // HEADLAMP halo — bright amber forward-facing
       const lampX = bd.x + (-fc) * 16;
       const lampY = bd.y + 2;
-      const lampHalo = ctx.createRadialGradient(lampX, lampY, 0,
-                                                  lampX, lampY, 16);
-      lampHalo.addColorStop(0, 'rgba(255, 220, 120, 0.75)');
-      lampHalo.addColorStop(1, 'rgba(255, 220, 120, 0)');
-      ctx.fillStyle = lampHalo;
-      ctx.beginPath();
-      ctx.arc(lampX, lampY, 16, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.drawImage(halos.lamp, lampX - 16, lampY - 16);
       // TAIL running light — red, blinks on a slow cycle so the
       // bandit reads as a vehicle with running lights.
       const tailBlink = ((frame * 0.05 + bd.x * 0.01) % 1) < 0.55;
       if (tailBlink) {
         const tailX = bd.x + fc * 18;
         const tailY = bd.y + 2;
-        const tailHalo = ctx.createRadialGradient(tailX, tailY, 0,
-                                                    tailX, tailY, 10);
-        tailHalo.addColorStop(0, 'rgba(255, 60, 60, 0.7)');
-        tailHalo.addColorStop(1, 'rgba(255, 60, 60, 0)');
-        ctx.fillStyle = tailHalo;
-        ctx.beginPath();
-        ctx.arc(tailX, tailY, 10, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.drawImage(halos.tail, tailX - 10, tailY - 10);
         ctx.fillStyle = 'rgba(255, 100, 100, 0.95)';
         ctx.beginPath();
         ctx.arc(tailX, tailY, 1.6, 0, Math.PI * 2);
