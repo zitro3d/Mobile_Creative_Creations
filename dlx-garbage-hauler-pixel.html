@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449A-perf-drop-shadowBlur-add-fps-overlay';
+const DLX_BUILD = 'v449B-cargo-state-bug-fixes';
 
 (function() {
   // ---------- Device detection ----------
@@ -8821,19 +8821,11 @@ const DLX_BUILD = 'v449A-perf-drop-shadowBlur-add-fps-overlay';
             if (cargo && cargo.lost && p.kind === 'recallCrystal') {
               cargo.lost = false;
               cargo.attached = true;
-              cargo.bubbleEngulfed = false;
-              cargo.bubbleRef = null;
-              cargo.parasiteLocked = false;
-              cargo.parasitePair = null;
-              cargo.banditGrabbed = false;
-              cargo.banditRef = null;
-              cargo.sporeCoatCount = 0;       // wipe spore coats
+              clearCargoStealFlags(cargo);
               cargo.x = bird.x - 60;
               cargo.y = bird.y - 4;
               cargo.vy = 0;
-              const sparkTone = p.kind === 'recallCrystal'
-                ? '#ff60a0' : '#ffd060';
-              emitPickupSparks(bird.x, bird.y, sparkTone, 28);
+              emitPickupSparks(bird.x, bird.y, '#ff60a0', 28);
               playSound('cargoRestore');
             }
             if (p.kind === 'scrapCog') {
@@ -8884,6 +8876,7 @@ const DLX_BUILD = 'v449A-perf-drop-shadowBlur-add-fps-overlay';
               if (cargo) {
                 cargo.lost = false;
                 cargo.attached = true;
+                clearCargoStealFlags(cargo);
                 // Snap to standard tether position behind the rig
                 cargo.x = bird.x - 60;
                 cargo.y = bird.y;
@@ -9720,10 +9713,7 @@ const DLX_BUILD = 'v449A-perf-drop-shadowBlur-add-fps-overlay';
                   // grants the priority bonus.
                   cargo.lost = false;
                   cargo.attached = true;
-                  cargo.banditGrabbed = false;
-                  cargo.banditRef = null;
-                  cargo.scrapMagnetGrabbed = false;
-                  cargo.scrapMagnetRef = null;
+                  clearCargoStealFlags(cargo);
                   cargo.x = bird.x - 60;
                   cargo.y = bird.y - 4;
                   cargo.vy = 0;
@@ -10415,12 +10405,18 @@ const DLX_BUILD = 'v449A-perf-drop-shadowBlur-add-fps-overlay';
             const dx = bird.x - cargo.x;
             const dy = bird.y - cargo.y;
             // Re-magnetize when the rig comes close — but NOT while a
-            // drone zap is suppressing the bond (anti-magnet effect).
-            if (cargoZapFrames === 0 && dx * dx + dy * dy < 30 * 30) {
+            // drone zap is suppressing the bond, AND not if the cargo
+            // is already lost (would create an attached=true / lost=true
+            // race that breaks recovery downstream).
+            if (cargoZapFrames === 0
+                && dx * dx + dy * dy < 30 * 30
+                && !cargo.lost) {
               cargo.attached = true;
               cargo.vy = 0;
             }
-            if (cargo.x < -30) cargo.lost = true;
+            // Symmetric guard — don't mark cargo lost the same frame
+            // we just re-attached it.
+            if (cargo.x < -30 && !cargo.attached) cargo.lost = true;
           }
         }
       } else {
@@ -11504,14 +11500,12 @@ const DLX_BUILD = 'v449A-perf-drop-shadowBlur-add-fps-overlay';
             // Bandit downed — drop cargo if carrying (free recovery!)
             if (ref.carrying && cargo && cargo.banditGrabbed && !cargo.lost) {
               cargo.attached = true;
-              cargo.banditGrabbed = false;
-              cargo.banditRef = null;
+              clearCargoStealFlags(cargo);
               cargo.x = bird.x - 60;
               cargo.y = bird.y - 4;
               cargo.vy = 0;
               emitPickupSparks(cargo.x, cargo.y, '#ffd060', 28);
               playSound('cargoRestore');
-              ref.carrying = false;
             }
             ref.state = 'flee';
             ref.stateFrames = 0;
@@ -11978,6 +11972,29 @@ const DLX_BUILD = 'v449A-perf-drop-shadowBlur-add-fps-overlay';
   // from a pickup-collection burst: smoky gray-brown dust + warm-color
   // alarm sparks + central white flash. Reads as "something went
   // wrong" rather than "something was collected".
+  // Centralized helper — wipe EVERY enemy-grab flag on the cargo + null
+  // out the enemy back-references. Called from every cargo-recovery
+  // path (magnetBox, recallCrystal, conveyor pickup, missile-kill
+  // bandit drop) so an enemy can't keep "carrying" the cargo after
+  // recovery and create dual-ownership state. Different paths used to
+  // clear different subsets of flags — this guarantees a clean slate.
+  function clearCargoStealFlags(cargo) {
+    if (!cargo) return;
+    if (cargo.banditRef)       cargo.banditRef.carrying = false;
+    if (cargo.salamanderRef)   cargo.salamanderRef.carrying = false;
+    if (cargo.batRef)          cargo.batRef.carrying = false;
+    if (cargo.scrapMagnetRef)  cargo.scrapMagnetRef.carrying = false;
+    if (cargo.bubbleRef)       cargo.bubbleRef.holdsCargo = false;
+    if (cargo.parasitePair)    cargo.parasitePair.holdsCargo = false;
+    cargo.banditGrabbed      = false;  cargo.banditRef      = null;
+    cargo.salamanderGrabbed  = false;  cargo.salamanderRef  = null;
+    cargo.batGrabbed         = false;  cargo.batRef         = null;
+    cargo.scrapMagnetGrabbed = false;  cargo.scrapMagnetRef = null;
+    cargo.bubbleEngulfed     = false;  cargo.bubbleRef      = null;
+    cargo.parasiteLocked     = false;  cargo.parasitePair   = null;
+    cargo.sporeCoatCount     = 0;
+  }
+
   function emitCargoLossPuff(x, y) {
     // Smoky dust cloud — slow, longer life, biased upward (rises like smoke)
     for (let i = 0; i < 14; i++) {
