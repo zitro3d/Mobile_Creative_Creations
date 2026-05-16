@@ -310,10 +310,11 @@
   <div class="panel">
     <div class="panelLabel">A · ISO REDRAW · ROAD KILL (2:1 DIMETRIC)</div>
     <div class="panelSub">
-      Vehicle faces lower-RIGHT; cargo + flame trail extend behind to
-      upper-LEFT; depth axis flows lower-LEFT. Three-value face
-      lighting (sun visually upper-right): TOP brightest, lower-right
-      face mid, lower-left face shadow.
+      Rig physically rotated 180° in world coords — grille now faces
+      the cargo side (upper-right), rear nozzle + fin + flame trail
+      on the lower-left side. Cargo stays upper-right; chain connects
+      to the new front. Three-value face lighting (sun upper-right):
+      TOP brightest, lower-right face mid, lower-left face shadow.
     </div>
     <div class="canvasWrap">
       <canvas id="isoFullStage" width="240" height="160" class="pixelCanvas"></canvas>
@@ -3415,25 +3416,22 @@ function renderHaulerIso(frame) {
     ctx.fillRect(px, py, 1, 1);
   }
 
-  // World origin in screen space — place rig roughly centered
   const ox = 110, oy = 70;
 
-  // Gentle bob
   const bob = Math.round(Math.sin(frame * 0.05) * 1);
   const oyB = oy + bob;
   const cargoBob = Math.round(Math.sin(frame * 0.045) * 1);
 
-  // ── CAST SHADOWS on the ground (drawn first, before any object) ──
-  // Project each part's bottom rhombus to the ground (offset down to land below the rig)
-  const shadowY = oy + 38; // ground line position in screen-y
-  // Cargo shadow
-  isoShadowAt(ctx, ox, shadowY, -18, 0, 8, 8, 0.45);
-  // Engine pod / body shadow (one merged blob)
-  isoShadowAt(ctx, ox, shadowY, -1, -1, 22, 10, 0.55);
+  // ── CAST SHADOWS ──
+  const shadowY = oy + 38;
+  isoShadowAt(ctx, ox, shadowY, -18, 0, 8, 8, 0.45);   // cargo
+  isoShadowAt(ctx, ox, shadowY, -1, -1, 22, 10, 0.55); // body + engine pod
+  // New rear-nozzle shadow extends past body (F=18+)
+  isoShadowAt(ctx, ox, shadowY, 18, 2, 3, 4, 0.35);
 
-  // ── CARGO BOX (drawn first — back of scene) ──
+  // ── CARGO BOX (unchanged — stays at upper-right) ──
   isoBoxAt(ctx, ox, oyB + cargoBob, -18, 1, 0, 8, 7, 7, PAL.cargo);
-  // Cargo "X" detail on front face (yellow center)
+  // Cargo X detail on the rig-facing face (cargo's high-F end, world F=-10)
   {
     const cp = (f, l, t) => {
       const pt = projIso(-18+f, 1+l, t);
@@ -3445,14 +3443,11 @@ function renderHaulerIso(frame) {
     fillIsoPolygon(ctx, [a2, b2, c2, d2], '#ffd040');
   }
 
-  // ── CHAIN (cargo back to rig back) ──
-  // Line from cargo's right-top-back corner to rig's left-back corner
-  ctx.fillStyle = '#1850c0';
-  isoWorldLine(ctx, ox, oyB, [-10, 4, 4], [-1, 4, 4], '#1850c0');
-  // Glowing chain beads
+  // ── CHAIN — from cargo (F=-10) to vehicle's NEW front (F=0 face) ──
+  isoWorldLine(ctx, ox, oyB, [-10, 4, 4], [0, 4, 4], '#1850c0');
   for (let i = 0; i < 6; i++) {
     const t = i / 5;
-    const wf = -10 + t * 9;
+    const wf = -10 + t * 10;
     const pt = projIso(wf, 4, 4);
     const pulse = (Math.sin(frame * 0.16 + i * 0.75) + 1) * 0.5;
     const s = pulse > 0.6 ? 2 : 1;
@@ -3462,98 +3457,92 @@ function renderHaulerIso(frame) {
     ctx.fillRect(pt.x + ox, pt.y + oyB, 1, 1);
   }
 
-  // ── REAR NOZZLE (small box at the back of body, where flame exits) ──
-  isoBoxAt(ctx, ox, oyB, -2, 3, 1, 2, 2, 3, PAL.nozzle);
-  // Glow inside nozzle
+  // ── REAR NOZZLE (NEW BACK — at F=18 side, body's high-F end) ──
+  isoBoxAt(ctx, ox, oyB, 18, 3, 1, 2, 2, 3, PAL.nozzle);
   {
     const np = (f, l, t) => {
-      const pt = projIso(-2+f, 3+l, t);
+      const pt = projIso(18+f, 3+l, t);
       return { x: pt.x + ox, y: pt.y + oyB };
     };
-    const a = np(0, 0.5, 3.5), b = np(0, 1.5, 3.5), c2 = np(0, 1.5, 1.5), d = np(0, 0.5, 1.5);
+    // Glow at nozzle's far-F end (F=20) where flame exits
+    const a = np(2, 0.5, 3.5), b = np(2, 1.5, 3.5), c2 = np(2, 1.5, 1.5), d = np(2, 0.5, 1.5);
     fillIsoPolygon(ctx, [a, b, c2, d], '#7eddeb');
-    const a2 = np(0, 0.8, 3), b2 = np(0, 1.2, 3), c3 = np(0, 1.2, 2), d2 = np(0, 0.8, 2);
+    const a2 = np(2, 0.8, 3), b2 = np(2, 1.2, 3), c3 = np(2, 1.2, 2), d2 = np(2, 0.8, 2);
     fillIsoPolygon(ctx, [a2, b2, c3, d2], '#ffffff');
   }
-  // Flame trail behind the nozzle (extends to upper-left in screen space)
-  drawIsoFlame(ctx, ox, oyB, -2, 4, 2.5, frame);
+  // Flame trail extends from F=20 in +F direction (lower-left in screen)
+  drawIsoFlame(ctx, ox, oyB, 20, 4, 2.5, frame, +1);
 
-  // ── ENGINE POD (3 segments below body, narrowing toward front) ──
-  // Drawn BEFORE body so body's bottom occludes engine pod tops
-  isoBoxAt(ctx, ox, oyB,  1, 1, -6, 6, 6, 6, PAL.engine);   // bell back
-  isoBoxAt(ctx, ox, oyB,  7, 2, -4, 5, 4, 4, PAL.engine);   // waist
-  isoBoxAt(ctx, ox, oyB, 12, 2.5, -3, 4, 3, 3, PAL.engine); // nose
+  // ── ENGINE POD (FLIPPED within body) ──
+  // Bell back is now near NEW back (F=18 side), nose near NEW front (F=0 side)
+  isoBoxAt(ctx, ox, oyB, 11, 1, -6, 6, 6, 6, PAL.engine);   // bell (back)
+  isoBoxAt(ctx, ox, oyB,  6, 2, -4, 5, 4, 4, PAL.engine);   // waist (middle)
+  isoBoxAt(ctx, ox, oyB,  2, 2.5, -3, 4, 3, 3, PAL.engine); // nose (front)
 
-  // ── BODY ──
+  // ── BODY (unchanged hull box at F=0-18) ──
   isoBoxAt(ctx, ox, oyB, 0, 0, 0, 18, 8, 6, PAL.hull);
-  // Yellow caution stripe on the F face (lower band)
+  // Yellow caution stripe on the NEW front face (F=0)
   {
     const sp = (f, l, t) => {
       const pt = projIso(f, l, t);
       return { x: pt.x + ox, y: pt.y + oyB };
     };
-    // F face is at f=18 (front of vehicle, lower-right on screen)
-    const a = sp(18, 0, 1.5), b = sp(18, 8, 1.5), c2 = sp(18, 8, 0.5), d = sp(18, 0, 0.5);
+    const a = sp(0, 0, 1.5), b = sp(0, 8, 1.5), c2 = sp(0, 8, 0.5), d = sp(0, 0, 0.5);
     fillIsoPolygon(ctx, [a, b, c2, d], '#ffc628');
-    const a2 = sp(18, 0, 1), b2 = sp(18, 8, 1), c3 = sp(18, 8, 0.5), d2 = sp(18, 0, 0.5);
+    const a2 = sp(0, 0, 1), b2 = sp(0, 8, 1), c3 = sp(0, 8, 0.5), d2 = sp(0, 0, 0.5);
     fillIsoPolygon(ctx, [a2, b2, c3, d2], '#a06820');
   }
-  // Headlight pip on front-face upper-right
+  // Headlight pip on NEW front face (F=0)
   {
-    const hp = projIso(18, 1.5, 4.5);
+    const hp = projIso(0, 1.5, 4.5);
     ctx.fillStyle = '#fff5a0';
     ctx.fillRect(hp.x + ox, hp.y + oyB, 2, 1);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(hp.x + ox, hp.y + oyB, 1, 1);
   }
 
-  // ── FIN (back-top, vertical wedge as a tall narrow box) ──
-  isoBoxAt(ctx, ox, oyB, 0.5, 3.5, 6, 4, 1, 7, PAL.fin);
+  // ── FIN (NEAR BACK — at F=13.5-17.5) ──
+  isoBoxAt(ctx, ox, oyB, 13.5, 3.5, 6, 4, 1, 7, PAL.fin);
 
-  // ── COCKPIT DOME (mid-back, on top of body) ──
-  isoBoxAt(ctx, ox, oyB, 7, 2, 6, 6, 4, 4, PAL.cockpit);
-  // Dome highlight pip on the top face (sun-catch)
+  // ── COCKPIT DOME (FLIPPED — at F=5-11) ──
+  isoBoxAt(ctx, ox, oyB, 5, 2, 6, 6, 4, 4, PAL.cockpit);
+  // Sun-catch pip on top
   {
     const hp = projIso(8, 2.5, 10);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(hp.x + ox, hp.y + oyB, 3, 1);
     ctx.fillRect(hp.x + ox, hp.y + oyB + 1, 2, 1);
   }
-  // Glass on the F face of cockpit (sun-side)
+  // Glass on the NEW front face of cockpit (cockpit's low-F end, world F=5)
   {
     const gp = (f, l, t) => {
-      const pt = projIso(7+f, 2+l, t);
+      const pt = projIso(5+f, 2+l, t);
       return { x: pt.x + ox, y: pt.y + oyB };
     };
-    // F face at f=6 of cockpit (right side, where pilot looks out)
-    const a = gp(6, 0.5, 9), b = gp(6, 3.5, 9), c2 = gp(6, 3.5, 7), d = gp(6, 0.5, 7);
+    const a = gp(0, 0.5, 9), b = gp(0, 3.5, 9), c2 = gp(0, 3.5, 7), d = gp(0, 0.5, 7);
     fillIsoPolygon(ctx, [a, b, c2, d], '#142028');
-    // Cyan reflection on glass
-    const a2 = gp(6, 0.5, 9), b2 = gp(6, 3.5, 9), c3 = gp(6, 3.5, 8.5), d2 = gp(6, 0.5, 8.5);
+    const a2 = gp(0, 0.5, 9), b2 = gp(0, 3.5, 9), c3 = gp(0, 3.5, 8.5), d2 = gp(0, 0.5, 8.5);
     fillIsoPolygon(ctx, [a2, b2, c3, d2], '#7eddeb');
   }
 
-  // ── ANTENNA (thin vertical line on top of cockpit) ──
-  isoWorldLine(ctx, ox, oyB, [8, 2.5, 10], [8, 2.5, 16], '#48484e');
-  // Glowing tip
+  // ── ANTENNA (mirrored to F=10) ──
+  isoWorldLine(ctx, ox, oyB, [10, 2.5, 10], [10, 2.5, 16], '#48484e');
   {
-    const tp = projIso(8, 2.5, 16);
+    const tp = projIso(10, 2.5, 16);
     ctx.fillStyle = '#7eddeb';
     ctx.fillRect(tp.x + ox, tp.y + oyB - 1, 1, 1);
   }
 }
 
 // Animated cyan flame trail extending behind the rig (upper-left in iso)
-function drawIsoFlame(ctx, ox, oy, wf, wl, wt, frame) {
+function drawIsoFlame(ctx, ox, oy, wf, wl, wt, frame, dir) {
+  dir = dir || -1; // -1 = trail in -F direction, +1 = trail in +F direction
   const flick = Math.floor(Math.sin(frame * 0.45) * 2);
-  // Flame extends in the -F direction (further behind the rig)
-  // Each "step" backwards reduces flame radius
   for (let i = 0; i < 20; i++) {
-    const wfStep = wf - i;
+    const wfStep = wf + dir * i;
     const r = Math.max(0.3, 2.5 - i * 0.12);
     const center = projIso(wfStep, wl, wt);
     const cx = center.x + ox, cy = center.y + oy;
-    // Draw flame as concentric ellipses (outer to inner)
     const rx = Math.round(r * 2.4 + flick * (i < 4 ? 0.3 : 0));
     const ry = Math.round(r * 1.2);
     const colors =
@@ -3564,7 +3553,6 @@ function drawIsoFlame(ctx, ox, oy, wf, wl, wt, frame) {
       const krx = Math.max(1, rx - k);
       const kry = Math.max(1, ry - Math.floor(k * 0.5));
       ctx.fillStyle = colors[k];
-      // Fill iso-style ellipse (2:1 ratio)
       for (let dy = -kry; dy <= kry; dy++) {
         const xRange = krx * Math.sqrt(1 - (dy*dy)/(kry*kry));
         const xMin = -Math.round(xRange), xMax = Math.round(xRange);
@@ -3572,12 +3560,11 @@ function drawIsoFlame(ctx, ox, oy, wf, wl, wt, frame) {
       }
     }
   }
-  // Sparks trailing further behind
   ctx.fillStyle = '#bcecff';
   for (let i = 0; i < 5; i++) {
     const a = frame * 0.05 + i * 1.5;
     const d = 3 + Math.sin(frame * 0.3 + i) * 2;
-    const sf = wf - 18 - Math.floor(Math.abs(Math.sin(a)) * d);
+    const sf = wf + dir * (18 + Math.floor(Math.abs(Math.sin(a)) * d));
     const sl = wl + Math.floor(Math.cos(a) * 2);
     const sp = projIso(sf, sl, wt);
     ctx.fillRect(sp.x + ox, sp.y + oy, 1, 1);
