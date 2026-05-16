@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>LOMAX · WIN TOKEN — Hyper Light Drifter Style</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Helvetica Neue', system-ui, sans-serif;
+    background:
+      radial-gradient(ellipse 90% 60% at 50% -10%, oklch(0.30 0.10 38 / 0.20) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 0%, #1d1330 0%, #120a18 60%, #050308 100%);
+    color: #f4e8d8;
+    min-height: 100vh;
+    padding: 26px 16px 60px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage { max-width: 720px; margin: 0 auto; }
+
+  .pageHeader { text-align: center; margin-bottom: 22px; }
+  .pageHeader .kicker {
+    font-size: 10px; letter-spacing: 4px; font-weight: 800;
+    color: #ff9050; margin-bottom: 6px;
+  }
+  .pageHeader h1 {
+    font-family: Impact, 'Arial Black', sans-serif;
+    font-size: 32px; letter-spacing: 6px; color: #ffd060;
+    margin-bottom: 4px;
+  }
+  .pageHeader .sub {
+    font-size: 11px; line-height: 1.55; color: #c0a890;
+    max-width: 540px; margin: 8px auto 0;
+  }
+
+  .panel {
+    background: linear-gradient(180deg, #160e22 0%, #0a0612 100%);
+    border: 1.5px solid #3a2a4a;
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  .panel .panelLabel {
+    font-family: Impact, sans-serif;
+    font-size: 16px; letter-spacing: 3px;
+    color: #ffd060;
+    margin-bottom: 4px;
+  }
+  .panel .panelSub {
+    font-size: 11px; color: #806a90;
+    margin-bottom: 14px;
+  }
+
+  .canvasWrap {
+    background: #050308;
+    border: 1px solid #2a1a30;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex; justify-content: center; align-items: center;
+    padding: 16px;
+  }
+  canvas.pixelCanvas {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    display: block;
+    width: 100%;
+    max-width: 600px;
+    height: auto;
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="pageHeader">
+    <div class="kicker">DLX HAULER · LOMAX · HLD STYLE</div>
+    <h1>WIN TOKEN</h1>
+    <p class="sub">
+      Hyper Light Drifter pass: no black outlines, Bayer-dithered sky,
+      god rays from the sun, distant ruins in silhouette, cyan glow
+      bleed around the token, drifting dust motes, tight palette.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="panelLabel">LOMAX · HLD PASS</div>
+    <div class="panelSub">
+      Native 200×320, image-rendering: pixelated. Compare with the
+      original at mockup-lomax-win.html.
+    </div>
+    <div class="canvasWrap">
+      <canvas id="stage" width="200" height="320" class="pixelCanvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═════════════════════════════════════════════════════════
+// HLD-style palette — tight, cohesive, high-contrast accents
+// ═════════════════════════════════════════════════════════
+const P = {
+  // Sky (warm wasteland gradient stops)
+  skyHigh:    '#2a0820',
+  skyTop:     '#601830',
+  skyUpper:   '#982838',
+  skyMid:     '#c83838',
+  skyHaze:    '#e0583a',
+  skyHorizon: '#f08438',
+  // Sun
+  sunCore:    '#ffffff',
+  sunInner:   '#ffeb90',
+  sunMid:     '#ffc850',
+  sunOuter:   '#f08030',
+  // Distant ruins silhouette
+  ruinFar:    '#5a2030',
+  ruinNear:   '#3a1028',
+  // Ground rubble silhouette (foreground darkest)
+  ground:     '#1a0820',
+  // Lomax suit (deep cool blue-violet)
+  suitDeep:   '#1a1038',
+  suitDark:   '#2e2058',
+  suitCore:   '#4a3082',
+  suitLight:  '#6a4ab0',
+  suitHi:     '#8a70c8',
+  // Fur (warm muted brown)
+  furDeep:    '#1a0a04',
+  furDark:    '#3a2010',
+  furCore:    '#6a4828',
+  furLight:   '#9a7048',
+  // Face mask (warm cream)
+  maskDark:   '#704830',
+  maskCore:   '#b08458',
+  maskLight:  '#e8c890',
+  // Goggles (HLD-cyan lens, muted rim)
+  gogRimDark: '#3a3a48',
+  gogRim:     '#787888',
+  gogRimHi:   '#b8b8c8',
+  gogLens:    '#7eddeb',
+  gogLensHi:  '#ffffff',
+  gogStrap:   '#1a0a04',
+  // Skull patch
+  skullCream: '#f0e8d0',
+  skullShdw:  '#a09078',
+  skullDark:  '#1a0a14',
+  // Win token (the HLD accent — hot cyan + magenta hint)
+  tokGlow:    '#7eddeb',
+  tokHot:     '#bcecff',
+  tokCore:    '#1c5e6e',
+  tokFace:    '#205870',
+  tokDeep:    '#0a3038',
+  tokRim:     '#4080a0',
+  tokMagenta: '#ff5cc8',
+  // Dust motes
+  dust:       '#ffc870',
+};
+
+// ═════════════════════════════════════════════════════════
+// Bayer 4×4 dither
+// ═════════════════════════════════════════════════════════
+const BAYER = [
+  [ 0,  8,  2, 10],
+  [12,  4, 14,  6],
+  [ 3, 11,  1,  9],
+  [15,  7, 13,  5],
+];
+function ditherPx(ctx, x, y, w, h, colorA, colorB, ratio) {
+  for (let py = 0; py < h; py++) {
+    for (let px = 0; px < w; px++) {
+      const t = BAYER[(y + py) & 3][(x + px) & 3] / 16;
+      ctx.fillStyle = (t < ratio) ? colorB : colorA;
+      ctx.fillRect(x + px, y + py, 1, 1);
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════
+// Dithered vertical gradient sky
+// ═════════════════════════════════════════════════════════
+function drawSkyHLD(ctx, frame) {
+  const stops = [
+    { y: 0.00, c: P.skyHigh   },
+    { y: 0.18, c: P.skyTop    },
+    { y: 0.35, c: P.skyUpper  },
+    { y: 0.52, c: P.skyMid    },
+    { y: 0.70, c: P.skyHaze   },
+    { y: 0.92, c: P.skyHorizon},
+    { y: 1.00, c: P.skyHorizon},
+  ];
+  for (let py = 0; py < 320; py++) {
+    const t = py / 320;
+    let lo = stops[0], hi = stops[stops.length-1];
+    for (let i = 0; i < stops.length - 1; i++) {
+      if (t >= stops[i].y && t <= stops[i+1].y) { lo = stops[i]; hi = stops[i+1]; break; }
+    }
+    const local = (t - lo.y) / (hi.y - lo.y);
+    for (let px = 0; px < 200; px++) {
+      const bt = BAYER[py & 3][px & 3] / 16;
+      ctx.fillStyle = (bt < local) ? hi.c : lo.c;
+      ctx.fillRect(px, py, 1, 1);
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════
+// Sun — dithered concentric disks (no hard outline)
+// ═════════════════════════════════════════════════════════
+function drawSunHLD(ctx, frame) {
+  const cx = 100, cy = 118;
+  // Soft outer dither halo into the sky
+  for (let r = 95; r > 62; r--) {
+    const ratio = 1 - (r - 62) / (95 - 62);     // fades in toward center
+    drawDitherDisk(ctx, cx, cy, r, P.skyMid, P.sunOuter, ratio * 0.55);
+  }
+  // Outer warm
+  for (let r = 62; r > 48; r--) {
+    const ratio = 1 - (r - 48) / (62 - 48);
+    drawDitherDisk(ctx, cx, cy, r, P.sunOuter, P.sunMid, ratio);
+  }
+  // Mid gold
+  for (let r = 48; r > 30; r--) {
+    const ratio = 1 - (r - 30) / (48 - 30);
+    drawDitherDisk(ctx, cx, cy, r, P.sunMid, P.sunInner, ratio);
+  }
+  // Bright inner
+  for (let r = 30; r > 16; r--) {
+    const ratio = 1 - (r - 16) / (30 - 16);
+    drawDitherDisk(ctx, cx, cy, r, P.sunInner, P.sunCore, ratio);
+  }
+  // White core
+  fillDisk(ctx, cx, cy, 14, P.sunCore);
+}
+
+function fillDisk(ctx, cx, cy, r, color) {
+  ctx.fillStyle = color;
+  for (let py = -r; py <= r; py++)
+    for (let px = -r; px <= r; px++)
+      if (px*px + py*py <= r*r) ctx.fillRect(cx+px, cy+py, 1, 1);
+}
+function drawDitherDisk(ctx, cx, cy, r, colorA, colorB, ratio) {
+  for (let py = -r; py <= r; py++) {
+    for (let px = -r; px <= r; px++) {
+      const d2 = px*px + py*py;
+      if (d2 > r*r) continue;
+      if (d2 < (r-1)*(r-1)) continue;  // only the ring
+      const bt = BAYER[(cy+py) & 3][(cx+px) & 3] / 16;
+      ctx.fillStyle = (bt < ratio) ? colorB : colorA;
+      ctx.fillRect(cx+px, cy+py, 1, 1);
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════
+// God rays — soft parallel beams of light from sun area
+// ═════════════════════════════════════════════════════════
+function drawGodRays(ctx, frame) {
+  // Beams emanate roughly vertically from sun center (100, 118)
+  // with a slight outward fan as they descend.
+  const beams = [
+    { ox: -40, slope: -0.18, width: 6, alpha: 0.10 },
+    { ox: -20, slope: -0.10, width: 8, alpha: 0.14 },
+    { ox: -5,  slope:  0.00, width: 9, alpha: 0.18 },
+    { ox: 10,  slope:  0.08, width: 8, alpha: 0.14 },
+    { ox: 28,  slope:  0.16, width: 7, alpha: 0.10 },
+    { ox: 48,  slope:  0.24, width: 6, alpha: 0.08 },
+  ];
+  const sunX = 100, sunY = 118;
+  const shimmer = Math.sin(frame * 0.02) * 2;
+  beams.forEach((b, bi) => {
+    for (let py = 30; py < 320; py++) {
+      const yDist = py - sunY;
+      const beamCenter = sunX + b.ox + Math.round(yDist * b.slope + shimmer * Math.sin(bi));
+      for (let w = -b.width; w <= b.width; w++) {
+        const px = beamCenter + w;
+        if (px < 0 || px >= 200) continue;
+        const distAlpha = Math.max(0, 1 - Math.abs(w) / b.width);
+        const yAlpha    = Math.max(0, 1 - (py - 30) / 290);
+        const a = b.alpha * distAlpha * yAlpha;
+        if (a < 0.02) continue;
+        // Use Bayer to break up the alpha into pixelated dither
+        const bt = BAYER[py & 3][px & 3] / 16;
+        if (bt < a * 4) {
+          ctx.fillStyle = '#ffd870';
+          ctx.fillRect(px, py, 1, 1);
+        }
+      }
+    }
+  });
+}
+
+// ═════════════════════════════════════════════════════════
+// Distant ruins — silhouetted brutalist spires
+// ═════════════════════════════════════════════════════════
+function drawRuins(ctx, frame) {
+  // Far ruins (lighter, more atmospheric)
+  const farSpires = [
+    { x: 8,   w: 14, h: 30, top: 6 },
+    { x: 30,  w: 10, h: 22, top: 0 },
+    { x: 158, w: 14, h: 36, top: 8 },
+    { x: 178, w: 12, h: 28, top: 4 },
+  ];
+  farSpires.forEach(s => {
+    const baseY = 220;
+    // Dither the silhouette against the sky for soft edges
+    for (let py = 0; py < s.h; py++) {
+      for (let px = 0; px < s.w; px++) {
+        const bt = BAYER[(baseY - s.h + py) & 3][(s.x + px) & 3] / 16;
+        // Solid in center, dither at edges (top + sides)
+        const edgeT = Math.min(py / 4, (s.h - py) / 4, px / 3, (s.w - px) / 3, 1);
+        if (bt < edgeT) {
+          ctx.fillStyle = P.ruinFar;
+          ctx.fillRect(s.x + px, baseY - s.h + py, 1, 1);
+        }
+      }
+    }
+    // Top notch (battlement)
+    if (s.top > 0) {
+      ctx.fillStyle = P.ruinFar;
+      ctx.fillRect(s.x + 2, baseY - s.h - s.top, s.w - 4, s.top);
+    }
+  });
+
+  // Near ruins (darker, in front of far ruins)
+  const nearSpires = [
+    { x: 2,   w: 18, h: 42 },
+    { x: 22,  w: 14, h: 28 },
+    { x: 150, w: 22, h: 50 },
+    { x: 178, w: 18, h: 38 },
+  ];
+  nearSpires.forEach(s => {
+    const baseY = 244;
+    for (let py = 0; py < s.h; py++) {
+      for (let px = 0; px < s.w; px++) {
+        const bt = BAYER[(baseY - s.h + py) & 3][(s.x + px) & 3] / 16;
+        const edgeT = Math.min(py / 3, (s.h - py) / 3, px / 2, (s.w - px) / 2, 1);
+        if (bt < edgeT) {
+          ctx.fillStyle = P.ruinNear;
+          ctx.fillRect(s.x + px, baseY - s.h + py, 1, 1);
+        }
+      }
+    }
+  });
+}
+
+// ═════════════════════════════════════════════════════════
+// Drifting dust motes
+// ═════════════════════════════════════════════════════════
+function drawDust(ctx, frame) {
+  for (let i = 0; i < 40; i++) {
+    const baseX = (i * 31 + 13) % 200;
+    const baseY = (i * 53 + 7) % 320;
+    const drift = ((frame * 0.7) + i * 11) % 320;
+    const sx = baseX + Math.round(Math.sin(frame * 0.02 + i) * 3);
+    const sy = (baseY - drift + 320) % 320;
+    const phase = ((frame >> 1) + i * 5) % 18;
+    if (phase >= 14) continue;
+    const alpha = (1 - phase / 14) * 0.6;
+    const bt = BAYER[sy & 3][sx & 3] / 16;
+    if (bt < alpha) {
+      ctx.fillStyle = (i % 5 === 0) ? '#fff0a0' : P.dust;
+      ctx.fillRect(sx, sy, 1, 1);
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════
+// Win Token (HLD style) — cyan glow bleed, no outlines
+// ═════════════════════════════════════════════════════════
+function drawTokenHLD(ctx, frame) {
+  const bob = Math.round(Math.sin(frame * 0.06) * 2);
+  const cx = 100, cy = 90 + bob;
+  const w = 56, h = 64;
+  const x0 = cx - (w >> 1), y0 = cy - (h >> 1);
+  const glowPulse = Math.sin(frame * 0.10) * 0.18 + 0.82;
+
+  // ── BIG outer dithered glow bleeding into the sky ──
+  for (let r = 70; r > 30; r--) {
+    const t = 1 - (r - 30) / (70 - 30);  // fade out
+    const intensity = t * 0.35 * glowPulse;
+    // dither against sky color, transitioning to cyan
+    drawDitherDisk(ctx, cx, cy, r, '', P.tokGlow, intensity);
+  }
+
+  // ── Solid token plate (rounded square) ──
+  // Outer cyan glow band
+  drawRoundedRectHLD(ctx, x0 - 2, y0 - 2, w + 4, h + 4, 5, P.tokGlow);
+  // Mid rim
+  drawRoundedRectHLD(ctx, x0 - 1, y0 - 1, w + 2, h + 2, 4, P.tokRim);
+  // Dark deep
+  drawRoundedRectHLD(ctx, x0, y0, w, h, 4, P.tokDeep);
+  // Inner face (lighter cyan tint)
+  drawRoundedRectHLD(ctx, x0 + 3, y0 + 3, w - 6, h - 6, 3, P.tokCore);
+  drawRoundedRectHLD(ctx, x0 + 5, y0 + 5, w - 10, h - 10, 2, P.tokFace);
+
+  // Dithered glow on top edge (light wash)
+  for (let px = x0 + 5; px < x0 + w - 5; px++) {
+    for (let py = y0 + 5; py < y0 + 14; py++) {
+      const ty = (py - (y0 + 5)) / 9;
+      const bt = BAYER[py & 3][px & 3] / 16;
+      if (bt < (1 - ty) * 0.7) {
+        ctx.fillStyle = P.tokHot;
+        ctx.fillRect(px, py, 1, 1);
+      }
+    }
+  }
+
+  // ── Hovercar etching ──
+  drawTokenCarHLD(ctx, cx, cy - 4);
+
+  // ── Hover circle lines beneath ──
+  drawHoverCirclesHLD(ctx, cx, cy + 16, frame);
+
+  // ── Magenta accent dots (HLD pop) — corners ──
+  const sp = (frame >> 3) % 4;
+  ctx.fillStyle = P.tokMagenta;
+  if (sp === 0) ctx.fillRect(x0 + w - 8, y0 + 4, 2, 2);
+  if (sp === 1) ctx.fillRect(x0 + 4, y0 + 4, 2, 2);
+  if (sp === 2) ctx.fillRect(x0 + 4, y0 + h - 8, 2, 2);
+  if (sp === 3) ctx.fillRect(x0 + w - 8, y0 + h - 8, 2, 2);
+
+  // ── White-hot specular highlight ──
+  ctx.fillStyle = P.sunCore;
+  ctx.fillRect(x0 + 6, y0 + 5, 14, 1);
+  ctx.fillStyle = P.tokHot;
+  ctx.fillRect(x0 + 6, y0 + 6, 18, 1);
+}
+
+function drawRoundedRectHLD(ctx, x, y, w, h, r, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x + r, y, w - r*2, h);
+  ctx.fillRect(x, y + r, w, h - r*2);
+  for (let py = 0; py <= r; py++) {
+    for (let px = 0; px <= r; px++) {
+      const d = Math.sqrt((r - px)*(r - px) + (r - py)*(r - py));
+      if (d <= r) {
+        ctx.fillRect(x + px, y + py, 1, 1);
+        ctx.fillRect(x + w - 1 - px, y + py, 1, 1);
+        ctx.fillRect(x + px, y + h - 1 - py, 1, 1);
+        ctx.fillRect(x + w - 1 - px, y + h - 1 - py, 1, 1);
+      }
+    }
+  }
+}
+
+function drawTokenCarHLD(ctx, cx, cy) {
+  // 24w x 12h cyan-etched hovercar — no outlines, hot-on-cool blocking
+  const x = cx - 12, y = cy - 8;
+  // Main body (cyan)
+  ctx.fillStyle = P.tokGlow;
+  ctx.fillRect(x + 2, y + 5, 20, 4);
+  // Dome / cabin
+  ctx.fillRect(x + 7, y + 2, 10, 4);
+  ctx.fillRect(x + 8, y + 1, 8, 1);
+  // Side engine pods
+  ctx.fillRect(x + 0, y + 6, 4, 3);
+  ctx.fillRect(x + 20, y + 6, 4, 3);
+  // White highlights for hero pop
+  ctx.fillStyle = P.tokHot;
+  ctx.fillRect(x + 8, y + 3, 4, 1);    // dome top reflection
+  ctx.fillRect(x + 21, y + 5, 1, 1);   // front headlight
+  ctx.fillRect(x + 2, y + 5, 1, 1);    // rear thruster glow
+  // Darker shadow underbelly (cyan core, not black)
+  ctx.fillStyle = P.tokCore;
+  ctx.fillRect(x + 4, y + 8, 16, 1);
+}
+
+function drawHoverCirclesHLD(ctx, cx, cy, frame) {
+  // 3 flattened curves — pulse outward
+  const phase = (frame >> 2) % 3;
+  const radii = [7, 11, 15];
+  radii.forEach((r, i) => {
+    const isActive = i === phase;
+    const isFade = i === (phase + 2) % 3;
+    const color = isActive ? P.tokHot : (isFade ? P.tokGlow : P.tokRim);
+    ctx.fillStyle = color;
+    for (let px = -r; px <= r; px++) {
+      const py = Math.round(Math.sqrt(Math.max(0, r*r - px*px)) * 0.32);
+      // Skip middle pixels to make it a curve, not a disk
+      ctx.fillRect(cx + px, cy + py, 1, 1);
+    }
+  });
+}
+
+// ═════════════════════════════════════════════════════════
+// Lomax (HLD style — silhouette-first, no outlines)
+// ═════════════════════════════════════════════════════════
+function drawLomaxHLD(ctx, frame) {
+  const breathe = Math.round(Math.sin(frame * 0.04) * 1);
+  const baseY = 218 + breathe;
+  const cx = 100;
+
+  // ── ARMS (raised) ──
+  drawArmHLD(ctx, 80, baseY + 4, 60, 104);
+  drawArmHLD(ctx, 120, baseY + 4, 140, 104);
+
+  // ── BODY (silhouette, then internal color blocking) ──
+  drawBodyHLD(ctx, cx, baseY);
+
+  // ── Skull patch ──
+  drawSkullPatchHLD(ctx, cx, baseY + 38);
+
+  // ── Belt ──
+  ctx.fillStyle = P.suitDeep;
+  ctx.fillRect(cx - 22, baseY + 60, 44, 4);
+  ctx.fillStyle = P.gogStrap;
+  ctx.fillRect(cx - 22, baseY + 60, 44, 1);
+  // Skull buckle
+  ctx.fillStyle = P.gogRim;
+  ctx.fillRect(cx - 3, baseY + 59, 6, 6);
+  ctx.fillStyle = P.skullDark;
+  ctx.fillRect(cx - 2, baseY + 60, 4, 4);
+  ctx.fillStyle = P.skullCream;
+  ctx.fillRect(cx - 1, baseY + 61, 1, 1);
+  ctx.fillRect(cx + 1, baseY + 61, 1, 1);
+
+  // ── Legs ──
+  drawLegsHLD(ctx, cx, baseY + 64);
+
+  // ── Head ──
+  drawHeadHLD(ctx, cx, baseY - 16, frame);
+
+  // ── Goggles ──
+  drawGogglesHLD(ctx, cx, baseY - 50, frame);
+}
+
+function drawArmHLD(ctx, sx, sy, hx, hy) {
+  const steps = 30;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const px = Math.round(sx + (hx - sx) * t);
+    const py = Math.round(sy + (hy - sy) * t);
+    const thick = Math.round(7 - t * 2);
+    // Silhouette / shadow side (no outline — uses deepest suit color)
+    ctx.fillStyle = P.suitDeep;
+    ctx.fillRect(px - (thick >> 1) - 1, py - (thick >> 1), thick + 2, thick);
+    // Mid
+    ctx.fillStyle = P.suitDark;
+    ctx.fillRect(px - (thick >> 1), py - (thick >> 1) + 1, thick, thick - 2);
+    // Body color (toward the sun side — slight diagonal)
+    ctx.fillStyle = P.suitCore;
+    ctx.fillRect(px - (thick >> 1), py - (thick >> 1) + 1, thick - 1, thick - 2);
+    // Highlight
+    ctx.fillStyle = P.suitLight;
+    ctx.fillRect(px - (thick >> 1), py - (thick >> 1) + 1, 1, thick - 2);
+    // Specular dither pip on top edge
+    if (i % 4 === 0) {
+      ctx.fillStyle = P.suitHi;
+      ctx.fillRect(px - (thick >> 1), py - (thick >> 1), 1, 1);
+    }
+  }
+  drawHandHLD(ctx, hx, hy);
+}
+
+function drawHandHLD(ctx, hx, hy) {
+  // Hand (no outline — silhouette via dark fur + lit fur)
+  ctx.fillStyle = P.furDeep;
+  ctx.fillRect(hx - 5, hy - 6, 10, 10);
+  ctx.fillStyle = P.furDark;
+  ctx.fillRect(hx - 4, hy - 5, 8, 9);
+  ctx.fillStyle = P.furCore;
+  ctx.fillRect(hx - 4, hy - 5, 7, 7);
+  ctx.fillStyle = P.furLight;
+  ctx.fillRect(hx - 4, hy - 5, 7, 2);
+
+  // Claws (3, lighter fur with cream tip)
+  for (let i = 0; i < 3; i++) {
+    const dx = -3 + i * 3;
+    ctx.fillStyle = P.furDeep;
+    ctx.fillRect(hx + dx, hy - 12, 2, 8);
+    ctx.fillStyle = P.furCore;
+    ctx.fillRect(hx + dx, hy - 12, 1, 6);
+    ctx.fillStyle = P.furLight;
+    ctx.fillRect(hx + dx, hy - 12, 1, 3);
+    // Cream tip (catches sun)
+    ctx.fillStyle = P.maskLight;
+    ctx.fillRect(hx + dx, hy - 13, 2, 1);
+  }
+}
+
+function drawBodyHLD(ctx, cx, by) {
+  // Silhouette
+  ctx.fillStyle = P.suitDeep;
+  ctx.fillRect(cx - 25, by, 50, 64);
+  // Dark
+  ctx.fillStyle = P.suitDark;
+  ctx.fillRect(cx - 24, by + 1, 48, 62);
+  // Mid suit
+  ctx.fillStyle = P.suitCore;
+  ctx.fillRect(cx - 23, by + 4, 46, 54);
+  // Lit side (left — sun comes from upper-left of sun position 100,118 hits both)
+  ctx.fillStyle = P.suitLight;
+  ctx.fillRect(cx - 23, by + 4, 4, 50);
+  // Top highlight
+  ctx.fillStyle = P.suitLight;
+  ctx.fillRect(cx - 22, by + 4, 44, 1);
+  // Sun-warmed top edge (highlight rim from the sun above)
+  ctx.fillStyle = P.suitHi;
+  ctx.fillRect(cx - 20, by + 4, 40, 1);
+  // Shoulder caps (rounded with dithered edge)
+  ctx.fillStyle = P.suitDeep;
+  ctx.fillRect(cx - 27, by + 4, 2, 5);
+  ctx.fillRect(cx + 25, by + 4, 2, 5);
+  ctx.fillStyle = P.suitDark;
+  ctx.fillRect(cx - 26, by + 4, 1, 5);
+  ctx.fillRect(cx + 25, by + 4, 1, 5);
+  // Center seam
+  ctx.fillStyle = P.suitDeep;
+  ctx.fillRect(cx, by + 6, 1, 50);
+  // Belly fur
+  ctx.fillStyle = P.furCore;
+  ctx.fillRect(cx - 14, by + 54, 28, 6);
+  ctx.fillStyle = P.maskCore;
+  ctx.fillRect(cx - 12, by + 54, 24, 3);
+  ctx.fillStyle = P.maskLight;
+  ctx.fillRect(cx - 11, by + 54, 22, 1);
+}
+
+function drawSkullPatchHLD(ctx, cx, py) {
+  // Round patch — soft cream against deep blue
+  ctx.fillStyle = P.suitDeep;
+  for (let py2 = -12; py2 <= 12; py2++) {
+    for (let px = -13; px <= 13; px++) {
+      if (px*px*0.85 + py2*py2 <= 144) ctx.fillRect(cx + px, py + py2, 1, 1);
+    }
+  }
+  ctx.fillStyle = P.skullCream;
+  for (let py2 = -10; py2 <= 10; py2++) {
+    for (let px = -11; px <= 11; px++) {
+      if (px*px*0.85 + py2*py2 <= 100) ctx.fillRect(cx + px, py + py2, 1, 1);
+    }
+  }
+  // Shadow under patch
+  ctx.fillStyle = P.skullShdw;
+  for (let py2 = 5; py2 <= 10; py2++) {
+    for (let px = -11; px <= 11; px++) {
+      if (px*px*0.85 + py2*py2 <= 100) ctx.fillRect(cx + px, py + py2, 1, 1);
+    }
+  }
+  // SKULL pixel art (deep tone, no black)
+  ctx.fillStyle = P.skullDark;
+  ctx.fillRect(cx - 5, py - 8, 10, 6);
+  ctx.fillRect(cx - 4, py - 9, 8, 1);
+  // Eye sockets cut out (cream)
+  ctx.fillStyle = P.skullCream;
+  ctx.fillRect(cx - 3, py - 6, 2, 2); ctx.fillRect(cx + 1, py - 6, 2, 2);
+  // Nose
+  ctx.fillStyle = P.skullCream;
+  ctx.fillRect(cx, py - 3, 1, 1);
+  // Jaw
+  ctx.fillStyle = P.skullDark;
+  ctx.fillRect(cx - 4, py - 2, 8, 3);
+  ctx.fillStyle = P.skullCream;
+  ctx.fillRect(cx - 3, py - 1, 1, 1); ctx.fillRect(cx - 1, py - 1, 1, 1);
+  ctx.fillRect(cx + 1, py - 1, 1, 1); ctx.fillRect(cx + 3, py - 1, 1, 1);
+  // Crossbones X
+  ctx.fillStyle = P.skullDark;
+  for (let i = 0; i < 10; i++) {
+    ctx.fillRect(cx - 8 + i, py + 1 + i, 2, 1);
+    ctx.fillRect(cx + 9 - i, py + 1 + i, 2, 1);
+  }
+  ctx.fillRect(cx - 9, py + 1, 3, 2);
+  ctx.fillRect(cx + 7, py + 1, 3, 2);
+  ctx.fillRect(cx + 1, py + 10, 3, 2);
+  ctx.fillRect(cx - 4, py + 10, 3, 2);
+}
+
+function drawLegsHLD(ctx, cx, ly) {
+  // Silhouette
+  ctx.fillStyle = P.suitDeep;
+  ctx.fillRect(cx - 19, ly, 16, 24);
+  ctx.fillRect(cx + 3, ly, 16, 24);
+  // Dark
+  ctx.fillStyle = P.suitDark;
+  ctx.fillRect(cx - 18, ly + 1, 14, 23);
+  ctx.fillRect(cx + 4, ly + 1, 14, 23);
+  // Mid
+  ctx.fillStyle = P.suitCore;
+  ctx.fillRect(cx - 17, ly + 1, 12, 18);
+  ctx.fillRect(cx + 5, ly + 1, 12, 18);
+  // Lit edge
+  ctx.fillStyle = P.suitLight;
+  ctx.fillRect(cx - 17, ly + 1, 2, 18);
+  ctx.fillRect(cx + 5, ly + 1, 2, 18);
+  // Boots (warm dark to differentiate from suit)
+  ctx.fillStyle = P.furDeep;
+  ctx.fillRect(cx - 20, ly + 22, 17, 8);
+  ctx.fillRect(cx + 3, ly + 22, 17, 8);
+  ctx.fillStyle = P.furDark;
+  ctx.fillRect(cx - 19, ly + 23, 15, 6);
+  ctx.fillRect(cx + 4, ly + 23, 15, 6);
+  ctx.fillStyle = P.furCore;
+  ctx.fillRect(cx - 19, ly + 23, 15, 1);
+  ctx.fillRect(cx + 4, ly + 23, 15, 1);
+}
+
+function drawHeadHLD(ctx, cx, hy, frame) {
+  // Silhouette (deep fur)
+  ctx.fillStyle = P.furDeep;
+  for (let py = -17; py <= 17; py++) {
+    for (let px = -19; px <= 19; px++) {
+      if (px*px*0.7 + py*py <= 272) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+  // Dark fur
+  ctx.fillStyle = P.furDark;
+  for (let py = -16; py <= 16; py++) {
+    for (let px = -18; px <= 18; px++) {
+      if (px*px*0.7 + py*py <= 256) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+  // Core fur
+  ctx.fillStyle = P.furCore;
+  for (let py = -15; py <= 14; py++) {
+    for (let px = -17; px <= 17; px++) {
+      if (px*px*0.7 + py*py <= 240) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+  // Sun-lit top
+  ctx.fillStyle = P.furLight;
+  for (let py = -15; py <= -7; py++) {
+    for (let px = -15; px <= 15; px++) {
+      if (px*px*0.7 + py*py <= 230) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+  // Mask (cream face)
+  ctx.fillStyle = P.maskCore;
+  for (let py = -2; py <= 12; py++) {
+    for (let px = -10; px <= 10; px++) {
+      if (px*px*0.6 + py*py <= 100) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+  ctx.fillStyle = P.maskLight;
+  for (let py = -1; py <= 6; py++) {
+    for (let px = -9; px <= 9; px++) {
+      if (px*px*0.6 + py*py <= 80) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+  // Mask shadow on lower face
+  ctx.fillStyle = P.maskDark;
+  for (let py = 8; py <= 12; py++) {
+    for (let px = -8; px <= 8; px++) {
+      if (px*px*0.6 + py*py <= 100) ctx.fillRect(cx + px, hy + py, 1, 1);
+    }
+  }
+  // Eyes (cyan glow — HLD touch, looking up)
+  ctx.fillStyle = P.maskDark;
+  ctx.fillRect(cx - 7, hy - 1, 4, 2); ctx.fillRect(cx + 3, hy - 1, 4, 2);
+  ctx.fillStyle = P.gogLens;
+  ctx.fillRect(cx - 6, hy - 1, 2, 1); ctx.fillRect(cx + 4, hy - 1, 2, 1);
+  ctx.fillStyle = P.gogLensHi;
+  ctx.fillRect(cx - 6, hy - 1, 1, 1); ctx.fillRect(cx + 4, hy - 1, 1, 1);
+  // Nose
+  ctx.fillStyle = P.furDeep;
+  ctx.fillRect(cx - 2, hy + 4, 4, 2);
+  ctx.fillStyle = P.furDark;
+  ctx.fillRect(cx - 1, hy + 4, 2, 1);
+  // Mouth (open in awe — silhouette + cream lip rim)
+  ctx.fillStyle = P.skullDark;
+  ctx.fillRect(cx - 4, hy + 8, 8, 4);
+  ctx.fillStyle = P.maskDark;
+  ctx.fillRect(cx - 3, hy + 8, 6, 1);   // lip rim catching light
+  // Ears
+  ctx.fillStyle = P.furDeep;
+  ctx.fillRect(cx - 19, hy - 6, 3, 5);
+  ctx.fillRect(cx + 16, hy - 6, 3, 5);
+  ctx.fillStyle = P.furCore;
+  ctx.fillRect(cx - 18, hy - 5, 2, 3);
+  ctx.fillRect(cx + 16, hy - 5, 2, 3);
+  ctx.fillStyle = P.maskLight;
+  ctx.fillRect(cx - 18, hy - 4, 1, 1);
+  ctx.fillRect(cx + 17, hy - 4, 1, 1);
+  // Hair tuft on top (sun-lit)
+  ctx.fillStyle = P.furLight;
+  ctx.fillRect(cx - 3, hy - 17, 6, 2);
+  ctx.fillStyle = P.maskLight;
+  ctx.fillRect(cx - 2, hy - 17, 4, 1);
+}
+
+function drawGogglesHLD(ctx, cx, gy, frame) {
+  // Strap
+  ctx.fillStyle = P.gogStrap;
+  ctx.fillRect(cx - 17, gy + 2, 34, 3);
+  ctx.fillStyle = P.furDark;
+  ctx.fillRect(cx - 17, gy + 4, 34, 1);
+  ctx.fillStyle = P.furCore;
+  for (let i = 0; i < 7; i++) ctx.fillRect(cx - 14 + i*5, gy + 3, 1, 1);
+
+  // Left lens
+  drawLensHLD(ctx, cx - 8, gy, frame, false);
+  // Right lens
+  drawLensHLD(ctx, cx + 8, gy, frame, true);
+
+  // Bridge between lenses
+  ctx.fillStyle = P.gogRimDark;
+  ctx.fillRect(cx - 3, gy, 6, 2);
+  ctx.fillStyle = P.gogRim;
+  ctx.fillRect(cx - 3, gy + 1, 6, 1);
+}
+
+function drawLensHLD(ctx, cx, cy, frame, isRight) {
+  // No black outline — use dark rim color as silhouette
+  ctx.fillStyle = P.gogRimDark;
+  for (let py = -5; py <= 5; py++) {
+    for (let px = -5; px <= 5; px++) {
+      const d = px*px + py*py;
+      if (d <= 25 && d > 16) ctx.fillRect(cx + px, cy + py, 1, 1);
+    }
+  }
+  ctx.fillStyle = P.gogRim;
+  for (let py = -4; py <= 4; py++) {
+    for (let px = -4; px <= 4; px++) {
+      const d = px*px + py*py;
+      if (d <= 16 && d > 9) ctx.fillRect(cx + px, cy + py, 1, 1);
+    }
+  }
+  ctx.fillStyle = P.gogRimHi;
+  for (let py = -4; py <= 4; py++) {
+    for (let px = -4; px <= 4; px++) {
+      const d = px*px + py*py;
+      if (d <= 16 && d > 12) ctx.fillRect(cx + px, cy + py, 1, 1);
+    }
+  }
+  // Cyan glowing lens (HLD signature)
+  ctx.fillStyle = P.gogLens;
+  for (let py = -3; py <= 3; py++) {
+    for (let px = -3; px <= 3; px++) {
+      if (px*px + py*py <= 9) ctx.fillRect(cx + px, cy + py, 1, 1);
+    }
+  }
+  // White-hot pip (specular)
+  ctx.fillStyle = P.gogLensHi;
+  ctx.fillRect(cx - 2, cy - 2, 2, 1);
+  ctx.fillRect(cx - 2, cy - 1, 1, 1);
+  // Lens glow bleed (dithered cyan halo)
+  for (let r = 4; r <= 7; r++) {
+    const ratio = (7 - r) / 3 * 0.5;
+    drawDitherDisk(ctx, cx, cy, r, '', P.gogLens, ratio);
+  }
+}
+
+// ═════════════════════════════════════════════════════════
+// Foreground rubble silhouette
+// ═════════════════════════════════════════════════════════
+function drawGround(ctx) {
+  ctx.fillStyle = P.ground;
+  ctx.fillRect(0, 306, 200, 14);
+  // Rocky lumps (silhouette only)
+  const rocks = [
+    { x: 8,   r: 7 },
+    { x: 28,  r: 5 },
+    { x: 52,  r: 8 },
+    { x: 80,  r: 6 },
+    { x: 108, r: 5 },
+    { x: 132, r: 7 },
+    { x: 158, r: 6 },
+    { x: 180, r: 8 },
+  ];
+  rocks.forEach(r => {
+    for (let py = -r.r; py <= 0; py++) {
+      for (let px = -r.r; px <= r.r; px++) {
+        if (px*px + py*py <= r.r * r.r) {
+          ctx.fillStyle = P.ground;
+          ctx.fillRect(r.x + px, 306 + py, 1, 1);
+        }
+      }
+    }
+  });
+  // Dithered top edge highlight (catches sun)
+  for (let px = 0; px < 200; px++) {
+    const bt = BAYER[(305) & 3][px & 3] / 16;
+    if (bt < 0.3) {
+      ctx.fillStyle = P.ruinNear;
+      ctx.fillRect(px, 305, 1, 1);
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════
+// Render loop
+// ═════════════════════════════════════════════════════════
+function render(frame) {
+  const c = document.getElementById('stage');
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  drawSkyHLD(ctx, frame);
+  drawSunHLD(ctx, frame);
+  drawGodRays(ctx, frame);
+  drawRuins(ctx, frame);
+  drawDust(ctx, frame);
+  drawLomaxHLD(ctx, frame);
+  drawTokenHLD(ctx, frame);
+  drawGround(ctx);
+}
+
+let frame = 0;
+function tick() {
+  frame++;
+  render(frame);
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+
+</body>
+</html>
