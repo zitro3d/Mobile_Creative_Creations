@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v449L-fire-bolt-embers-and-tail-pulse';
+const DLX_BUILD = 'v449M-fire-bolt-smooth-tail-bigger-embers';
 
 (function() {
   // ---------- Device detection ----------
@@ -15847,12 +15847,13 @@ const DLX_BUILD = 'v449L-fire-bolt-embers-and-tail-pulse';
     const pdx = -fdy;
     const pdy = fdx;
 
-    // 4-frame anim cycle (~15 fps). Tail factors swing wider than the
-    // v449J version so the bolt visibly STRETCHES and SNAPS BACK as
-    // it travels — "tail gets longer and shorter as it changes shape".
+    // 4-frame anim cycle (~15 fps) drives the ember COUNT (discrete
+    // "puffs" of shedding), but the TAIL length uses a continuous slow
+    // sine so the bolt breathes smoothly instead of jittering. Wider
+    // amplitude was making the silhouette look unstable in v449L.
     const frameIdx = ((lb.life / 4) | 0) & 3;
-    const tailFactors = [1.8, 2.6, 3.6, 2.4];
-    const baseTailLen = r * tailFactors[frameIdx];
+    const tailMod = 1.0 + 0.18 * Math.sin(lb.life * 0.07 + lb.seed);
+    const baseTailLen = r * 2.7 * tailMod;
     const boxR = Math.ceil(r + baseTailLen) + 2;
 
     // Single-layer teardrop rasterizer (row-runs of fillRect).
@@ -15913,11 +15914,10 @@ const DLX_BUILD = 'v449L-fire-bolt-embers-and-tail-pulse';
       drawPixelSmokePuff(cx + headOffX, cy + headOffY, wR,   '#ffffff');
     }
 
-    // ── SHEDDING EMBERS — chunky hot embers breaking off the tail.
-    // Two streams (alternating ± perpendicular offset) of color-graded
-    // embers fading from white-hot at the head end of the trail to
-    // dark red at the trail tip. The 1-2 freshest are 2×2 chunks so
-    // they pop against the silhouette; older ones are 1-px specks.
+    // ── SHEDDING EMBERS — chunky hot embers visibly breaking off the
+    // tail. Pushed further behind the tail tip + bigger chunk sizes
+    // + wider perpendicular spread than v449L so they read as DISCRETE
+    // sparks against the body, not part of the silhouette.
     const emberCounts = [4, 6, 8, 6];
     const ec = emberCounts[frameIdx];
     const emberColors = [
@@ -15925,20 +15925,26 @@ const DLX_BUILD = 'v449L-fire-bolt-embers-and-tail-pulse';
       '#e87028', '#c84020', '#8a1408', '#5a0a04',
     ];
     for (let i = 0; i < ec; i++) {
-      const dist = baseTailLen + 2 + i * 1.8 + ((i + frameIdx) & 1);
-      // Alternating ± stream + per-ember wobble so embers don't line up
+      // Spread embers further behind the tail tip (i * 2.5 instead of
+      // 1.8) so they trail clearly outside the bolt silhouette.
+      const dist = baseTailLen + 3 + i * 2.5 + ((i + frameIdx) & 1);
+      // Wider perpendicular scatter so embers SPRAY OUT instead of
+      // riding along the axis.
       const stream = (i & 1) === 0 ? 1 : -1;
-      const wob = (Math.sin(lb.life * 0.3 + i * 1.7 + lb.seed) * 0.5
-                  + stream * 0.45) * r;
+      const wob = (Math.sin(lb.life * 0.3 + i * 1.7 + lb.seed) * 0.7
+                  + stream * 0.65) * r;
       const ex = (cx - fdx * dist + pdx * wob) | 0;
       const ey = (cy - fdy * dist + pdy * wob) | 0;
       const color = emberColors[Math.min(i, emberColors.length - 1)];
-      if (i < 2 && r >= 5) {
-        // Freshest 2 embers: 2×2 chunks for visible "hot spark" feel
-        pxFill(ex - 1, ey - 1, 2, 2, color);
-      } else {
-        pxFill(ex, ey, 1, 1, color);
-      }
+      // Tier ember sizes: freshest gets a 3×3 chunk, next two get 2×2,
+      // older embers are 1-px specks. r-gate prevents tiny bolts from
+      // looking like fluffy clouds.
+      let size;
+      if (i === 0 && r >= 4)      size = 3;
+      else if (i <= 2 && r >= 5)  size = 2;
+      else                        size = 1;
+      const half = size >> 1;
+      pxFill(ex - half, ey - half, size, size, color);
     }
   }
 
