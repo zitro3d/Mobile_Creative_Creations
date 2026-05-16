@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v450E-moon-craters-and-terminator';
+const DLX_BUILD = 'v450F-pixel-dust-and-dispatch-foundation-depth';
 
 (function() {
   // ---------- Device detection ----------
@@ -7284,22 +7284,20 @@ const DLX_BUILD = 'v450E-moon-craters-and-terminator';
 
   function drawDailyDust() {
     if (!isDaily || !dailyDust.length) return;
+    // Pixel-art dust motes (v450F) — chunky 1-2 px squares with no
+    // shadowBlur, no 'lighter' composite, no ctx.arc. Replaces the
+    // smooth-art glowing-circle motes that the user flagged as the
+    // last legacy-render layer in the sky.
     ctx.save();
-    // Additive blending so particles brighten the sky instead of
-    // recoloring it. With the new desert-palette colors (cream/peach
-    // instead of yellow/orange) this reads as sun motes catching light
-    // in the haze — they belong to the scene rather than standing
-    // out as foreign sparks.
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.shadowBlur = 3;       // smaller halo — less "fire spark", more "dust mote"
     for (const d of dailyDust) {
-      ctx.shadowColor = d.color;
-      ctx.fillStyle = d.color;
+      const yPos = (d.y + Math.sin(d.bobPhase) * d.bobAmp) | 0;
+      const xPos = d.x | 0;
+      // 2-px chunks for the bigger motes (r >= 1.5), 1-px for the rest.
+      const sz = d.r >= 1.5 ? 2 : 1;
+      const half = sz >> 1;
       ctx.globalAlpha = d.a;
-      const yPos = d.y + Math.sin(d.bobPhase) * d.bobAmp;
-      ctx.beginPath();
-      ctx.arc(d.x, yPos, d.r, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = d.color;
+      ctx.fillRect(xPos - half, yPos - half, sz, sz);
     }
     ctx.restore();
   }
@@ -20299,7 +20297,22 @@ const DLX_BUILD = 'v450E-moon-craters-and-terminator';
     for (let s = 0; s < 6; s++) ctx.fillRect(dockEdge + 2 + s * 5, floorY + 4, 2, 2);
 
     // ──────────── FOUNDATION — weathered concrete with character ──
-    const wallH = y - floorY;
+    // wallH uses the DEEPEST terrain point sampled across the entire
+    // dispatch footprint (not just the y at the landmark's center).
+    // Otherwise foreground dune crests rising above center-y poked up
+    // through the foundation, "hiding" the lower DLX / X-mark detail
+    // into the dirt. Sampling 12 points across the foundation width
+    // and clamping to the deepest of them guarantees the concrete
+    // reaches below any dune in front of the dispatch.
+    let deepestY = y;
+    const sampleL = backWallX - 8;
+    const sampleR = backWallX - 8 + hangarW + 16;
+    const sampleStep = Math.max(1, ((sampleR - sampleL) / 12) | 0);
+    for (let sx = sampleL; sx <= sampleR; sx += sampleStep) {
+      const ty = terrainHeightAt(sx + dailyScrollX);
+      if (ty > deepestY) deepestY = ty;
+    }
+    const wallH = deepestY - floorY;
     if (wallH > 0) {
       const fx = backWallX - 8;
       const fw = hangarW + 16;
