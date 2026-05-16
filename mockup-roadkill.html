@@ -208,6 +208,17 @@
     <div class="fleetGrid" id="fleetGrid"></div>
   </div>
 
+  <!-- GROUND FLEET — different vehicle TYPES within Option A's footprint -->
+  <div class="panel">
+    <div class="panelLabel">C · GROUND FLEET · 8 VEHICLE TYPES</div>
+    <div class="panelSub">
+      Different cars/trucks/exotics — SUV, pickup, hot rod, sports,
+      luxury, DeLorean-style with gull-wings, muscle car, winged
+      sky-cruiser. All sized to Option A's silhouette (within ~10%).
+    </div>
+    <div class="fleetGrid" id="groundGrid"></div>
+  </div>
+
   <div class="footnote">
     <h3>HERO RIG · AUDIT (what's working / what to push)</h3>
     <ul>
@@ -1352,16 +1363,724 @@ function renderFleet(frame) {
   });
 }
 
+// ═════════════════════════════════════════════════════════
+// GROUND FLEET — 8 vehicle TYPES (SUV, pickup, hot rod, sports,
+// luxury, DeLorean, muscle, sky-cruiser). All sized to Option A's
+// silhouette (within ~10%): ≤60w × ≤40h native pixels.
+// ═════════════════════════════════════════════════════════
+
+// ── Shared helpers ──
+function vehWheel(ctx, cx, cy, r, frame, opts) {
+  opts = opts || {};
+  // Tire
+  for (let py = -r; py <= r; py++) {
+    for (let px = -r; px <= r; px++) {
+      const d = px*px + py*py;
+      if (d > r*r) continue;
+      if (d > (r-1)*(r-1)) ctx.fillStyle = C.outline;
+      else ctx.fillStyle = opts.tire || C.podBlack;
+      ctx.fillRect(cx+px, cy+py, 1, 1);
+    }
+  }
+  // Rim (chrome)
+  const rr = Math.max(1, r-2);
+  for (let py = -rr; py <= rr; py++) {
+    for (let px = -rr; px <= rr; px++) {
+      const d = px*px + py*py;
+      if (d > rr*rr) continue;
+      ctx.fillStyle = opts.rim || C.chrome;
+      ctx.fillRect(cx+px, cy+py, 1, 1);
+    }
+  }
+  // Hub
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(cx-1, cy-1, 2, 2);
+  // Spinning spoke crosshair (animated)
+  if (frame !== undefined && r >= 4) {
+    const ang = frame * 0.18;
+    ctx.fillStyle = C.chromeLight;
+    for (let i = 0; i < 4; i++) {
+      const a = ang + i * Math.PI / 2;
+      const sx = cx + Math.round(Math.cos(a) * (rr-1));
+      const sy = cy + Math.round(Math.sin(a) * (rr-1));
+      ctx.fillRect(sx, sy, 1, 1);
+    }
+  }
+  // Whitewall
+  if (opts.whitewall) {
+    ctx.fillStyle = '#e8e0d0';
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      ctx.fillRect(cx + Math.round(Math.cos(a) * (r-1)),
+                   cy + Math.round(Math.sin(a) * (r-1)), 1, 1);
+    }
+  }
+}
+
+function vehWindow(ctx, x, y, w, h, opts) {
+  opts = opts || {};
+  ctx.fillStyle = opts.tint || '#142028';
+  ctx.fillRect(x, y, w, h);
+  // Diagonal reflection
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  const reflLen = Math.min(w-2, h);
+  for (let i = 0; i < reflLen; i++) ctx.fillRect(x+1+i, y+i, 1, 1);
+  // Top highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.20)';
+  ctx.fillRect(x, y, w, 1);
+}
+
+function vehPlate(ctx, x, y, w, h, color) {
+  ctx.fillStyle = C.outline; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = color || '#ffd040'; ctx.fillRect(x, y, w, h-1);
+  // Text hint dots
+  ctx.fillStyle = C.plateBlack;
+  for (let i = 0; i < (w-2)/2; i++) ctx.fillRect(x+1+i*2, y+1, 1, 1);
+}
+
+function vehHeadlight(ctx, x, y, w, h, frame) {
+  const pulse = Math.sin(frame * 0.08) * 0.3 + 0.7;
+  ctx.fillStyle = C.outline; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = '#fff0a0'; ctx.fillRect(x+1, y+1, w-2, h-2);
+  ctx.fillStyle = `rgba(255,255,255,${pulse.toFixed(2)})`;
+  ctx.fillRect(x+1, y+1, 1, 1);
+}
+
+// ── 1. DUNERUNNER (Boxy SUV) ──
+function vehDunerunner(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox|0, y = oy|0;
+  const P = { core:'#c89858', light:'#e8c890', dark:'#7a5828', deep:'#3a2810' };
+  // Antenna (front-right, animated)
+  const antSway = Math.round(Math.sin(frame * 0.06) * 1);
+  ctx.fillStyle = C.chromeDark;
+  for (let i = 0; i < 8; i++) {
+    ctx.fillRect(x+47 + (i > 4 ? antSway : 0), y+8-i, 1, 1);
+  }
+  ctx.fillStyle = '#ff4020'; ctx.fillRect(x+47+antSway, y, 1, 1);
+  // Roof rack rails
+  ctx.fillStyle = C.outline; ctx.fillRect(x+8, y+8, 40, 2);
+  ctx.fillStyle = C.chrome; ctx.fillRect(x+8, y+8, 40, 1);
+  // Light bar with bulbs
+  ctx.fillStyle = C.outline; ctx.fillRect(x+14, y+5, 28, 4);
+  ctx.fillStyle = '#1a1a20'; ctx.fillRect(x+15, y+6, 26, 2);
+  for (let i = 0; i < 6; i++) {
+    const flick = ((frame + i*5) >> 3) % 2;
+    ctx.fillStyle = flick ? '#fff0a0' : '#ffd060';
+    ctx.fillRect(x+16+i*4, y+6, 2, 2);
+  }
+  // Cabin
+  ctx.fillStyle = C.outline; ctx.fillRect(x+8, y+10, 42, 12);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+9, y+10, 40, 2);
+  // Window band
+  vehWindow(ctx, x+9, y+12, 40, 6, { tint:'#142028' });
+  // Window pillars
+  ctx.fillStyle = P.dark;
+  ctx.fillRect(x+18, y+12, 1, 6);
+  ctx.fillRect(x+28, y+12, 1, 6);
+  ctx.fillRect(x+38, y+12, 1, 6);
+  // Lower cabin trim
+  ctx.fillStyle = P.core; ctx.fillRect(x+9, y+18, 40, 4);
+  ctx.fillStyle = P.light; ctx.fillRect(x+9, y+18, 40, 1);
+  // Body lower
+  ctx.fillStyle = C.outline; ctx.fillRect(x+4, y+22, 52, 12);
+  ctx.fillStyle = P.deep; ctx.fillRect(x+5, y+30, 50, 4);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+5, y+27, 50, 3);
+  ctx.fillStyle = P.core; ctx.fillRect(x+5, y+23, 50, 4);
+  ctx.fillStyle = P.light; ctx.fillRect(x+6, y+23, 48, 1);
+  // Body crease
+  ctx.fillStyle = P.dark; ctx.fillRect(x+8, y+25, 44, 1);
+  // Dust speckles
+  ctx.fillStyle = '#a08868';
+  ctx.fillRect(x+12, y+26, 3, 1); ctx.fillRect(x+30, y+28, 4, 1);
+  // Bull bar
+  ctx.fillStyle = C.outline; ctx.fillRect(x+50, y+24, 6, 8);
+  ctx.fillStyle = C.chrome; ctx.fillRect(x+51, y+25, 5, 6);
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+51, y+28, 5, 1);
+  // Bull bar uprights
+  ctx.fillStyle = C.chrome;
+  ctx.fillRect(x+52, y+21, 1, 4); ctx.fillRect(x+55, y+21, 1, 4);
+  // Headlights (in front)
+  vehHeadlight(ctx, x+47, y+24, 4, 3, frame);
+  // Grille
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = '#1a1a20';
+    ctx.fillRect(x+48+i, y+28, 1, 3);
+  }
+  // License plate
+  vehPlate(ctx, x+44, y+32, 8, 3, '#ffd040');
+  // Skid plate
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+8, y+33, 44, 1);
+  // Wheels (chunky)
+  vehWheel(ctx, x+13, y+34, 5, frame);
+  vehWheel(ctx, x+45, y+34, 5, frame);
+  // Sand puffs (animated)
+  if ((frame >> 2) % 3 === 0) {
+    ctx.fillStyle = 'rgba(232,200,144,0.6)';
+    ctx.fillRect(x+18, y+37, 2, 1); ctx.fillRect(x+50, y+37, 2, 1);
+  }
+}
+
+// ── 2. BED HOSS (Pickup truck) ──
+function vehBedhoss(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox|0, y = oy|0;
+  const P = { core:'#c83828', light:'#ff6040', dark:'#7a1a10', deep:'#3a0808' };
+  // Cab (back-right per facing-left)
+  ctx.fillStyle = C.outline; ctx.fillRect(x+22, y+10, 22, 14);
+  // Cab roof
+  ctx.fillStyle = P.dark; ctx.fillRect(x+23, y+10, 20, 2);
+  ctx.fillStyle = P.core; ctx.fillRect(x+23, y+12, 20, 1);
+  // Windshield (angled toward front-right)
+  vehWindow(ctx, x+23, y+13, 20, 6, { tint:'#0a1a26' });
+  // Pillar between windows
+  ctx.fillStyle = P.dark; ctx.fillRect(x+33, y+13, 1, 6);
+  // Cab lower
+  ctx.fillStyle = P.dark; ctx.fillRect(x+22, y+19, 22, 5);
+  ctx.fillStyle = P.core; ctx.fillRect(x+22, y+20, 22, 3);
+  // Hood (front)
+  ctx.fillStyle = C.outline; ctx.fillRect(x+44, y+18, 12, 8);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+45, y+18, 11, 7);
+  ctx.fillStyle = P.core; ctx.fillRect(x+45, y+19, 11, 5);
+  ctx.fillStyle = P.light; ctx.fillRect(x+45, y+19, 11, 1);
+  // Hood scoop
+  ctx.fillStyle = C.outline; ctx.fillRect(x+48, y+16, 6, 3);
+  ctx.fillStyle = '#1a1a20'; ctx.fillRect(x+49, y+17, 4, 1);
+  // Front grille + headlight
+  ctx.fillStyle = C.outline; ctx.fillRect(x+55, y+19, 3, 6);
+  ctx.fillStyle = C.chrome; ctx.fillRect(x+55, y+19, 2, 1);
+  for (let i = 0; i < 3; i++) {
+    ctx.fillStyle = '#1a1a20'; ctx.fillRect(x+55, y+20+i*2, 3, 1);
+  }
+  vehHeadlight(ctx, x+55, y+25, 3, 2, frame);
+  // Bed
+  ctx.fillStyle = C.outline; ctx.fillRect(x+2, y+17, 21, 12);
+  ctx.fillStyle = P.deep; ctx.fillRect(x+3, y+18, 19, 10);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+3, y+18, 19, 1);
+  // Bed inside (darker well)
+  ctx.fillStyle = '#1a1010'; ctx.fillRect(x+4, y+20, 17, 7);
+  // Bed contents — cargo lumps
+  ctx.fillStyle = C.cargoOuter; ctx.fillRect(x+6, y+19, 6, 4);
+  ctx.fillStyle = C.cargoInner; ctx.fillRect(x+7, y+19, 4, 2);
+  ctx.fillStyle = C.cargoOuter; ctx.fillRect(x+14, y+20, 5, 3);
+  ctx.fillStyle = C.cargoInner; ctx.fillRect(x+15, y+20, 3, 1);
+  // Sticking out: pole / shovel
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+11, y+12, 1, 8);
+  ctx.fillStyle = C.chrome; ctx.fillRect(x+10, y+11, 3, 2);
+  // Tailgate (back-left)
+  ctx.fillStyle = C.outline; ctx.fillRect(x+1, y+22, 2, 7);
+  ctx.fillStyle = P.core; ctx.fillRect(x+1, y+22, 2, 6);
+  ctx.fillStyle = P.light; ctx.fillRect(x+1, y+22, 2, 1);
+  // Tow hitch
+  ctx.fillStyle = C.outline; ctx.fillRect(x, y+26, 2, 2);
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x, y+27, 1, 1);
+  // Side rocker
+  ctx.fillStyle = P.deep; ctx.fillRect(x+2, y+28, 54, 1);
+  // License plate
+  vehPlate(ctx, x+44, y+27, 8, 3, '#ffd040');
+  // Wheels
+  vehWheel(ctx, x+10, y+30, 5, frame);
+  vehWheel(ctx, x+48, y+30, 5, frame);
+  // Exhaust puff (animated)
+  if ((frame >> 3) % 3 === 0) {
+    ctx.fillStyle = 'rgba(180,180,180,0.55)';
+    ctx.fillRect(x-2, y+27, 2, 2);
+    ctx.fillRect(x-4, y+26, 1, 1);
+  }
+}
+
+// ── 3. FLAMETHROWER (Hot rod) ──
+function vehFlamethrower(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox|0, y = oy|0;
+  const P = { core:'#181820', light:'#383848', dark:'#080810', deep:'#000004' };
+  // Low body
+  ctx.fillStyle = C.outline; ctx.fillRect(x+4, y+22, 50, 10);
+  ctx.fillStyle = P.deep; ctx.fillRect(x+5, y+28, 48, 4);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+5, y+25, 48, 3);
+  ctx.fillStyle = P.core; ctx.fillRect(x+5, y+23, 48, 3);
+  ctx.fillStyle = P.light; ctx.fillRect(x+6, y+23, 46, 1);
+  // FLAME PAINT — orange/yellow tongues along side
+  ctx.fillStyle = '#ff4020';
+  ctx.fillRect(x+8, y+27, 14, 2); ctx.fillRect(x+8, y+26, 8, 1); ctx.fillRect(x+8, y+25, 4, 1);
+  ctx.fillStyle = '#ff8030';
+  ctx.fillRect(x+8, y+27, 10, 1); ctx.fillRect(x+8, y+26, 6, 1);
+  ctx.fillStyle = '#ffd040';
+  ctx.fillRect(x+8, y+27, 6, 1);
+  ctx.fillStyle = '#fff0a0';
+  ctx.fillRect(x+8, y+27, 3, 1);
+  // Chopped cabin (tiny)
+  ctx.fillStyle = C.outline; ctx.fillRect(x+22, y+15, 16, 8);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+23, y+15, 14, 2);
+  vehWindow(ctx, x+23, y+17, 14, 5, { tint:'#0a1a26' });
+  // V8 ENGINE sticking through hood
+  ctx.fillStyle = C.outline; ctx.fillRect(x+38, y+10, 14, 13);
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+39, y+11, 12, 11);
+  // Air filter on top (animated suck)
+  const af = (frame >> 2) % 3;
+  ctx.fillStyle = C.chrome;
+  ctx.fillRect(x+41, y+10 - (af === 0 ? 1 : 0), 8, 2);
+  ctx.fillStyle = C.chromeLight;
+  ctx.fillRect(x+42, y+10 - (af === 0 ? 1 : 0), 6, 1);
+  // V8 piston covers (left and right banks)
+  ctx.fillStyle = C.chrome;
+  ctx.fillRect(x+39, y+12, 5, 6); ctx.fillRect(x+46, y+12, 5, 6);
+  ctx.fillStyle = C.chromeLight;
+  ctx.fillRect(x+39, y+12, 5, 1); ctx.fillRect(x+46, y+12, 5, 1);
+  // Spark plugs / bolts
+  ctx.fillStyle = '#1a1a20';
+  for (let i = 0; i < 4; i++) {
+    ctx.fillRect(x+40+i, y+15, 1, 1); ctx.fillRect(x+47+i, y+15, 1, 1);
+  }
+  // Pulsing combustion glow
+  const pulse = (frame >> 1) % 4;
+  ctx.fillStyle = pulse < 2 ? '#ff8030' : '#ffd040';
+  ctx.fillRect(x+44, y+13, 2, 1);
+  // Chrome side exhaust pipes (long, low)
+  ctx.fillStyle = C.outline; ctx.fillRect(x+10, y+29, 26, 2);
+  ctx.fillStyle = C.chrome; ctx.fillRect(x+10, y+29, 26, 1);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+12, y+29, 22, 1);
+  // Pipe collector to engine
+  ctx.fillStyle = C.chrome; ctx.fillRect(x+34, y+25, 2, 5);
+  // Pipe exit (back-left, with flame)
+  ctx.fillStyle = C.podBlack; ctx.fillRect(x+8, y+28, 2, 4);
+  // Flame from exhaust
+  const flick = Math.sin(frame * 0.5) * 2;
+  ctx.fillStyle = '#ffd040';
+  ctx.fillRect(x+5, y+29 + Math.floor(flick), 4, 2);
+  ctx.fillStyle = '#ff8030';
+  ctx.fillRect(x+3, y+29 + Math.floor(flick), 3, 2);
+  ctx.fillStyle = '#ff4020';
+  ctx.fillRect(x+1, y+30, 2, 1);
+  // License plate
+  vehPlate(ctx, x+44, y+30, 8, 3, '#ffd040');
+  // Wheels — small front, fat rear (drag racer)
+  vehWheel(ctx, x+12, y+32, 4, frame);
+  vehWheel(ctx, x+46, y+32, 6, frame, { tire:'#0a0a0a' });
+}
+
+// ── 4. VENOM (Sports car wedge) ──
+function vehVenom(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox|0, y = oy|0;
+  const P = { core:'#2a8038', light:'#60c878', dark:'#104820', deep:'#082010' };
+  // REAR WING (sticks up at back-left)
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(x+4, y+11, 12, 3);
+  ctx.fillRect(x+7, y+14, 2, 8);
+  ctx.fillRect(x+12, y+14, 2, 8);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+5, y+11, 10, 2);
+  ctx.fillStyle = P.light; ctx.fillRect(x+5, y+11, 10, 1);
+  // Low wedge body (back to nose taper)
+  ctx.fillStyle = C.outline;
+  for (let i = 0; i < 8; i++) ctx.fillRect(x+50+i, y+22+Math.floor(i*0.6), 1, 7-Math.floor(i*0.4));
+  ctx.fillRect(x+4, y+22, 50, 8);
+  ctx.fillStyle = P.deep; ctx.fillRect(x+5, y+27, 48, 3);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+5, y+24, 48, 3);
+  ctx.fillStyle = P.core; ctx.fillRect(x+5, y+22, 48, 2);
+  ctx.fillStyle = P.light; ctx.fillRect(x+6, y+22, 46, 1);
+  // Nose taper fill
+  for (let i = 0; i < 7; i++) {
+    ctx.fillStyle = P.core;
+    ctx.fillRect(x+50+i, y+22+Math.floor(i*0.6)+1, 1, 5-Math.floor(i*0.4));
+    ctx.fillStyle = P.dark;
+    ctx.fillRect(x+50+i, y+25+Math.floor(i*0.5), 1, 2);
+  }
+  // Sleek low cockpit
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(x+22, y+16, 22, 7);
+  // Curved windshield silhouette
+  ctx.fillRect(x+19, y+19, 3, 4); ctx.fillRect(x+44, y+19, 3, 4);
+  vehWindow(ctx, x+22, y+17, 22, 5, { tint:'#0a0418' });
+  // Roof spine
+  ctx.fillStyle = P.dark; ctx.fillRect(x+22, y+16, 22, 1);
+  ctx.fillStyle = P.light; ctx.fillRect(x+22, y+16, 22, 1);
+  // Side air intakes
+  ctx.fillStyle = C.outline; ctx.fillRect(x+38, y+24, 6, 3);
+  ctx.fillStyle = '#1a1a20'; ctx.fillRect(x+39, y+24, 4, 2);
+  ctx.fillStyle = P.light; ctx.fillRect(x+39, y+25, 1, 1);
+  // Body crease
+  ctx.fillStyle = P.dark; ctx.fillRect(x+8, y+25, 42, 1);
+  // Headlights — thin angular slits
+  ctx.fillStyle = C.outline; ctx.fillRect(x+50, y+23, 6, 2);
+  ctx.fillStyle = '#bcecff'; ctx.fillRect(x+51, y+24, 5, 1);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(x+51, y+24, 2, 1);
+  // Twin exhaust tips (cyan glow, pulsing)
+  const exhPulse = (frame >> 2) % 4 < 2;
+  ctx.fillStyle = C.podBlack;
+  ctx.fillRect(x+2, y+24, 2, 2); ctx.fillRect(x+2, y+27, 2, 2);
+  ctx.fillStyle = exhPulse ? '#7eddeb' : '#3a90c0';
+  ctx.fillRect(x+1, y+25, 2, 1); ctx.fillRect(x+1, y+28, 2, 1);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x+1, y+25, 1, 1); ctx.fillRect(x+1, y+28, 1, 1);
+  // License plate
+  vehPlate(ctx, x+44, y+28, 8, 2, '#ffd040');
+  // Wheels — low profile
+  vehWheel(ctx, x+12, y+30, 4, frame);
+  vehWheel(ctx, x+46, y+30, 4, frame);
+}
+
+// ── 5. EXECUTIVE (Luxury sedan) ──
+function vehExecutive(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox|0, y = oy|0;
+  const P = { core:'#181820', light:'#383848', dark:'#080810', deep:'#000004' };
+  // Long low body
+  ctx.fillStyle = C.outline; ctx.fillRect(x+4, y+20, 54, 10);
+  ctx.fillStyle = P.deep; ctx.fillRect(x+5, y+27, 52, 3);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+5, y+24, 52, 3);
+  ctx.fillStyle = P.core; ctx.fillRect(x+5, y+21, 52, 3);
+  ctx.fillStyle = P.light; ctx.fillRect(x+6, y+21, 50, 1);
+  // Chrome belt-line trim (full length)
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+5, y+23, 52, 1);
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+5, y+24, 52, 1);
+  // Cabin / roof (longer than usual)
+  ctx.fillStyle = C.outline; ctx.fillRect(x+16, y+11, 30, 10);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+17, y+11, 28, 2);
+  // Vinyl roof texture
+  ctx.fillStyle = '#0a0a12';
+  for (let i = 0; i < 14; i++) {
+    if (i % 2) ctx.fillRect(x+17+i*2, y+11, 1, 2);
+  }
+  // Long tinted windows
+  vehWindow(ctx, x+17, y+13, 28, 7, { tint:'#0a0418' });
+  // 4 window pillars
+  ctx.fillStyle = P.dark;
+  ctx.fillRect(x+24, y+13, 1, 7);
+  ctx.fillRect(x+31, y+13, 1, 7);
+  ctx.fillRect(x+38, y+13, 1, 7);
+  // Big chrome grille (rectangular, front-right)
+  ctx.fillStyle = C.outline; ctx.fillRect(x+52, y+21, 6, 8);
+  ctx.fillStyle = C.chrome; ctx.fillRect(x+53, y+22, 5, 6);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+53, y+22, 5, 1);
+  // Grille slats (horizontal)
+  ctx.fillStyle = C.chromeDark;
+  for (let i = 0; i < 3; i++) ctx.fillRect(x+53, y+24+i*2, 5, 1);
+  // Hood ornament
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+52, y+19, 1, 2);
+  ctx.fillStyle = '#fff0a0'; ctx.fillRect(x+52, y+19, 1, 1);
+  // Headlights — round, dual
+  vehHeadlight(ctx, x+50, y+22, 3, 3, frame);
+  vehHeadlight(ctx, x+50, y+26, 3, 3, frame);
+  // Rear taillight cluster
+  ctx.fillStyle = C.outline; ctx.fillRect(x+4, y+22, 2, 6);
+  ctx.fillStyle = '#c83828'; ctx.fillRect(x+4, y+22, 2, 6);
+  ctx.fillStyle = '#ff7050'; ctx.fillRect(x+4, y+22, 1, 1);
+  // License plate (centered rear)
+  vehPlate(ctx, x+6, y+28, 8, 3, '#e8e0d0');
+  // Whitewall tires
+  vehWheel(ctx, x+12, y+30, 5, frame, { whitewall:true });
+  vehWheel(ctx, x+48, y+30, 5, frame, { whitewall:true });
+}
+
+// ── 6. GULLWING (DeLorean homage) ──
+function vehGullwing(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox|0, y = oy|0;
+  const P = { core:'#b8b8c0', light:'#e8e8f0', dark:'#787880', deep:'#383840' };
+  // Wedge body
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(x+4, y+22, 50, 8);
+  for (let i = 0; i < 6; i++) ctx.fillRect(x+50+i, y+22+Math.floor(i*0.7), 1, 8-Math.floor(i*0.7));
+  // Body fills
+  ctx.fillStyle = P.deep; ctx.fillRect(x+5, y+27, 49, 3);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+5, y+24, 49, 3);
+  ctx.fillStyle = P.core; ctx.fillRect(x+5, y+22, 49, 2);
+  ctx.fillStyle = P.light; ctx.fillRect(x+6, y+22, 47, 1);
+  // Brushed metal bands
+  ctx.fillStyle = P.dark;
+  ctx.fillRect(x+8, y+25, 40, 1);
+  ctx.fillRect(x+8, y+28, 40, 1);
+  // Lower cabin (between gull-wing doors)
+  ctx.fillStyle = C.outline; ctx.fillRect(x+18, y+15, 26, 8);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+19, y+15, 24, 1);
+  vehWindow(ctx, x+19, y+16, 24, 5, { tint:'#0a0418' });
+  // Roof spine
+  ctx.fillStyle = P.light; ctx.fillRect(x+19, y+15, 24, 1);
+  // GULL-WING DOORS — angled up + out (left)
+  ctx.fillStyle = C.outline;
+  for (let i = 0; i < 8; i++) {
+    ctx.fillRect(x+18 - i, y+15 - Math.floor(i*0.6), 1, 4);
+  }
+  ctx.fillStyle = P.dark;
+  for (let i = 0; i < 7; i++) {
+    ctx.fillRect(x+18 - i, y+16 - Math.floor(i*0.6), 1, 2);
+  }
+  ctx.fillStyle = P.light;
+  for (let i = 0; i < 7; i++) {
+    ctx.fillRect(x+18 - i, y+16 - Math.floor(i*0.6), 1, 1);
+  }
+  // GULL-WING DOORS (right)
+  ctx.fillStyle = C.outline;
+  for (let i = 0; i < 8; i++) {
+    ctx.fillRect(x+44 + i, y+15 - Math.floor(i*0.6), 1, 4);
+  }
+  ctx.fillStyle = P.dark;
+  for (let i = 0; i < 7; i++) {
+    ctx.fillRect(x+44 + i, y+16 - Math.floor(i*0.6), 1, 2);
+  }
+  ctx.fillStyle = P.light;
+  for (let i = 0; i < 7; i++) {
+    ctx.fillRect(x+44 + i, y+16 - Math.floor(i*0.6), 1, 1);
+  }
+  // Door window slits
+  ctx.fillStyle = '#0a1a28';
+  for (let i = 0; i < 5; i++) {
+    ctx.fillRect(x+17 - i, y+17 - Math.floor(i*0.6), 1, 1);
+    ctx.fillRect(x+45 + i, y+17 - Math.floor(i*0.6), 1, 1);
+  }
+  // FLUX CAPACITOR pulse (visible through windshield)
+  const fluxPhase = (frame >> 2) % 4;
+  const fluxColors = ['#ffffff', '#7eddeb', '#bcecff', '#3090ff'];
+  ctx.fillStyle = fluxColors[fluxPhase];
+  ctx.fillRect(x+28, y+18, 6, 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x+30, y+18, 2, 1);
+  // Door light shimmer (intermittent)
+  if (fluxPhase === 0) {
+    ctx.fillStyle = '#bcecff';
+    ctx.fillRect(x+11, y+13, 1, 1);
+    ctx.fillRect(x+50, y+13, 1, 1);
+  }
+  // Front headlights — rectangular
+  ctx.fillStyle = C.outline; ctx.fillRect(x+50, y+24, 6, 2);
+  ctx.fillStyle = '#fff0a0'; ctx.fillRect(x+51, y+24, 5, 1);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(x+51, y+24, 2, 1);
+  // Rear thrust (Mr. Fusion style)
+  ctx.fillStyle = C.podBlack; ctx.fillRect(x+2, y+25, 2, 4);
+  ctx.fillStyle = '#bcecff'; ctx.fillRect(x+1, y+26, 2, 2);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(x+1, y+26, 1, 1);
+  // License plate — OUTATIME hint
+  vehPlate(ctx, x+44, y+28, 8, 2, '#ffd040');
+  // Wheels (low profile)
+  vehWheel(ctx, x+14, y+30, 4, frame);
+  vehWheel(ctx, x+44, y+30, 4, frame);
+}
+
+// ── 7. NOVA (Muscle car) ──
+function vehNova(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox|0, y = oy|0;
+  const P = { core:'#e07020', light:'#ffa050', dark:'#803010', deep:'#401008' };
+  // Body — long, slightly raised rear haunches
+  ctx.fillStyle = C.outline; ctx.fillRect(x+4, y+20, 52, 10);
+  ctx.fillStyle = P.deep; ctx.fillRect(x+5, y+27, 50, 3);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+5, y+24, 50, 3);
+  ctx.fillStyle = P.core; ctx.fillRect(x+5, y+21, 50, 3);
+  ctx.fillStyle = P.light; ctx.fillRect(x+6, y+21, 48, 1);
+  // Rear haunch bulge
+  ctx.fillStyle = C.outline; ctx.fillRect(x+4, y+19, 14, 2);
+  ctx.fillStyle = P.core; ctx.fillRect(x+5, y+19, 13, 2);
+  ctx.fillStyle = P.light; ctx.fillRect(x+5, y+19, 13, 1);
+  // Cabin (fastback slope)
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(x+18, y+12, 26, 9);
+  // Sloped rear (cut off corner)
+  ctx.fillStyle = P.core;
+  ctx.fillRect(x+18, y+19, 2, 2); ctx.fillRect(x+19, y+18, 1, 3);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+19, y+12, 24, 1);
+  vehWindow(ctx, x+19, y+13, 24, 7, { tint:'#0a1a28' });
+  // Window pillar (B-pillar)
+  ctx.fillStyle = P.dark; ctx.fillRect(x+33, y+13, 1, 7);
+  // TWIN RACING STRIPES (white, running front to back over hood/roof/trunk)
+  ctx.fillStyle = '#e8e0d0';
+  ctx.fillRect(x+27, y+12, 2, 9); ctx.fillRect(x+33, y+12, 2, 9);
+  ctx.fillRect(x+27, y+21, 2, 7); ctx.fillRect(x+33, y+21, 2, 7);
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(x+26, y+12, 1, 16); ctx.fillRect(x+29, y+12, 1, 16);
+  ctx.fillRect(x+32, y+12, 1, 16); ctx.fillRect(x+35, y+12, 1, 16);
+  // Hood (front)
+  ctx.fillStyle = P.dark; ctx.fillRect(x+44, y+19, 11, 2);
+  ctx.fillStyle = P.core; ctx.fillRect(x+44, y+20, 11, 1);
+  // HOOD SCOOP sticking up
+  ctx.fillStyle = C.outline; ctx.fillRect(x+46, y+17, 8, 4);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+47, y+17, 6, 3);
+  ctx.fillStyle = '#1a1a20'; ctx.fillRect(x+48, y+18, 4, 2);
+  // Scoop intake glow (animated suck)
+  const intake = (frame >> 2) % 3;
+  ctx.fillStyle = intake === 0 ? '#ff8030' : '#ffd040';
+  ctx.fillRect(x+49, y+19, 2, 1);
+  // Body crease
+  ctx.fillStyle = P.dark; ctx.fillRect(x+8, y+25, 44, 1);
+  // Front chrome grille
+  ctx.fillStyle = C.outline; ctx.fillRect(x+55, y+21, 2, 7);
+  ctx.fillStyle = C.chrome; ctx.fillRect(x+55, y+21, 1, 7);
+  // Headlights
+  vehHeadlight(ctx, x+52, y+22, 3, 2, frame);
+  // Dual chrome exhaust (back-left)
+  ctx.fillStyle = C.outline; ctx.fillRect(x, y+25, 4, 3);
+  ctx.fillStyle = C.chrome; ctx.fillRect(x+1, y+25, 3, 1);
+  ctx.fillStyle = C.podBlack; ctx.fillRect(x, y+26, 4, 1);
+  ctx.fillStyle = C.outline; ctx.fillRect(x, y+28, 4, 2);
+  ctx.fillStyle = C.chrome; ctx.fillRect(x+1, y+28, 3, 1);
+  // Exhaust smoke puff
+  if ((frame >> 2) % 4 < 2) {
+    ctx.fillStyle = 'rgba(180,180,180,0.6)';
+    ctx.fillRect(x-2, y+25, 2, 2); ctx.fillRect(x-2, y+28, 2, 2);
+  }
+  // License plate
+  vehPlate(ctx, x+44, y+27, 8, 3, '#080808');
+  // Wheels (back slightly larger)
+  vehWheel(ctx, x+12, y+30, 5, frame);
+  vehWheel(ctx, x+48, y+30, 5, frame);
+}
+
+// ── 8. SKYHOOK (Winged sky-cruiser) ──
+function vehSkyhook(ctx, ox, oy, frame) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox|0, y = oy|0;
+  const P = { core:'#e0e8f0', light:'#ffffff', dark:'#7080a0', deep:'#304060',
+              trim:'#3090ff', trimDark:'#1050c0' };
+  // WINGS — extending out left and right
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(x, y+22, 14, 4);     // left wing
+  ctx.fillRect(x+46, y+22, 14, 4);  // right wing
+  ctx.fillStyle = P.deep; ctx.fillRect(x+1, y+25, 12, 1);
+  ctx.fillStyle = P.deep; ctx.fillRect(x+47, y+25, 12, 1);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+1, y+23, 12, 2);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+47, y+23, 12, 2);
+  ctx.fillStyle = P.core; ctx.fillRect(x+2, y+23, 11, 1);
+  ctx.fillStyle = P.core; ctx.fillRect(x+47, y+23, 11, 1);
+  ctx.fillStyle = P.light; ctx.fillRect(x+2, y+23, 11, 1);
+  ctx.fillStyle = P.light; ctx.fillRect(x+47, y+23, 11, 1);
+  // Wing trim accent stripe
+  ctx.fillStyle = P.trim;
+  ctx.fillRect(x+1, y+24, 12, 1); ctx.fillRect(x+47, y+24, 12, 1);
+  // Central fuselage body
+  ctx.fillStyle = C.outline; ctx.fillRect(x+10, y+18, 40, 12);
+  ctx.fillStyle = P.deep; ctx.fillRect(x+11, y+27, 38, 3);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+11, y+24, 38, 3);
+  ctx.fillStyle = P.core; ctx.fillRect(x+11, y+19, 38, 5);
+  ctx.fillStyle = P.light; ctx.fillRect(x+12, y+19, 36, 1);
+  // Trim stripe along fuselage
+  ctx.fillStyle = P.trim; ctx.fillRect(x+12, y+25, 36, 1);
+  ctx.fillStyle = P.trimDark; ctx.fillRect(x+12, y+26, 36, 1);
+  // Cockpit canopy — sleek bubble
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(x+18, y+10, 24, 10);
+  ctx.fillRect(x+16, y+12, 2, 8);
+  ctx.fillRect(x+42, y+12, 2, 8);
+  ctx.fillStyle = P.dark; ctx.fillRect(x+19, y+10, 22, 2);
+  vehWindow(ctx, x+19, y+12, 22, 6, { tint:'#0a1a28' });
+  // Canopy reflection sweep
+  ctx.fillStyle = 'rgba(255,255,255,0.65)';
+  for (let i = 0; i < 6; i++) ctx.fillRect(x+20+i, y+12+i, 2, 1);
+  // Pilot silhouette
+  ctx.fillStyle = '#0a0a14'; ctx.fillRect(x+28, y+14, 5, 4);
+  ctx.fillStyle = '#1a1a26'; ctx.fillRect(x+29, y+14, 3, 1);
+  // Nose cone (front-right)
+  ctx.fillStyle = C.outline;
+  for (let i = 0; i < 4; i++) ctx.fillRect(x+50+i, y+20+i, 1, 8-i*2);
+  ctx.fillStyle = P.core;
+  for (let i = 0; i < 3; i++) ctx.fillRect(x+50+i, y+21+i, 1, 6-i*2);
+  ctx.fillStyle = P.light;
+  for (let i = 0; i < 3; i++) ctx.fillRect(x+50+i, y+21+i, 1, 1);
+  // Nose light
+  ctx.fillStyle = '#ffd040'; ctx.fillRect(x+53, y+23, 1, 1);
+  // WING-TIP LIGHTS — red left, green right, alternating blink
+  const blink = (frame >> 3) % 2;
+  ctx.fillStyle = blink ? '#ff2020' : '#601010';
+  ctx.fillRect(x, y+23, 1, 2);
+  ctx.fillStyle = blink ? '#20ff20' : '#106010';
+  ctx.fillRect(x+59, y+23, 1, 2);
+  // TWIN JET PODS slung under wings
+  // Left pod
+  ctx.fillStyle = C.outline; ctx.fillRect(x+2, y+26, 10, 5);
+  ctx.fillStyle = C.podGrey; ctx.fillRect(x+3, y+27, 9, 3);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+3, y+27, 9, 1);
+  // Jet glow exit (rear)
+  ctx.fillStyle = P.trim; ctx.fillRect(x+1, y+27, 2, 3);
+  ctx.fillStyle = '#bcecff'; ctx.fillRect(x+1, y+28, 1, 1);
+  // Right pod
+  ctx.fillStyle = C.outline; ctx.fillRect(x+48, y+26, 10, 5);
+  ctx.fillStyle = C.podGrey; ctx.fillRect(x+48, y+27, 9, 3);
+  ctx.fillStyle = C.chromeLight; ctx.fillRect(x+48, y+27, 9, 1);
+  // No wheels — hover plates underneath, glowing
+  const hover = ((frame >> 1) % 4) < 2;
+  ctx.fillStyle = hover ? P.trim : P.trimDark;
+  ctx.fillRect(x+18, y+31, 12, 1);
+  ctx.fillRect(x+30, y+31, 12, 1);
+  ctx.fillStyle = 'rgba(48,144,255,0.4)';
+  ctx.fillRect(x+18, y+32, 24, 1);
+  // License plate (on tail)
+  vehPlate(ctx, x+44, y+28, 4, 2, '#a0e0ff');
+}
+
+// ─────────────────────────────────────────────────────────
+// Ground fleet config + grid builder
+// ─────────────────────────────────────────────────────────
+const VEHICLES = [
+  { id:'dunerunner',   name:'DUNERUNNER',   tag:'Boxy desert SUV. Roof-rack light bar, bull bar, sand puffs.',
+    type:'SUV / Off-roader', render:vehDunerunner, plate:'DUNE 4X4',
+    swatches:['#c89858','#e8c890','#7a5828','#3a2810','#ff4020','#fff0a0','#ffd060','#1a1a20'] },
+  { id:'bedhoss',      name:'BED HOSS',     tag:'Pickup with cargo bed, hood scoop, exhaust puff.',
+    type:'Pickup truck', render:vehBedhoss, plate:'BED HOSS',
+    swatches:['#c83828','#ff6040','#7a1a10','#3a0808','#9a9aa0','#a0822a','#0a1a26','#080808'] },
+  { id:'flamethrower', name:'FLAMETHROWER', tag:'Hot rod. Exposed V8, chopped roof, side pipes, flame paint.',
+    type:'Hot rod', render:vehFlamethrower, plate:'BURN OUT',
+    swatches:['#181820','#383848','#080810','#000004','#ff4020','#ff8030','#ffd040','#cfd2d4'] },
+  { id:'venom',        name:'VENOM',        tag:'Low sports wedge. Rear wing, side intakes, cyan exhaust.',
+    type:'Sports car', render:vehVenom, plate:'VNM 001',
+    swatches:['#2a8038','#60c878','#104820','#082010','#7eddeb','#ffffff','#bcecff','#080808'] },
+  { id:'executive',    name:'EXECUTIVE',    tag:'Luxury sedan. Vinyl roof, whitewalls, chrome belt, hood ornament.',
+    type:'Luxury sedan', render:vehExecutive, plate:'CEO 1',
+    swatches:['#181820','#383848','#080810','#000004','#cfd2d4','#e8e0d0','#c83828','#ffd040'] },
+  { id:'gullwing',     name:'GULLWING',     tag:'Stainless wedge with gull-wing doors UP. Flux pulse onboard.',
+    type:'Exotic (DeLorean)', render:vehGullwing, plate:'OUTATIME',
+    swatches:['#b8b8c0','#e8e8f0','#787880','#383840','#7eddeb','#bcecff','#3090ff','#ffd040'] },
+  { id:'nova',         name:'NOVA',         tag:'Muscle car. Hood scoop, twin racing stripes, dual chrome exhaust.',
+    type:'Muscle car', render:vehNova, plate:'NOVA SS',
+    swatches:['#e07020','#ffa050','#803010','#401008','#e8e0d0','#cfd2d4','#080808','#ff8030'] },
+  { id:'skyhook',      name:'SKYHOOK',      tag:'Winged sky-cruiser. Twin jet pods, hover plates, wing-tip blink.',
+    type:'Flying car', render:vehSkyhook, plate:'SKY 88',
+    swatches:['#e0e8f0','#ffffff','#7080a0','#304060','#3090ff','#bcecff','#ff2020','#20ff20'] },
+];
+
+function buildGround() {
+  const grid = document.getElementById('groundGrid');
+  if (!grid) return;
+  VEHICLES.forEach(V => {
+    const card = document.createElement('div');
+    card.className = 'rigCard';
+    card.innerHTML = `
+      <div class="rigName">${V.name}</div>
+      <div class="rigTag">${V.tag}</div>
+      <div class="rigCanvasWrap">
+        <canvas id="veh-${V.id}" width="200" height="80" class="rigCanvas"></canvas>
+      </div>
+      <dl class="rigSpecs">
+        <dt>Type</dt><dd>${V.type}</dd>
+        <dt>Plate</dt><dd>${V.plate}</dd>
+      </dl>
+      <div class="swatchRow">
+        ${V.swatches.map(c => `<div class="swatch" style="background:${c}"></div>`).join('')}
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function renderGround(frame) {
+  VEHICLES.forEach(V => {
+    const c = document.getElementById('veh-' + V.id);
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, c.width, c.height);
+    V.render(ctx, 70, 18, frame);
+  });
+}
+
 // ─────────────────────────────────────────────────────────
 // Animation loop
 // ─────────────────────────────────────────────────────────
 buildFleet();
+buildGround();
 
 let frame = 0;
 function tick() {
   frame++;
   renderPixel(frame);
   renderFleet(frame);
+  renderGround(frame);
   requestAnimationFrame(tick);
 }
 tick();
