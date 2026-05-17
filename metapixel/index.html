@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetaPixel — Asset Foundry</title>
+<style>
+  :root {
+    --bg: #0d0d10;
+    --panel: #17181c;
+    --panel-edge: #2a2c33;
+    --ink: #eaeaea;
+    --ink-dim: #9aa0aa;
+    --accent: #ff8a3d;
+    --accent-hot: #ffd23f;
+    --accent-cold: #4cc3ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font-family: 'Courier New', ui-monospace, Menlo, monospace;
+    line-height: 1.55;
+    padding: 28px 20px 80px;
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  header { border-bottom: 1px solid var(--panel-edge); padding-bottom: 18px; margin-bottom: 24px; }
+  h1 {
+    margin: 0;
+    font-size: 28px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  header p { margin: 8px 0 0; color: var(--ink-dim); font-size: 13px; letter-spacing: 0.08em; }
+  .project {
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    padding: 20px;
+    margin-bottom: 28px;
+    border-radius: 4px;
+  }
+  .project h2 {
+    margin: 0 0 6px;
+    font-size: 18px;
+    color: var(--accent-hot);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .project .meta { color: var(--ink-dim); font-size: 12px; margin-bottom: 16px; letter-spacing: 0.06em; }
+  .stage {
+    background: #ffffff;
+    border: 1px solid var(--panel-edge);
+    padding: 12px;
+    display: inline-block;
+    border-radius: 2px;
+  }
+  canvas.display {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    display: block;
+    width: 512px;
+    height: 512px;
+    max-width: 100%;
+    height: auto;
+    aspect-ratio: 1/1;
+  }
+  .controls { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button {
+    background: var(--accent);
+    color: #1a1a1a;
+    border: 0;
+    padding: 10px 18px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: background 0.12s;
+  }
+  button:hover:not(:disabled) { background: var(--accent-hot); }
+  button:disabled { background: #3a3c42; color: #6a6e76; cursor: progress; }
+  button.ghost {
+    background: transparent;
+    color: var(--accent-cold);
+    border: 1px solid var(--accent-cold);
+  }
+  button.ghost:hover:not(:disabled) { background: var(--accent-cold); color: #0a0a0a; }
+  .status {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--ink-dim);
+    min-height: 1.2em;
+    letter-spacing: 0.04em;
+  }
+  .status.ok { color: var(--accent-hot); }
+  .status.err { color: #ff6464; }
+  footer { color: var(--ink-dim); font-size: 11px; text-align: center; margin-top: 40px; letter-spacing: 0.1em; }
+  footer a { color: var(--accent-cold); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MetaPixel</h1>
+  <p>Pixel art foundry — animations and stills, 512×512 GIF + PNG ready for download.</p>
+</header>
+
+<!-- ─────────────────────────────────────────────────────────────────── -->
+<!-- PROJECT 01 — Roaring Fire Loop                                       -->
+<!-- ─────────────────────────────────────────────────────────────────── -->
+<section class="project" id="project-fire">
+  <h2>01 — Roaring Fire Loop</h2>
+  <div class="meta">Six-stage progression · 24-frame seamless loop @ 12fps · 512×512 GIF</div>
+  <div class="stage">
+    <canvas id="fire-display" class="display" width="64" height="64"></canvas>
+  </div>
+  <div class="controls">
+    <button id="fire-gif">Download GIF</button>
+    <button id="fire-png" class="ghost">Download PNG (current frame)</button>
+  </div>
+  <div class="status" id="fire-status">Ready.</div>
+</section>
+
+<footer>
+  Built with vanilla canvas2D · GIFs encoded by <a href="https://github.com/jnordberg/gif.js" target="_blank" rel="noopener">gif.js</a>
+</footer>
+
+<!-- gif.js for export -->
+<script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+// SHARED UTILITIES
+// ═══════════════════════════════════════════════════════════════════════
+
+function px(ctx, color, x, y, w, h) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x | 0, y | 0, (w || 1) | 0, (h || 1) | 0);
+}
+
+// Fetch the gif.js worker script and turn it into a same-origin blob URL.
+// This sidesteps the CORS blocks some browsers apply to cross-origin Workers.
+let gifWorkerUrlPromise = null;
+function getGifWorkerUrl() {
+  if (gifWorkerUrlPromise) return gifWorkerUrlPromise;
+  gifWorkerUrlPromise = fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js')
+    .then(r => r.text())
+    .then(t => URL.createObjectURL(new Blob([t], { type: 'application/javascript' })));
+  return gifWorkerUrlPromise;
+}
+
+// Build a 512×512 export canvas by drawing the native-res scene and
+// nearest-neighbor scaling it up.
+function makeExportCanvas(drawScene, nativeSize, t) {
+  const native = document.createElement('canvas');
+  native.width = nativeSize; native.height = nativeSize;
+  const nctx = native.getContext('2d');
+  nctx.imageSmoothingEnabled = false;
+  drawScene(nctx, nativeSize, nativeSize, t);
+
+  const out = document.createElement('canvas');
+  out.width = 512; out.height = 512;
+  const octx = out.getContext('2d');
+  octx.imageSmoothingEnabled = false;
+  octx.drawImage(native, 0, 0, 512, 512);
+  return out;
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+}
+
+// Render a project to GIF given a draw callback, frame count, fps, native size.
+async function renderGif({ drawScene, nativeSize, frames, fps, filename, statusEl, button }) {
+  button.disabled = true;
+  statusEl.className = 'status';
+  statusEl.textContent = 'Loading encoder…';
+  try {
+    const workerUrl = await getGifWorkerUrl();
+    const gif = new GIF({
+      workers: 2,
+      quality: 1,
+      width: 512,
+      height: 512,
+      workerScript: workerUrl,
+    });
+    const delay = Math.round(1000 / fps);
+    for (let f = 0; f < frames; f++) {
+      const c = makeExportCanvas(drawScene, nativeSize, f);
+      gif.addFrame(c, { delay });
+      statusEl.textContent = `Rendering frame ${f + 1}/${frames}…`;
+      // yield to let the UI breathe
+      await new Promise(r => setTimeout(r, 0));
+    }
+    statusEl.textContent = 'Compressing GIF…';
+    await new Promise((resolve, reject) => {
+      gif.on('progress', (p) => { statusEl.textContent = `Compressing… ${Math.round(p * 100)}%`; });
+      gif.on('finished', (blob) => { downloadBlob(blob, filename); resolve(); });
+      gif.on('abort', reject);
+      gif.render();
+    });
+    statusEl.className = 'status ok';
+    statusEl.textContent = `Saved ${filename} (${frames} frames, ${fps}fps).`;
+  } catch (err) {
+    console.error(err);
+    statusEl.className = 'status err';
+    statusEl.textContent = 'Failed: ' + (err && err.message ? err.message : err);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function downloadFramePng({ drawScene, nativeSize, currentFrame, filename, statusEl }) {
+  const c = makeExportCanvas(drawScene, nativeSize, currentFrame());
+  c.toBlob((blob) => {
+    downloadBlob(blob, filename);
+    statusEl.className = 'status ok';
+    statusEl.textContent = `Saved ${filename}.`;
+  }, 'image/png');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PROJECT 01 — ROARING FIRE LOOP
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Layout: 6 flames in a row, growing from ember (left) to inferno (right),
+// matching the reference sprite sheet. Each flame flickers independently
+// via per-flame phase seeds. All wave frequencies are integer multiples of
+// (2π / FIRE_FRAMES) so the animation loops seamlessly.
+
+const FIRE_FRAMES   = 24;
+const FIRE_FPS      = 12;
+const FIRE_NATIVE   = 64;
+const FIRE_LOOP_TAU = (Math.PI * 2) / FIRE_FRAMES;   // ≈ 0.2618
+
+const FIRE = {
+  CORE:    '#fff6c2',  // white-yellow heart (hottest)
+  YELLOW:  '#ffd23f',  // body yellow
+  ORANGE:  '#ff8c1a',  // mid orange
+  DEEPORG: '#ff5e1f',  // saturated outer flame
+  RED:     '#e63a1a',  // shell
+  DEEPRED: '#8a1f12',  // dark outline
+};
+
+// Sizes of each flame stage: { w: full-width at base, h: total height }
+// Taller-than-wide teardrops mirror the reference profile.
+const FIRE_SIZES = [
+  { w: 3,  h: 5  },  // 0 — tiny ember
+  { w: 4,  h: 8  },  // 1 — small
+  { w: 5,  h: 12 },  // 2 — medium
+  { w: 7,  h: 17 },  // 3 — large
+  { w: 9,  h: 22 },  // 4 — big
+  { w: 11, h: 28 },  // 5 — roaring inferno
+];
+
+// Horizontal centers — tight fit inside 64-wide canvas.
+const FIRE_XS = [4, 11, 19, 28, 39, 53];
+const FIRE_BASE_Y = 60;   // baseline for all flames
+
+// Per-flame phase seeds so each flame flickers out of sync.
+const FIRE_SEEDS = [0.0, 1.3, 2.7, 4.1, 5.6, 0.8];
+
+// Egg/teardrop base profile — narrower at the base, widest in the lower
+// third, then a long pointed taper toward the tip. This matches the
+// reference silhouettes where flames bulge in the belly and come to a
+// fine point rather than reading as cylinders.
+function fireBaseProfile(row, w, h) {
+  const u = row / Math.max(1, h - 1);
+  let mult;
+  if      (u < 0.10) mult = 0.40 + u * 1.0;                  // 0.40 → 0.50
+  else if (u < 0.30) mult = 0.50 + (u - 0.10) * 0.10;        // 0.50 → 0.52 (belly)
+  else if (u < 0.55) mult = 0.52 - (u - 0.30) * 0.40;        // 0.52 → 0.42
+  else if (u < 0.85) mult = 0.42 - (u - 0.55) * 1.10;        // 0.42 → 0.09
+  else                mult = 0.09 - (u - 0.85) * 0.55;        // 0.09 → 0.0
+  return Math.max(0.5, w * mult);
+}
+
+// Build asymmetric left/right half-width arrays for one flame at time t.
+// Each flame gets 3 superimposed wave harmonics so the outline reads as
+// irregular rather than as a perfect sinewave — that's what gives the
+// reference its "licking tongues" look.
+function fireProfile(size, t, seed) {
+  const { w, h } = FIRE_SIZES[size];
+  const left = new Array(h);
+  const right = new Array(h);
+  const amp = 0.4 + size * 0.28;
+  const f1 = FIRE_LOOP_TAU * 2;
+  const f2 = FIRE_LOOP_TAU * 3;
+  const f3 = FIRE_LOOP_TAU * 1;
+  for (let row = 0; row < h; row++) {
+    const u = row / Math.max(1, h - 1);
+    const base = fireBaseProfile(row, w, h);
+    if (u < 0.30) {
+      // Stable lower body — base of the flame doesn't wobble.
+      left[row]  = base;
+      right[row] = base;
+    } else {
+      // Amplitude ramps with height. CRUCIAL: clamp by the base width so
+      // the wave can never push the upper flame wider than its belly —
+      // that's what keeps the silhouette reading as a teardrop instead
+      // of a bottle.
+      const upMix = (u - 0.30) / 0.70;
+      const cap = Math.max(0.4, base * 0.55);
+      const localAmp = Math.min(amp * (0.35 + upMix * 1.0), cap);
+      const phase = u * 4.8;
+      const lw = Math.sin(phase + t * f1 + seed) * localAmp
+               + Math.sin(phase * 1.7 + t * f2 + seed * 1.3) * (localAmp * 0.55)
+               + Math.sin(phase * 0.7 + t * f3 + seed * 0.9) * (localAmp * 0.35);
+      const rw = Math.sin(phase + t * f1 + seed + Math.PI) * localAmp
+               + Math.sin(phase * 1.7 + t * f2 + seed * 1.3 + 1.9) * (localAmp * 0.55)
+               + Math.sin(phase * 0.7 + t * f3 + seed * 0.9 + 2.4) * (localAmp * 0.35);
+      // Bias the wave to NARROW more than it WIDENS, so the natural
+      // motion is "tongue licking inward" rather than puffing outward.
+      left[row]  = Math.max(0.5, base + Math.min(lw, base * 0.3));
+      right[row] = Math.max(0.5, base + Math.min(rw, base * 0.3));
+    }
+  }
+  return { left, right, h };
+}
+
+// Generate "tongue spikes" — isolated 1-2px tall flames that pop up above
+// the main flame body, only for medium+ stages. This is what makes the
+// big reference flames feel like they're roaring rather than just bulging.
+// Generate "tongue spikes" — small flames that rise above the main body's
+// pointed tip, suggesting the flame is actively licking. Only for
+// medium+ stages. Each tongue's dx stays inside the body's top span so
+// the spikes feel like extensions rather than detached blobs.
+function fireTongues(size, t, seed) {
+  if (size < 3) return [];   // only large+ flames get visible tongues
+  const { w, h } = FIRE_SIZES[size];
+  // 1 main central tongue, plus side tongues for the very biggest flames.
+  const count = size >= 5 ? 3 : (size >= 4 ? 2 : 1);
+  const tongues = [];
+  for (let i = 0; i < count; i++) {
+    const slot = count === 1 ? 0.5 : i / (count - 1);
+    // Tongue x-position drifts within a narrow band near the tip.
+    const drift = Math.sin(t * FIRE_LOOP_TAU + seed + i * 1.7) * 0.4;
+    const dx = Math.round((slot - 0.5 + drift * 0.3) * w * 0.45);
+    // Tongue height — varies over the loop, longer on the main central tongue.
+    const lift = Math.sin(t * FIRE_LOOP_TAU * 2 + seed * 1.7 + i * 2.1) * 0.5 + 0.5;
+    const isCentral = Math.abs(slot - 0.5) < 0.25;
+    const maxH = isCentral ? Math.floor(h * 0.22) : Math.floor(h * 0.14);
+    const tongueH = Math.max(2, Math.floor(2 + lift * maxH));
+    tongues.push({ dx, h: tongueH });
+  }
+  return tongues;
+}
+
+// Paint a single horizontal layer of the flame.
+function fireRowPaint(ctx, cx, baseY, left, right, h, color, inset, topTrim) {
+  const maxRow = h - topTrim;
+  for (let row = 0; row < maxRow; row++) {
+    const lh = left[row]  - inset;
+    const rh = right[row] - inset;
+    if (lh < 0.5 && rh < 0.5) continue;
+    const y  = baseY - row;
+    const x0 = Math.round(cx - Math.max(0, lh));
+    const x1 = Math.round(cx + Math.max(0, rh));
+    px(ctx, color, x0, y, x1 - x0 + 1, 1);
+  }
+}
+
+function drawFlame(ctx, cx, baseY, size, t, seed) {
+  const { left, right, h } = fireProfile(size, t, seed);
+  const tongues = fireTongues(size, t, seed);
+
+  // ─── 1. Tongue outlines (pyramid: 3px base → 1px tip) ──────────────────
+  // Drawn first so the body overdraws their roots, blending them in.
+  for (const tg of tongues) {
+    const tx = cx + tg.dx;
+    const ty = baseY - h + 1;        // sit one px down into the body cap
+    for (let i = 0; i < tg.h; i++) {
+      const fromTop = tg.h - 1 - i;
+      // Tip is 1px wide; otherwise 3px wide so it has visible shoulders.
+      const halfW = fromTop === 0 ? 0 : 1;
+      px(ctx, FIRE.DEEPRED, tx - halfW, ty - i, halfW * 2 + 1, 1);
+    }
+  }
+
+  // ─── 2. Main body, layered outside → inside ────────────────────────────
+  fireRowPaint(ctx, cx, baseY, left, right, h, FIRE.DEEPRED, -1, 0);
+  // Cap row above the topmost body row to outline the tip.
+  {
+    const topRow = h - 1;
+    const lh = left[topRow], rh = right[topRow];
+    const y  = baseY - h;
+    const x0 = Math.round(cx - lh);
+    const x1 = Math.round(cx + rh);
+    px(ctx, FIRE.DEEPRED, x0, y, Math.max(1, x1 - x0 + 1), 1);
+  }
+
+  // Color rings — each ring sits one pixel inside the last and ends a
+  // little shorter, confining hot colors to the lower body.
+  fireRowPaint(ctx, cx, baseY, left, right, h, FIRE.RED,     0, 0);
+  fireRowPaint(ctx, cx, baseY, left, right, h, FIRE.DEEPORG, 1, 1);
+  fireRowPaint(ctx, cx, baseY, left, right, h, FIRE.ORANGE,  2, 2);
+  fireRowPaint(ctx, cx, baseY, left, right, h, FIRE.YELLOW,  3, 3);
+
+  // White-yellow heart — extends ~65% up the flame as the hot core,
+  // matching the reference where pale yellow stripes the body.
+  if (size >= 2) {
+    const trim = Math.max(1, Math.floor(h * 0.35));
+    fireRowPaint(ctx, cx, baseY, left, right, h, FIRE.CORE, 4, trim);
+  }
+
+  // ─── 3. Tongue interior — single column of hot color up the spine ──────
+  for (const tg of tongues) {
+    const tx = cx + tg.dx;
+    const ty = baseY - h + 1;
+    for (let i = 0; i < tg.h - 1; i++) {        // skip tip (outline only)
+      const fromBottom = i;
+      const color = fromBottom === 0 ? FIRE.YELLOW
+                  : (fromBottom < tg.h - 2 ? FIRE.ORANGE : FIRE.DEEPORG);
+      px(ctx, color, tx, ty - i, 1, 1);
+    }
+  }
+}
+
+function drawFireScene(ctx, W, H, t) {
+  // White backdrop to match the reference sprite-sheet vibe.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  for (let i = 0; i < 6; i++) {
+    drawFlame(ctx, FIRE_XS[i], FIRE_BASE_Y, i, t, FIRE_SEEDS[i]);
+  }
+}
+
+// ── Live preview loop ────────────────────────────────────────────────
+const fireDisplay = document.getElementById('fire-display');
+const fireCtx = fireDisplay.getContext('2d');
+fireCtx.imageSmoothingEnabled = false;
+let fireFrame = 0;
+let fireLast = 0;
+function fireTick(now) {
+  // Lock display to 12fps so the live preview matches the GIF playback.
+  if (now - fireLast >= 1000 / FIRE_FPS) {
+    drawFireScene(fireCtx, FIRE_NATIVE, FIRE_NATIVE, fireFrame);
+    fireFrame = (fireFrame + 1) % FIRE_FRAMES;
+    fireLast = now;
+  }
+  requestAnimationFrame(fireTick);
+}
+requestAnimationFrame(fireTick);
+
+// ── Download buttons ─────────────────────────────────────────────────
+const fireStatus = document.getElementById('fire-status');
+document.getElementById('fire-gif').addEventListener('click', (e) => {
+  renderGif({
+    drawScene: drawFireScene,
+    nativeSize: FIRE_NATIVE,
+    frames: FIRE_FRAMES,
+    fps: FIRE_FPS,
+    filename: 'roaring-fire-loop-512.gif',
+    statusEl: fireStatus,
+    button: e.currentTarget,
+  });
+});
+document.getElementById('fire-png').addEventListener('click', () => {
+  downloadFramePng({
+    drawScene: drawFireScene,
+    nativeSize: FIRE_NATIVE,
+    currentFrame: () => fireFrame,
+    filename: 'roaring-fire-frame-512.png',
+    statusEl: fireStatus,
+  });
+});
+
+</script>
+</body>
+</html>
