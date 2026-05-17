@@ -1,8 +1,7 @@
 # AERIAL THIEF · DLX GUNSHIP
 
-Enemy aircraft that drops a magnetic claw on a cable to snatch the
-player's cargo. This sprite is the **gunship body only** — the cable
-and claw are procedural.
+Enemy aircraft. Drops a magnetic claw on a cable to snatch the
+player's cargo. **Body only** — the cable + claw are drawn in code.
 
 ![reference](reference.png)
 
@@ -10,37 +9,35 @@ and claw are procedural.
 
 | Field | Value |
 |---|---|
-| Canvas size       | **100 × 44 px** (in-game render resolution + 2 px margin all sides) |
+| Canvas size       | **100 × 44 px** (render resolution + 2 px padding) |
 | Background        | Transparent (alpha = 0) |
-| Pixel scale       | 1× (game native — sprite renders at this size on screen) |
+| Pixel scale       | 1× native |
 | Facing direction  | LEFT (negative X — chases the rig from behind) |
 | Anchor (pivot)    | Body center — slice `center` at **(50, 22)** |
-| Active sprite bbox | Roughly **x=2..96, y=2..42** inside the canvas (border is intentional padding) |
+| Active sprite bbox | Roughly **x=2..96, y=2..42** (border is padding) |
 
-## Required Aseprite tags
+## Aseprite tags
 
-These map to the gunship's in-game state machine. Single frame `idle`
-covers everything — the others are optional polish. We list them so
-you can SEE what beats the sprite passes through and (if you want)
-draw a unique pose for each.
+These map to the gunship's in-game state machine. One `idle` frame
+covers the whole sprite; the rest is polish. Listed so you can see
+the full beat-by-beat of the animation, even if you only ship `idle`.
 
 | Tag | Frames | When game uses it |
 |---|---|---|
-| `idle`     | 1+ | Cruise — flying horizontally toward the rig from off-screen right (default pose) |
-| `lock_on`  | 1+ | Hovers in place over the cargo for ~12 frames before the drop (running lights brighter is a nice option) |
-| `dropping` | 1   | Mid-drop pose while the cable extends downward (cable + claw are procedural — body just holds steady) |
-| `retreat`  | 1   | Climbs / flees away after a grab attempt (slight nose-up tilt works well here) |
-| `damaged`  | 1   | Optional — cracked canopy / flickering lights / smoke trail (currently we just puff-explode the sprite on destruction) |
+| `idle`     | 1+ | Cruise. Flying horizontally toward the rig from off-screen right. |
+| `lock_on`  | 1+ | Hovers in place over the cargo for ~12 frames before the drop. Brighter running lights is a nice touch. |
+| `dropping` | 1   | Mid-drop pose while the cable extends. Cable + claw are drawn in code — body just holds steady. |
+| `retreat`  | 1   | Climbs / flees away after a grab attempt. Slight nose-up tilt works well. |
+| `damaged`  | 1   | Optional. Cracked canopy, flickering lights, smoke trail. Right now we just puff-explode on destruction. |
 
-Single `idle` frame is fine. The cable extension, claw closing,
-energy field, and engine flame are ALL procedural — your sprite is
-just the body. The extra tags above just tell the engine "use this
-pose during this state" so the gunship reads more alive if you
-choose to draw them.
+The cable extension, claw closing, energy field, and engine flame
+are all done in code — you don't have to draw any of them. The extra
+tags just let the game pick a different pose per state if you ship
+multiple frames.
 
 ## What to draw
 
-- Swept nose at the front-left (the gunship faces LEFT)
+- Swept nose at the front-left (faces LEFT)
 - Main hull (the chunky 40-wide body)
 - Tail at the back-right
 - Engine intakes / nozzles
@@ -50,40 +47,33 @@ choose to draw them.
 
 ## What NOT to draw
 
-- The cable extending downward from the belly
+- The cable hanging from the belly
 - The magnetic claw at the cable tip
-- The glowing energy field around the claw when extended
+- The glowing energy field around the claw
 - Engine exhaust trail
 - Stun / damage effects
 
-All four are added procedurally in the game.
+## SMASHED variant
 
-## SMASHED variant (when destroyed)
-
-We don't have a damage variant yet — the gunship currently just
-disappears in a puff of explosion when destroyed. If you'd like to add
-a `damaged` tagged frame (e.g. cracked canopy, flickering lights, smoke
-trail), it's optional polish.
+No damage variant yet — the gunship puff-explodes on destruction.
+A `damaged` frame (cracked canopy, flickering lights, smoke trail)
+would be nice polish if you want to take it.
 
 ## Palette
 
-Stay inside `art/palette/dlx-master-palette.gpl`. The dedicated section
-is **AERIAL THIEF**. You can also pull from the universal **OUTLINE /
-DARKS** section for shadows and silhouette.
+Stay inside `art/palette/dlx-master-palette.gpl`. Use the
+**AERIAL THIEF** section for the body and **OUTLINE / DARKS** for
+shadows + silhouette.
 
-## Variants
+## Variants in code
 
-The game already has TWO gunship variants in code:
-
-- **Variant 1 — Gunship** (this one — claw on a cable)
-- **Variant 2 — Harpooner** (fires an UPWARD harpoon instead)
-
-If/when we ship the harpooner sprite, it'll live in
-`art/vehicles/enemy/harpooner/`. For now, focus on the gunship.
+| Folder | Variant | Distinguishing feature |
+|---|---|---|
+| `gunship/` (this)   | 0 | Swept nose, classic silhouette |
+| `../gunship_alt/`   | 1 | Blunt front bumper, longer hull |
+| `../harpooner/`     | 2 | Upward harpoon launcher on top |
 
 ## Export
-
-When ready:
 
 ```bash
 aseprite -b gunship.aseprite \
@@ -92,7 +82,7 @@ aseprite -b gunship.aseprite \
   --sheet-pack --format json-array
 ```
 
-Or `File → Save As → gunship.png` for single frame.
+Or `File → Save As → gunship.png` for a single frame.
 
-Commit both `.aseprite` + `.png` together, or DM the team.
+Commit `.aseprite` + `.png` together, or DM the team.
 </parameter>

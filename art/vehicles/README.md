@@ -1,73 +1,69 @@
 # Vehicles
 
-All player rigs (`hero/`) and enemy vehicles (`enemy/`) live in this
-folder. Each vehicle gets its own subfolder with the standard layout:
+Player rigs (`hero/`) and enemy vehicles (`enemy/`) live here. Each
+vehicle is its own subfolder:
 
 ```
 <vehicle_name>/
-  <vehicle_name>.aseprite       working file (artist owns)
+  <vehicle_name>.aseprite       working file (you own this)
   <vehicle_name>.png            exported game sprite
-  <vehicle_name>.json           metadata (optional, multi-frame only)
+  <vehicle_name>.json           metadata (multi-frame only)
   reference.png                 snapshot from current code
   reference_<variant>.png       additional variants (damaged, etc.)
-  README.md                     sprite-specific anchor + state notes
+  README.md                     anchor + state notes for that sprite
 ```
 
-## Vehicle conventions
+## Conventions
 
-- **Pixel grid**: every vehicle is drawn at 1× game-pixel resolution.
-  Aseprite zoom is for viewing only — don't scale the canvas itself.
-- **Anchor point**: by default, the vehicle pivots around the center
-  of its hull. Override with an Aseprite slice named `center` if your
-  visual center differs.
+- **Pixel grid**: 1× game-pixel resolution. Aseprite zoom is for
+  viewing — don't scale the canvas itself.
+- **Anchor point**: vehicles pivot around the hull center by default.
+  Add an Aseprite slice named `center` if your visual center differs.
 - **Direction**: vehicles face RIGHT (positive X). The game flips them
-  in code if needed for opposite-direction motion.
-- **State tags** (Aseprite tags inside the .aseprite file): each
-  vehicle's own README lists the FULL state machine the engine drives
-  it through, so you can see every beat in the animation even if you
-  only ship one frame. Common shared conventions:
-  - `idle` (required, can be 1 frame) — default flight pose
-  - `damaged` (optional, 1 frame) — hit-state variant (or destroyed)
-  - `lock_on` / `charging` (optional) — pre-attack hover / windup
+  in code if a sprite needs to face the other way.
+- **State tags**: each vehicle's README lists the full state machine
+  the game drives it through, so you can see every beat in the
+  animation even if you only ship one frame. Common shared tags:
+  - `idle` (required, 1 frame is fine) — default flight pose
+  - `damaged` (optional) — hit-state variant or destroyed
+  - `lock_on` / `charging` (optional) — pre-attack hover or windup
   - `dropping` / `firing` (optional) — attack pose
   - `retract` / `retreat` (optional) — post-attack reel-back or flee
-  - Custom tags are fine; the game can read any tag name.
+  - Custom tag names are fine — the game reads them by name.
 
 ## What's procedural (don't draw)
 
-Every vehicle in the game has these effects layered ON TOP at runtime;
-leave the canvas transparent where they should appear:
+These effects get layered on top of your sprite at runtime — leave
+the canvas transparent where they should appear:
 
 - **Engine flame** — blue chevron jet out the back
 - **Engine swirl particles** — white-cyan motes near the nozzle
 - **Exhaust trail** — gray smoke puffs
-- **Antenna sway** — the antenna BASE can be drawn, but the tip
-  animates procedurally; keep the antenna as a static vertical line
+- **Antenna sway** — you can draw the antenna BASE; the tip animates
+  in code, so just leave a static vertical line
 - **Sparks** on collision
 - **Shield bubble**, **ghost aura**, **magnet ring** — overlay sprites
-- **Cargo bond / chain** — connects to the rig procedurally
+- **Cargo bond / chain** — connects to the rig in code
 - **Explosion / impact** — fully procedural
 - **Stun crackle arcs** — when stung by a jellyfish
 
-For enemy vehicles specifically:
-- **Cable + claw** on the aerial thief — only draw the gunship BODY,
-  not the dangling cable or magnetic claw at the tip
-- **Bandit truck hook** — same idea, body only
-- **Drone beam** — the drone's body, no zap beam
+For enemies specifically:
+- **Cable + claw** on the aerial thief — body only
+- **Bandit truck hook** — body only
+- **Drone beam** — body only
 
 ## Future hero rigs
 
-The game already has stat profiles for 5 player rigs: `roadkill`
-(default), `spark`, `anvil`, `ghost`, `volt`. Only `roadkill` is
-visually built today. The others will eventually need sprites in
-their own subfolders.
+The game has stat profiles for 5 player rigs: `roadkill` (the one
+that's built), `spark`, `anvil`, `ghost`, `volt`. The other four
+will need sprites eventually, in their own subfolders.
 
-Suggested visual personalities (rough — riff freely):
+Rough visual personalities — riff freely:
 
-- **spark**:  small, yellow, agile — like a hopped-up scooter
-- **anvil**:  big, dark gray, heavy — slow but tanky
-- **ghost**:  pale, translucent-looking, slim — ethereal vibe
-- **volt**:   yellow + black, longer body — endurance rig
+- **spark**: small, yellow, agile — hopped-up scooter
+- **anvil**: big, dark gray, heavy — slow but tanky
+- **ghost**: pale, translucent, slim — ethereal vibe
+- **volt**: yellow + black, longer body — endurance rig
 
 When the time comes, ping the team and we'll spec the dimensions.
 </parameter>
