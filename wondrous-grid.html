@@ -351,7 +351,12 @@
     <div class="tool-row">
       <button id="fillTool" class="tool-btn" title="Fill bucket (G)">🪣 Fill</button>
       <button id="rectTool" class="tool-btn" title="Rectangle (R) — drag to draw a filled rectangle. Shift = square.">▭ Rect</button>
+      <button id="ellipseTool" class="tool-btn" title="Ellipse (O) — drag to draw a filled ellipse. Shift = circle.">○ Ellipse</button>
+    </div>
+    <div class="tool-row">
       <button id="selectTool" class="tool-btn" title="Selection / marquee (M) — drag to select. Cmd/Ctrl + C/X/V/A, Esc to deselect.">⬚ Select</button>
+      <button id="symBtn" class="tool-btn" title="Toggle symmetry. Click again to cycle: off → vertical mirror → horizontal → both.">⫯ Sym: off</button>
+      <button id="lockAlphaBtn" class="tool-btn" title="Lock transparent pixels — paint only affects already-painted cells.">🔒 Lock α</button>
     </div>
 
     <h2>Pick Any Color</h2>
@@ -383,7 +388,11 @@
              style="width: 100%; background: var(--bg-input); accent-color: var(--accent);">
     </div>
 
-    <h2 style="margin-top: 14px;">DLX Palette</h2>
+    <h2 style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
+      <span>DLX Palette</span>
+      <button id="quantizeBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;"
+              title="Snap every painted pixel to the nearest color in the DLX palette. Useful after importing a PNG.">Snap to palette</button>
+    </h2>
     <div id="paletteContainer"></div>
 
     <h2 style="margin-top: 12px;">Recent</h2>
@@ -474,12 +483,25 @@
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>X</kbd> or <kbd>E</kbd></td><td style="padding: 4px 0;">Eraser (or <b>right-click</b> any time)</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>G</kbd></td><td style="padding: 4px 0;">Fill bucket — click to flood-fill a connected region with the active color (right-click to erase a region)</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>R</kbd></td><td style="padding: 4px 0;">Rectangle tool — drag to draw a filled rect. <kbd>Shift</kbd> = square. Right-click drag = erase rect.</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>O</kbd></td><td style="padding: 4px 0;">Ellipse tool — drag to draw a filled ellipse. <kbd>Shift</kbd> = circle.</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>M</kbd></td><td style="padding: 4px 0;">Selection / marquee — drag to select a region (dashed "marching ants" outline)</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>+</kbd> / <kbd>−</kbd></td><td style="padding: 4px 0;">Zoom in / out on the paint grid</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>F</kbd></td><td style="padding: 4px 0;">Fit zoom to current pane size</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>X</kbd></td><td style="padding: 4px 0;">Swap to the previous active color (Photoshop-style fg / bg toggle)</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Shift</kbd> + click</td><td style="padding: 4px 0;">Draw a straight line from the last painted pixel to the click (Bresenham line tool, in paint mode)</td></tr>
       </table>
+
+      <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Paint Helpers</h3>
+      <p style="margin: 0;">
+        <b>Symmetry</b> (⫯ Sym button) — cycles off → vertical mirror → horizontal mirror → both axes.
+        While on, each paint stroke is auto-mirrored across the selected axis (yellow guide lines show where the mirror axes are).
+      </p>
+      <p style="margin: 6px 0 0 0;">
+        <b>Lock α</b> (🔒 Lock α button) — when on, paint operations only affect cells that already have a pixel. Useful for recoloring shapes without redrawing the silhouette.
+      </p>
+      <p style="margin: 6px 0 0 0;">
+        <b>Snap to palette</b> (button next to "DLX Palette" header) — for every painted pixel, snaps its color to the nearest DLX palette swatch (TSC ∪ PXC ∪ your custom colors). Useful after importing a PNG that has off-palette pixels from anti-aliasing.
+      </p>
 
       <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Selection &amp; Clipboard</h3>
       <p style="margin: 0 0 8px 0;">
@@ -708,6 +730,14 @@ let state = {
   // "dx,dy" → hex relative to the selection top-left. Survives until
   // overwritten.
   clipboard: null,
+  // Symmetry mirror mode: 'off' | 'v' (vertical axis — mirror left/right)
+  // | 'h' (horizontal axis — mirror top/bottom) | 'both'. Paint
+  // strokes auto-mirror across the selected axis.
+  symmetry: 'off',
+  // Lock transparent (alpha) — when on, paint operations only affect
+  // already-painted cells. Useful for recoloring without disturbing
+  // shape silhouette.
+  lockAlpha: false,
   refSrc: null,               // data URL of reference image (or null)
   refOpacity: 0.4,            // 0..1
   refVisible: true,
@@ -934,24 +964,27 @@ hexInput.addEventListener('change', () => setActiveColor(hexInput.value));
 // ────────────────────────────────────────────────────────────
 // TOOL SELECTION
 // ────────────────────────────────────────────────────────────
-const fillTool   = document.getElementById('fillTool');
-const rectTool   = document.getElementById('rectTool');
-const selectTool = document.getElementById('selectTool');
+const fillTool    = document.getElementById('fillTool');
+const rectTool    = document.getElementById('rectTool');
+const ellipseTool = document.getElementById('ellipseTool');
+const selectTool  = document.getElementById('selectTool');
+const symBtn      = document.getElementById('symBtn');
+const lockAlphaBtn= document.getElementById('lockAlphaBtn');
+const quantizeBtn = document.getElementById('quantizeBtn');
 
 function setTool(t) {
   state.tool = t;
-  paintTool.classList.toggle('active', t === 'paint');
+  paintTool.classList.toggle('active',      t === 'paint');
   eyedropperTool.classList.toggle('active', t === 'pick');
-  eraserTool.classList.toggle('active', t === 'erase');
-  fillTool.classList.toggle('active', t === 'fill');
-  rectTool.classList.toggle('active', t === 'rect');
-  selectTool.classList.toggle('active', t === 'select');
+  eraserTool.classList.toggle('active',     t === 'erase');
+  fillTool.classList.toggle('active',       t === 'fill');
+  rectTool.classList.toggle('active',       t === 'rect');
+  ellipseTool.classList.toggle('active',    t === 'ellipse');
+  selectTool.classList.toggle('active',     t === 'select');
   let cursor = 'crosshair';
-  if (t === 'pick')   cursor = 'cell';
-  if (t === 'erase')  cursor = 'not-allowed';
-  if (t === 'fill')   cursor = 'pointer';
-  if (t === 'rect')   cursor = 'crosshair';
-  if (t === 'select') cursor = 'crosshair';
+  if (t === 'pick')    cursor = 'cell';
+  if (t === 'erase')   cursor = 'not-allowed';
+  if (t === 'fill')    cursor = 'pointer';
   paintCanvas.style.cursor = cursor;
   // Leaving the selection tool clears any active marquee.
   if (t !== 'select') clearSelection(false);
@@ -961,7 +994,95 @@ eyedropperTool.addEventListener('click', () => setTool('pick'));
 eraserTool.addEventListener('click',     () => setTool('erase'));
 fillTool.addEventListener('click',       () => setTool('fill'));
 rectTool.addEventListener('click',       () => setTool('rect'));
+ellipseTool.addEventListener('click',    () => setTool('ellipse'));
 selectTool.addEventListener('click',     () => setTool('select'));
+
+// Symmetry — cycle through off / v / h / both
+function cycleSymmetry() {
+  const cycle = ['off', 'v', 'h', 'both'];
+  state.symmetry = cycle[(cycle.indexOf(state.symmetry) + 1) % cycle.length];
+  const labels = { off: 'off', v: '↔ V', h: '↕ H', both: 'both' };
+  symBtn.textContent = '⫯ Sym: ' + labels[state.symmetry];
+  symBtn.classList.toggle('active', state.symmetry !== 'off');
+  renderGrid();
+  autosave();
+}
+symBtn.addEventListener('click', cycleSymmetry);
+
+// Lock alpha — paint only affects existing pixels (no painting on
+// transparent cells). Useful for recoloring without disturbing the
+// silhouette.
+function toggleLockAlpha() {
+  state.lockAlpha = !state.lockAlpha;
+  lockAlphaBtn.classList.toggle('active', state.lockAlpha);
+  lockAlphaBtn.textContent = '🔒 Lock α' + (state.lockAlpha ? ' ✓' : '');
+  autosave();
+}
+lockAlphaBtn.addEventListener('click', toggleLockAlpha);
+
+// Color quantize / snap-to-palette — for every painted cell, replace
+// its hex with the closest TSC ∪ PXC swatch color. Closest is the
+// minimum sum-of-squared-RGB-distance. Useful after PNG import where
+// anti-aliased edges introduced off-palette pixels.
+function buildKnownPaletteList() {
+  const out = [];
+  for (const [, gs] of TSC_GROUPS) for (const [, h] of gs) out.push(h.toLowerCase());
+  for (const [, gs] of PXC_GROUPS) for (const [, h] of gs) out.push(h.toLowerCase());
+  for (const h of state.customColors) out.push(h.toLowerCase());
+  return [...new Set(out)];
+}
+function hexToRgb(h) { return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)]; }
+function snapToPalette() {
+  const palette = buildKnownPaletteList().map(hex => ({ hex, rgb: hexToRgb(hex) }));
+  if (palette.length === 0) { alert('No palette to snap to.'); return; }
+  const before = snapshotPixels();
+  // Cache mappings so we don't re-compute distance for repeated colors.
+  const cache = new Map();
+  let changed = 0;
+  for (const [k, hex] of Object.entries(state.pixels)) {
+    if (cache.has(hex)) {
+      const snapped = cache.get(hex);
+      if (snapped !== hex) { state.pixels[k] = snapped; changed++; }
+      continue;
+    }
+    const [r, g, b] = hexToRgb(hex);
+    let bestHex = hex, bestD = Infinity;
+    for (const p of palette) {
+      const dr = p.rgb[0] - r, dg = p.rgb[1] - g, db = p.rgb[2] - b;
+      const d = dr*dr + dg*dg + db*db;
+      if (d < bestD) { bestD = d; bestHex = p.hex; }
+    }
+    cache.set(hex, bestHex);
+    if (bestHex !== hex) { state.pixels[k] = bestHex; changed++; }
+  }
+  commitHistory(before);
+  renderGrid(); renderPreview(); renderCode(); renderTimeline();
+  autosave();
+  quantizeBtn.textContent = changed ? `✓ Snapped ${changed}` : '✓ Already on palette';
+  setTimeout(() => { quantizeBtn.textContent = 'Snap to palette'; }, 1800);
+}
+quantizeBtn.addEventListener('click', snapToPalette);
+
+// Bresenham midpoint ellipse — fills an ellipse inside the bounding
+// rect (xa,ya)..(xb,yb). Used by the ellipse tool's commit phase.
+function commitEllipse(p, color, shift) {
+  const { xa, ya, xb, yb } = rectCellsFromPreview(p, shift);
+  const w = xb - xa + 1, h = yb - ya + 1;
+  const cx = (xa + xb) / 2, cy = (ya + yb) / 2;
+  const rx = w / 2, ry = h / 2;
+  if (rx <= 0 || ry <= 0) return;
+  // Scan the bounding box, test (x - cx)² / rx² + (y - cy)² / ry² <= 1
+  for (let y = ya; y <= yb; y++) {
+    for (let x = xa; x <= xb; x++) {
+      const nx = (x + 0.5 - cx) / rx;
+      const ny = (y + 0.5 - cy) / ry;
+      if (nx*nx + ny*ny <= 1) {
+        if (color == null) delete state.pixels[`${x},${y}`];
+        else paintCellRaw(x, y, color);  // respects lockAlpha
+      }
+    }
+  }
+}
 
 // ────────────────────────────────────────────────────────────
 // PRO CANVAS CONTROLS — wheel zoom, space/middle-mouse pan
@@ -1180,18 +1301,49 @@ function renderGrid() {
     paintCtx.fillStyle = hex;
     paintCtx.fillRect(px * Z, py * Z, Z, Z);
   }
-  // Rectangle-tool live preview (in-progress drag)
+  // Rect / Ellipse live-preview (in-progress drag). The same yellow
+  // outline shows the bounding box; the fill preview is rect-shaped
+  // for the rect tool, ellipse-shaped for the ellipse tool.
   if (state.rectPreview) {
     const p = state.rectPreview;
     const xa = Math.min(p.x0, p.x1), xb = Math.max(p.x0, p.x1);
     const ya = Math.min(p.y0, p.y1), yb = Math.max(p.y0, p.y1);
     paintCtx.globalAlpha = 0.55;
     paintCtx.fillStyle = state.activeColor;
-    paintCtx.fillRect(xa * Z, ya * Z, (xb - xa + 1) * Z, (yb - ya + 1) * Z);
+    if (state.tool === 'ellipse') {
+      const w = xb - xa + 1, h = yb - ya + 1;
+      const cx = (xa + xb) / 2, cy = (ya + yb) / 2;
+      const rx = w / 2, ry = h / 2;
+      for (let y = ya; y <= yb; y++) {
+        for (let x = xa; x <= xb; x++) {
+          const nx = (x + 0.5 - cx) / rx, ny = (y + 0.5 - cy) / ry;
+          if (nx*nx + ny*ny <= 1) paintCtx.fillRect(x * Z, y * Z, Z, Z);
+        }
+      }
+    } else {
+      paintCtx.fillRect(xa * Z, ya * Z, (xb - xa + 1) * Z, (yb - ya + 1) * Z);
+    }
     paintCtx.globalAlpha = 1.0;
     paintCtx.strokeStyle = '#ffd060';
     paintCtx.lineWidth = 1;
     paintCtx.strokeRect(xa * Z + 0.5, ya * Z + 0.5, (xb - xa + 1) * Z - 1, (yb - ya + 1) * Z - 1);
+  }
+  // Symmetry axis guides — show where mirror axes are
+  if (state.symmetry === 'v' || state.symmetry === 'both') {
+    paintCtx.strokeStyle = 'rgba(255, 208, 96, 0.35)';
+    paintCtx.lineWidth = 1;
+    paintCtx.beginPath();
+    paintCtx.moveTo(state.width * Z / 2, 0);
+    paintCtx.lineTo(state.width * Z / 2, state.height * Z);
+    paintCtx.stroke();
+  }
+  if (state.symmetry === 'h' || state.symmetry === 'both') {
+    paintCtx.strokeStyle = 'rgba(255, 208, 96, 0.35)';
+    paintCtx.lineWidth = 1;
+    paintCtx.beginPath();
+    paintCtx.moveTo(0, state.height * Z / 2);
+    paintCtx.lineTo(state.width * Z, state.height * Z / 2);
+    paintCtx.stroke();
   }
   // Selection marquee — dashed yellow outline. Active when state.tool
   // is 'select' OR when there's a saved selection (e.g. after paste).
@@ -1275,12 +1427,31 @@ function cellFromEvent(e) {
   return { x, y };
 }
 
-function paintAt(x, y, hex) {
+// Low-level: paint or clear a single cell. Goes through lockAlpha gate
+// (when on, only changes cells that already have a pixel).
+function paintCellRaw(x, y, hex) {
+  if (x < 0 || y < 0 || x >= state.width || y >= state.height) return;
   const k = `${x},${y}`;
+  if (state.lockAlpha && hex != null && !state.pixels[k]) return;  // skip transparent cells in paint mode
   if (hex == null) {
     if (state.pixels[k]) delete state.pixels[k];
   } else {
     state.pixels[k] = hex;
+  }
+}
+// Public paint — applies symmetry + lockAlpha to the input cell. Used
+// for the freehand paint / erase / fill / shift-line tools. The
+// rectangle and selection tools have their own bulk paint paths.
+function paintAt(x, y, hex) {
+  paintCellRaw(x, y, hex);
+  if (state.symmetry === 'v' || state.symmetry === 'both') {
+    paintCellRaw(state.width - 1 - x, y, hex);
+  }
+  if (state.symmetry === 'h' || state.symmetry === 'both') {
+    paintCellRaw(x, state.height - 1 - y, hex);
+  }
+  if (state.symmetry === 'both') {
+    paintCellRaw(state.width - 1 - x, state.height - 1 - y, hex);
   }
 }
 
@@ -1330,8 +1501,8 @@ paintCanvas.addEventListener('mousedown', (e) => {
   e.preventDefault();
   const cell = cellFromEvent(e);
 
-  // Rectangle tool — start a drag-preview. Pixels commit on mouseup.
-  if (state.tool === 'rect' && cell) {
+  // Rectangle / Ellipse tool — start a drag-preview. Pixels commit on mouseup.
+  if ((state.tool === 'rect' || state.tool === 'ellipse') && cell) {
     isPainting = true;
     preStrokeSnapshot = snapshotPixels();
     rectStart = { x: cell.x, y: cell.y };
@@ -1500,8 +1671,8 @@ function drawLineBresenham(x0, y0, x1, y1, color) {
 paintCanvas.addEventListener('mousemove', (e) => {
   if (!isPainting) return;
   const cell = cellFromEvent(e);
-  // Rectangle tool drag — update preview endpoint
-  if (state.tool === 'rect' && cell && rectStart) {
+  // Rect / Ellipse drag — update preview endpoint
+  if ((state.tool === 'rect' || state.tool === 'ellipse') && cell && rectStart) {
     state.rectPreview = { x0: rectStart.x, y0: rectStart.y, x1: cell.x, y1: cell.y };
     renderGrid();
     return;
@@ -1516,10 +1687,11 @@ paintCanvas.addEventListener('mousemove', (e) => {
   if (cell && state.tool === 'paint') lastPaintedCell = cell;
 });
 window.addEventListener('mouseup', (e) => {
-  // Rectangle tool — commit the preview to pixels
-  if (state.tool === 'rect' && state.rectPreview && preStrokeSnapshot) {
+  // Rectangle / Ellipse tool — commit the preview to pixels
+  if ((state.tool === 'rect' || state.tool === 'ellipse') && state.rectPreview && preStrokeSnapshot) {
     const erasing = (e && e.button === 2);
-    commitRectangle(state.rectPreview, erasing ? null : state.activeColor, e && e.shiftKey);
+    const fn = state.tool === 'ellipse' ? commitEllipse : commitRectangle;
+    fn(state.rectPreview, erasing ? null : state.activeColor, e && e.shiftKey);
     if (!erasing) addToRecent(state.activeColor);
     state.rectPreview = null;
     rectStart = null;
@@ -1922,6 +2094,8 @@ function autosave() {
       refSrc: state.refSrc,
       refOpacity: state.refOpacity,
       refVisible: state.refVisible,
+      symmetry: state.symmetry,
+      lockAlpha: state.lockAlpha,
     }));
   } catch (e) {
     // localStorage quota exceeded — most likely the reference image is
@@ -1969,6 +2143,8 @@ function restoreAutosave() {
     state.refSrc = data.refSrc || null;
     if (typeof data.refOpacity === 'number') state.refOpacity = data.refOpacity;
     if (typeof data.refVisible === 'boolean') state.refVisible = data.refVisible;
+    if (typeof data.symmetry === 'string') state.symmetry = data.symmetry;
+    if (typeof data.lockAlpha === 'boolean') state.lockAlpha = data.lockAlpha;
     widthInput.value = state.width;
     heightInput.value = state.height;
     return true;
@@ -2969,6 +3145,14 @@ rebuildAssetsDropdown();
 tlOnionPrevCheck.checked = state.onionPrev;
 tlOnionNextCheck.checked = state.onionNext;
 renderTimeline();
+// Sync symmetry / lock-alpha button visuals to restored state
+{
+  const labels = { off: 'off', v: '↔ V', h: '↕ H', both: 'both' };
+  symBtn.textContent = '⫯ Sym: ' + (labels[state.symmetry] || 'off');
+  symBtn.classList.toggle('active', state.symmetry !== 'off');
+  lockAlphaBtn.classList.toggle('active', state.lockAlpha);
+  lockAlphaBtn.textContent = '🔒 Lock α' + (state.lockAlpha ? ' ✓' : '');
+}
 
 // ────────────────────────────────────────────────────────────
 // HELP MODAL
@@ -3167,6 +3351,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'e') { setTool('erase'); }
   else if (e.key === 'g') { setTool('fill'); }
   else if (e.key === 'r' && !e.shiftKey) { setTool('rect'); }
+  else if (e.key === 'o') { setTool('ellipse'); }
   else if (e.key === 'm') { setTool('select'); }
   // Zoom
   else if (e.key === '+' || e.key === '=') { zoomInBtn.click(); }
