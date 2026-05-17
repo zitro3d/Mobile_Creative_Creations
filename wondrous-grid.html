@@ -468,7 +468,19 @@
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>G</kbd></td><td style="padding: 4px 0;">Fill bucket — click to flood-fill a connected region with the active color (right-click to erase a region)</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>+</kbd> / <kbd>−</kbd></td><td style="padding: 4px 0;">Zoom in / out on the paint grid</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>F</kbd></td><td style="padding: 4px 0;">Fit zoom to current pane size</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>X</kbd></td><td style="padding: 4px 0;">Swap to the previous active color (Photoshop-style fg / bg toggle)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Shift</kbd> + click</td><td style="padding: 4px 0;">Draw a straight line from the last painted pixel to the click (Bresenham line tool, in paint mode)</td></tr>
       </table>
+
+      <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Canvas Navigation (Pro)</h3>
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);">Mouse wheel</td><td style="padding: 4px 0;">Zoom in / out — zooms toward the cursor (cell under cursor stays in place)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);">Hold <kbd>Space</kbd> + drag</td><td style="padding: 4px 0;">Pan the canvas. Cursor becomes the grab hand. Aseprite / Photoshop convention.</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);">Middle-mouse drag</td><td style="padding: 4px 0;">Pan the canvas (no modifier needed)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + 0</kbd></td><td style="padding: 4px 0;">Fit zoom to pane (same as F)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + 1</kbd></td><td style="padding: 4px 0;">Default 8× zoom ("actual size"-ish for pixel art)</td></tr>
+      </table>
+      <p style="margin: 6px 0 0 0; font-size: 11px; color: var(--text-dim);">A brief <kbd>Space</kbd> tap with no drag still toggles animation play / pause — only HELD Space-with-drag enters pan mode.</p>
 
       <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Animation Timeline</h3>
       <p style="margin: 0 0 8px 0;">
@@ -906,6 +918,95 @@ eraserTool.addEventListener('click', () => setTool('erase'));
 const fillTool = document.getElementById('fillTool');
 fillTool.addEventListener('click', () => setTool('fill'));
 
+// ────────────────────────────────────────────────────────────
+// PRO CANVAS CONTROLS — wheel zoom, space/middle-mouse pan
+// Aseprite / Photoshop conventions for professional artists.
+// ────────────────────────────────────────────────────────────
+let spaceHeld = false;
+let spaceDownAt = 0;        // for distinguishing space-tap from space-hold
+let spaceUsedForPan = false;
+let lastActiveColor = '#3aa8b8';   // for X-swap (foreground / previous)
+let lastPaintedCell = null;        // for Shift+click line drawing
+
+// Mouse-wheel zoom — zooms TOWARD the cursor (cell under the cursor
+// stays put as you zoom in/out). Scroll up = zoom in.
+function setZoom(newZoom, cursorXInWrap, cursorYInWrap) {
+  const wrap = paintCanvas.parentElement;
+  const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newZoom));
+  if (z === state.zoom) return;
+  // Cell coord under the cursor before the zoom change.
+  const cellX = (cursorXInWrap ?? 0) / state.zoom;
+  const cellY = (cursorYInWrap ?? 0) / state.zoom;
+  state.zoom = z;
+  renderGrid();
+  if (cursorXInWrap !== undefined) {
+    // Re-scroll so the same cell stays under the cursor's screen position.
+    const wrapRect = wrap.getBoundingClientRect();
+    const screenX = cursorXInWrap - wrap.scrollLeft;
+    const screenY = cursorYInWrap - wrap.scrollTop;
+    wrap.scrollLeft = cellX * state.zoom - screenX;
+    wrap.scrollTop  = cellY * state.zoom - screenY;
+  }
+  zoomLabel.textContent = `Zoom: ${state.zoom}×`;
+  autosave();
+}
+function wrapCursorCoords(e) {
+  const wrap = paintCanvas.parentElement;
+  const wrapRect = wrap.getBoundingClientRect();
+  return {
+    x: e.clientX - wrapRect.left + wrap.scrollLeft,
+    y: e.clientY - wrapRect.top  + wrap.scrollTop,
+  };
+}
+paintCanvas.parentElement.addEventListener('wheel', (e) => {
+  // Only intercept WITHIN the grid-wrap, and only when the user is doing
+  // a wheel ZOOM gesture (no horizontal scroll, no shift). Otherwise let
+  // the browser pan via the wrap's overflow:auto.
+  if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+    e.preventDefault();
+    const { x, y } = wrapCursorCoords(e);
+    // 1 zoom step per wheel tick. Trackpad-friendly: ignore tiny deltaY
+    // values that fire when you barely move your fingers.
+    const step = e.deltaY < -2 ? +1 : e.deltaY > 2 ? -1 : 0;
+    if (step !== 0) setZoom(state.zoom + step, x, y);
+  }
+}, { passive: false });
+
+// Space / middle-mouse PAN.
+// - Hold Space → cursor becomes "grab"; left-drag pans.
+// - Middle-mouse-drag also pans (no modifier needed).
+// - Tapping Space briefly without dragging still toggles play/pause
+//   (Aseprite-style: tap = action, hold = mode).
+let panning = false;
+let panStartX = 0, panStartY = 0;
+let panStartScrollL = 0, panStartScrollT = 0;
+let prevCanvasCursor = '';
+
+function startPan(e) {
+  panning = true;
+  panStartX = e.clientX;
+  panStartY = e.clientY;
+  const wrap = paintCanvas.parentElement;
+  panStartScrollL = wrap.scrollLeft;
+  panStartScrollT = wrap.scrollTop;
+  prevCanvasCursor = paintCanvas.style.cursor;
+  paintCanvas.style.cursor = 'grabbing';
+  document.body.style.cursor = 'grabbing';
+}
+function endPan() {
+  if (!panning) return;
+  panning = false;
+  paintCanvas.style.cursor = prevCanvasCursor || '';
+  document.body.style.cursor = '';
+}
+window.addEventListener('mousemove', (e) => {
+  if (!panning) return;
+  const wrap = paintCanvas.parentElement;
+  wrap.scrollLeft = panStartScrollL - (e.clientX - panStartX);
+  wrap.scrollTop  = panStartScrollT - (e.clientY - panStartY);
+});
+window.addEventListener('mouseup', () => endPan());
+
 // ── Flood-fill (4-way) ────────────────────────────────────
 // Fills all connected cells that share the same color as the seed
 // (or all connected transparent cells, if you click an empty cell).
@@ -1140,6 +1241,14 @@ function handlePaintAction(cell, isRightClick) {
 }
 
 paintCanvas.addEventListener('mousedown', (e) => {
+  // Pan-mode handoff: Space-held OR middle-mouse takes priority over paint.
+  // (Photoshop / Aseprite convention.)
+  if ((spaceHeld && e.button === 0) || e.button === 1) {
+    e.preventDefault();
+    if (spaceHeld) spaceUsedForPan = true;
+    startPan(e);
+    return;
+  }
   e.preventDefault();
   isPainting = true;
   lastCellKey = null;
@@ -1147,11 +1256,42 @@ paintCanvas.addEventListener('mousedown', (e) => {
   // the undo stack at mouseup if anything actually changed during the
   // stroke. Skip snapshot for the eyedropper tool — it doesn't paint.
   preStrokeSnapshot = (state.tool === 'pick') ? null : snapshotPixels();
-  handlePaintAction(cellFromEvent(e), e.button === 2);
+  // Shift + click while in paint mode: draw a Bresenham line from the
+  // last painted cell to this one. Pixel-art convention.
+  const cell = cellFromEvent(e);
+  if (e.shiftKey && state.tool === 'paint' && lastPaintedCell && cell) {
+    drawLineBresenham(lastPaintedCell.x, lastPaintedCell.y, cell.x, cell.y, state.activeColor);
+    lastPaintedCell = cell;
+    addToRecent(state.activeColor);
+    renderGrid(); renderPreview(); renderCode();
+    return;
+  }
+  handlePaintAction(cell, e.button === 2);
+  if (cell && state.tool === 'paint') lastPaintedCell = cell;
 });
+
+// Bresenham's line — paints every cell along the line from (x0,y0) to
+// (x1,y1) with the given color. Standard for pixel-art line tools.
+function drawLineBresenham(x0, y0, x1, y1, color) {
+  const dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+  const dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  let x = x0, y = y0;
+  while (true) {
+    if (x >= 0 && y >= 0 && x < state.width && y < state.height) {
+      state.pixels[`${x},${y}`] = color;
+    }
+    if (x === x1 && y === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x += sx; }
+    if (e2 <= dx) { err += dx; y += sy; }
+  }
+}
 paintCanvas.addEventListener('mousemove', (e) => {
   if (!isPainting) return;
-  handlePaintAction(cellFromEvent(e), (e.buttons & 2) !== 0);
+  const cell = cellFromEvent(e);
+  handlePaintAction(cell, (e.buttons & 2) !== 0);
+  if (cell && state.tool === 'paint') lastPaintedCell = cell;
 });
 window.addEventListener('mouseup', () => {
   if (isPainting && preStrokeSnapshot) {
@@ -2647,10 +2787,45 @@ window.addEventListener('keydown', (e) => {
 
   if (inField) return;
 
-  // Timeline shortcuts
-  if (e.key === ' ') { e.preventDefault(); togglePlay(); return; }
+  // Cmd/Ctrl + 0 — fit zoom to pane (standard "zoom to fit" shortcut)
+  if (mod && (e.key === '0' || e.key === ')')) {
+    e.preventDefault();
+    fitZoomToScreen();
+    renderGrid();
+    return;
+  }
+  // Cmd/Ctrl + 1 — default 8× zoom ("actual size"ish for pixel art)
+  if (mod && e.key === '1') {
+    e.preventDefault();
+    defaultZoom();
+    renderGrid();
+    return;
+  }
+
+  // X — swap to last-used color (Photoshop convention for fg/bg toggle)
+  if (e.key === 'x' || e.key === 'X') {
+    const prev = lastActiveColor;
+    lastActiveColor = state.activeColor;
+    setActiveColor(prev);
+    return;
+  }
+
+  // Space — hold to pan (mousedown handles the actual drag). On a brief
+  // tap with no drag we fire play/pause as a fallback for the timeline.
+  if (e.key === ' ') {
+    e.preventDefault();
+    if (!e.repeat) {
+      spaceHeld = true;
+      spaceDownAt = Date.now();
+      spaceUsedForPan = false;
+      if (!panning) paintCanvas.style.cursor = 'grab';
+    }
+    return;
+  }
   if (e.key === 'ArrowLeft')  { stopPlayback(); prevFrame(); return; }
   if (e.key === 'ArrowRight') { stopPlayback(); nextFrame(); return; }
+
+  // (timeline Space-tap fallback is handled in keyup — see end of file)
   if (e.altKey && e.key.toLowerCase() === 'n') { e.preventDefault(); stopPlayback(); addBlankFrame(); return; }
   if (e.altKey && e.key.toLowerCase() === 'd') { e.preventDefault(); stopPlayback(); duplicateFrame(); return; }
   if (e.altKey && (e.key === 'Backspace' || e.key === 'Delete')) {
@@ -2684,6 +2859,35 @@ window.addEventListener('keydown', (e) => {
   // Help
   else if (e.key === '?' || (e.key === 'h' && !e.shiftKey)) { openHelp(); }
 });
+
+// Space — keyup behavior. Restore cursor; if it was a brief tap with
+// no pan drag, fire play/pause as the timeline shortcut. Long holds
+// (or any pan) suppress the play/pause toggle.
+window.addEventListener('keyup', (e) => {
+  if (e.key === ' ' && spaceHeld) {
+    spaceHeld = false;
+    if (!panning && paintCanvas.style.cursor === 'grab') {
+      // Restore tool cursor
+      setTool(state.tool);
+    }
+    const heldFor = Date.now() - spaceDownAt;
+    if (!spaceUsedForPan && heldFor < 250 && !e.target.matches('input, textarea, select')) {
+      togglePlay();
+    }
+    spaceUsedForPan = false;
+  }
+});
+
+// Track last-used color for the X-swap shortcut. Whenever the user
+// SWITCHES to a new color, the previous one becomes "lastActiveColor".
+const _origSetActiveColor = setActiveColor;
+setActiveColor = function(hex) {
+  const before = state.activeColor;
+  _origSetActiveColor(hex);
+  if (before && before.toLowerCase() !== state.activeColor.toLowerCase()) {
+    lastActiveColor = before;
+  }
+};
 </script>
 
 </body>
