@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451G-art-refs-all-3-enemy-thieves';
+const DLX_BUILD = 'v451H-pixel-arches-landmark';
 
 (function() {
   // ---------- Device detection ----------
@@ -18867,38 +18867,52 @@ const DLX_BUILD = 'v451G-art-refs-all-3-enemy-thieves';
   // gold-tinted. Player flies UNDER the central span — no collision
   // (the arches sit way above the rig's altitude band).
   function drawLandmarkArches(x, y) {
+    // Pixel-art twin golden arches. v451H — replaces 6 quadraticCurveTo
+    // strokes (smooth-art outline + body + highlight per arch) with a
+    // column-by-column parabolic render. Each column "bridges" to the
+    // previous column's y so steep curve sections fill without
+    // stair-step gaps. Three layered bands: dark outline, golden body,
+    // bright highlight at the top edge.
     ctx.save();
-    ctx.translate(x, y);
-    // Two side-by-side arches
-    const archHeights = [80, 80];
+    ctx.translate(x | 0, y | 0);
+    ctx.imageSmoothingEnabled = false;
     const archXs = [-22, 22];
-    for (let i = 0; i < 2; i++) {
-      const ax = archXs[i];
-      const ah = archHeights[i];
-      // Arch body — golden yellow curve
-      ctx.strokeStyle = '#f0c038';
-      ctx.lineWidth = 9;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(ax - 14, 0);
-      ctx.quadraticCurveTo(ax, -ah, ax + 14, 0);
-      ctx.stroke();
-      // Inner highlight
-      ctx.strokeStyle = '#ffe070';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(ax - 12, -2);
-      ctx.quadraticCurveTo(ax, -ah + 4, ax + 12, -2);
-      ctx.stroke();
-      // Edge outline
-      ctx.strokeStyle = '#1a0604';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(ax - 14, 0);
-      ctx.quadraticCurveTo(ax, -ah, ax + 14, 0);
-      ctx.stroke();
+    const archHeight = 80;
+    for (const ax of archXs) {
+      // Pre-compute column y values for the parabola.
+      // Bezier (1-t)²·P0 + 2(1-t)t·P1 + t²·P2 with P0=(ax-14,0),
+      // P1=(ax,-ah), P2=(ax+14,0) → y(s) = -2·s·(1-s)·ah, peaks at s=0.5.
+      const ys = [];
+      for (let dx = -14; dx <= 14; dx++) {
+        const s = (dx + 14) / 28;
+        ys.push(Math.round(-archHeight * 2 * s * (1 - s)));
+      }
+      // Layer 1 — DARK OUTLINE (11-tall band)
+      for (let dx = -14; dx <= 14; dx++) {
+        const i = dx + 14;
+        const cy = ys[i], py = i > 0 ? ys[i - 1] : cy;
+        const lo = Math.min(py, cy), hi = Math.max(py, cy);
+        ctx.fillStyle = '#1a0604';
+        ctx.fillRect((ax + dx) | 0, lo - 5, 1, (hi - lo) + 11);
+      }
+      // Layer 2 — GOLDEN BODY (9-tall band, 1-px inset from outline)
+      for (let dx = -13; dx <= 13; dx++) {
+        const i = dx + 14;
+        const cy = ys[i], py = ys[i - 1];
+        const lo = Math.min(py, cy), hi = Math.max(py, cy);
+        ctx.fillStyle = '#f0c038';
+        ctx.fillRect((ax + dx) | 0, lo - 4, 1, (hi - lo) + 9);
+      }
+      // Layer 3 — BRIGHT HIGHLIGHT (2-tall band at the top edge)
+      for (let dx = -12; dx <= 12; dx++) {
+        const i = dx + 14;
+        const cy = ys[i], py = ys[i - 1];
+        const lo = Math.min(py, cy), hi = Math.max(py, cy);
+        ctx.fillStyle = '#ffe070';
+        ctx.fillRect((ax + dx) | 0, lo - 4, 1, (hi - lo) + 2);
+      }
     }
-    // Rust streaks / weathering
+    // Rust streaks / weathering at the base
     ctx.fillStyle = 'rgba(120, 50, 20, 0.55)';
     ctx.fillRect(-32, -10, 4, 6);
     ctx.fillRect( 28, -10, 4, 6);
