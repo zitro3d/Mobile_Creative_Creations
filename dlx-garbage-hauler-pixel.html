@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451E-drone-beam-stops-at-terrain';
+const DLX_BUILD = 'v451F-cream-moon-pair-pixel-exhaust';
 
 (function() {
   // ---------- Device detection ----------
@@ -14103,31 +14103,24 @@ const DLX_BUILD = 'v451E-drone-beam-stops-at-terrain';
       pxFill(bcx - 11, bcy - 6, 1, 3, PX.moonMid);
       pxFill(bcx - 12, bcy - 3, 1, 2, PX.moonMid);
 
-      // ── MOON 2 — Smaller alien moon (right) ──────────────────
-      // Same dimensional treatment as Moon 1: terminator transition
-      // band + crater pits with rim highlights. Uses the alien
-      // purple/pink palette (moon2*) so it reads as a distinct
-      // celestial body, not just a smaller copy of moon 1.
+      // ── MOON 2 — Smaller cream sibling moon (right) ──────────
+      // v451F — uses the SAME cream palette as moon 1 instead of the
+      // alien purple/pink (PX.moon2*). They now read as a pair of
+      // moons from the same sky/system, just at different distances.
       const scx = (W * 0.78) | 0;
       const scy = (PLAY_H * 0.12) | 0;
       const m2r = 10;
-      disc(scx, scy, m2r, PX.moon2Shade);
-      disc(scx - 1, scy, m2r, PX.moon2Mid);          // terminator band
-      disc(scx - 2, scy, m2r, PX.moon2Lit);          // lit face
-      // 2 asymmetric craters (the alien moon is small — too many
-      // pits read as a face pattern). Same depth treatment as moon 1:
-      // 2×2 pit + top-left rim highlight + bottom-right shadow.
-      const crater3d2 = (x, y) => {
-        pxFill(x - 1, y - 1, 1, 1, PX.moon2Mid);
-        pxFill(x, y, 2, 2, PX.moon2Crater);
-        pxFill(x + 1, y + 1, 1, 1, PX.moon2Shade);
-      };
-      crater3d2(scx - 3, scy - 2);   // upper-left pit
-      crater3d2(scx + 1, scy + 2);   // off-axis lower-right pit
+      disc(scx, scy, m2r, PX.moonShade);
+      disc(scx - 1, scy, m2r, PX.moonMid);           // terminator band
+      disc(scx - 2, scy, m2r, PX.moonLit);           // lit face
+      // 2 asymmetric craters using the shared crater3d helper from
+      // moon 1's palette.
+      crater3d(scx - 3, scy - 2);   // upper-left pit
+      crater3d(scx + 1, scy + 2);   // off-axis lower-right pit
       // Single micro-speck for texture
-      pxFill(scx - 4, scy + 3, 1, 1, PX.moon2Crater);
-      // Sun-facing limb glow (no harsh white specular)
-      pxFill(scx - 6, scy - 3, 1, 2, PX.moon2Mid);
+      pxFill(scx - 4, scy + 3, 1, 1, PX.moonCrater);
+      // Sun-facing limb glow
+      pxFill(scx - 6, scy - 3, 1, 2, PX.moonMid);
     }
   }
 
@@ -33584,9 +33577,11 @@ const DLX_BUILD = 'v451E-drone-beam-stops-at-terrain';
   }
 
   // Cached exhaust-puff canvases — one per palette (sooty/dirty/smoke).
-  // Replaces a per-particle ctx.createRadialGradient call that was
-  // running 20-40× per frame during thrust. drawImage of a 32×32
-  // pre-baked canvas is dramatically faster on iOS Safari.
+  // v451F — switched from smooth ctx.createRadialGradient (which read
+  // as a soft glowing blur, out of place against the v448+ pixel-art
+  // language) to STEPPED CONCENTRIC PIXEL DISCS so the puff reads as a
+  // chunky pixel cloud. Still cached and drawn via drawImage, so the
+  // perf characteristics from v449C are preserved.
   const SOOTY_STOPS = [
     [0,    'rgba(50, 50, 56, 0.95)'],
     [0.45, 'rgba(80, 60, 40, 0.55)'],
@@ -33599,11 +33594,25 @@ const DLX_BUILD = 'v451E-drone-beam-stops-at-terrain';
     const c = document.createElement('canvas');
     c.width = size; c.height = size;
     const cctx = c.getContext('2d');
-    const g = cctx.createRadialGradient(size / 2, size / 2, 0,
-                                         size / 2, size / 2, size / 2);
-    for (const s of stops) g.addColorStop(s[0], s[1]);
-    cctx.fillStyle = g;
-    cctx.fillRect(0, 0, size, size);
+    const cx = (size / 2) | 0, cy = (size / 2) | 0;
+    // Row-stepped pixel disc — flat-color circle, no anti-aliasing.
+    const pxDisc = (radius, fillColor) => {
+      if (radius < 1) return;
+      cctx.fillStyle = fillColor;
+      for (let dy = -radius; dy <= radius; dy++) {
+        const dxR = Math.floor(Math.sqrt(radius * radius - dy * dy));
+        cctx.fillRect(cx - dxR, cy + dy, dxR * 2 + 1, 1);
+      }
+    };
+    // Use the 3 non-transparent stops as outer / mid / core layers.
+    // stops[] is ordered [core, mid, outer, transparent_edge] in the
+    // existing palettes; we reverse for drawing largest first.
+    const visible = stops.filter(s => s[0] < 1);   // drop the alpha-0 endpoint
+    const reversed = visible.slice().reverse();    // outer first
+    const radii = [14, 9, 5];
+    for (let i = 0; i < reversed.length && i < radii.length; i++) {
+      pxDisc(radii[i], reversed[i][1]);
+    }
     return c;
   }
 
