@@ -235,6 +235,9 @@
     <input id="loadInput" type="file" accept=".json" style="display: none;">
     <button id="undoBtn" disabled title="Undo (Cmd/Ctrl+Z)">↶ Undo</button>
     <button id="redoBtn" disabled title="Redo (Cmd/Ctrl+Shift+Z)">↷ Redo</button>
+    <button id="flipHBtn" title="Flip horizontal (Shift+H)">↔ Flip H</button>
+    <button id="flipVBtn" title="Flip vertical (Shift+V)">↕ Flip V</button>
+    <button id="rotate90Btn" title="Rotate 90° clockwise (Shift+R)">↻ 90°</button>
     <button id="copyBtn">⎘ Copy Code</button>
     <button id="clearBtn">🗑 Clear</button>
     <button id="helpBtn" title="Keyboard shortcuts + how to use">? Help</button>
@@ -251,9 +254,10 @@
       <div id="activeHex" class="active-hex" title="Click to copy hex">#3aa8b8</div>
     </div>
     <div class="tool-row">
-      <button id="paintTool" class="tool-btn active" title="Paint (left click)">✏️ Paint</button>
-      <button id="eyedropperTool" class="tool-btn" title="Pick color from canvas">💧 Pick</button>
-      <button id="eraserTool" class="tool-btn" title="Erase (or right-click)">🩹 Erase</button>
+      <button id="paintTool" class="tool-btn active" title="Paint (P or B)">✏️ Paint</button>
+      <button id="eyedropperTool" class="tool-btn" title="Pick color from canvas (I)">💧 Pick</button>
+      <button id="eraserTool" class="tool-btn" title="Erase (X or E, or right-click)">🩹 Erase</button>
+      <button id="fillTool" class="tool-btn" title="Fill bucket (G)">🪣 Fill</button>
     </div>
 
     <h2>Pick Any Color</h2>
@@ -307,6 +311,9 @@
         <button id="zoomOutBtn">−</button>
         <span id="zoomLabel">Zoom: 12×</span>
         <button id="zoomInBtn">+</button>
+        <label style="margin-left: 10px; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Toggle grid lines (Shift+G)">
+          <input id="gridLinesToggle" type="checkbox" checked> grid
+        </label>
       </div>
     </div>
   </div>
@@ -345,9 +352,18 @@
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>P</kbd> or <kbd>B</kbd></td><td style="padding: 4px 0;">Paint tool (default)</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>I</kbd></td><td style="padding: 4px 0;">Eyedropper — click a painted pixel to pick its color</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>X</kbd> or <kbd>E</kbd></td><td style="padding: 4px 0;">Eraser (or <b>right-click</b> any time)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>G</kbd></td><td style="padding: 4px 0;">Fill bucket — click to flood-fill a connected region with the active color (right-click to erase a region)</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>+</kbd> / <kbd>−</kbd></td><td style="padding: 4px 0;">Zoom in / out on the paint grid</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>F</kbd></td><td style="padding: 4px 0;">Fit zoom to current pane size</td></tr>
       </table>
+
+      <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Canvas Transforms</h3>
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Shift + H</kbd></td><td style="padding: 4px 0;">Flip horizontal (mirror left/right)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Shift + V</kbd></td><td style="padding: 4px 0;">Flip vertical (mirror top/bottom)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Shift + R</kbd></td><td style="padding: 4px 0;">Rotate 90° clockwise (swaps width × height)</td></tr>
+      </table>
+      <p style="margin: 6px 0 0 0; font-size: 11px; color: var(--text-dim);">All transforms are one undo step — Cmd/Ctrl+Z reverts.</p>
 
       <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Edit</h3>
       <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
@@ -693,11 +709,46 @@ function setTool(t) {
   paintTool.classList.toggle('active', t === 'paint');
   eyedropperTool.classList.toggle('active', t === 'pick');
   eraserTool.classList.toggle('active', t === 'erase');
-  paintCanvas.style.cursor = t === 'pick' ? 'cell' : (t === 'erase' ? 'not-allowed' : 'crosshair');
+  fillTool.classList.toggle('active', t === 'fill');
+  let cursor = 'crosshair';
+  if (t === 'pick')  cursor = 'cell';
+  if (t === 'erase') cursor = 'not-allowed';
+  if (t === 'fill')  cursor = 'pointer';
+  paintCanvas.style.cursor = cursor;
 }
 paintTool.addEventListener('click', () => setTool('paint'));
 eyedropperTool.addEventListener('click', () => setTool('pick'));
 eraserTool.addEventListener('click', () => setTool('erase'));
+const fillTool = document.getElementById('fillTool');
+fillTool.addEventListener('click', () => setTool('fill'));
+
+// ── Flood-fill (4-way) ────────────────────────────────────
+// Fills all connected cells that share the same color as the seed
+// (or all connected transparent cells, if you click an empty cell).
+// Iterative queue — no recursion, so big sprites won't blow the stack.
+function floodFill(seedX, seedY, replaceColor) {
+  const seedKey = `${seedX},${seedY}`;
+  const targetColor = state.pixels[seedKey] || null;  // null = transparent
+  if (targetColor === replaceColor) return false;     // nothing to do
+  const visited = new Set();
+  const queue = [[seedX, seedY]];
+  while (queue.length) {
+    const [x, y] = queue.shift();
+    if (x < 0 || y < 0 || x >= state.width || y >= state.height) continue;
+    const k = `${x},${y}`;
+    if (visited.has(k)) continue;
+    visited.add(k);
+    const here = state.pixels[k] || null;
+    if (here !== targetColor) continue;
+    if (replaceColor == null) delete state.pixels[k];
+    else state.pixels[k] = replaceColor;
+    queue.push([x + 1, y]);
+    queue.push([x - 1, y]);
+    queue.push([x, y + 1]);
+    queue.push([x, y - 1]);
+  }
+  return true;
+}
 
 // ────────────────────────────────────────────────────────────
 // GRID
@@ -764,8 +815,11 @@ function renderGrid() {
     paintCtx.fillStyle = hex;
     paintCtx.fillRect(px * Z, py * Z, Z, Z);
   }
-  // Grid overlay (faint) — only when zoom is big enough to see
-  if (Z >= 6) {
+  // Grid overlay (faint) — only when zoom is big enough to see AND the
+  // user-controlled toggle is on. Off by user choice, or off below
+  // ~6× zoom where the lines would be visually noisier than helpful.
+  const showGrid = document.getElementById('gridLinesToggle').checked;
+  if (Z >= 6 && showGrid) {
     paintCtx.strokeStyle = 'rgba(255,255,255,0.06)';
     paintCtx.lineWidth = 1;
     paintCtx.beginPath();
@@ -825,6 +879,19 @@ function handlePaintAction(cell, isRightClick) {
   if (state.tool === 'pick') {
     const hex = state.pixels[key];
     if (hex) setActiveColor(hex);
+    return;
+  }
+  if (state.tool === 'fill') {
+    // Fill bucket — only act on mousedown (no drag-fill spam).
+    // Right-click while in fill mode erases the connected region.
+    if (lastCellKey !== key) return;  // ignored; we only fire once
+    const targetColor = isRightClick ? null : state.activeColor;
+    if (floodFill(cell.x, cell.y, targetColor)) {
+      if (targetColor) addToRecent(targetColor);
+      renderGrid();
+      renderPreview();
+      renderCode();
+    }
     return;
   }
   const erase = (state.tool === 'erase') || isRightClick;
@@ -1722,6 +1789,42 @@ function closeHelp() { helpModal.style.display = 'none'; }
 document.getElementById('undoBtn').addEventListener('click', undo);
 document.getElementById('redoBtn').addEventListener('click', redo);
 document.getElementById('helpBtn').addEventListener('click', openHelp);
+
+// ── Canvas transforms (flip / rotate) ─────────────────────
+// Each one is one undo step — snapshot before, commit after.
+function transformPixels(remapFn, newWidth, newHeight) {
+  const before = snapshotPixels();
+  const next = {};
+  for (const [k, hex] of Object.entries(state.pixels)) {
+    const [x, y] = k.split(',').map(Number);
+    const { x: nx, y: ny } = remapFn(x, y);
+    next[`${nx},${ny}`] = hex;
+  }
+  state.pixels = next;
+  if (newWidth !== undefined)  { state.width = newWidth;  widthInput.value = state.width; }
+  if (newHeight !== undefined) { state.height = newHeight; heightInput.value = state.height; }
+  commitHistory(before);
+  fitZoomToScreen();
+  renderGrid(); renderPreview(); renderCode();
+  autosave();
+}
+
+function flipHorizontal() {
+  transformPixels((x, y) => ({ x: state.width - 1 - x, y }));
+}
+function flipVertical() {
+  transformPixels((x, y) => ({ x, y: state.height - 1 - y }));
+}
+function rotate90CW() {
+  // (x, y) -> (height - 1 - y, x). New width = old height, new height = old width.
+  const newW = state.height, newH = state.width;
+  transformPixels((x, y) => ({ x: state.height - 1 - y, y: x }), newW, newH);
+}
+
+document.getElementById('flipHBtn').addEventListener('click', flipHorizontal);
+document.getElementById('flipVBtn').addEventListener('click', flipVertical);
+document.getElementById('rotate90Btn').addEventListener('click', rotate90CW);
+document.getElementById('gridLinesToggle').addEventListener('change', renderGrid);
 document.getElementById('helpModalClose').addEventListener('click', closeHelp);
 document.getElementById('helpModalDone').addEventListener('click', closeHelp);
 helpModal.addEventListener('click', (e) => { if (e.target === helpModal) closeHelp(); });
@@ -1792,13 +1895,23 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'b' || e.key === 'p') { setTool('paint'); }
   else if (e.key === 'i') { setTool('pick'); }
   else if (e.key === 'x' || e.key === 'e') { setTool('erase'); }
+  else if (e.key === 'g') { setTool('fill'); }
   // Zoom
   else if (e.key === '+' || e.key === '=') { zoomInBtn.click(); }
   else if (e.key === '-' || e.key === '_') { zoomOutBtn.click(); }
   // Fit zoom
   else if (e.key === 'f') { fitZoomToScreen(); renderGrid(); }
+  // Flip / rotate (Shift modifier prevents conflict with H = help)
+  else if (e.shiftKey && e.key === 'H') { flipHorizontal(); }
+  else if (e.shiftKey && e.key === 'V') { flipVertical(); }
+  else if (e.shiftKey && e.key === 'R') { rotate90CW(); }
+  else if (e.shiftKey && e.key === 'G') {
+    const t = document.getElementById('gridLinesToggle');
+    t.checked = !t.checked;
+    renderGrid();
+  }
   // Help
-  else if (e.key === '?' || e.key === 'h') { openHelp(); }
+  else if (e.key === '?' || (e.key === 'h' && !e.shiftKey)) { openHelp(); }
 });
 </script>
 
