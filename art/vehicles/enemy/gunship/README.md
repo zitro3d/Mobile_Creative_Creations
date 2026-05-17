@@ -10,11 +10,12 @@ and claw are procedural.
 
 | Field | Value |
 |---|---|
-| Canvas size       | **96 × 36 px** (in-game render resolution) |
+| Canvas size       | **100 × 44 px** (in-game render resolution + 2 px margin all sides) |
 | Background        | Transparent (alpha = 0) |
 | Pixel scale       | 1× (game native — sprite renders at this size on screen) |
 | Facing direction  | LEFT (negative X — chases the rig from behind) |
-| Anchor (pivot)    | Body center — slice `center` at **(48, 20)** |
+| Anchor (pivot)    | Body center — slice `center` at **(50, 22)** |
+| Active sprite bbox | Roughly **x=2..96, y=2..42** inside the canvas (border is intentional padding) |
 
 ## Required Aseprite tags
 

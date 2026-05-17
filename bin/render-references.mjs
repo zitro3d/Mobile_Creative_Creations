@@ -169,7 +169,7 @@ function savePng(fctx, path) {
   console.log(`✓ ${path}  (${fctx.width}×${fctx.height})`);
 }
 
-globalThis.frame = 100;
+globalThis.frame = 0;   // frame=0 → hover offset = 0 = stable static pose
 
 // ─── HERO RIG · ROAD KILL (clean) ───────────────────────────────────────
 {
@@ -186,16 +186,23 @@ globalThis.frame = 100;
 }
 
 // ─── AERIAL THIEF · DLX gunship ────────────────────────────────────────
-// drawPixelDailyThief() reads `ctx` and `frame` from globalThis, applies
-// its own ctx.translate(tf.x, tf.y) + ctx.scale(2, 2) + ctx.translate(-26, -23).
-// To place the mockup origin at canvas (0, 0) we set tf.x = 26 × 2 = 52,
-// tf.y = 23 × 2 = 46. The body extents in game pixels (post-2× scale) are
-// roughly 96 wide × 32 tall; the cable + claw are procedural so omitted.
+// drawPixelDailyThief() reads `ctx` and `frame` from globalThis. It
+// applies ctx.translate(tf.x, tf.y) + ctx.scale(2, 2) + ctx.translate(-26, -23)
+// internally, so:
+//   world_x = tf.x + (mockup_x - 26) * 2
+//   world_y = tf.y + (mockup_y - 23) * 2
+// Mockup sprite extents (cockpit + hull + nose overhang):
+//   mockup_x: -1 to 46    → world_x span = 94 px
+//   mockup_y: 11 to 31    → world_y span = 40 px
+// To put the sprite at canvas origin with a 2 px margin all around:
+//   tf.x = 56 → world spans (2, 96)
+//   tf.y = 26 → world spans (2, 42)
+// Canvas: 100 × 44 (room for the full sprite + 2 px borders).
 {
-  const fctx = new FakeCtx(96, 36);
+  const fctx = new FakeCtx(100, 44);
   globalThis.ctx = fctx;
   drawPixelDailyThief({
-    x: 52, y: 46,
+    x: 56, y: 26,
     vx: -1, vy: 0,
     cableLen: 0,
     state: 'cruise',
