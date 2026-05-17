@@ -113,9 +113,9 @@
 <!-- ─────────────────────────────────────────────────────────────────── -->
 <section class="project" id="project-fire">
   <h2>01 — Roaring Fire Loop</h2>
-  <div class="meta">Single hero flame · 4 tendrils + pale-yellow base + rising sparks · 30-frame seamless loop @ 15fps · 512×512 GIF</div>
+  <div class="meta">Wide composition · 11 tendrils (tallest at center, shrinking outward) + pale-yellow base + 13 rising sparks · 30-frame seamless loop @ 15fps · 512×512 GIF</div>
   <div class="stage">
-    <canvas id="fire-display" class="display" width="64" height="64"></canvas>
+    <canvas id="fire-display" class="display" width="128" height="128"></canvas>
   </div>
   <div class="controls">
     <button id="fire-gif">Download GIF</button>
@@ -234,99 +234,105 @@ function downloadFramePng({ drawScene, nativeSize, currentFrame, filename, statu
 // PROJECT 01 — ROARING FIRE LOOP
 // ═══════════════════════════════════════════════════════════════════════
 //
-// Single hero flame matching the v2 reference: a 4-tendril composition
-// (tall S-curve on the left, two jagged center spires, a stepped-outward
-// tendril on the right) rising from a wide pale-yellow base, with
-// isolated pixel sparks rising independently.
+// Wide composition: 11 tendrils spread across a 128×128 native canvas,
+// growing in height toward the center and shrinking again on the
+// flanks. Mix of S-curves, stepped tendrils, and short spires for
+// silhouette variety. Sits on a wide pale-yellow base puddle with
+// sparks rising independently across the whole width.
 //
 // Wave frequencies are integer multiples of (2π / FIRE_FRAMES) so the
 // loop seams cleanly.
 
 const FIRE_FRAMES = 30;
 const FIRE_FPS    = 15;
-const FIRE_NATIVE = 64;
+const FIRE_NATIVE = 128;             // 4× scale to the 512×512 GIF
 const FIRE_TAU    = (Math.PI * 2) / FIRE_FRAMES;
 
 // Strict 4-color palette from the v2 spec.
 const FIRE = {
-  OUTLINE: '#D95738',   // dark red-orange — outline & sparks
-  BODY:    '#F16E32',   // bright orange — main flame body
-  CORE:    '#F7A833',   // yellow-orange — inner core
-  HOT:     '#FFF7A4',   // pale yellow — hot center & base
+  OUTLINE: '#D95738',
+  BODY:    '#F16E32',
+  CORE:    '#F7A833',
+  HOT:     '#FFF7A4',
 };
 
-// ── Tendril shape functions ──────────────────────────────────────────
-// u: 0 at base, 1 at tip. t: loop frame. Returns x-offset from baseX.
+// ── Tendril shape primitives ─────────────────────────────────────────
+// Each returns x-offset from baseX at parameter u (0=base, 1=tip).
+// `sign` flips left/right (so we can mirror the right-side tendrils).
 
-// LEFT TENDRIL — tall S-curve that leans inward (toward center) at the
-// lower bend, outward at the upper bend, with a small hook curling
-// back inward at the very top.
-function leftSCurveX(u, t) {
-  // Full sine cycle over 0..1 → +amp at u=0.25, -amp at u=0.75.
-  const sCurve = Math.sin(u * Math.PI * 2) * 4;
-  // Hook bump near the tip — curls back toward center.
-  const hook = u > 0.82 ? Math.sin((u - 0.82) * Math.PI / 0.18) * 2.2 : 0;
-  // Subtle loop-locked wobble so the flame breathes between frames.
-  const wobble = Math.sin(t * FIRE_TAU + u * 1.5) * 0.45;
-  return sCurve + hook + wobble;
-}
-function leftSCurveW(u) {
-  if (u < 0.15) return 3.0;
-  if (u < 0.55) return 3.0 - (u - 0.15) * 1.5;
-  if (u < 0.85) return 2.4 - (u - 0.55) * 4.2;
-  return Math.max(0.4, 1.14 - (u - 0.85) * 5.5);
+// Full S-curve over 0..1 with a small hook curling back at the tip.
+function sCurveOff(u, t, seed, sign, amp) {
+  const s    = Math.sin(u * Math.PI * 2) * amp;
+  const hook = u > 0.82 ? Math.sin((u - 0.82) * Math.PI / 0.18) * (amp * 0.55) : 0;
+  const wob  = Math.sin(t * FIRE_TAU + u * 1.5 + seed * 1.7) * 0.45;
+  return (s + hook) * sign + wob;
 }
 
-// RIGHT TENDRIL — shorter, "steps out to the right" before sharpening
-// to a point. Single outward bend rather than a full S.
-function rightStepX(u, t) {
-  // Ramp outward then settle. Peaks around u=0.35.
+// "Stepped" tendril — single outward bend, sharpens to a vertical tip.
+function halfStepOff(u, t, seed, sign, amp) {
   let step;
-  if      (u < 0.10) step = u * 25;                 // 0 → 2.5
-  else if (u < 0.40) step = 2.5 + (u - 0.10) * 7;   // 2.5 → 4.6
-  else if (u < 0.75) step = 4.6 - (u - 0.40) * 9;   // 4.6 → 1.45
-  else                step = 1.45 - (u - 0.75) * 6; // 1.45 → -0.05
-  const wobble = Math.sin(t * FIRE_TAU + u * 1.5 + 1.7) * 0.45;
-  return step + wobble;
-}
-function rightStepW(u) {
-  if (u < 0.20) return 3.2;                       // wider base
-  if (u < 0.60) return 3.2 - (u - 0.20) * 2.0;    // 3.2 → 2.4
-  if (u < 0.88) return 2.4 - (u - 0.60) * 5.2;    // 2.4 → 0.95
-  return Math.max(0.4, 0.95 - (u - 0.88) * 5.0);
+  if      (u < 0.10) step = u * (amp * 6.25);
+  else if (u < 0.40) step = (amp * 0.625) + (u - 0.10) * (amp * 1.75);
+  else if (u < 0.75) step = (amp * 1.15)  - (u - 0.40) * (amp * 2.25);
+  else                step = (amp * 0.36)  - (u - 0.75) * (amp * 1.5);
+  const wob = Math.sin(t * FIRE_TAU + u * 1.5 + seed * 1.7) * 0.45;
+  return step * sign + wob;
 }
 
-// CENTER SPIRES — short and mostly vertical with small jagged jitter.
-function spireX(u, t, seed) {
-  const jitter = Math.sin(u * 8.4 + seed) * 0.55;
-  const wobble = Math.sin(t * FIRE_TAU + seed * 2.1) * 0.45;
-  return jitter + wobble;
-}
-function spireW(u) {
-  if (u < 0.20) return 2.1;
-  if (u < 0.70) return 2.1 - (u - 0.20) * 1.5;
-  return Math.max(0.4, 1.35 - (u - 0.70) * 4.5);
+// Mostly-vertical spire with small jagged jitter.
+function spireOff(u, t, seed /*, sign, amp */) {
+  const jit = Math.sin(u * 8.4 + seed) * 0.55;
+  const wob = Math.sin(t * FIRE_TAU + seed * 2.1) * 0.45;
+  return jit + wob;
 }
 
-// Tendril roster — order matters for paint stacking (later tendrils
-// over earlier ones). Tallest first so center spires don't disappear
-// behind the big side flames.
+// Tallest central pillar — gentle meander, more breath than direction.
+function pillarOff(u, t, seed /*, sign, amp */) {
+  const m   = Math.sin(u * 3.2 + seed) * 0.8;
+  const wob = Math.sin(t * FIRE_TAU + u + seed * 1.7) * 0.5;
+  return m + wob;
+}
+
+const STYLE = {
+  spire:  spireOff,
+  s:      sCurveOff,
+  half:   halfStepOff,
+  pillar: pillarOff,
+};
+
+// Width tapers from baseW (at u=0) to a fine tip. Scales with baseW so
+// the same function works for tiny embers and the tall central pillar.
+function tendrilWidth(u, baseW) {
+  if (u < 0.12) return baseW;
+  if (u < 0.55) return baseW - (u - 0.12) * (baseW * 0.45);
+  if (u < 0.85) return (baseW * 0.81) - (u - 0.55) * (baseW * 1.6);
+  return Math.max(0.4, (baseW * 0.33) - (u - 0.85) * (baseW * 2.2));
+}
+
+// ── Tendril roster ───────────────────────────────────────────────────
+// 11 tendrils from far-left to far-right. Heights crest in the middle.
+// Style mix: 7 S-curves, 1 step, 2 spires on the wings, 1 central pillar.
+// `mirror: true` flips the bend direction for the right-side tendrils.
 const TENDRILS = [
-  { name: 'left-S',       baseX: 23, baseY: 52, height: 42,
-    xOff: leftSCurveX,    width: leftSCurveW, seed: 0 },
-  { name: 'right-step',   baseX: 41, baseY: 52, height: 38,
-    xOff: rightStepX,     width: rightStepW,  seed: 0 },
-  { name: 'center-left',  baseX: 29, baseY: 51, height: 22,
-    xOff: spireX,         width: spireW,      seed: 1.9 },
-  { name: 'center-right', baseX: 35, baseY: 51, height: 26,
-    xOff: spireX,         width: spireW,      seed: 3.7 },
+  // baseX  baseY  height baseW  style    seed mirror amp
+  { baseX:  10, baseY: 100, height:  8, baseW: 1.4, style: 'spire',  seed: 0.5, mirror: false, amp: 1   },
+  { baseX:  22, baseY: 100, height: 16, baseW: 1.7, style: 's',      seed: 1.3, mirror: false, amp: 2   },
+  { baseX:  36, baseY: 100, height: 26, baseW: 2.1, style: 's',      seed: 2.1, mirror: false, amp: 2.8 },
+  { baseX:  48, baseY: 100, height: 36, baseW: 2.5, style: 's',      seed: 2.9, mirror: false, amp: 3.2 },
+  { baseX:  56, baseY: 100, height: 44, baseW: 2.9, style: 's',      seed: 3.7, mirror: false, amp: 3.6 },
+  { baseX:  64, baseY: 100, height: 58, baseW: 3.4, style: 'pillar', seed: 0,   mirror: false, amp: 1   },
+  { baseX:  72, baseY: 100, height: 44, baseW: 2.9, style: 's',      seed: 4.5, mirror: true,  amp: 3.6 },
+  { baseX:  80, baseY: 100, height: 36, baseW: 2.5, style: 'half',   seed: 5.3, mirror: true,  amp: 3.2 },
+  { baseX:  92, baseY: 100, height: 26, baseW: 2.1, style: 's',      seed: 6.1, mirror: true,  amp: 2.8 },
+  { baseX: 106, baseY: 100, height: 16, baseW: 1.7, style: 's',      seed: 6.9, mirror: true,  amp: 2   },
+  { baseX: 118, baseY: 100, height:  8, baseW: 1.4, style: 'spire',  seed: 7.7, mirror: true,  amp: 1   },
 ];
 
 // ── Tendril renderer ─────────────────────────────────────────────────
-// Layers paint outside-in: OUTLINE, BODY, CORE, HOT. Each successive
-// layer is inset by 1 px and trimmed earlier at the top so the inner
-// hot colors only show in the lower portion of each flame — matches
-// the reference where the pale yellow stops well below the tips.
+// Layers paint outside-in: OUTLINE → BODY → CORE → HOT. Inner layers
+// are inset by 1 px and trimmed earlier at the top so the hot core
+// only shows in the lower body — matches the reference where pale
+// yellow stops well below the tips.
 const FIRE_LAYERS = [
   { color: FIRE.OUTLINE, inset: -1, topTrim: 0.00, cap: true  },
   { color: FIRE.BODY,    inset:  0, topTrim: 0.00, cap: false },
@@ -335,58 +341,51 @@ const FIRE_LAYERS = [
 ];
 
 function paintTendril(ctx, tendril, t, layer) {
-  const { baseX, baseY, height, xOff, width, seed } = tendril;
+  const { baseX, baseY, height, baseW, style, seed, mirror, amp } = tendril;
+  const sign = mirror ? -1 : 1;
+  const offFn = STYLE[style];
   const maxR = Math.floor(height * (1 - layer.topTrim));
   for (let r = 0; r <= maxR; r++) {
     const u = r / height;
-    const xc = baseX + xOff(u, t, seed);
-    const halfW = width(u) - layer.inset;
+    const xc = baseX + offFn(u, t, seed, sign, amp);
+    const halfW = tendrilWidth(u, baseW) - layer.inset;
     if (halfW < 0.4) continue;
     const y  = baseY - r;
     const x0 = Math.round(xc - halfW);
     const x1 = Math.round(xc + halfW);
     px(ctx, layer.color, x0, y, x1 - x0 + 1, 1);
   }
-  // OUTLINE gets an extra cap row above the topmost body row so the tip
-  // is closed off.
   if (layer.cap) {
-    const u = 1;
-    const xc = baseX + xOff(u, t, seed);
-    const y  = baseY - height - 1;
-    px(ctx, layer.color, Math.round(xc), y, 1, 1);
+    const xc = baseX + offFn(1, t, seed, sign, amp);
+    px(ctx, layer.color, Math.round(xc), baseY - height - 1, 1, 1);
   }
 }
 
-// ── Base blob (pale yellow puddle at the bottom) ─────────────────────
-// Hand-shaped row-by-row to give the bottom a flat-ish lip with rounded
-// shoulders. The blob is wider than the combined tendril roots so a
-// strip of pale yellow always shows between the tendrils.
-const BASE_CX = 32;
+// ── Base blob (wide pale-yellow puddle) ──────────────────────────────
+// Spans the full tendril range so a strip of yellow shows between the
+// tendril roots. Tapers in toward the bottom for a rounded lip.
+const BASE_CX = 64;
 const BASE_ROWS = [
-  // [y, halfWidth, drawOuterPixels]
-  // drawOuterPixels=true gives the row an OUTLINE+BODY ring; false makes
-  // it pure HOT (used for the very-bottom flat lip).
-  [49, 11, true ],   // top — narrowest
-  [50, 13, true ],
-  [51, 14, true ],   // widest belly
-  [52, 14, true ],
-  [53, 13, true ],
-  [54, 11, true ],
-  [55,  9, false],   // flat lip
+  // [y, halfWidth, drawOuterRing]
+  [ 97, 42, true ],
+  [ 98, 52, true ],
+  [ 99, 56, true ],
+  [100, 56, true ],
+  [101, 54, true ],
+  [102, 48, true ],
+  [103, 38, true ],
+  [104, 26, false],
 ];
 
 function drawBase(ctx, t) {
-  // Small loop-locked breath so the base pulses subtly.
-  const breath = Math.sin(t * FIRE_TAU) * 0.4;
+  const breath = Math.sin(t * FIRE_TAU) * 0.6;
   for (const [y, halfW, hasOuter] of BASE_ROWS) {
     const w = halfW + (hasOuter ? Math.round(breath) : 0);
     if (hasOuter) {
-      // Outline at the edges, body just inside, hot fill inside that.
       px(ctx, FIRE.OUTLINE, BASE_CX - w,     y, 1, 1);
       px(ctx, FIRE.OUTLINE, BASE_CX + w,     y, 1, 1);
       px(ctx, FIRE.BODY,    BASE_CX - w + 1, y, 1, 1);
       px(ctx, FIRE.BODY,    BASE_CX + w - 1, y, 1, 1);
-      // Inner band: CORE then HOT.
       if (w >= 4) {
         px(ctx, FIRE.CORE,  BASE_CX - w + 2, y, 1, 1);
         px(ctx, FIRE.CORE,  BASE_CX + w - 2, y, 1, 1);
@@ -395,7 +394,6 @@ function drawBase(ctx, t) {
         px(ctx, FIRE.HOT,   BASE_CX - w + 2, y, (w - 2) * 2 + 1, 1);
       }
     } else {
-      // Flat lip — solid hot strip with two outline corners.
       px(ctx, FIRE.OUTLINE, BASE_CX - w,     y, 1, 1);
       px(ctx, FIRE.OUTLINE, BASE_CX + w,     y, 1, 1);
       px(ctx, FIRE.HOT,     BASE_CX - w + 1, y, (w - 1) * 2 + 1, 1);
@@ -403,27 +401,30 @@ function drawBase(ctx, t) {
   }
 }
 
-// ── Sparks (floating pixels rising and fading) ───────────────────────
-// Each spark traces a short vertical path over a fraction of the loop,
-// fading in and out at the ends so it pops in/out rather than appearing
-// to teleport. Mix of single pixels and 1×2 / 2×1 clusters for variety.
+// ── Sparks ───────────────────────────────────────────────────────────
+// Scattered across the full width. Each rises over a portion of the
+// loop, fading in/out at the ends.
 const SPARKS = [
-  // [x, baseY, riseDist, color, phase, shape]   shape: 'dot' | 'h2' | 'v2'
-  [11, 28, 10, FIRE.OUTLINE,  0,  'dot'],
-  [14, 22,  8, FIRE.BODY,     6,  'dot'],
-  [22, 20,  9, FIRE.OUTLINE,  12, 'h2' ],
-  [33, 16, 10, FIRE.OUTLINE,  18, 'dot'],
-  [42, 18,  9, FIRE.BODY,     24, 'v2' ],
-  [49, 24, 10, FIRE.OUTLINE,  3,  'dot'],
-  [53, 30,  8, FIRE.OUTLINE,  21, 'dot'],
+  [  6, 70, 12, FIRE.OUTLINE,  0,  'dot'],
+  [ 12, 60, 14, FIRE.BODY,     5,  'dot'],
+  [ 20, 52, 12, FIRE.OUTLINE,  10, 'h2' ],
+  [ 28, 46, 14, FIRE.OUTLINE,  17, 'dot'],
+  [ 40, 38, 16, FIRE.BODY,     22, 'v2' ],
+  [ 52, 32, 18, FIRE.OUTLINE,  3,  'dot'],
+  [ 64, 28, 18, FIRE.OUTLINE,  14, 'h2' ],
+  [ 76, 32, 16, FIRE.BODY,     8,  'dot'],
+  [ 88, 40, 14, FIRE.OUTLINE,  19, 'v2' ],
+  [100, 48, 14, FIRE.OUTLINE,  26, 'dot'],
+  [108, 56, 12, FIRE.BODY,     11, 'dot'],
+  [116, 64, 12, FIRE.OUTLINE,  23, 'dot'],
+  [122, 72, 10, FIRE.OUTLINE,  6,  'dot'],
 ];
 
 function drawSparks(ctx, t) {
   for (const [x, baseY, rise, color, phase, shape] of SPARKS) {
-    const localT = ((t + phase) % FIRE_FRAMES) / FIRE_FRAMES;  // 0..1
-    // Only visible during the middle 70% of its cycle.
+    const localT = ((t + phase) % FIRE_FRAMES) / FIRE_FRAMES;
     if (localT < 0.10 || localT > 0.85) continue;
-    const visU = (localT - 0.10) / 0.75;             // 0..1 within visible window
+    const visU = (localT - 0.10) / 0.75;
     const y = Math.round(baseY - visU * rise);
     if (shape === 'dot')      px(ctx, color, x, y, 1, 1);
     else if (shape === 'h2')  px(ctx, color, x, y, 2, 1);
