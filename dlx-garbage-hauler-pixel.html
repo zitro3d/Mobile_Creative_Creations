@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451C-restore-dust-additive-blend';
+const DLX_BUILD = 'v451D-dust-bigger-moon-craters-tunnel-pixelart';
 
 (function() {
   // ---------- Device detection ----------
@@ -7296,10 +7296,10 @@ const DLX_BUILD = 'v451C-restore-dust-additive-blend';
     for (const d of dailyDust) {
       const yPos = (d.y + Math.sin(d.bobPhase) * d.bobAmp) | 0;
       const xPos = d.x | 0;
-      // Three-tier size: 3-px for fattest motes, 2-px for mids, 1-px
-      // for fine specks. Bigger upper tier so the brighter "ember"
-      // motes pop more against the cream sky.
-      const sz = d.r >= 2.0 ? 3 : d.r >= 1.2 ? 2 : 1;
+      // Four-tier size — chunkier per user request. Most haze motes
+      // are now 2-3 px and embers reach 4 px so the sky sparkle is
+      // unmistakable.
+      const sz = d.r >= 2.0 ? 4 : d.r >= 1.4 ? 3 : d.r >= 0.9 ? 2 : 1;
       const half = sz >> 1;
       ctx.globalAlpha = d.a;
       ctx.fillStyle = d.color;
@@ -14070,25 +14070,32 @@ const DLX_BUILD = 'v451C-restore-dust-additive-blend';
       disc(bcx - 2, bcy, moonR, PX.moonMid);
       // Lit face — offset -3 for crescent phase.
       disc(bcx - 3, bcy, moonR, PX.moonLit);
-      // Craters — 4 asymmetric pits. Each has a deeper crater-pit
-      // color + a 1-px brighter rim highlight on the side facing the
-      // light (top-left) so they read as 3D scoops.
-      // Big upper-left crater
-      pxFill(bcx - 9, bcy - 7, 1, 1, PX.moonMid);     // rim highlight
-      pxFill(bcx - 8, bcy - 6, 3, 2, PX.moonCrater); // pit
-      pxFill(bcx - 8, bcy - 4, 1, 1, PX.moonShade);  // pit shadow inside
-      // Lower-left medium crater
-      pxFill(bcx - 7, bcy + 4, 1, 1, PX.moonMid);    // rim highlight
-      pxFill(bcx - 6, bcy + 5, 2, 2, PX.moonCrater); // pit
-      // Mid-right tiny crater (off the terminator on the lit side)
-      pxFill(bcx - 1, bcy - 1, 2, 1, PX.moonCrater);
-      // Off-axis micro crater (no symmetry → no face)
-      pxFill(bcx - 2, bcy + 8, 1, 1, PX.moonCrater);
-      // Subtle top-left rim glow — 2-px pale band along the edge
-      // facing the sun. Replaces the harsh single white specular
-      // pixel that read as "the moon has a sparkle".
-      pxFill(bcx - 11, bcy - 5, 1, 2, PX.moonMid);
-      pxFill(bcx - 10, bcy - 7, 1, 1, PX.moonMid);
+      // Craters — 3 asymmetric scoops (down from 4 in v450E — fewer
+      // craters read cleaner at r=18, less risk of clustering into a
+      // face pattern). Each is a 2×2 pit with the BOTTOM-RIGHT pixel
+      // pushed darker (suggests depth on the side away from the
+      // light) and the TOP-LEFT bordered by a rim-highlight pixel
+      // (catches the sun on the elevated lip).
+      const crater3d = (x, y) => {
+        // Rim highlight (top-left of the pit, ONE pixel)
+        pxFill(x - 1, y - 1, 1, 1, PX.moonMid);
+        // Pit body — 2×2 in mid crater tone
+        pxFill(x, y, 2, 2, PX.moonCrater);
+        // Pit shadow — bottom-right pixel deeper (depth cue)
+        pxFill(x + 1, y + 1, 1, 1, PX.moonShade);
+      };
+      crater3d(bcx - 8, bcy - 6);   // upper-left (large region)
+      crater3d(bcx - 5, bcy + 5);   // lower-left (offset down from upper)
+      crater3d(bcx + 2, bcy - 1);   // mid-right (near terminator)
+      // Two micro-craters — single dark pixels for surface texture
+      // without adding another "feature".
+      pxFill(bcx - 3, bcy + 9, 1, 1, PX.moonCrater);
+      pxFill(bcx + 1, bcy + 6, 1, 1, PX.moonCrater);
+      // Sun-facing limb glow — narrow pale band along the top-left
+      // edge of the lit disc. Sells the curvature without a hot
+      // specular pixel.
+      pxFill(bcx - 11, bcy - 6, 1, 3, PX.moonMid);
+      pxFill(bcx - 12, bcy - 3, 1, 2, PX.moonMid);
 
       // ── MOON 2 — Smaller alien moon (right) ──────────────────
       // Same dimensional treatment as Moon 1: terminator transition
@@ -14101,12 +14108,19 @@ const DLX_BUILD = 'v451C-restore-dust-additive-blend';
       disc(scx, scy, m2r, PX.moon2Shade);
       disc(scx - 1, scy, m2r, PX.moon2Mid);          // terminator band
       disc(scx - 2, scy, m2r, PX.moon2Lit);          // lit face
-      // 3 asymmetric craters with rims
-      pxFill(scx - 5, scy - 4, 1, 1, PX.moon2Mid);    // rim
-      pxFill(scx - 4, scy - 3, 2, 1, PX.moon2Crater); // pit
-      pxFill(scx + 1, scy + 3, 1, 1, PX.moon2Crater); // mid-right tiny
-      pxFill(scx - 3, scy + 4, 1, 1, PX.moon2Crater); // off-axis
-      // Subtle top-left rim glow (no harsh white specular)
+      // 2 asymmetric craters (the alien moon is small — too many
+      // pits read as a face pattern). Same depth treatment as moon 1:
+      // 2×2 pit + top-left rim highlight + bottom-right shadow.
+      const crater3d2 = (x, y) => {
+        pxFill(x - 1, y - 1, 1, 1, PX.moon2Mid);
+        pxFill(x, y, 2, 2, PX.moon2Crater);
+        pxFill(x + 1, y + 1, 1, 1, PX.moon2Shade);
+      };
+      crater3d2(scx - 3, scy - 2);   // upper-left pit
+      crater3d2(scx + 1, scy + 2);   // off-axis lower-right pit
+      // Single micro-speck for texture
+      pxFill(scx - 4, scy + 3, 1, 1, PX.moon2Crater);
+      // Sun-facing limb glow (no harsh white specular)
       pxFill(scx - 6, scy - 3, 1, 2, PX.moon2Mid);
     }
   }
@@ -24936,57 +24950,79 @@ const DLX_BUILD = 'v451C-restore-dust-additive-blend';
     ctx.fillRect(bodyStart - dailyScrollX, fY - 5,
                  (bodyEnd - bodyStart), 1);
 
-    // ---- Hanging BONES from the ceiling
-    // Per-tunnel bone spacing (24..35 px) so multiple tunnels in a run
-    // read as varied. Phase index keeps the bone-height pattern stable
-    // per-tunnel via the seed.
+    // ---- Hanging BONES from the ceiling (pixel art — no arcs)
+    // Each bone: chunky 2-px shaft + 3-wide end-caps at top and bottom.
+    // All coords integer-snapped so the bones don't shimmer sub-pixel
+    // as the tunnel scrolls past.
     const seedI    = Math.floor(t.seed || 0);
     const boneStep = t.boneStep || 30;
     for (let bx = bodyStart + 14; bx < bodyEnd - 10; bx += boneStep) {
-      const screenX = bx - dailyScrollX;
+      const screenX = (bx - dailyScrollX) | 0;
       if (screenX < -10 || screenX > W + 10) continue;
       const ceilingY = terrainHeightAt(bx) + TUNNEL_CEILING_OFFSET;
+      const cy = ceilingY | 0;
       const phase = (Math.floor((bx - bodyStart) / boneStep) + seedI) % 5;
       const bH = 11 + phase * 2;
-      // Shadow + shaft
-      ctx.fillStyle = 'rgba(20, 10, 4, 0.7)';
-      ctx.fillRect(screenX - 0.6, ceilingY, 2.4, bH);
+      // Dark outline / shadow — 3-wide drop behind the bone
+      ctx.fillStyle = '#1a0e06';
+      ctx.fillRect(screenX - 1, cy, 4, bH);
+      // Cream bone shaft (2-wide)
       ctx.fillStyle = '#d8c898';
-      ctx.fillRect(screenX - 1, ceilingY, 2, bH);
-      // End knobs
-      ctx.beginPath();
-      ctx.arc(screenX - 1.4, ceilingY + 0.6, 1.6, 0, Math.PI * 2);
-      ctx.arc(screenX + 1.4, ceilingY + 0.6, 1.6, 0, Math.PI * 2);
-      ctx.arc(screenX - 1.4, ceilingY + bH,  1.6, 0, Math.PI * 2);
-      ctx.arc(screenX + 1.4, ceilingY + bH,  1.6, 0, Math.PI * 2);
-      ctx.fill();
-      // Bright stripe
+      ctx.fillRect(screenX - 1, cy, 3, bH);
+      // Top end-cap — 4-wide knob
+      ctx.fillStyle = '#1a0e06';
+      ctx.fillRect(screenX - 2, cy - 1, 5, 2);
+      ctx.fillStyle = '#d8c898';
+      ctx.fillRect(screenX - 2, cy, 5, 1);
+      ctx.fillStyle = '#a89870';
+      ctx.fillRect(screenX - 2, cy + 1, 5, 1);
+      // Bottom end-cap — 4-wide knob
+      ctx.fillStyle = '#1a0e06';
+      ctx.fillRect(screenX - 2, cy + bH - 1, 5, 2);
+      ctx.fillStyle = '#d8c898';
+      ctx.fillRect(screenX - 2, cy + bH - 1, 5, 1);
+      ctx.fillStyle = '#a89870';
+      ctx.fillRect(screenX - 2, cy + bH, 5, 1);
+      // Bright highlight stripe (1-px wide, top-left of the shaft)
       ctx.fillStyle = '#fce8b8';
-      ctx.fillRect(screenX - 1, ceilingY + 1, 0.6, bH - 2);
+      ctx.fillRect(screenX - 1, cy + 2, 1, bH - 4);
     }
 
-    // ---- ROCKS on the floor
+    // ---- ROCKS on the floor (pixel art — stepped pyramid silhouette)
+    // Replaces 3 stacked ctx.ellipse calls per rock with a hand-laid
+    // stepped pyramid of fillRects: dark base outline, mid-tone body,
+    // lit top row, single-pixel highlight at top-left.
     for (let rx = bodyStart + 22; rx < bodyEnd - 6; rx += 30) {
-      const screenX = rx - dailyScrollX;
+      const screenX = (rx - dailyScrollX) | 0;
       if (screenX < -10 || screenX > W + 10) continue;
       const phase = (Math.floor((rx - bodyStart) / 30) + seedI + 2) % 4;
-      const rW = 7 + phase;
-      const rH = 4 + (phase % 3);
+      const rW = 7 + phase;          // 7..10 wide
+      const rH = 4 + (phase % 3);    // 4..6 tall
+      const fy = fY | 0;
+      // Drop shadow — single dark row beneath the rock, offset right 1 px
       ctx.fillStyle = 'rgba(20, 10, 4, 0.55)';
-      ctx.beginPath();
-      ctx.ellipse(screenX + 1, fY - 5, rW + 0.6, rH + 0.6, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(screenX - rW + 1, fy - 4, rW * 2 - 1, 2);
+      // Dark outline (1 px border)
+      ctx.fillStyle = '#3a1808';
+      for (let row = 0; row < rH + 1; row++) {
+        const taper = ((row * rW) / rH) | 0;
+        const halfW = Math.max(1, rW - taper);
+        ctx.fillRect(screenX - halfW, fy - 5 - row, halfW * 2 + 1, 1);
+      }
+      // Mid-tone body
       ctx.fillStyle = '#7a3818';
-      ctx.beginPath();
-      ctx.ellipse(screenX, fY - 5 - rH * 0.6, rW, rH, 0, 0, Math.PI * 2);
-      ctx.fill();
+      for (let row = 0; row < rH; row++) {
+        const taper = ((row * rW) / rH) | 0;
+        const halfW = Math.max(0, rW - 1 - taper);
+        ctx.fillRect(screenX - halfW, fy - 5 - row, halfW * 2 + 1, 1);
+      }
+      // Lit top row + highlight
       ctx.fillStyle = '#a85838';
-      ctx.beginPath();
-      ctx.ellipse(screenX - rW * 0.35, fY - 5 - rH * 0.85,
-                  rW * 0.5, rH * 0.45, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(screenX - 2, fy - 5 - rH + 1, 4, 1);
       ctx.fillStyle = '#d88848';
-      ctx.fillRect(screenX - rW * 0.4, fY - 5 - rH * 1.05, 1.4, 1.2);
+      ctx.fillRect(screenX - 1, fy - 5 - rH + 1, 2, 1);
+      ctx.fillStyle = '#fce8b8';
+      ctx.fillRect(screenX - 1, fy - 5 - rH + 1, 1, 1);
     }
 
     // (Entry / exit yellow arrows removed per user — once the tunnel
