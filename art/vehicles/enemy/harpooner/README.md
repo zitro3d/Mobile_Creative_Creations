@@ -90,5 +90,5 @@ aseprite -b harpooner.aseprite \
 
 Or `File → Save As → harpooner.png` for a single frame.
 
-Commit `.aseprite` + `.png` together, or DM the team.
+Commit `.aseprite` + `.png` together, or DM them over.
 </parameter>

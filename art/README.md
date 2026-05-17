@@ -85,7 +85,7 @@ folder isn't there yet.
 ## Delivery
 
 **For the first couple of sprites**, just text or DM the `.aseprite`
-+ `.png` to the team. We commit them and your art shows up in the
++ `.png`. We commit them and your art shows up in the
 live game within minutes. Hard-refresh to bypass cache.
 
 **Once we've shipped a few**, set up
