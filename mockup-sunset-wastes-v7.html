@@ -2073,6 +2073,147 @@ function drawDispatch(ctx, t) {
 //   - Larger 6-armed alien greeter waving on the left
 //   - Welcome arch, spotlights, palms, confetti
 // ═════════════════════════════════════════════════════════════════
+
+// ─── ACTUAL GAME RIG (pxRoadkillRig) inlined from
+//     dlx-garbage-hauler-pixel.html so the mockup uses the REAL
+//     58×52 hauler sprite — lets the user verify the scale and
+//     layout fits before we ship anything. PXC = the game's rig
+//     palette. pxRoadkillCargo is the 28×28 wood crate. ──────────
+const PXC = {
+  hullCore:    '#3aa8b8', hullLight:   '#7ed4dc', hullDark:    '#1c5e6e', hullDeep:    '#0a3038',
+  yellow:      '#ffc628', yellowDeep:  '#a06820', orange:      '#e87028', orangeDeep:  '#a04018',
+  rust:        '#c83828', rustDark:    '#7a1a10',
+  domeFrame:   '#909488', domeShadow:  '#787c70', glassDark:   '#142028', glassLit:    '#7eddeb',
+  chrome:      '#9a9aa0', chromeLight: '#cfd2d4', chromeDark:  '#48484e',
+  podGrey:     '#28282e', podBlack:    '#0c0c10', podGlow:     '#7eddeb',
+  plateYellow: '#ffd040', plateBlack:  '#080808',
+  cargoOuter:  '#2a221a', cargoFrame:  '#08060a', cargoInner:  '#a0822a',
+  cargoHi:     '#ffd454', cargoRivet:  '#7a6028',
+  chainCore:   '#ffffff', chainGlow:   '#3090ff', chainDark:   '#1850c0',
+  flameCore:   '#ffffff', flameHot:    '#bcecff', flameMid:    '#3090ff',
+  flameOuter:  '#1060e0', flameDeep:   '#0838a0',
+  outline:     '#04060a',
+};
+
+function pxRoadkillCargo(ctx, ox, oy) {
+  ctx.imageSmoothingEnabled = false;
+  const x = ox | 0, y = oy | 0, C = PXC;
+  ctx.fillStyle = C.cargoFrame; ctx.fillRect(x - 1, y - 1, 28, 28);
+  ctx.fillStyle = C.cargoOuter; ctx.fillRect(x, y, 26, 26);
+  ctx.fillStyle = C.cargoFrame; ctx.fillRect(x + 5, y + 5, 16, 16);
+  ctx.fillStyle = C.cargoInner; ctx.fillRect(x + 6, y + 6, 14, 14);
+  ctx.fillStyle = C.cargoHi;    ctx.fillRect(x + 7, y + 7, 8, 3);
+                                ctx.fillRect(x + 7, y + 12, 4, 7);
+  ctx.fillStyle = C.cargoFrame; ctx.fillRect(x, y + 10, 5, 1);
+                                ctx.fillRect(x, y + 16, 5, 1);
+                                ctx.fillRect(x + 21, y + 10, 5, 1);
+                                ctx.fillRect(x + 21, y + 16, 5, 1);
+  ctx.fillStyle = C.cargoRivet; ctx.fillRect(x + 1, y + 1, 3, 3);
+                                ctx.fillRect(x + 22, y + 1, 3, 3);
+                                ctx.fillRect(x + 1, y + 22, 3, 3);
+                                ctx.fillRect(x + 22, y + 22, 3, 3);
+}
+
+function pxRoadkillRig(ctx, ox, oy, frame) {
+  // Intact (non-smashed) rig, exactly as the game draws it.
+  // 58×52 sprite, anchor (29, 26), faces RIGHT.
+  ctx.imageSmoothingEnabled = false;
+  const x = ox | 0, y = oy | 0, C = PXC;
+  // Body
+  ctx.fillStyle = C.outline;   ctx.fillRect(x+6, y+22, 50, 14);
+  ctx.fillStyle = C.hullDeep;  ctx.fillRect(x+6, y+32, 50, 4);
+  ctx.fillStyle = C.hullDark;  ctx.fillRect(x+6, y+28, 50, 4);
+  ctx.fillStyle = C.hullCore;  ctx.fillRect(x+6, y+23, 50, 6);
+  ctx.fillStyle = C.hullLight; ctx.fillRect(x+8, y+23, 46, 2);
+  ctx.fillStyle = C.yellow;    ctx.fillRect(x+8, y+31, 46, 1);
+  ctx.fillStyle = C.yellowDeep;ctx.fillRect(x+8, y+32, 46, 1);
+  ctx.fillStyle = C.rust;      ctx.fillRect(x+18, y+25, 3, 2); ctx.fillRect(x+34, y+27, 4, 2);
+  ctx.fillStyle = C.rustDark;  ctx.fillRect(x+19, y+27, 1, 1);
+  // Single fin (12-wide triangular wedge)
+  const wX = x+8, wTop = y+6, wBase = y+22, wCols = 12;
+  for (let i = 0; i < wCols; i++) {
+    const cx = wX+i, cTop = wTop+i;
+    if (cTop > wBase) break;
+    ctx.fillStyle = C.outline; ctx.fillRect(cx, cTop, 1, 1);
+    if (cTop+1 < wBase) { ctx.fillStyle = C.hullDark; ctx.fillRect(cx, cTop+1, 1, wBase-cTop-1); }
+    if (i > 0 && cTop+1 < wBase) { ctx.fillStyle = C.hullCore; ctx.fillRect(cx, cTop+1, 1, 1); }
+    if (i > 1 && i < wCols-3 && cTop+2 < wBase-4) { ctx.fillStyle = C.hullLight; ctx.fillRect(cx, cTop+2, 1, 1); }
+    ctx.fillStyle = C.hullDeep; ctx.fillRect(cx, wBase-1, 1, 1);
+    ctx.fillStyle = C.outline;  ctx.fillRect(cx, wBase, 1, 1);
+  }
+  ctx.fillStyle = C.outline; ctx.fillRect(wX, wTop, 1, wBase-wTop+1);
+  // Animated antenna
+  const antX = x+22, antBot = y+22, antTop = y+2;
+  const antLen = antBot - antTop, wPhase = frame * 0.05, wMax = 2;
+  for (let i = 0; i < antLen; i++) {
+    const segY = antBot - i, tT = i / (antLen-1);
+    const sway = Math.round(Math.sin(wPhase + i*0.20) * tT*tT * wMax);
+    ctx.fillStyle = C.chromeDark; ctx.fillRect(antX+sway, segY, 1, 1);
+  }
+  const tipSway = Math.round(Math.sin(wPhase + (antLen-1)*0.20) * wMax);
+  ctx.fillStyle = C.podGlow; ctx.fillRect(antX+tipSway, antTop-1, 1, 1);
+  // Bubble cockpit
+  ctx.fillStyle = C.outline; ctx.fillRect(x+23, y+11, 18, 12);
+  ctx.fillStyle = C.domeFrame;
+  ctx.fillRect(x+25, y+9, 14, 2); ctx.fillRect(x+24, y+11, 16, 3); ctx.fillRect(x+23, y+14, 18, 2);
+  ctx.fillStyle = C.glassDark; ctx.fillRect(x+24, y+14, 16, 7);
+  ctx.fillStyle = 'rgba(126,221,235,0.45)'; ctx.fillRect(x+24, y+14, 16, 1);
+  ctx.fillStyle = 'rgba(180,230,245,0.30)'; ctx.fillRect(x+26, y+15, 5, 1);
+  ctx.fillStyle = 'rgba(255,255,255,0.78)';
+  ctx.fillRect(x+25, y+14, 2, 1); ctx.fillRect(x+26, y+15, 2, 1);
+  ctx.fillRect(x+27, y+16, 2, 1); ctx.fillRect(x+28, y+17, 2, 1); ctx.fillRect(x+29, y+18, 2, 1);
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.fillRect(x+34, y+14, 1, 1); ctx.fillRect(x+35, y+15, 1, 1);
+  ctx.fillRect(x+36, y+16, 1, 1); ctx.fillRect(x+37, y+17, 1, 1);
+  // Driver
+  ctx.fillStyle = '#0a0a14'; ctx.fillRect(x+31, y+16, 5, 4);
+  ctx.fillStyle = '#1a1a26'; ctx.fillRect(x+32, y+16, 3, 1);
+  // Steering wheel
+  ctx.fillStyle = C.podGlow;
+  ctx.fillRect(x+27, y+17, 1, 1); ctx.fillRect(x+29, y+17, 1, 1);
+  ctx.fillRect(x+27, y+19, 1, 1); ctx.fillRect(x+29, y+19, 1, 1);
+  ctx.fillRect(x+28, y+18, 1, 1);
+  ctx.fillStyle = C.domeShadow; ctx.fillRect(x+23, y+21, 18, 2);
+  // Front grille
+  ctx.fillStyle = C.outline;  ctx.fillRect(x+44, y+22, 12, 9);
+  ctx.fillStyle = C.hullDark; ctx.fillRect(x+45, y+23, 10, 7);
+  ctx.fillStyle = C.hullCore; ctx.fillRect(x+45, y+23, 10, 1);
+  ctx.fillStyle = C.outline;
+  ctx.fillRect(x+47, y+24, 1, 5); ctx.fillRect(x+50, y+24, 1, 5); ctx.fillRect(x+53, y+24, 1, 5);
+  ctx.fillStyle = C.yellow;
+  ctx.fillRect(x+47, y+21, 2, 1); ctx.fillRect(x+50, y+21, 2, 1); ctx.fillRect(x+53, y+21, 2, 1);
+  ctx.fillStyle = '#fff5a0';
+  ctx.fillRect(x+47, y+21, 1, 1); ctx.fillRect(x+50, y+21, 1, 1); ctx.fillRect(x+53, y+21, 1, 1);
+  // Engine pod
+  ctx.fillStyle = C.outline;    ctx.fillRect(x+12, y+36, 14, 16);
+  ctx.fillStyle = C.podGrey;    ctx.fillRect(x+13, y+37, 12, 14);
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+13, y+37, 12, 1);
+  ctx.fillStyle = C.podBlack;   ctx.fillRect(x+13, y+50, 12, 1);
+  ctx.fillStyle = C.outline;    ctx.fillRect(x+26, y+38, 10, 12);
+  ctx.fillStyle = C.podGrey;    ctx.fillRect(x+26, y+39, 10, 10);
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+26, y+39, 10, 1);
+  ctx.fillStyle = C.podBlack;   ctx.fillRect(x+26, y+48, 10, 1);
+  ctx.fillStyle = C.outline;    ctx.fillRect(x+36, y+39, 8, 10);
+  ctx.fillStyle = C.podGrey;    ctx.fillRect(x+37, y+40, 6, 8);
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+37, y+40, 6, 1);
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+28, y+34, 6, 3);
+  ctx.fillStyle = C.podBlack;   ctx.fillRect(x+8, y+40, 4, 8);
+  ctx.fillStyle = C.podGlow;    ctx.fillRect(x+9, y+42, 3, 5);
+  ctx.fillStyle = C.flameCore;  ctx.fillRect(x+10, y+43, 2, 3);
+  ctx.fillStyle = C.podBlack;
+  ctx.fillRect(x+16, y+41, 1, 6); ctx.fillRect(x+19, y+41, 1, 6); ctx.fillRect(x+22, y+41, 1, 6);
+  ctx.fillRect(x+29, y+42, 1, 5); ctx.fillRect(x+33, y+42, 1, 5);
+  ctx.fillStyle = C.yellow;     ctx.fillRect(x+14, y+47, 22, 1);
+  ctx.fillStyle = C.yellowDeep; ctx.fillRect(x+14, y+48, 22, 1);
+  ctx.fillStyle = C.podBlack;   ctx.fillRect(x+40, y+41, 4, 7);
+  ctx.fillStyle = '#1a1a1e';    ctx.fillRect(x+41, y+42, 3, 5);
+  ctx.fillStyle = C.chromeDark; ctx.fillRect(x+41, y+44, 3, 1);
+  // Chain anchor
+  ctx.fillStyle = C.outline; ctx.fillRect(x+2, y+28, 5, 5);
+  ctx.fillStyle = C.podGrey; ctx.fillRect(x+3, y+29, 3, 3);
+  ctx.fillStyle = C.podGlow; ctx.fillRect(x+4, y+30, 1, 1);
+}
+
 function drawDock(ctx, t) {
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, 260, 140);
@@ -2167,6 +2308,35 @@ function drawDock(ctx, t) {
   // (twin stars, "OPEN 24/7" subscript, corner sparkle bursts, and the
   // crossfading spotlight beams from the base of the pylon were all
   // removed per user-revisions — sign is a static red marquee only.)
+
+  // ── PYLON SIGN DAMAGE / WEAR — chipped paint, scorch corners ──
+  // Adds lived-in patina matching the dispatch center's style.
+  // Chip the top-left corner of the chrome frame
+  px(ctx, C.dinerShade, signPanelX,     signPanelY,     2, 1);
+  px(ctx, C.dinerShade, signPanelX,     signPanelY + 1, 1, 1);
+  // Chip the top-right corner
+  px(ctx, C.dinerShade, signPanelX + signPanelW - 2, signPanelY,     2, 1);
+  // Scorch streak on the bottom-right of the frame
+  px(ctx, '#3a2a30', signPanelX + signPanelW - 4, signPanelY + signPanelH - 3, 3, 2);
+  px(ctx, '#1a0a06', signPanelX + signPanelW - 3, signPanelY + signPanelH - 2, 2, 1);
+  // Bullet pock through the "G" first letter (1 missing pixel)
+  px(ctx, '#1a0a06', signPanelX + 10, signPanelY + 10, 1, 1);
+  // Bullet pock through the "Y" last letter
+  px(ctx, '#1a0a06', signPanelX + 63, signPanelY + 11, 1, 1);
+  // Faded paint patch in the bottom-left of the neon area (dim dot)
+  px(ctx, '#5a1410', signPanelX + 14, signPanelY + 16, 2, 1);
+  px(ctx, '#5a1410', signPanelX + 38, signPanelY + 17, 3, 1);
+  // Scuff / scratch across the chrome trim band
+  px(ctx, '#5a3818', signPanelX + 22, signPanelY + 1, 4, 1);
+  // Rust trickle running down from the top-left bolt
+  px(ctx, '#7a2a10', signPanelX + 3, signPanelY + 3, 1, 4);
+  px(ctx, '#5a1a08', signPanelX + 3, signPanelY + 5, 1, 2);
+  // Mast hazard-stripe scrapes (paint flaked off bottom of left pillar)
+  px(ctx, '#3a2010', mastInsetL,     50, 4, 2);
+  px(ctx, '#1a0a06', mastInsetL + 1, 51, 2, 1);
+  // Mast scorch at bottom of right pillar
+  px(ctx, '#3a2010', mastInsetR,     54, 4, 2);
+  px(ctx, '#1a0a06', mastInsetR + 1, 55, 2, 1);
 
   // ── DECORATIVE PALM SILHOUETTES (left + right of platform) ──
   // Left palm
@@ -2326,6 +2496,60 @@ function drawDock(ctx, t) {
   // now reads quiet at the top, and the only "tall" thing above it is
   // the GOOD BUDDY pylon sign + the cargo crane on the opposite side.)
 
+  // ── DINER DAMAGE / WEAR — chipped chrome, scorch, dents ────
+  // Matches the dispatch center's lived-in patina (scorch, pock
+  // marks, chipped paint, missing rivets). All static; reads as
+  // "this diner has been here a hundred years and seen weather".
+  // Roof cap — missing chunks on the rounded end caps
+  px(ctx, '#3a2418', dx - 4, dy - 3, 2, 2);  // left corner dent
+  px(ctx, '#3a2418', dx + dw + 3, dy - 3, 1, 2);
+  // Roof scorch streak (long dark smear along the chrome top)
+  px(ctx, '#3a2a30', dx + 20, dy - 4, 8, 1);
+  px(ctx, '#1a0a06', dx + 22, dy - 4, 4, 1);
+  // Missing rivets on the roof (gaps in the rivet line)
+  px(ctx, CH_HI,     dx + 16, dy - 4, 1, 1);   // overwrite rivet with chrome
+  px(ctx, CH_HI,     dx + 64, dy - 4, 1, 1);
+  // Dent in the top specular band (dark notch)
+  px(ctx, CH_SHA,    dx + 38, dy + 1, 4, 1);
+  px(ctx, '#1a0a06', dx + 40, dy + 1, 2, 1);
+  // Chipped paint exposing dark substrate on the front cap (rounded nose)
+  px(ctx, '#3a2418', 136, dy + 10, 2, 3);
+  px(ctx, '#1a0a06', 136, dy + 11, 1, 1);
+  // Scorch mark on the window frame (top-left corner of the glass)
+  px(ctx, '#1a0a06', dx + 4, winY,     3, 2);
+  px(ctx, '#3a2a30', dx + 4, winY + 2, 3, 1);
+  // Cracked glass panel — diagonal hairline crack (3 dark dots)
+  px(ctx, '#142028', dx + 22, winY + 4, 1, 1);
+  px(ctx, '#142028', dx + 23, winY + 5, 1, 1);
+  px(ctx, '#142028', dx + 24, winY + 6, 1, 1);
+  // Pock mark on the cyan glass (something hit it)
+  px(ctx, '#142028', dx + 56, winY + 8, 2, 2);
+  px(ctx, '#08101a', dx + 56, winY + 8, 1, 1);
+  // Big rust streak down the body below the window
+  px(ctx, '#7a2a10', dx + 14, winY + winH + 1, 1, 6);
+  px(ctx, '#5a1a08', dx + 14, winY + winH + 3, 1, 4);
+  // Chipped paint patches on the main body (exposed dark metal)
+  px(ctx, '#3a2418', dx + 30, dy + 18, 3, 1);
+  px(ctx, '#3a2418', dx + 68, dy + 24, 2, 1);
+  px(ctx, '#3a2418', dx + 50, dy + 30, 4, 1);
+  // Pock holes on the body (small dark dots — bullet marks / debris hits)
+  px(ctx, '#1a0a06', dx + 26, dy + 22, 1, 1);
+  px(ctx, '#1a0a06', dx + 42, dy + 16, 1, 1);
+  px(ctx, '#1a0a06', dx + 78, dy + 20, 1, 1);
+  px(ctx, '#1a0a06', dx + 86, dy + 14, 1, 1);
+  // Scorch on the door (dark stain near the lever)
+  px(ctx, '#3a2a30', doorX + 1, doorY + 12, 4, 2);
+  px(ctx, '#1a0a06', doorX + 2, doorY + 13, 2, 1);
+  // Chipped step at the door base (missing chrome chunk)
+  px(ctx, '#3a2418', doorX + 6, doorY + doorH, 4, 1);
+  // Bumper trim scrapes (missing rivets / dings along the bottom edge)
+  px(ctx, '#3a2418', dx + 10, dy + dh, 3, 1);
+  px(ctx, '#3a2418', dx + 44, dy + dh, 2, 1);
+  px(ctx, '#3a2418', dx + 76, dy + dh, 3, 1);
+  // Soot / scorch around one of the vent grilles (heaviest use)
+  px(ctx, '#3a2a30', dx + 10, dy + dh - 8, 8, 2);
+  px(ctx, '#1a0a06', dx + 12, dy + dh - 7, 4, 1);
+
   // ── CARGO SCAFFOLDING + CRANE + STACKED CRATES (LEFT of diner) ──
   // Industrial drop zone showing prior cargo deliveries. Matches the
   // in-game drawLandmarkTruckStop layout: crane + crate pile sit on
@@ -2461,6 +2685,42 @@ function drawDock(ctx, t) {
   px(ctx, '#3a2418', smCr.x + smCr.w - 1, smCr.y - smCr.h + 1, 1, 5);
   px(ctx, '#3a2418', smCr.x + smCr.w - 1, smCr.y - 4, 2, 1);
 
+  // ── CRANE / CRATE PILE DAMAGE / WEAR ─────────────────────
+  // Adds rust, chipped paint, scorch marks to the industrial gear
+  // so it reads as "been here for decades dropping cargo".
+  // Rust running down the tower legs
+  px(ctx, '#7a2a10', twX,             twY + 22, 1, 6);
+  px(ctx, '#5a1a08', twX,             twY + 24, 1, 4);
+  px(ctx, '#7a2a10', twX + twW - 1,   twY + 40, 1, 6);
+  px(ctx, '#5a1a08', twX + twW - 1,   twY + 42, 1, 4);
+  // Missing chunks of the hazard stripe paint on the legs
+  px(ctx, '#3a2010', twX + 1, twY + 14, 1, 2);
+  px(ctx, '#3a2010', twX + twW - 2, twY + 36, 1, 2);
+  // Scorch on the crane arm (dark stain across the top beam)
+  px(ctx, '#3a2a30', armStartX + 6, armY,     6, 1);
+  px(ctx, '#1a0a06', armStartX + 8, armY,     3, 1);
+  // Pock marks on the arm beam
+  px(ctx, '#1a0a06', armStartX + 18, armY + 1, 1, 1);
+  px(ctx, '#1a0a06', armEndX - 8,    armY + 1, 1, 1);
+  // Chipped paint on the counter-weight box
+  px(ctx, '#1a0a06', twX - 2, armY,     2, 1);
+  // Bent / dented base of the tower (scuffed up by cargo drops)
+  px(ctx, '#3a2010', twX + 2, twY + twH - 4, 3, 2);
+  // Crate damage — splintered corners, faded stencils, water stains
+  // Big crate #01 — splintered top-left corner
+  px(ctx, '#3a2010', baseCrates[0].x,     pileBaseY - baseCrates[0].h, 2, 1);
+  // Big crate #02 — water stain running down the front
+  px(ctx, '#5a3818', baseCrates[1].x + 4, pileBaseY - 8, 1, 6);
+  px(ctx, '#3a2010', baseCrates[1].x + 4, pileBaseY - 6, 1, 4);
+  // Small crate #04 — broken plank (missing slat)
+  px(ctx, '#3a2010', smCr.x + 2, smCr.y - 4, 2, 1);
+  // Stamps faded / weathered (overwrite parts of the DLX text)
+  px(ctx, '#7a4818', baseCrates[1].x + 4, pileBaseY - baseCrates[1].h + 3, 2, 1);
+  // Scattered debris on the platform around the crates (small dots)
+  px(ctx, '#3a2010', 28, 87, 1, 1);
+  px(ctx, '#3a2010', 38, 87, 1, 1);
+  px(ctx, '#3a2010', 50, 87, 2, 1);
+
   // (The WELCOME ARCH that used to span the left side of the platform
   // was removed in v451L — that area now belongs to the cargo crane +
   // crate pile, which matches the in-game drawLandmarkTruckStop
@@ -2505,13 +2765,58 @@ function drawDock(ctx, t) {
     px(ctx, C.outline, 8 + i, 88, 3, 1);
   }
 
+  // ── PLATFORM DAMAGE / WEAR — scorch dots, oil stains, scuffs ──
+  // Adds the lived-in industrial feel that the DLX DISPATCH center
+  // has (scorch marks, pock holes, chipped concrete). Reads as
+  // "this pad has been used a thousand times for thruster-blast
+  // landings". All static (no per-frame jitter).
+  // Big oil stains under the helipad ring (rig has dripped here)
+  px(ctx, '#3a2a1a', 92, 100, 8, 2);
+  px(ctx, '#1a0a06', 94, 101, 4, 1);
+  px(ctx, '#3a2a1a', 108, 99, 6, 1);
+  px(ctx, '#1a0a06', 110, 99, 3, 1);
+  // Thruster scorch marks under the helipad (dark concentric blooms)
+  px(ctx, '#3a2010', 78, 102, 6, 2);
+  px(ctx, '#1a0a06', 80, 103, 3, 1);
+  px(ctx, '#3a2010', 116, 103, 5, 2);
+  px(ctx, '#1a0a06', 118, 104, 2, 1);
+  // Random pock holes / chipped concrete dots scattered across the pad
+  const pockSpots = [
+    [60, 95], [72, 98], [88, 96], [98, 103], [104, 96], [126, 98],
+    [148, 95], [162, 99], [176, 96], [190, 102], [204, 96], [218, 99],
+    [230, 96], [54, 99], [42, 102],
+  ];
+  for (const [px_, py_] of pockSpots) {
+    px(ctx, '#3a2a1a', px_, py_, 1, 1);
+  }
+  // Bigger gouges / cracks (2px dark + 1px hot edge — like dispatch)
+  px(ctx, '#1a0a06', 50, 96, 2, 1);
+  px(ctx, '#5a4030', 50, 95, 2, 1);
+  px(ctx, '#1a0a06', 138, 100, 2, 1);
+  px(ctx, '#5a4030', 138, 99, 2, 1);
+  px(ctx, '#1a0a06', 200, 100, 3, 1);
+  px(ctx, '#5a4030', 200, 99, 3, 1);
+  // Skid marks across the pad (dark drag lines from prior landings)
+  for (let s = 0; s < 6; s++) {
+    px(ctx, '#5a4a3a', 70 + s * 4, 97, 2, 1);
+  }
+  for (let s = 0; s < 5; s++) {
+    px(ctx, '#5a4a3a', 154 + s * 5, 101, 3, 1);
+  }
+  // Worn-off caution-stripe chips (random missing pixels in the
+  // front-edge stripe — sells "scraped over and over by skids")
+  for (const cx_ of [22, 56, 102, 154, 188, 230]) {
+    px(ctx, '#5a4a3a', cx_, 88, 2, 1);
+  }
+
   // ── HELIPAD — big painted "H" inside a circle, lit perimeter
   // Replaces the road-style runway (centerline + edge stripes). Reads
   // as a proper landing pad: clear wide-open space for the rig to
   // touch down, with a stenciled H ring centered under the rig.
-  // Pad center is aligned with the rig's idle X (rigCx=100) so the
-  // touchdown lands right on the H. Ring outer radius ≈ 26 px.
-  const padCx = 100, padCy = 99;
+  // Pad center is aligned with the actual rig's idle anchor X
+  // (rigAnchorX=110) so the hover position is right on the pad.
+  // Ring outer radius ≈ 26 px.
+  const padCx = 110, padCy = 99;
   // Stepped circular ring (4-step pixel circle, hard-edged).
   // Drawn as a series of short horizontal spans approximating an arc.
   const ringSpans = [
@@ -2528,14 +2833,10 @@ function drawDock(ctx, t) {
     px(ctx, '#ffffff', padCx - rs.half,     padCy + rs.y, 1, 1);
     px(ctx, '#ffffff', padCx + rs.half - 1, padCy + rs.y, 1, 1);
   }
-  // Big stenciled "H" inside the ring — 14×16 pixel-art H
-  // (Two vertical bars + a horizontal crossbar, 2 px thick)
-  // Left bar
-  px(ctx, '#ffffff', padCx - 7, padCy - 7, 2, 14);
-  // Right bar
-  px(ctx, '#ffffff', padCx + 5, padCy - 7, 2, 14);
-  // Crossbar
-  px(ctx, '#ffffff', padCx - 7, padCy - 1, 14, 2);
+  // (The big stenciled "H" inside the ring was removed in v451M per
+  // user-revisions — the ring + perimeter lights + corner chevrons
+  // are enough to read the pad. The H read as a drop-shadow under
+  // the rig, which doesn't make sense since the rig is hovering.)
   // Perimeter approach lights — 8 evenly-spaced points around the ring
   // (lit by twinkle pattern so they read as practical edge lighting)
   const padLights = [
@@ -2561,10 +2862,10 @@ function drawDock(ctx, t) {
   // corners of the touchdown zone (frames the landing pad only, leaves
   // the right portion of the platform clear for the cargo dock + crane).
   const chevPairs = [
-    [72,  92, 1],    // top-left, points right
-    [128, 92, -1],   // top-right, points left
-    [72,  104, 1],   // bottom-left
-    [128, 104, -1],  // bottom-right
+    [82,  92, 1],    // top-left, points right
+    [138, 92, -1],   // top-right, points left
+    [82,  104, 1],   // bottom-left
+    [138, 104, -1],  // bottom-right
   ];
   for (const [cxC, cyC, dir] of chevPairs) {
     for (let i = 0; i < 4; i++) {
@@ -2573,136 +2874,132 @@ function drawDock(ctx, t) {
     }
   }
 
-  // ── ROAD KILL RIG LANDING ON THE PAD ──────────────────────
-  // Cycle: rig flies in from left (frames 0..15), descends to land
-  // (16..29), then idles (30..47) while alien waves.
-  const cycle = t % 48;
-  // Rig fly-in path adjusted in v451L so the rig clears the left-side
-  // crane/crate pile (which spans x=4..40) on its approach. Starts at
-  // x=80 (just past the pile) and settles on the helipad at x=100.
-  let rigCx, rigCy, rigTilt = 0, motionBlur = 0;
-  if (cycle < 16) {
-    const u = cycle / 16;
-    rigCx = 80 + Math.round(u * 20);   // travels x: 80 -> 100
-    rigCy = 78 + Math.round(Math.sin(u * 3.14) * -4); // arc descent
-    motionBlur = 3 - (cycle >> 2);     // fades 3..0
-    rigTilt = 1;
-  } else if (cycle < 30) {
-    const u = (cycle - 16) / 14;
-    rigCx = 100;
-    rigCy = 80 + Math.round((1 - u) * 2 + Math.sin(cycle * 0.4) * 0.5);
-    rigTilt = 0;
-  } else {
-    rigCx = 100;
-    rigCy = 80 + Math.round(Math.sin(cycle * 0.3) * 0.5);
-    rigTilt = 0;
+  // ── ACTUAL pxRoadkillRig + pxRoadkillCargo (v451M scale-check) ──
+  // Per user-revisions: drop the simplified 32×9 mockup rig and use the
+  // REAL in-game sprite (58×52 pxRoadkillRig + 28×28 pxRoadkillCargo)
+  // so the user can verify scale fits this scene. Rig hovers above
+  // the helipad (no drop shadow — it's hovering, not landed). Cargo
+  // tethers behind/below on the magnetic chain (cyan beaded pulse).
+  // Anchor: pxRoadkillRig is drawn at top-left = (rigAnchorX-29, rigAnchorY-26)
+  const rigAnchorX = 110, rigAnchorY = 62;
+  const rigDrawX = rigAnchorX - 29;        // 81
+  const rigDrawY = rigAnchorY - 26;        // 36
+  // Cargo trailing 36 px behind rig + slightly lower (in-game tow pose)
+  const cargoCx = rigAnchorX - 38, cargoCy = rigAnchorY + 6;
+  const cargoDrawX = cargoCx - 14, cargoDrawY = cargoCy - 14;
+  // Chain (rig's anchor port → cargo near edge) — pulsing beaded blue
+  const chainSx = rigDrawX + 4,  chainSy = rigDrawY + 30;
+  const chainEx = cargoDrawX + 26, chainEy = cargoDrawY + 12;
+  const chainSteps = 5;
+  for (let i = 0; i <= chainSteps; i++) {
+    const u = i / chainSteps;
+    const bx = (chainSx + (chainEx - chainSx) * u) | 0;
+    const by = (chainSy + (chainEy - chainSy) * u) | 0;
+    const pulse = (Math.sin(t * 0.16 + i * 0.75) + 1) * 0.5;
+    const s = pulse > 0.6 ? 2 : 1;
+    ctx.fillStyle = PXC.chainGlow;
+    ctx.fillRect(bx - s, by - s, s * 2 + 1, s * 2 + 1);
+    ctx.fillStyle = PXC.chainCore;
+    ctx.fillRect(bx, by, 1, 1);
   }
-  // Motion-blur trail — geometric speed lines (Rule 4)
-  // 3-step tonal march, thin hard-edged horizontal slashes only.
-  for (let b = 1; b <= motionBlur; b++) {
-    const tone = ['#3a3036', '#28282e', '#1a1a1c'][b - 1] || '#1a1a1c';
-    px(ctx, tone, rigCx - 6 * b, rigCy + 3, 18, 1);
-    px(ctx, tone, rigCx - 6 * b + 2, rigCy + 6, 16, 1);
-    px(ctx, tone, rigCx - 6 * b + 4, rigCy + 9, 14, 1);
-  }
-  // Hull
-  px(ctx, C.outline, rigCx, rigCy + 2, 32, 9);
-  px(ctx, C.hullDeep, rigCx + 1, rigCy + 3, 30, 7);
-  px(ctx, C.hullDark, rigCx + 1, rigCy + 3, 30, 5);
-  px(ctx, C.hullCore, rigCx + 1, rigCy + 3, 30, 3);
-  px(ctx, C.hullLit,  rigCx + 2, rigCy + 3, 28, 1);
-  px(ctx, C.yellow,   rigCx + 2, rigCy + 7, 28, 1);
-  // Cockpit dome
-  px(ctx, C.outline, rigCx + 2, rigCy - 1, 8, 4);
-  px(ctx, C.hullLit, rigCx + 3, rigCy, 6, 3);
-  px(ctx, C.cyanLit, rigCx + 3, rigCy, 6, 1);
-  px(ctx, '#ffffff', rigCx + 4, rigCy, 1, 1);
-  // Grille (front-right)
-  px(ctx, C.outline, rigCx + 30, rigCy + 2, 4, 8);
-  px(ctx, C.orange, rigCx + 31, rigCy + 3, 3, 6);
-  px(ctx, C.yellow, rigCx + 32, rigCy + 4, 1, 1);
-  px(ctx, C.yellow, rigCx + 32, rigCy + 7, 1, 1);
-  // Wheels (deployed when landing)
-  px(ctx, C.outline, rigCx + 5, rigCy + 11, 4, 3);
-  px(ctx, C.outline, rigCx + 22, rigCy + 11, 4, 3);
-  // Cargo crate on top (the delivered cargo)
-  px(ctx, C.outline, rigCx + 12, rigCy - 7, 12, 7);
-  px(ctx, '#a06820', rigCx + 13, rigCy - 6, 10, 5);
-  px(ctx, C.yellow, rigCx + 13, rigCy - 6, 10, 1);
-  px(ctx, '#5a3020', rigCx + 17, rigCy - 6, 1, 5);
-  // Landing exhaust — geometric stepped puff blocks
-  if (cycle < 30) {
-    const pufY = rigCy + 14 + ((t & 3) >> 1);
-    pxBlockPuff(ctx, rigCx + 8,  pufY, 2,
-                (t & 1) ? '#c8a888' : '#b08868', '#f4e8d8');
-    pxBlockPuff(ctx, rigCx + 24, pufY, 2,
-                (t & 1) ? '#b08868' : '#c8a888', '#f4e8d8');
-  }
+  // Cargo first (so rig draws over the chain near the anchor port)
+  pxRoadkillCargo(ctx, cargoDrawX, cargoDrawY);
+  // Rig
+  pxRoadkillRig(ctx, rigDrawX, rigDrawY, t);
+  // Anti-grav exhaust under the rig nozzle (4 stepped puffs of dust
+  // since the rig is hovering — small downward drift)
+  const pufY = rigDrawY + 52 + ((t & 3) >> 1);
+  pxBlockPuff(ctx, rigDrawX + 10, pufY, 2,
+              (t & 1) ? '#c8a888' : '#b08868', '#f4e8d8');
+  pxBlockPuff(ctx, rigDrawX + 18, pufY + 1, 1,
+              (t & 1) ? '#b08868' : '#c8a888', '#f4e8d8');
 
   // ── 6-ARMED ALIEN GREETER (yellowish-green, more detailed) ──
   // 3-step skin shading + spots + brow ridge + cheekbones + fangs
   // + tongue + nostrils + ear tendrils + bioluminescent antennae +
   // shoulder pauldrons + diagonal sash + multi-section belt +
-  // pleated robe + tassels + wristbands + 3-fingered hands.
-  const ax = 56, ay = 80;
+  // pleated overalls + tassels + wristbands + 3-fingered hands.
+  // v451M: clothing changed from purple robe → blue denim overalls
+  // (working-class hauler hand-off look) per user-revisions.
+  const ax = 46, ay = 80;
   // Yellowish-green skin palette (3 steps + specular accent)
   const AL_SHA  = '#4a7818';   // shadow (darker green)
   const AL_MID  = '#9ac038';   // mid (yellow-green core)
   const AL_HI   = '#d8e860';   // highlight (pale yellow-green)
   const AL_SPEC = '#f8ff80';   // specular (bright lemon)
   const AL_SPOT = '#3a5810';   // skin spots / freckles
+  // Denim/jeans palette for the overalls (3 steps + dark seam)
+  const AL_DENIM_SHA = '#1a2848';   // shadow (deep indigo)
+  const AL_DENIM_MID = '#2a4470';   // mid (denim core blue)
+  const AL_DENIM_HI  = '#5a78a8';   // highlight (faded denim wash)
+  const AL_DENIM_STITCH = '#d8a040'; // gold stitching (classic Levi look)
 
-  // ── LOWER ROBE (pleated, with tassels) ───────────────────
+  // ── DENIM JEANS / LOWER OVERALLS (pleated, with tassels) ─
   px(ctx, C.outline, ax - 10, ay + 8, 20, 14);
-  px(ctx, C.purpleDark, ax - 9, ay + 9, 18, 12);
-  px(ctx, C.purpleCore, ax - 9, ay + 9, 18, 11);
-  px(ctx, C.purpleLit,  ax - 9, ay + 9, 18, 2);
-  // Pleated robe folds (vertical shadow lines)
+  px(ctx, AL_DENIM_SHA, ax - 9, ay + 9, 18, 12);
+  px(ctx, AL_DENIM_MID, ax - 9, ay + 9, 18, 11);
+  px(ctx, AL_DENIM_HI,  ax - 9, ay + 9, 18, 2);
+  // Denim seam folds (vertical shadow lines on the jeans)
   for (let pf = -8; pf <= 8; pf += 4) {
-    px(ctx, C.purpleDark, ax + pf, ay + 11, 1, 9);
+    px(ctx, AL_DENIM_SHA, ax + pf, ay + 11, 1, 9);
   }
-  // Hem trim — gold band
-  px(ctx, C.outline,    ax - 9, ay + 21, 18, 1);
-  px(ctx, C.yellow,     ax - 9, ay + 20, 18, 1);
-  px(ctx, C.yellowLit,  ax - 9, ay + 19, 18, 1);
-  // Tassels hanging below the hem
-  for (let i = -7; i <= 7; i += 3) {
-    px(ctx, C.yellowLit, ax + i, ay + 22, 1, 2);
-    px(ctx, '#a06820',   ax + i, ay + 23, 1, 1);
-  }
+  // Center inseam (running down the middle of the jeans)
+  px(ctx, AL_DENIM_SHA, ax, ay + 9, 1, 12);
+  // Denim cuff at the bottom of the jeans (rolled-up hem, stitched)
+  px(ctx, C.outline,       ax - 9, ay + 21, 18, 1);
+  px(ctx, AL_DENIM_HI,     ax - 9, ay + 20, 18, 1);
+  px(ctx, AL_DENIM_STITCH, ax - 8, ay + 19, 16, 1);
+  // Work boots peeking out from under the cuff (left + right foot)
+  px(ctx, C.outline, ax - 7, ay + 22, 5, 3);
+  px(ctx, '#3a2418', ax - 6, ay + 22, 3, 2);
+  px(ctx, C.outline, ax + 2, ay + 22, 5, 3);
+  px(ctx, '#3a2418', ax + 3, ay + 22, 3, 2);
 
-  // ── TORSO with diagonal sash + multi-section belt ────────
+  // ── TORSO with denim overall bib + shoulder straps ───────
+  // Classic blue-denim overalls: bib panel over the chest with two
+  // shoulder straps crossing the body, gold rivets + stitching.
   px(ctx, C.outline, ax - 8, ay - 4, 16, 13);
-  px(ctx, C.purpleDark, ax - 7, ay - 3, 14, 11);
-  px(ctx, C.purpleCore, ax - 7, ay - 3, 14, 10);
-  px(ctx, C.purpleLit,  ax - 7, ay - 3, 14, 1);
-  // Diagonal sash (left shoulder to right hip)
-  for (let i = 0; i < 14; i++) {
-    px(ctx, C.dinerRed, ax - 6 + i, ay - 3 + (i >> 1), 1, 2);
-    if (i < 13) px(ctx, '#7a1010', ax - 6 + i + 1, ay - 3 + (i >> 1) + 1, 1, 1);
+  px(ctx, AL_DENIM_SHA, ax - 7, ay - 3, 14, 11);
+  px(ctx, AL_DENIM_MID, ax - 7, ay - 3, 14, 10);
+  px(ctx, AL_DENIM_HI,  ax - 7, ay - 3, 14, 1);
+  // Overall bib panel (slightly darker raised square in the center)
+  px(ctx, AL_DENIM_SHA, ax - 4, ay - 2, 8, 7);
+  px(ctx, AL_DENIM_MID, ax - 4, ay - 2, 8, 6);
+  // Bib outline (darker seam around the panel)
+  px(ctx, AL_DENIM_SHA, ax - 5, ay - 2, 1, 7);
+  px(ctx, AL_DENIM_SHA, ax + 4, ay - 2, 1, 7);
+  // Shoulder STRAPS (overall braces — crossing from waist up over each shoulder)
+  px(ctx, AL_DENIM_SHA, ax - 6, ay - 4, 2, 8);
+  px(ctx, AL_DENIM_MID, ax - 6, ay - 4, 2, 7);
+  px(ctx, AL_DENIM_HI,  ax - 6, ay - 4, 1, 7);
+  px(ctx, AL_DENIM_SHA, ax + 4, ay - 4, 2, 8);
+  px(ctx, AL_DENIM_MID, ax + 4, ay - 4, 2, 7);
+  px(ctx, AL_DENIM_HI,  ax + 4, ay - 4, 1, 7);
+  // Gold rivets on the strap-to-bib joins (4 dots — classic Levi look)
+  px(ctx, AL_DENIM_STITCH, ax - 5, ay - 1, 1, 1);
+  px(ctx, AL_DENIM_STITCH, ax + 4, ay - 1, 1, 1);
+  px(ctx, AL_DENIM_STITCH, ax - 5, ay + 4, 1, 1);
+  px(ctx, AL_DENIM_STITCH, ax + 4, ay + 4, 1, 1);
+  // Gold stitching along the bib edges (top + bottom)
+  for (let st = 0; st < 7; st++) {
+    if (st & 1) px(ctx, AL_DENIM_STITCH, ax - 3 + st, ay - 2, 1, 1);
   }
-  // Shoulder PAULDRONS (raised epaulettes)
+  // Shoulder PAULDRONS (denim epaulettes — no purple gem)
   px(ctx, C.outline, ax - 10, ay - 5, 5, 4);
-  px(ctx, C.purpleLit, ax - 9, ay - 4, 3, 3);
-  px(ctx, C.yellow, ax - 9, ay - 4, 3, 1);
-  px(ctx, C.yellowLit, ax - 9, ay - 4, 3, 1);
+  px(ctx, AL_DENIM_HI, ax - 9, ay - 4, 3, 3);
+  px(ctx, AL_DENIM_STITCH, ax - 9, ay - 4, 3, 1);
   px(ctx, C.outline, ax + 5, ay - 5, 5, 4);
-  px(ctx, C.purpleLit, ax + 6, ay - 4, 3, 3);
-  px(ctx, C.yellow, ax + 6, ay - 4, 3, 1);
-  px(ctx, C.yellowLit, ax + 6, ay - 4, 3, 1);
-  // Multi-section belt (gold + ornaments)
+  px(ctx, AL_DENIM_HI, ax + 6, ay - 4, 3, 3);
+  px(ctx, AL_DENIM_STITCH, ax + 6, ay - 4, 3, 1);
+  // Tool belt (brown leather work belt + simple brass buckle —
+  // matches the overalls workwear look, no gem)
   px(ctx, C.outline, ax - 8, ay + 4, 16, 4);
-  px(ctx, '#a06820',  ax - 7, ay + 5, 14, 2);
-  px(ctx, C.yellow,    ax - 7, ay + 5, 14, 1);
-  px(ctx, C.yellowLit, ax - 7, ay + 4, 14, 1);
-  // Belt buckle (ornate red gem in gold)
-  px(ctx, C.outline, ax - 3, ay + 4, 6, 4);
-  px(ctx, '#a06820', ax - 2, ay + 5, 4, 2);
-  px(ctx, C.dinerRed, ax - 1, ay + 5, 2, 2);
-  px(ctx, '#ff6040', ax - 1, ay + 5, 1, 1);
-  // Side belt studs
-  px(ctx, C.yellowLit, ax - 6, ay + 5, 1, 2);
-  px(ctx, C.yellowLit, ax + 5, ay + 5, 1, 2);
+  px(ctx, '#3a2418', ax - 7, ay + 5, 14, 2);
+  px(ctx, '#5a3020', ax - 7, ay + 5, 14, 1);
+  // Brass buckle (small rectangle centered)
+  px(ctx, C.outline, ax - 2, ay + 4, 4, 4);
+  px(ctx, '#a06820', ax - 1, ay + 5, 2, 2);
+  px(ctx, C.yellowLit, ax - 1, ay + 5, 2, 1);
 
   // ── CHEST INSIGNIA (DLX delivery badge, more detailed) ──
   px(ctx, C.outline, ax - 4, ay - 1, 8, 4);
@@ -2827,11 +3124,11 @@ function drawDock(ctx, t) {
     const ey = (sy_ + 4 + v * 0.5) | 0;
     const hx = (ex + side * (7 + w * 0.6)) | 0;
     const hy = (ey + 3 + v * 0.7 - 4) | 0;
-    // Shoulder joint (purple sleeve)
+    // Shoulder joint (denim sleeve)
     px(ctx, C.outline, sx_ - 1, sy_ - 1, 4, 4);
-    px(ctx, C.purpleDark, sx_, sy_, 3, 3);
-    px(ctx, C.purpleCore, sx_, sy_, 3, 2);
-    px(ctx, C.purpleLit,  sx_, sy_, 3, 1);
+    px(ctx, AL_DENIM_SHA, sx_, sy_, 3, 3);
+    px(ctx, AL_DENIM_MID, sx_, sy_, 3, 2);
+    px(ctx, AL_DENIM_HI,  sx_, sy_, 3, 1);
     // Upper arm (skin)
     const ux = ((sx_ + 1 + ex) * 0.5) | 0;
     const uy = ((sy_ + 1 + ey) * 0.5) | 0;
