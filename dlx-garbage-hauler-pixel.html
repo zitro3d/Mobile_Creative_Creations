@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451T-truckstop-game-port';
+const DLX_BUILD = 'v451U-audio-pass';
 
 (function() {
   // ---------- Device detection ----------
@@ -3374,15 +3374,8 @@ const DLX_BUILD = 'v451T-truckstop-game-port';
         // Soft sub-rumble underneath so it FEELS energising, not chirpy.
         tone(110, 0.50, 'sine', 0.10, 220);
         break;
-      case 'lavaWhoosh':
-        // Soft, low whoosh — sounds like air being displaced by a
-        // heavy projectile. Replaced the earlier descending
-        // sawtooth (was too screechy / shrill). Quiet noise rumble
-        // + a gentle sine descent so the lava ball has presence
-        // without grating on every spawn.
-        noiseBurst(0.12, 0.22);
-        tone(180, 0.45, 'sine', 0.09, 70);
-        break;
+      // (Dead 'lavaWhoosh' case removed — was defined for an old lava-
+      // ball obstacle that no longer exists. No callers in the codebase.)
       case 'tunnelEnter':
         // Soft echoey whoosh when the rig drops into a tunnel
         // mouth — low-mid sweep + faint reverb tone.
@@ -3432,6 +3425,46 @@ const DLX_BUILD = 'v451T-truckstop-game-port';
         tone( 90, 0.32, 'sawtooth', 0.18, 35);
         setTimeout(function(){ tone(140, 0.18, 'square', 0.13, 70); }, 90);
         setTimeout(function(){ tone( 60, 0.40, 'sine',   0.14, 25); }, 200);
+        break;
+      case 'thiefLockOn':
+        // Sunset gunship hovers above the cargo for the 12-frame
+        // lock-on pause. Quiet rising 2-tone alarm telegraphs the
+        // incoming drop without overpowering ambient music.
+        tone(440, 0.10, 'square', 0.06, 660);
+        setTimeout(function(){ tone(660, 0.12, 'square', 0.07, 880); },  90);
+        break;
+      case 'thiefGrab':
+        // Sunset gunship's magnetic claw clamps onto the cargo crate.
+        // Mechanical/electric grab — distinct from organic 'tongueGrab'
+        // (wet) and from the generic 'boom' (explosion) it used to use.
+        // Heavy thunk + electric ZAP + cable strain.
+        noiseBurst(0.20, 0.08);
+        tone(140, 0.16, 'square',   0.16, 90);              // metal clamp
+        setTimeout(function(){ tone(1200, 0.12, 'sawtooth', 0.10, 600); }, 40);  // ZAP
+        setTimeout(function(){ tone(180, 0.30, 'sine',     0.12, 120); }, 110);  // cable strain
+        break;
+      case 'harpoonFire':
+        // Harpooner unloads the upward harpoon. Tight metallic snap
+        // followed by a quick rising whistle as the bolt clears the
+        // launcher — sells the launch as fast + precise.
+        noiseBurst(0.10, 0.05);
+        tone(880, 0.08, 'square', 0.14, 1320);          // snap
+        setTimeout(function(){ tone(440, 0.18, 'triangle', 0.10, 1760); }, 30);   // rising whistle
+        break;
+      case 'droneLockOn':
+        // Drone aims its zap beam. Electronic targeting beep — three
+        // quick rising blips. Reads as "computer locked, fire incoming"
+        // distinct from 'thiefLockOn' which is more analog.
+        tone(880,  0.05, 'square', 0.05, 880);
+        setTimeout(function(){ tone(1320, 0.05, 'square', 0.05, 1320); }, 60);
+        setTimeout(function(){ tone(1760, 0.06, 'square', 0.06, 1760); }, 120);
+        break;
+      case 'droneZap':
+        // Drone fires its downward beam. Sharp electric crackle +
+        // descending laser whine — distinct from the explosive 'boom'.
+        noiseBurst(0.15, 0.10);
+        tone(2200, 0.10, 'sawtooth', 0.14, 220);   // crackle
+        setTimeout(function(){ tone(1100, 0.20, 'sawtooth', 0.10, 110); }, 50);  // laser sweep
         break;
       case 'vineLash':
         // Vine whips out of the pillar — creaking wood + air-rush
@@ -8114,6 +8147,7 @@ const DLX_BUILD = 'v451T-truckstop-game-port';
             if (Math.abs(dr.x - targetX) < 16) {
               dr.state = 'lock';
               dr.stateFrames = 0;
+              playSound('droneLockOn');
             }
             if (dr.x < -50) dailyDrones.splice(i, 1);
           } else if (dr.state === 'lock') {
@@ -8122,7 +8156,7 @@ const DLX_BUILD = 'v451T-truckstop-game-port';
               dr.state = 'fire';
               dr.stateFrames = 0;
               dr.beamLen = 0;
-              playSound('boom');
+              playSound('droneZap');
             }
           } else if (dr.state === 'fire') {
             // Beam extends downward but stops at the dune surface — was
@@ -8147,7 +8181,7 @@ const DLX_BUILD = 'v451T-truckstop-game-port';
                 cargoZapFrames = 60;
                 emitPickupSparks(cargo.x, cargo.y, '#ff4030', 12);
                 shakeFrames = 10;
-                playSound('boom');
+                playSound('thiefGrab');
               }
             }
             if (dr.stateFrames >= 30) {
@@ -9112,7 +9146,18 @@ const DLX_BUILD = 'v451T-truckstop-game-port';
             if (cargo && !cargo.lost && Math.abs(dxc) < 22) {
               tf.state = 'lower';
               tf.stateFrames = 0;
-              if (_orgTf) playSound('tongueStrike');
+              if (_orgTf) {
+                playSound('tongueStrike');
+              } else if (tf.variant === 2) {
+                // Harpooner — charge LED ramps during the 12-frame
+                // hover; lockOn telegraphs that the launch is coming.
+                playSound('thiefLockOn');
+              } else {
+                // Sunset gunship lock-on alarm (replaces the old silent
+                // hover — players had no audio warning that a cable
+                // drop was about to happen).
+                playSound('thiefLockOn');
+              }
             }
             // Despawn off the wrong side of the screen
             if ((!_orgTf && tf.x < -60) || (_orgTf && tf.x > W + 60)) {
@@ -9123,6 +9168,11 @@ const DLX_BUILD = 'v451T-truckstop-game-port';
             if (tf.stateFrames < 12) {
               // Hover in place
             } else {
+              if (tf.stateFrames === 12 && tf.variant === 2) {
+                // Harpooner: harpoon launches the moment the lock-on
+                // ends. Single audio cue at the launch frame.
+                playSound('harpoonFire');
+              }
               tf.x += tf.vx * 0.35;
               tf.cableLen = Math.min(tf.cableLen + 3.5, 220);
             }
@@ -9148,7 +9198,7 @@ const DLX_BUILD = 'v451T-truckstop-game-port';
                 tf.stateFrames = 0;
                 emitPickupSparks(cargo.x, cargo.y, '#a0f0ff', 6);
                 emitCargoLossPuff(cargo.x, cargo.y);
-                playSound(_orgTf ? 'tongueGrab' : 'boom');
+                playSound(_orgTf ? 'tongueGrab' : 'thiefGrab');
               }
             }
             // Tendril maxed out without grabbing — retract
