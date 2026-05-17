@@ -126,6 +126,14 @@
   .hex-input-row button { padding: 4px 8px; font-size: 11px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; }
   .ref-row { display: flex; gap: 6px; }
   .ref-row .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Navigator / minimap — sits in the left panel. Yellow viewport rect
+     shows what's visible in the main paint area when zoomed in. */
+  .minimap-wrap {
+    background: var(--paint-bg); border: 1px solid var(--border);
+    padding: 4px; display: flex; align-items: center; justify-content: center;
+    cursor: crosshair;
+  }
+  #minimapCanvas { image-rendering: pixelated; display: block; max-width: 100%; }
 
   .swatch-group { margin-bottom: 10px; }
   .swatch-group-label { font-size: 10px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -386,6 +394,20 @@
       </label>
       <input id="refOpacitySlider" type="range" min="0" max="100" value="40"
              style="width: 100%; background: var(--bg-input); accent-color: var(--accent);">
+      <!-- Transform controls — appear when a reference image is loaded -->
+      <div style="display: flex; gap: 3px; flex-wrap: wrap; margin-top: 6px;">
+        <button id="refFlipHBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Mirror reference horizontally">↔ H</button>
+        <button id="refFlipVBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Mirror reference vertically">↕ V</button>
+        <button id="refRotateBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Rotate reference 90° clockwise">↻ 90°</button>
+        <button id="refResetXformBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Reset all reference transforms">Reset</button>
+      </div>
+      <div style="display: flex; gap: 3px; align-items: center; margin-top: 4px; font-size: 10px; color: var(--text-dim);">
+        <span>Move:</span>
+        <button id="refMoveLeftBtn"  class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference left (1 px, Shift = 10 px)">←</button>
+        <button id="refMoveUpBtn"    class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference up (1 px, Shift = 10 px)">↑</button>
+        <button id="refMoveDownBtn"  class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference down (1 px, Shift = 10 px)">↓</button>
+        <button id="refMoveRightBtn" class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference right (1 px, Shift = 10 px)">→</button>
+      </div>
     </div>
 
     <h2 style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
@@ -397,6 +419,11 @@
 
     <h2 style="margin-top: 12px;">Recent</h2>
     <div id="recentGrid" class="swatch-grid"></div>
+
+    <h2 style="margin-top: 12px;">Navigator</h2>
+    <div class="minimap-wrap" title="Click to jump the paint canvas to that position. The yellow box shows the visible viewport when zoomed in.">
+      <canvas id="minimapCanvas"></canvas>
+    </div>
   </div>
 
   <div class="splitter" id="splitterLeft" title="Drag to resize left panel"></div>
@@ -416,6 +443,9 @@
         <button id="zoomInBtn">+</button>
         <label style="margin-left: 10px; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Toggle grid lines (Shift+G)">
           <input id="gridLinesToggle" type="checkbox" checked> grid
+        </label>
+        <label style="margin-left: 8px; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Preview the canvas tiled in a 3×3 layout — useful for seam-checking tileable patterns">
+          <input id="tileModeCheck" type="checkbox"> tile 3×3
         </label>
       </div>
     </div>
@@ -454,6 +484,10 @@
     </label>
     <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Show next frame faintly under the current one">
       <input id="tlOnionNextCheck" type="checkbox"> next ▶
+    </label>
+    <label style="display: flex; align-items: center; gap: 4px; color: var(--text-dim);" title="Opacity of the onion-skin overlays (0-100%)">
+      α <input id="tlOnionAlpha" type="range" min="5" max="95" value="30" step="5" style="width: 70px; accent-color: var(--accent);">
+      <span id="tlOnionAlphaVal" style="font-family:'SF Mono',Consolas,monospace;">30%</span>
     </label>
     <span class="spacer"></span>
     <span class="frame-counter" id="tlCounter">Frame 1 / 1</span>
@@ -526,7 +560,7 @@
         <tr><td style="padding: 4px 8px; color: var(--text-dim);">Hold <kbd>Space</kbd> + drag</td><td style="padding: 4px 0;">Pan the canvas. Cursor becomes the grab hand. Aseprite / Photoshop convention.</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);">Middle-mouse drag</td><td style="padding: 4px 0;">Pan the canvas (no modifier needed)</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + 0</kbd></td><td style="padding: 4px 0;">Fit zoom to pane (same as F)</td></tr>
-        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + 1</kbd></td><td style="padding: 4px 0;">Default 8× zoom ("actual size"-ish for pixel art)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + 1</kbd></td><td style="padding: 4px 0;">Default 12× zoom ("actual size"-ish for pixel art)</td></tr>
       </table>
       <p style="margin: 6px 0 0 0; font-size: 11px; color: var(--text-dim);">A brief <kbd>Space</kbd> tap with no drag still toggles animation play / pause — only HELD Space-with-drag enters pan mode.</p>
 
@@ -716,11 +750,12 @@ let state = {
   playing: false,
   onionPrev: false,
   onionNext: false,
+  onionAlpha: 0.30,           // 0..1 — opacity of prev/next overlays
   activeColor: '#3aa8b8',
   tool: 'paint',              // 'paint' | 'pick' | 'erase' | 'fill'
   recentColors: [],           // last N colors used
   customColors: [],           // user-added swatches
-  zoom: 8,                    // px per cell in editor view (default 8× on first load)
+  zoom: 12,                   // px per cell in editor view (default 12× on first load)
   highlightedPixel: null,     // {x, y} when a code line is selected — drawn as a yellow ring
   // Rectangle tool — drag preview state. Cleared on mouseup.
   rectPreview: null,          // { x0, y0, x1, y1 } in grid cells
@@ -738,9 +773,20 @@ let state = {
   // already-painted cells. Useful for recoloring without disturbing
   // shape silhouette.
   lockAlpha: false,
+  // Tile-3×3 preview mode. When on, the paint canvas renders the
+  // current frame in a 3-by-3 tiled layout so the user can preview
+  // seamless / tileable patterns. Painting on any tile maps back to
+  // the canonical (0..W, 0..H) via modulo — change shows on all 9.
+  tileMode: false,
   refSrc: null,               // data URL of reference image (or null)
   refOpacity: 0.4,            // 0..1
   refVisible: true,
+  // Reference transform — CSS transform applied to the <img> overlay.
+  refFlipH: false,
+  refFlipV: false,
+  refRotate: 0,               // degrees, multiples of 90
+  refOffsetX: 0,              // CSS px offset
+  refOffsetY: 0,
 };
 // state.pixels is a virtual property that reads/writes the ACTIVE frame's
 // pixel map. Every existing line of code that touches state.pixels keeps
@@ -1246,14 +1292,18 @@ function fitZoomToScreen() {
 // nice middle-of-the-road default rather than auto-fitting to whatever
 // pane size the browser happens to give us. F still fits-to-pane.
 function defaultZoom() {
-  state.zoom = 8;
+  state.zoom = 12;
   zoomLabel.textContent = `Zoom: ${state.zoom}×`;
 }
 
 function renderGrid() {
   const Z = state.zoom;
-  paintCanvas.width = state.width * Z;
-  paintCanvas.height = state.height * Z;
+  // Tile-3×3 mode: render a 3-wide × 3-tall grid of the current frame
+  // so the user can preview tileable patterns / seams. Canvas grows
+  // accordingly; modulo math in cellFromEvent maps clicks back.
+  const tiles = state.tileMode ? 3 : 1;
+  paintCanvas.width = state.width * Z * tiles;
+  paintCanvas.height = state.height * Z * tiles;
   paintCtx.imageSmoothingEnabled = false;
   // Clear to transparent — when a reference image is showing through,
   // the canvas needs actual alpha=0 in empty cells so the image is visible.
@@ -1275,7 +1325,7 @@ function renderGrid() {
   // 30% alpha (red tint). Each is drawn under the current frame.
   if (onionOn) {
     if (state.onionPrev && state.activeFrame > 0) {
-      paintCtx.globalAlpha = 0.30;
+      paintCtx.globalAlpha = state.onionAlpha;
       const prev = state.frames[state.activeFrame - 1].pixels;
       for (const [k, hex] of Object.entries(prev)) {
         const [px, py] = k.split(',').map(Number);
@@ -1285,7 +1335,7 @@ function renderGrid() {
       paintCtx.globalAlpha = 1.0;
     }
     if (state.onionNext && state.activeFrame < state.frames.length - 1) {
-      paintCtx.globalAlpha = 0.30;
+      paintCtx.globalAlpha = state.onionAlpha;
       const next = state.frames[state.activeFrame + 1].pixels;
       for (const [k, hex] of Object.entries(next)) {
         const [px, py] = k.split(',').map(Number);
@@ -1380,6 +1430,27 @@ function renderGrid() {
     paintCtx.lineWidth = 1;
     paintCtx.strokeRect(x * Z - 1, y * Z - 1, Z + 2, Z + 2);
   }
+  // Tile-3×3: replicate the canonical tile we just drew (at 0,0) into
+  // the other 8 surrounding tile positions via canvas-to-self drawImage.
+  // Done BEFORE the grid overlay so the overlay can span all 9 tiles.
+  if (state.tileMode) {
+    const tw = state.width * Z, th = state.height * Z;
+    for (let ty = 0; ty < 3; ty++) {
+      for (let tx = 0; tx < 3; tx++) {
+        if (tx === 0 && ty === 0) continue;
+        paintCtx.drawImage(paintCanvas, 0, 0, tw, th, tx * tw, ty * th, tw, th);
+      }
+    }
+    // Heavier separators between tiles so the seams are obvious
+    paintCtx.strokeStyle = 'rgba(255, 208, 96, 0.35)';
+    paintCtx.lineWidth = 2;
+    paintCtx.beginPath();
+    paintCtx.moveTo(tw,     0); paintCtx.lineTo(tw,     th * 3);
+    paintCtx.moveTo(2 * tw, 0); paintCtx.lineTo(2 * tw, th * 3);
+    paintCtx.moveTo(0, th);     paintCtx.lineTo(tw * 3, th);
+    paintCtx.moveTo(0, 2 * th); paintCtx.lineTo(tw * 3, 2 * th);
+    paintCtx.stroke();
+  }
   // Grid overlay (faint) — only when zoom is big enough to see AND the
   // user-controlled toggle is on. Off by user choice, or off below
   // ~6× zoom where the lines would be visually noisier than helpful.
@@ -1399,7 +1470,70 @@ function renderGrid() {
     paintCtx.stroke();
   }
   zoomLabel.textContent = `Zoom: ${state.zoom}×`;
+  renderMinimap();
 }
+
+// ── Mini-map / navigator ──────────────────────────────────
+// Tiny canvas in the left panel showing the whole sprite at minimap
+// scale + a yellow rectangle marking the visible viewport when zoomed
+// in. Click to jump the paint canvas viewport to that spot.
+const minimapCanvas = document.getElementById('minimapCanvas');
+const minimapCtx    = minimapCanvas.getContext('2d');
+minimapCtx.imageSmoothingEnabled = false;
+
+function renderMinimap() {
+  // Size the minimap canvas to fit the panel — max ~160 wide, preserve
+  // sprite aspect ratio.
+  const maxDim = 160;
+  const scale = Math.max(1, Math.floor(maxDim / Math.max(state.width, state.height)));
+  minimapCanvas.width = state.width * scale;
+  minimapCanvas.height = state.height * scale;
+  minimapCtx.imageSmoothingEnabled = false;
+  // Background — dark grid for transparent cells
+  minimapCtx.fillStyle = '#15151a';
+  minimapCtx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+  // Painted pixels
+  for (const [k, hex] of Object.entries(state.pixels)) {
+    const [px, py] = k.split(',').map(Number);
+    minimapCtx.fillStyle = hex;
+    minimapCtx.fillRect(px * scale, py * scale, scale, scale);
+  }
+  // Viewport indicator — visible portion of the paint canvas, in
+  // canonical sprite-coordinate space. Only drawn when scrolled.
+  const wrap = paintCanvas.parentElement;
+  if (wrap && wrap.clientWidth < paintCanvas.width || wrap.clientHeight < paintCanvas.height) {
+    const Z = state.zoom;
+    const vx = wrap.scrollLeft / Z;
+    const vy = wrap.scrollTop  / Z;
+    const vw = wrap.clientWidth  / Z;
+    const vh = wrap.clientHeight / Z;
+    minimapCtx.strokeStyle = '#ffd060';
+    minimapCtx.lineWidth = 1.5;
+    minimapCtx.strokeRect(vx * scale + 0.5, vy * scale + 0.5, vw * scale - 1, vh * scale - 1);
+  }
+  // Stash for click-jump math
+  minimapCanvas._mmScale = scale;
+}
+
+// Click the minimap to scroll the paint canvas so that point is centered
+// in the viewport.
+minimapCanvas.addEventListener('mousedown', (e) => {
+  const rect = minimapCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const scale = minimapCanvas._mmScale || 1;
+  const cellX = mx / scale;
+  const cellY = my / scale;
+  const Z = state.zoom;
+  const wrap = paintCanvas.parentElement;
+  wrap.scrollLeft = cellX * Z - wrap.clientWidth / 2;
+  wrap.scrollTop  = cellY * Z - wrap.clientHeight / 2;
+  renderMinimap();
+});
+// Re-render minimap when scrolling the main paint area so the viewport
+// indicator stays in sync.
+const _wrap = paintCanvas.parentElement;
+if (_wrap) _wrap.addEventListener('scroll', () => renderMinimap());
 
 function renderPreview() {
   previewCanvas.width = state.width;
@@ -1423,8 +1557,15 @@ function cellFromEvent(e) {
   const rect = paintCanvas.getBoundingClientRect();
   const x = Math.floor((e.clientX - rect.left) / state.zoom);
   const y = Math.floor((e.clientY - rect.top)  / state.zoom);
-  if (x < 0 || y < 0 || x >= state.width || y >= state.height) return null;
-  return { x, y };
+  // Tile mode: clicks on any of the 9 tiles map back to the canonical
+  // [0, W) × [0, H) range via modulo. Painting any tile updates them all.
+  let nx = x, ny = y;
+  if (state.tileMode) {
+    nx = ((x % state.width) + state.width) % state.width;
+    ny = ((y % state.height) + state.height) % state.height;
+  }
+  if (nx < 0 || ny < 0 || nx >= state.width || ny >= state.height) return null;
+  return { x: nx, y: ny };
 }
 
 // Low-level: paint or clear a single cell. Goes through lockAlpha gate
@@ -2087,6 +2228,7 @@ function autosave() {
       activeFrame: state.activeFrame,
       onionPrev: state.onionPrev,
       onionNext: state.onionNext,
+      onionAlpha: state.onionAlpha,
       activeColor: state.activeColor,
       customColors: state.customColors,
       recentColors: state.recentColors,
@@ -2094,8 +2236,14 @@ function autosave() {
       refSrc: state.refSrc,
       refOpacity: state.refOpacity,
       refVisible: state.refVisible,
+      refFlipH: state.refFlipH,
+      refFlipV: state.refFlipV,
+      refRotate: state.refRotate,
+      refOffsetX: state.refOffsetX,
+      refOffsetY: state.refOffsetY,
       symmetry: state.symmetry,
       lockAlpha: state.lockAlpha,
+      tileMode: state.tileMode,
     }));
   } catch (e) {
     // localStorage quota exceeded — most likely the reference image is
@@ -2136,6 +2284,7 @@ function restoreAutosave() {
     }
     state.onionPrev = !!data.onionPrev;
     state.onionNext = !!data.onionNext;
+    if (typeof data.onionAlpha === 'number') state.onionAlpha = data.onionAlpha;
     state.activeColor = data.activeColor || '#3aa8b8';
     state.customColors = data.customColors || [];
     state.recentColors = data.recentColors || [];
@@ -2143,8 +2292,14 @@ function restoreAutosave() {
     state.refSrc = data.refSrc || null;
     if (typeof data.refOpacity === 'number') state.refOpacity = data.refOpacity;
     if (typeof data.refVisible === 'boolean') state.refVisible = data.refVisible;
+    if (typeof data.refFlipH   === 'boolean') state.refFlipH = data.refFlipH;
+    if (typeof data.refFlipV   === 'boolean') state.refFlipV = data.refFlipV;
+    if (typeof data.refRotate  === 'number')  state.refRotate = data.refRotate;
+    if (typeof data.refOffsetX === 'number')  state.refOffsetX = data.refOffsetX;
+    if (typeof data.refOffsetY === 'number')  state.refOffsetY = data.refOffsetY;
     if (typeof data.symmetry === 'string') state.symmetry = data.symmetry;
     if (typeof data.lockAlpha === 'boolean') state.lockAlpha = data.lockAlpha;
+    if (typeof data.tileMode === 'boolean') state.tileMode = data.tileMode;
     widthInput.value = state.width;
     heightInput.value = state.height;
     return true;
@@ -2627,14 +2782,54 @@ function applyReference() {
     refOpacitySlider.value = Math.round(state.refOpacity * 100);
     refOpacityValue.textContent = Math.round(state.refOpacity * 100) + '%';
     refVisibleCheck.checked = state.refVisible;
+    applyReferenceTransform();
   } else {
     refImage.src = '';
     refImage.classList.remove('visible');
+    refImage.style.transform = '';
   }
   // The paint canvas needs to redraw without the checker if the ref
   // is now visible (or with the checker if it just got cleared).
   renderGrid();
 }
+
+// CSS transform of the reference image. Order: translate → rotate →
+// scale (flips). transform-origin is the center so rotation pivots
+// correctly even when the image has been translated.
+function applyReferenceTransform() {
+  refImage.style.transformOrigin = 'center center';
+  refImage.style.transform =
+    `translate(${state.refOffsetX}px, ${state.refOffsetY}px) ` +
+    `rotate(${state.refRotate}deg) ` +
+    `scaleX(${state.refFlipH ? -1 : 1}) scaleY(${state.refFlipV ? -1 : 1})`;
+}
+
+function nudgeReference(dx, dy) {
+  if (!state.refSrc) return;
+  state.refOffsetX += dx;
+  state.refOffsetY += dy;
+  applyReferenceTransform();
+  autosave();
+}
+
+document.getElementById('refFlipHBtn').addEventListener('click', () => {
+  state.refFlipH = !state.refFlipH; applyReferenceTransform(); autosave();
+});
+document.getElementById('refFlipVBtn').addEventListener('click', () => {
+  state.refFlipV = !state.refFlipV; applyReferenceTransform(); autosave();
+});
+document.getElementById('refRotateBtn').addEventListener('click', () => {
+  state.refRotate = (state.refRotate + 90) % 360; applyReferenceTransform(); autosave();
+});
+document.getElementById('refResetXformBtn').addEventListener('click', () => {
+  state.refFlipH = false; state.refFlipV = false; state.refRotate = 0;
+  state.refOffsetX = 0; state.refOffsetY = 0;
+  applyReferenceTransform(); autosave();
+});
+document.getElementById('refMoveLeftBtn').addEventListener('click',  (e) => nudgeReference(e.shiftKey ? -10 : -1, 0));
+document.getElementById('refMoveRightBtn').addEventListener('click', (e) => nudgeReference(e.shiftKey ?  10 :  1, 0));
+document.getElementById('refMoveUpBtn').addEventListener('click',    (e) => nudgeReference(0, e.shiftKey ? -10 : -1));
+document.getElementById('refMoveDownBtn').addEventListener('click',  (e) => nudgeReference(0, e.shiftKey ?  10 :  1));
 
 // Downscale big images so a 4MP photo doesn't blow localStorage.
 // Caps the longer dimension at 1024px and emits a moderate-quality JPEG.
@@ -2840,6 +3035,8 @@ const tlDurInput      = document.getElementById('tlDurInput');
 const tlFpsReadout    = document.getElementById('tlFpsReadout');
 const tlOnionPrevCheck= document.getElementById('tlOnionPrevCheck');
 const tlOnionNextCheck= document.getElementById('tlOnionNextCheck');
+const tlOnionAlpha    = document.getElementById('tlOnionAlpha');
+const tlOnionAlphaVal = document.getElementById('tlOnionAlphaVal');
 const tlCounter       = document.getElementById('tlCounter');
 const timelineFrames  = document.getElementById('timelineFrames');
 
@@ -3114,6 +3311,13 @@ tlDurInput.addEventListener('input', () => {
     refreshFpsReadout();
   }
 });
+tlOnionAlpha.addEventListener('input', () => {
+  const v = (+tlOnionAlpha.value) / 100;
+  state.onionAlpha = v;
+  tlOnionAlphaVal.textContent = (+tlOnionAlpha.value) + '%';
+  if (state.onionPrev || state.onionNext) renderGrid();
+  autosave();
+});
 tlOnionPrevCheck.addEventListener('change', () => {
   state.onionPrev = tlOnionPrevCheck.checked;
   renderGrid();
@@ -3144,6 +3348,8 @@ applyReference();
 rebuildAssetsDropdown();
 tlOnionPrevCheck.checked = state.onionPrev;
 tlOnionNextCheck.checked = state.onionNext;
+tlOnionAlpha.value = Math.round(state.onionAlpha * 100);
+tlOnionAlphaVal.textContent = Math.round(state.onionAlpha * 100) + '%';
 renderTimeline();
 // Sync symmetry / lock-alpha button visuals to restored state
 {
@@ -3152,6 +3358,7 @@ renderTimeline();
   symBtn.classList.toggle('active', state.symmetry !== 'off');
   lockAlphaBtn.classList.toggle('active', state.lockAlpha);
   lockAlphaBtn.textContent = '🔒 Lock α' + (state.lockAlpha ? ' ✓' : '');
+  document.getElementById('tileModeCheck').checked = state.tileMode;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -3199,6 +3406,11 @@ document.getElementById('flipHBtn').addEventListener('click', flipHorizontal);
 document.getElementById('flipVBtn').addEventListener('click', flipVertical);
 document.getElementById('rotate90Btn').addEventListener('click', rotate90CW);
 document.getElementById('gridLinesToggle').addEventListener('change', renderGrid);
+document.getElementById('tileModeCheck').addEventListener('change', (e) => {
+  state.tileMode = e.target.checked;
+  renderGrid();
+  autosave();
+});
 document.getElementById('helpModalClose').addEventListener('click', closeHelp);
 document.getElementById('helpModalDone').addEventListener('click', closeHelp);
 helpModal.addEventListener('click', (e) => { if (e.target === helpModal) closeHelp(); });
