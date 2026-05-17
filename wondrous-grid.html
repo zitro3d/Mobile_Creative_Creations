@@ -51,12 +51,37 @@
   /* Main layout */
   main {
     display: grid;
-    grid-template-columns: 220px 1fr 380px;
-    gap: 1px;
+    grid-template-columns: var(--col-left, 220px) 5px 1fr 5px var(--col-right, 380px);
     height: calc(100vh - 50px - 26px);
-    background: var(--border);
+    background: var(--bg);
   }
-  .panel { background: var(--bg); padding: 12px; overflow-y: auto; }
+  .panel { background: var(--bg); padding: 12px; overflow-y: auto; min-width: 0; }
+
+  /* Drag splitters between panels */
+  .splitter {
+    background: var(--border);
+    cursor: col-resize;
+    position: relative;
+    transition: background-color 0.12s ease;
+  }
+  .splitter:hover, .splitter.dragging { background: var(--accent); }
+  .splitter::before {
+    content: ''; position: absolute; inset: 0 -3px; /* widen the hit area */
+  }
+  .splitter::after {
+    /* Center dots so the grab affordance is visible */
+    content: ''; position: absolute; left: 1px; top: 50%; width: 3px; height: 32px;
+    background-image: radial-gradient(circle, var(--text-dim) 0.8px, transparent 1.2px);
+    background-size: 3px 6px;
+    transform: translateY(-50%);
+    opacity: 0.7;
+  }
+  .splitter:hover::after, .splitter.dragging::after { opacity: 1; }
+
+  /* Resize cursor while dragging — applied to body so it doesn't snap back on the splitter alone */
+  body.resizing { cursor: col-resize !important; user-select: none; }
+  body.resizing * { cursor: col-resize !important; user-select: none; pointer-events: none; }
+  body.resizing .splitter { pointer-events: auto; }
 
   /* Left column — color panel */
   .panel-color h2 { margin: 0 0 8px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); font-weight: 600; }
@@ -182,6 +207,8 @@
     <div id="recentGrid" class="swatch-grid"></div>
   </div>
 
+  <div class="splitter" id="splitterLeft" title="Drag to resize left panel"></div>
+
   <!-- CENTER — Paint grid -->
   <div class="panel panel-grid">
     <div class="grid-wrap">
@@ -197,6 +224,8 @@
       </div>
     </div>
   </div>
+
+  <div class="splitter" id="splitterRight" title="Drag to resize code panel"></div>
 
   <!-- RIGHT — Code panel -->
   <div class="panel panel-code">
@@ -440,8 +469,14 @@ function resizeGrid(w, h) {
 }
 
 function fitZoomToScreen() {
-  // Auto-pick a zoom that fits both width + height comfortably
-  const maxW = 700, maxH = 540;
+  // Auto-pick a zoom that fits both width + height comfortably inside
+  // whatever the center column currently is. Falls back to sane defaults
+  // if measurements aren't available yet (first render before layout).
+  const wrap = paintCanvas.parentElement;        // .grid-wrap
+  const colW = wrap ? wrap.clientWidth  : 700;
+  const colH = wrap ? wrap.clientHeight : 540;
+  const maxW = Math.max(200, colW - 8);
+  const maxH = Math.max(200, colH - 8);
   const z = Math.min(
     Math.floor(maxW / state.width),
     Math.floor(maxH / state.height)
@@ -765,6 +800,87 @@ function restoreAutosave() {
     return true;
   } catch { return false; }
 }
+
+// ────────────────────────────────────────────────────────────
+// RESIZABLE COLUMN SPLITTERS
+// Drag the thin bars between panels to widen / narrow them. Widths
+// persist across sessions via a separate localStorage key from the
+// sprite autosave (layout is global to the tool, not per-sprite).
+// ────────────────────────────────────────────────────────────
+const LAYOUT_KEY = 'wondrous-grid-layout-v1';
+const LAYOUT_DEFAULT = { colLeft: 220, colRight: 380 };
+const LAYOUT_LIMITS = {
+  colLeft:  { min: 140, max: 480 },
+  colRight: { min: 220, max: 700 },
+};
+let layout = { ...LAYOUT_DEFAULT };
+
+function applyLayout() {
+  document.documentElement.style.setProperty('--col-left',  layout.colLeft + 'px');
+  document.documentElement.style.setProperty('--col-right', layout.colRight + 'px');
+}
+function saveLayout() {
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch {}
+}
+function restoreLayout() {
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY);
+    if (raw) Object.assign(layout, JSON.parse(raw));
+  } catch {}
+  // Clamp to bounds in case the saved values are out of range
+  layout.colLeft  = Math.max(LAYOUT_LIMITS.colLeft.min,  Math.min(LAYOUT_LIMITS.colLeft.max,  layout.colLeft));
+  layout.colRight = Math.max(LAYOUT_LIMITS.colRight.min, Math.min(LAYOUT_LIMITS.colRight.max, layout.colRight));
+  applyLayout();
+}
+
+function wireSplitter(el, side) {
+  let startX = 0, startVal = 0;
+  el.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    startX = e.clientX;
+    startVal = side === 'left' ? layout.colLeft : layout.colRight;
+    document.body.classList.add('resizing');
+    el.classList.add('dragging');
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX;
+      const delta = side === 'left' ? dx : -dx;  // right splitter inverts
+      const { min, max } = LAYOUT_LIMITS['col' + (side === 'left' ? 'Left' : 'Right')];
+      const next = Math.max(min, Math.min(max, startVal + delta));
+      if (side === 'left') layout.colLeft = next;
+      else                 layout.colRight = next;
+      applyLayout();
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('resizing');
+      el.classList.remove('dragging');
+      saveLayout();
+      // Re-fit zoom + redraw the grid since the available paint area changed.
+      // Auto-zoom feels good after a manual resize because the user expects
+      // the grid to fill the new space.
+      fitZoomToScreen();
+      renderGrid();
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+
+  // Double-click to reset that side to its default width
+  el.addEventListener('dblclick', () => {
+    if (side === 'left')  layout.colLeft  = LAYOUT_DEFAULT.colLeft;
+    else                  layout.colRight = LAYOUT_DEFAULT.colRight;
+    applyLayout();
+    saveLayout();
+    fitZoomToScreen();
+    renderGrid();
+  });
+}
+
+restoreLayout();
+wireSplitter(document.getElementById('splitterLeft'),  'left');
+wireSplitter(document.getElementById('splitterRight'), 'right');
 
 // ────────────────────────────────────────────────────────────
 // INIT
