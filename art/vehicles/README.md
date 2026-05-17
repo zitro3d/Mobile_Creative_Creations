@@ -64,4 +64,3 @@ Rough visual personalities — riff freely:
 - **anvil**: big, dark gray, heavy — slow but tanky
 - **ghost**: pale, translucent, slim — ethereal vibe
 - **volt**: yellow + black, longer body — endurance rig
-</parameter>

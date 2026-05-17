@@ -85,4 +85,3 @@ aseprite -b gunship.aseprite \
 Or `File → Save As → gunship.png` for a single frame.
 
 Commit `.aseprite` + `.png` together, or DM them over.
-</parameter>

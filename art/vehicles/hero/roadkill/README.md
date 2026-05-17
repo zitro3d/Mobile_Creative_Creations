@@ -113,4 +113,3 @@ a single frame.
 Commit the `.aseprite` source + the exported `.png` (+ `.json` if
 multi-frame). DM them over if you don't have GitHub access yet — we'll
 commit on your behalf.
-</parameter>
