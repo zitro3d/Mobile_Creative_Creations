@@ -53,7 +53,7 @@
   main {
     display: grid;
     grid-template-columns: var(--col-left, 220px) 5px 1fr 5px var(--col-right, 380px);
-    height: calc(100vh - 50px - 26px);
+    height: calc(100vh - 50px - 26px - 124px);  /* header + footer + timeline */
     background: var(--bg);
   }
   .panel { background: var(--bg); padding: 12px; overflow-y: auto; min-width: 0; }
@@ -150,6 +150,56 @@
 
   footer { padding: 5px 14px; background: var(--bg-panel); border-top: 1px solid var(--border); color: var(--text-dim); font-size: 10px; display: flex; justify-content: space-between; align-items: center; }
   footer .brand { color: var(--accent); font-weight: 600; }
+
+  /* Timeline */
+  .timeline {
+    height: 124px;
+    background: var(--bg-panel); border-top: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .timeline-toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .timeline-toolbar button {
+    background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
+    padding: 4px 10px; font-size: 12px; border-radius: 3px; cursor: pointer;
+  }
+  .timeline-toolbar button:hover { border-color: var(--accent); }
+  .timeline-toolbar button.primary { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .timeline-toolbar button:disabled { opacity: 0.35; cursor: not-allowed; }
+  .timeline-toolbar label { font-size: 11px; color: var(--text-dim); }
+  .timeline-toolbar input[type=number] { width: 60px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 3px 4px; font-size: 12px; border-radius: 3px; }
+  .timeline-toolbar .spacer { flex: 1; }
+  .timeline-toolbar .frame-counter { color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; font-size: 11px; }
+
+  .timeline-frames {
+    flex: 1; overflow-x: auto; overflow-y: hidden;
+    display: flex; gap: 4px;
+    padding: 6px 12px;
+    align-items: center;
+  }
+  .frame-thumb {
+    flex-shrink: 0; width: 70px; height: 70px;
+    background: var(--bg); border: 2px solid var(--border); border-radius: 3px;
+    cursor: pointer; position: relative;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .frame-thumb canvas { image-rendering: pixelated; max-width: 56px; max-height: 50px; }
+  .frame-thumb .frame-num { position: absolute; top: 2px; left: 4px; font-size: 9px; color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; }
+  .frame-thumb .frame-dur { position: absolute; bottom: 2px; right: 4px; font-size: 9px; color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; }
+  .frame-thumb:hover { border-color: var(--text-dim); }
+  .frame-thumb.active { border-color: var(--accent); }
+  .frame-thumb.playing { border-color: #4ade80; box-shadow: 0 0 8px rgba(74, 222, 128, 0.5); }
+  .frame-thumb-add {
+    flex-shrink: 0; width: 30px; height: 70px;
+    background: var(--bg-input); border: 1px dashed var(--border); border-radius: 3px;
+    color: var(--text-dim); font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .frame-thumb-add:hover { border-color: var(--accent); color: var(--accent); }
 
   /* Modal */
   .modal-backdrop {
@@ -332,6 +382,28 @@
 
 </main>
 
+<!-- TIMELINE — multi-frame animation strip -->
+<div class="timeline" id="timelinePanel">
+  <div class="timeline-toolbar">
+    <button id="tlPlayBtn" class="primary" title="Play / Pause (Space)">▶ Play</button>
+    <button id="tlPrevBtn" title="Previous frame (←)">⏮</button>
+    <button id="tlNextBtn" title="Next frame (→)">⏭</button>
+    <button id="tlAddBtn" title="Add new blank frame (Alt+N)">+ Frame</button>
+    <button id="tlDupBtn" title="Duplicate current frame (Alt+D)">⎘ Duplicate</button>
+    <button id="tlDelBtn" title="Delete current frame (Alt+Del)">× Delete</button>
+    <label>Duration <input id="tlDurInput" type="number" min="10" max="2000" step="10" value="100"> ms</label>
+    <label style="margin-left: 12px; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+      <input id="tlOnionPrevCheck" type="checkbox"> onion ◀
+    </label>
+    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+      <input id="tlOnionNextCheck" type="checkbox"> ▶ onion
+    </label>
+    <span class="spacer"></span>
+    <span class="frame-counter" id="tlCounter">Frame 1 / 1</span>
+  </div>
+  <div class="timeline-frames" id="timelineFrames"></div>
+</div>
+
 <div id="helpModal" class="modal-backdrop" style="display:none;">
   <div class="modal" style="width: 720px;">
     <div class="modal-head">
@@ -356,6 +428,33 @@
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>+</kbd> / <kbd>−</kbd></td><td style="padding: 4px 0;">Zoom in / out on the paint grid</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>F</kbd></td><td style="padding: 4px 0;">Fit zoom to current pane size</td></tr>
       </table>
+
+      <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Animation Timeline</h3>
+      <p style="margin: 0 0 8px 0;">
+        The strip at the bottom of the window holds one or more <b>frames</b>. Each
+        frame is a separate pixel map with its own duration. Click any frame thumbnail
+        to switch to it for editing. Use the timeline toolbar (or shortcuts below) to
+        add / duplicate / delete frames, set frame timing, and play the animation.
+      </p>
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Space</kbd></td><td style="padding: 4px 0;">Play / pause animation</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>←</kbd> / <kbd>→</kbd></td><td style="padding: 4px 0;">Previous / next frame</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Alt + N</kbd></td><td style="padding: 4px 0;">Add new blank frame</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Alt + D</kbd></td><td style="padding: 4px 0;">Duplicate current frame</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Alt + Delete</kbd></td><td style="padding: 4px 0;">Delete current frame (confirms)</td></tr>
+      </table>
+      <p style="margin: 8px 0 0 0; font-size: 11px; color: var(--text-dim);">
+        <b>Onion skin</b> checkboxes show the previous (<b>◀ onion</b>) and / or next
+        (<b>onion ▶</b>) frame faintly under the current one — useful for animating smooth
+        movement. <b>Duration</b> (ms) is per-frame.
+      </p>
+      <p style="margin: 8px 0 0 0; font-size: 11px; color: var(--text-dim);">
+        <b>Code output:</b> the code panel always shows the <i>current frame only</i>
+        (so Apply Edits has a clear target). <b>⎘ Copy Code</b> in the header emits the
+        whole sprite — a list of <code>px()</code> calls for single-frame sprites, or a
+        <code>drawSprite(ctx, gameFrame)</code> function with a switch-case across all
+        frames for animated sprites.
+      </p>
 
       <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Canvas Transforms</h3>
       <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
@@ -480,9 +579,16 @@ const STORAGE_KEY = 'wondrous-grid-autosave-v1';
 let state = {
   width: 58,
   height: 52,
-  pixels: {},                 // "x,y" -> hex color string (lowercase)
+  // Frames — list of independent pixel maps. Each frame has its own
+  // `pixels` map + `duration` (ms). One frame = single sprite (current
+  // behavior unchanged). Multiple frames = animated sprite.
+  frames: [{ pixels: {}, duration: 100 }],
+  activeFrame: 0,
+  playing: false,
+  onionPrev: false,
+  onionNext: false,
   activeColor: '#3aa8b8',
-  tool: 'paint',              // 'paint' | 'pick' | 'erase'
+  tool: 'paint',              // 'paint' | 'pick' | 'erase' | 'fill'
   recentColors: [],           // last N colors used
   customColors: [],           // user-added swatches
   zoom: 12,                   // px per cell in editor view
@@ -490,6 +596,14 @@ let state = {
   refOpacity: 0.4,            // 0..1
   refVisible: true,
 };
+// state.pixels is a virtual property that reads/writes the ACTIVE frame's
+// pixel map. Every existing line of code that touches state.pixels keeps
+// working — but now it operates on whatever frame the user is editing.
+Object.defineProperty(state, 'pixels', {
+  get() { return this.frames[this.activeFrame].pixels; },
+  set(v) { this.frames[this.activeFrame].pixels = v; },
+  configurable: true,
+});
 
 const RECENT_MAX = 16;
 const ZOOM_MIN = 2;
@@ -757,19 +871,22 @@ function resizeGrid(w, h) {
   state.width = Math.max(1, Math.min(512, w | 0));
   state.height = Math.max(1, Math.min(512, h | 0));
   resetHistory();  // resize is a wholesale change — don't try to undo across it
-  // Clip out-of-bounds pixels
-  const fresh = {};
-  for (const [k, v] of Object.entries(state.pixels)) {
-    const [px, py] = k.split(',').map(Number);
-    if (px < state.width && py < state.height) fresh[k] = v;
+  // Clip out-of-bounds pixels across ALL frames
+  for (const f of state.frames) {
+    const fresh = {};
+    for (const [k, v] of Object.entries(f.pixels)) {
+      const [px, py] = k.split(',').map(Number);
+      if (px < state.width && py < state.height) fresh[k] = v;
+    }
+    f.pixels = fresh;
   }
-  state.pixels = fresh;
   widthInput.value = state.width;
   heightInput.value = state.height;
   fitZoomToScreen();
   renderGrid();
   renderPreview();
   renderCode();
+  renderTimeline();
 }
 
 function fitZoomToScreen() {
@@ -797,10 +914,11 @@ function renderGrid() {
   // Clear to transparent — when a reference image is showing through,
   // the canvas needs actual alpha=0 in empty cells so the image is visible.
   paintCtx.clearRect(0, 0, paintCanvas.width, paintCanvas.height);
-  // Checker background — drawn only when no reference is active, so the
-  // reference image isn't covered up by the gray checkerboard.
+  // Checker background — drawn only when no reference image AND no onion
+  // skin is active, so neither layer is covered by the gray checkerboard.
   const refOn = state.refSrc && state.refVisible;
-  if (!refOn) {
+  const onionOn = (state.onionPrev || state.onionNext) && state.frames.length > 1;
+  if (!refOn && !onionOn) {
     for (let y = 0; y < state.height; y++) {
       for (let x = 0; x < state.width; x++) {
         const isAlt = ((x + y) & 1) === 0;
@@ -809,7 +927,31 @@ function renderGrid() {
       }
     }
   }
-  // Painted pixels
+  // Onion skin — previous frame at 30% alpha (blue tint), next frame at
+  // 30% alpha (red tint). Each is drawn under the current frame.
+  if (onionOn) {
+    if (state.onionPrev && state.activeFrame > 0) {
+      paintCtx.globalAlpha = 0.30;
+      const prev = state.frames[state.activeFrame - 1].pixels;
+      for (const [k, hex] of Object.entries(prev)) {
+        const [px, py] = k.split(',').map(Number);
+        paintCtx.fillStyle = hex;
+        paintCtx.fillRect(px * Z, py * Z, Z, Z);
+      }
+      paintCtx.globalAlpha = 1.0;
+    }
+    if (state.onionNext && state.activeFrame < state.frames.length - 1) {
+      paintCtx.globalAlpha = 0.30;
+      const next = state.frames[state.activeFrame + 1].pixels;
+      for (const [k, hex] of Object.entries(next)) {
+        const [px, py] = k.split(',').map(Number);
+        paintCtx.fillStyle = hex;
+        paintCtx.fillRect(px * Z, py * Z, Z, Z);
+      }
+      paintCtx.globalAlpha = 1.0;
+    }
+  }
+  // Painted pixels — current frame, full opacity
   for (const [k, hex] of Object.entries(state.pixels)) {
     const [px, py] = k.split(',').map(Number);
     paintCtx.fillStyle = hex;
@@ -927,6 +1069,9 @@ window.addEventListener('mouseup', () => {
   }
   isPainting = false;
   lastCellKey = null;
+  // Refresh the active frame's thumbnail at stroke end (cheap — once
+  // per stroke, not per cell). Re-renders the whole timeline strip.
+  renderTimeline();
   autosave();
 });
 paintCanvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -935,6 +1080,9 @@ paintCanvas.addEventListener('contextmenu', e => e.preventDefault());
 // CODE GENERATION + PARSING
 // ────────────────────────────────────────────────────────────
 function generateCode() {
+  // Code panel always shows JUST THE CURRENT FRAME (so Apply Edits has a
+  // clear target). The "Copy Code" button below emits a multi-frame
+  // wrapper function when there's more than one frame — see generateCopyCode().
   const lines = [];
   for (let y = 0; y < state.height; y++) {
     for (let x = 0; x < state.width; x++) {
@@ -943,26 +1091,90 @@ function generateCode() {
     }
   }
   // Header: warn about custom colors not in the master palettes
-  const customUsed = [];
-  const knownColors = new Set();
-  for (const [, gs] of TSC_GROUPS) for (const [, h] of gs) knownColors.add(h.toLowerCase());
-  for (const [, gs] of PXC_GROUPS) for (const [, h] of gs) knownColors.add(h.toLowerCase());
-  const usedColors = new Map();
-  for (const hex of Object.values(state.pixels)) {
-    usedColors.set(hex, (usedColors.get(hex) || 0) + 1);
+  const customUsed = collectCustomColors(state.pixels);
+  let header = `// Generated by Wondrous Grid — sprite ${state.width}×${state.height}`;
+  if (state.frames.length > 1) {
+    header += `   (frame ${state.activeFrame + 1} of ${state.frames.length})`;
   }
-  for (const [hex, count] of usedColors) {
-    if (!knownColors.has(hex.toLowerCase())) customUsed.push([hex, count]);
-  }
-  let header = `// Generated by Wondrous Grid — sprite ${state.width}×${state.height}\n`;
+  header += `\n`;
   if (customUsed.length) {
-    header += `// Custom colors used (not yet in TSC / PXC):\n`;
+    header += `// Custom colors used in THIS FRAME (not yet in TSC / PXC):\n`;
     for (const [hex, count] of customUsed) {
       header += `//   ${hex}  — used ${count} time${count !== 1 ? 's' : ''}\n`;
     }
     header += `// Add these to the master palettes if you want them globally available.\n`;
   }
   return header + lines.join('\n');
+}
+
+function collectCustomColors(pixelMap) {
+  const knownColors = new Set();
+  for (const [, gs] of TSC_GROUPS) for (const [, h] of gs) knownColors.add(h.toLowerCase());
+  for (const [, gs] of PXC_GROUPS) for (const [, h] of gs) knownColors.add(h.toLowerCase());
+  const usedColors = new Map();
+  for (const hex of Object.values(pixelMap)) {
+    usedColors.set(hex, (usedColors.get(hex) || 0) + 1);
+  }
+  const out = [];
+  for (const [hex, count] of usedColors) {
+    if (!knownColors.has(hex.toLowerCase())) out.push([hex, count]);
+  }
+  return out;
+}
+
+// Emit a multi-frame wrapper function when the sprite has > 1 frame.
+// For single-frame sprites, fall back to the simple list of px() calls.
+function generateCopyCode() {
+  if (state.frames.length === 1) return generateCode();
+
+  const frameLines = state.frames.map((f, i) => {
+    const ls = [];
+    for (let y = 0; y < state.height; y++) {
+      for (let x = 0; x < state.width; x++) {
+        const hex = f.pixels[`${x},${y}`];
+        if (hex) ls.push(`      px(ctx, '${hex}', ${x}, ${y}, 1, 1);`);
+      }
+    }
+    return { idx: i, body: ls.join('\n'), duration: f.duration };
+  });
+
+  // Assume uniform timing for the dispatcher math. At 60fps, 1 tick = 16.67ms.
+  // ticks-per-frame = round(durationMs / 16.67). If frames have mixed durations,
+  // we emit a "// note: frames have mixed durations" comment and use the avg.
+  const durations = state.frames.map(f => f.duration);
+  const uniform = durations.every(d => d === durations[0]);
+  const avgDur = Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
+  const ticksPerFrame = Math.max(1, Math.round(avgDur / (1000 / 60)));
+
+  const totalFrames = state.frames.length;
+  const allCustoms = new Map();
+  for (const f of state.frames) {
+    for (const [hex, count] of collectCustomColors(f.pixels)) {
+      allCustoms.set(hex, (allCustoms.get(hex) || 0) + count);
+    }
+  }
+
+  let header = `// Generated by Wondrous Grid — animated sprite ${state.width}×${state.height}, ${totalFrames} frames`;
+  if (uniform) header += `, ${avgDur}ms each`;
+  else        header += ` (mixed durations: ${durations.join(', ')} ms — using avg)`;
+  header += `\n//   At 60fps that's ~${ticksPerFrame} game ticks per frame.\n`;
+  if (allCustoms.size) {
+    header += `// Custom colors used (not yet in TSC / PXC):\n`;
+    for (const [hex, count] of allCustoms) {
+      header += `//   ${hex}  — used ${count} time${count !== 1 ? 's' : ''} across frames\n`;
+    }
+  }
+
+  let body = `function drawSprite(ctx, gameFrame) {\n`;
+  body += `  const f = ((gameFrame / ${ticksPerFrame}) | 0) % ${totalFrames};\n`;
+  body += `  switch (f) {\n`;
+  for (const fl of frameLines) {
+    body += `    case ${fl.idx}:\n`;
+    body += fl.body + (fl.body ? '\n' : '');
+    body += `      break;\n`;
+  }
+  body += `  }\n}\n`;
+  return header + body;
 }
 
 function renderCode() {
@@ -1031,10 +1243,16 @@ zoomOutBtn.addEventListener('click', () => {
 });
 
 copyBtn.addEventListener('click', async () => {
+  // When the sprite is animated (> 1 frame), copy the full multi-frame
+  // function wrapper. For single-frame sprites, copy the current code
+  // panel contents.
+  const text = state.frames.length > 1 ? generateCopyCode() : codeText.value;
   try {
-    await navigator.clipboard.writeText(codeText.value);
-    copyBtn.textContent = '✓ Copied!';
-    setTimeout(() => { copyBtn.textContent = '⎘ Copy Code'; }, 1500);
+    await navigator.clipboard.writeText(text);
+    copyBtn.textContent = state.frames.length > 1
+      ? `✓ Copied ${state.frames.length} frames!`
+      : '✓ Copied!';
+    setTimeout(() => { copyBtn.textContent = '⎘ Copy Code'; }, 1800);
   } catch (e) {
     alert('Clipboard copy failed; select the code panel and Cmd/Ctrl-C.');
   }
@@ -1054,11 +1272,14 @@ clearBtn.addEventListener('click', () => {
 
 saveBtn.addEventListener('click', () => {
   const payload = {
-    version: 1,
+    version: 2,
     tool: 'Wondrous Grid',
     width: state.width,
     height: state.height,
-    pixels: state.pixels,
+    frames: state.frames,
+    activeFrame: state.activeFrame,
+    onionPrev: state.onionPrev,
+    onionNext: state.onionNext,
     activeColor: state.activeColor,
     customColors: state.customColors,
     recentColors: state.recentColors,
@@ -1086,7 +1307,19 @@ loadInput.addEventListener('change', () => {
       const payload = JSON.parse(e.target.result);
       state.width = payload.width;
       state.height = payload.height;
-      state.pixels = payload.pixels || {};
+      if (Array.isArray(payload.frames) && payload.frames.length > 0) {
+        state.frames = payload.frames.map(f => ({
+          pixels: f.pixels || {},
+          duration: (typeof f.duration === 'number') ? f.duration : 100,
+        }));
+        state.activeFrame = Math.max(0, Math.min(state.frames.length - 1, payload.activeFrame | 0));
+      } else {
+        // Back-compat for older single-frame payloads
+        state.frames = [{ pixels: payload.pixels || {}, duration: 100 }];
+        state.activeFrame = 0;
+      }
+      state.onionPrev = !!payload.onionPrev;
+      state.onionNext = !!payload.onionNext;
       state.activeColor = payload.activeColor || state.activeColor;
       state.customColors = payload.customColors || [];
       state.recentColors = payload.recentColors || [];
@@ -1095,7 +1328,10 @@ loadInput.addEventListener('change', () => {
       if (typeof payload.refVisible === 'boolean') state.refVisible = payload.refVisible;
       widthInput.value = state.width;
       heightInput.value = state.height;
+      tlOnionPrevCheck.checked = state.onionPrev;
+      tlOnionNextCheck.checked = state.onionNext;
       presetSelect.value = 'custom';
+      stopPlayback();
       resetHistory();   // wholesale load
       fitZoomToScreen();
       setActiveColor(state.activeColor);
@@ -1103,6 +1339,7 @@ loadInput.addEventListener('change', () => {
       renderPreview();
       renderCode();
       applyReference();
+      renderTimeline();
       autosave();
     } catch (err) {
       alert('Invalid JSON file: ' + err.message);
@@ -1118,10 +1355,13 @@ loadInput.addEventListener('change', () => {
 function autosave() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      version: 1,
+      version: 2,
       width: state.width,
       height: state.height,
-      pixels: state.pixels,
+      frames: state.frames,
+      activeFrame: state.activeFrame,
+      onionPrev: state.onionPrev,
+      onionNext: state.onionNext,
       activeColor: state.activeColor,
       customColors: state.customColors,
       recentColors: state.recentColors,
@@ -1135,9 +1375,10 @@ function autosave() {
     // too big. Save without the ref and warn the user.
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        version: 1,
+        version: 2,
         width: state.width, height: state.height,
-        pixels: state.pixels,
+        frames: state.frames, activeFrame: state.activeFrame,
+        onionPrev: state.onionPrev, onionNext: state.onionNext,
         activeColor: state.activeColor,
         customColors: state.customColors, recentColors: state.recentColors,
         zoom: state.zoom,
@@ -1154,7 +1395,20 @@ function restoreAutosave() {
     const data = JSON.parse(raw);
     state.width = data.width || 58;
     state.height = data.height || 52;
-    state.pixels = data.pixels || {};
+    // Frames — back-compat: old single-frame data had `pixels` at the
+    // top level instead of a `frames` array.
+    if (Array.isArray(data.frames) && data.frames.length > 0) {
+      state.frames = data.frames.map(f => ({
+        pixels: f.pixels || {},
+        duration: (typeof f.duration === 'number') ? f.duration : 100,
+      }));
+      state.activeFrame = Math.max(0, Math.min(state.frames.length - 1, data.activeFrame | 0));
+    } else if (data.pixels) {
+      state.frames = [{ pixels: data.pixels, duration: 100 }];
+      state.activeFrame = 0;
+    }
+    state.onionPrev = !!data.onionPrev;
+    state.onionNext = !!data.onionNext;
     state.activeColor = data.activeColor || '#3aa8b8';
     state.customColors = data.customColors || [];
     state.recentColors = data.recentColors || [];
@@ -1280,15 +1534,20 @@ function loadPngIntoGrid(src, opts = {}) {
       }
       state.width = oc.width;
       state.height = oc.height;
-      state.pixels = pixels;
+      // PNG import = start fresh single-frame sprite. Any existing
+      // animation frames would be at the wrong dimensions.
+      state.frames = [{ pixels, duration: 100 }];
+      state.activeFrame = 0;
       widthInput.value = state.width;
       heightInput.value = state.height;
       presetSelect.value = 'custom';
+      stopPlayback();
       resetHistory();   // wholesale load — wipe undo
       fitZoomToScreen();
       renderGrid();
       renderPreview();
       renderCode();
+      renderTimeline();
       autosave();
       resolve({ w: oc.width, h: oc.height, pixelCount: Object.keys(pixels).length });
     };
@@ -1431,7 +1690,8 @@ async function saveCurrentAsNewAsset() {
     name: name.trim(),
     width: state.width,
     height: state.height,
-    pixels: state.pixels,
+    frames: state.frames,
+    activeFrame: state.activeFrame,
     customColors: state.customColors,
     refSrc: state.refSrc,
     refOpacity: state.refOpacity,
@@ -1447,7 +1707,17 @@ async function saveCurrentAsNewAsset() {
 function loadAssetIntoState(asset) {
   state.width = asset.width;
   state.height = asset.height;
-  state.pixels = asset.pixels || {};
+  if (Array.isArray(asset.frames) && asset.frames.length > 0) {
+    state.frames = asset.frames.map(f => ({
+      pixels: f.pixels || {},
+      duration: (typeof f.duration === 'number') ? f.duration : 100,
+    }));
+    state.activeFrame = Math.max(0, Math.min(state.frames.length - 1, asset.activeFrame | 0));
+  } else {
+    // Back-compat for older single-frame assets in IndexedDB
+    state.frames = [{ pixels: asset.pixels || {}, duration: 100 }];
+    state.activeFrame = 0;
+  }
   state.customColors = asset.customColors || [];
   state.refSrc = asset.refSrc || null;
   if (typeof asset.refOpacity === 'number') state.refOpacity = asset.refOpacity;
@@ -1455,6 +1725,7 @@ function loadAssetIntoState(asset) {
   widthInput.value = state.width;
   heightInput.value = state.height;
   presetSelect.value = 'custom';
+  stopPlayback();
   resetHistory();   // wholesale load — wipe undo
   fitZoomToScreen();
   renderGrid();
@@ -1462,6 +1733,7 @@ function loadAssetIntoState(asset) {
   renderCode();
   applyReference();
   renderPalette();
+  renderTimeline();
   autosave();
 }
 
@@ -1494,7 +1766,11 @@ async function renderAssetsModalBody() {
     const row = document.createElement('div');
     row.className = 'asset-row';
 
-    // Thumbnail — render the pixel map to a small canvas
+    // Thumbnail — render the first frame's pixels (or old single-frame
+    // assets' `pixels` map for back-compat) to a small canvas.
+    const frame0 = (Array.isArray(a.frames) && a.frames[0])
+      ? a.frames[0].pixels
+      : (a.pixels || {});
     const tcvs = document.createElement('canvas');
     const tmax = 60;
     const tscale = Math.max(1, Math.floor(tmax / Math.max(a.width, a.height)));
@@ -1505,18 +1781,20 @@ async function renderAssetsModalBody() {
     tctx.imageSmoothingEnabled = false;
     tctx.fillStyle = '#15151a';
     tctx.fillRect(0, 0, tcvs.width, tcvs.height);
-    for (const [k, hex] of Object.entries(a.pixels || {})) {
+    for (const [k, hex] of Object.entries(frame0)) {
       const [px, py] = k.split(',').map(Number);
       tctx.fillStyle = hex;
       tctx.fillRect(px * tscale, py * tscale, tscale, tscale);
     }
     row.appendChild(tcvs);
 
+    const frameCount = Array.isArray(a.frames) ? a.frames.length : 1;
+    const pixelCount = Object.keys(frame0).length;
     const meta = document.createElement('div');
     meta.className = 'asset-meta';
     meta.innerHTML = `
       <div class="asset-name">${escapeHtml(a.name)}</div>
-      <div class="asset-info">${a.width}×${a.height} · ${Object.keys(a.pixels || {}).length} pixels · ${new Date(a.updatedAt).toLocaleString()}</div>
+      <div class="asset-info">${a.width}×${a.height} · ${frameCount > 1 ? frameCount + ' frames · ' : ''}${pixelCount} pixels · ${new Date(a.updatedAt).toLocaleString()}</div>
     `;
     row.appendChild(meta);
 
@@ -1554,9 +1832,12 @@ async function renderAssetsModalBody() {
     btnExport.title = 'Save this asset as a JSON file';
     btnExport.addEventListener('click', () => {
       const payload = {
-        version: 1, tool: 'Wondrous Grid',
+        version: 2, tool: 'Wondrous Grid',
         width: a.width, height: a.height,
-        pixels: a.pixels,
+        // New schema: prefer frames[] if present, fall back to a wrapped
+        // legacy single-frame map.
+        frames: Array.isArray(a.frames) ? a.frames : [{ pixels: a.pixels || {}, duration: 100 }],
+        activeFrame: a.activeFrame || 0,
         customColors: a.customColors || [],
         recentColors: [],
         refSrc: a.refSrc || null,
@@ -1766,6 +2047,183 @@ wireSplitter(document.getElementById('splitterLeft'),  'left');
 wireSplitter(document.getElementById('splitterRight'), 'right');
 
 // ────────────────────────────────────────────────────────────
+// TIMELINE — multi-frame animation
+// state.frames = array of { pixels, duration }. state.pixels (via
+// the getter at the top) always refers to the active frame.
+// ────────────────────────────────────────────────────────────
+const tlPlayBtn       = document.getElementById('tlPlayBtn');
+const tlPrevBtn       = document.getElementById('tlPrevBtn');
+const tlNextBtn       = document.getElementById('tlNextBtn');
+const tlAddBtn        = document.getElementById('tlAddBtn');
+const tlDupBtn        = document.getElementById('tlDupBtn');
+const tlDelBtn        = document.getElementById('tlDelBtn');
+const tlDurInput      = document.getElementById('tlDurInput');
+const tlOnionPrevCheck= document.getElementById('tlOnionPrevCheck');
+const tlOnionNextCheck= document.getElementById('tlOnionNextCheck');
+const tlCounter       = document.getElementById('tlCounter');
+const timelineFrames  = document.getElementById('timelineFrames');
+
+function renderTimeline() {
+  timelineFrames.innerHTML = '';
+  for (let i = 0; i < state.frames.length; i++) {
+    const f = state.frames[i];
+    const thumb = document.createElement('div');
+    thumb.className = 'frame-thumb' + (i === state.activeFrame ? ' active' : '');
+    thumb.title = `Frame ${i + 1} — click to edit`;
+    // Thumbnail canvas
+    const tcvs = document.createElement('canvas');
+    const tmax = 50;
+    const tscale = Math.max(1, Math.floor(tmax / Math.max(state.width, state.height)));
+    tcvs.width = state.width * tscale;
+    tcvs.height = state.height * tscale;
+    const tctx = tcvs.getContext('2d');
+    tctx.imageSmoothingEnabled = false;
+    tctx.fillStyle = '#15151a';
+    tctx.fillRect(0, 0, tcvs.width, tcvs.height);
+    for (const [k, hex] of Object.entries(f.pixels)) {
+      const [px, py] = k.split(',').map(Number);
+      tctx.fillStyle = hex;
+      tctx.fillRect(px * tscale, py * tscale, tscale, tscale);
+    }
+    thumb.appendChild(tcvs);
+    // Frame number + duration labels
+    const num = document.createElement('div');
+    num.className = 'frame-num'; num.textContent = String(i + 1);
+    thumb.appendChild(num);
+    const dur = document.createElement('div');
+    dur.className = 'frame-dur'; dur.textContent = f.duration + 'ms';
+    thumb.appendChild(dur);
+    thumb.addEventListener('click', () => setActiveFrame(i));
+    timelineFrames.appendChild(thumb);
+  }
+  // "+ add" affordance at the end
+  const addBtn = document.createElement('div');
+  addBtn.className = 'frame-thumb-add';
+  addBtn.textContent = '+';
+  addBtn.title = 'Add new blank frame';
+  addBtn.addEventListener('click', addBlankFrame);
+  timelineFrames.appendChild(addBtn);
+  // Counter + duration input
+  tlCounter.textContent = `Frame ${state.activeFrame + 1} / ${state.frames.length}`;
+  tlDurInput.value = state.frames[state.activeFrame].duration;
+  tlDelBtn.disabled = state.frames.length <= 1;
+}
+
+function setActiveFrame(idx) {
+  if (idx < 0 || idx >= state.frames.length) return;
+  state.activeFrame = idx;
+  resetHistory();   // undo doesn't cross frames — would be confusing
+  renderGrid();
+  renderPreview();
+  renderCode();
+  renderTimeline();
+  autosave();
+}
+
+function addBlankFrame() {
+  const dur = state.frames[state.activeFrame].duration;  // inherit duration
+  state.frames.splice(state.activeFrame + 1, 0, { pixels: {}, duration: dur });
+  setActiveFrame(state.activeFrame + 1);
+}
+
+function duplicateFrame() {
+  const cur = state.frames[state.activeFrame];
+  state.frames.splice(state.activeFrame + 1, 0, {
+    pixels: JSON.parse(JSON.stringify(cur.pixels)),
+    duration: cur.duration,
+  });
+  setActiveFrame(state.activeFrame + 1);
+}
+
+function deleteFrame() {
+  if (state.frames.length <= 1) return;
+  state.frames.splice(state.activeFrame, 1);
+  if (state.activeFrame >= state.frames.length) state.activeFrame = state.frames.length - 1;
+  setActiveFrame(state.activeFrame);
+}
+
+function prevFrame() { setActiveFrame((state.activeFrame - 1 + state.frames.length) % state.frames.length); }
+function nextFrame() { setActiveFrame((state.activeFrame + 1) % state.frames.length); }
+
+// ── Playback (requestAnimationFrame loop) ─────────────────
+let playRafId = null;
+let playFrameStartTime = 0;
+
+function togglePlay() {
+  if (state.playing) stopPlayback();
+  else startPlayback();
+}
+
+function startPlayback() {
+  if (state.frames.length < 2) return;
+  state.playing = true;
+  playFrameStartTime = performance.now();
+  tlPlayBtn.textContent = '⏸ Pause';
+  tlPlayBtn.title = 'Pause (Space)';
+  playLoop();
+}
+
+function stopPlayback() {
+  state.playing = false;
+  if (playRafId) { cancelAnimationFrame(playRafId); playRafId = null; }
+  tlPlayBtn.textContent = '▶ Play';
+  tlPlayBtn.title = 'Play (Space)';
+  renderTimeline();  // remove "playing" highlight
+}
+
+function playLoop() {
+  if (!state.playing) return;
+  const now = performance.now();
+  const curDur = state.frames[state.activeFrame].duration;
+  if (now - playFrameStartTime >= curDur) {
+    playFrameStartTime = now;
+    const next = (state.activeFrame + 1) % state.frames.length;
+    state.activeFrame = next;
+    resetHistory();
+    renderGrid(); renderPreview(); renderCode();
+    // Light-touch timeline update — just toggle the playing class on the
+    // active thumb instead of re-rendering all thumbnails every frame.
+    [...timelineFrames.querySelectorAll('.frame-thumb')].forEach((el, i) => {
+      el.classList.toggle('playing', i === state.activeFrame && state.playing);
+      el.classList.toggle('active', i === state.activeFrame);
+    });
+    tlCounter.textContent = `Frame ${state.activeFrame + 1} / ${state.frames.length}`;
+    tlDurInput.value = state.frames[state.activeFrame].duration;
+  }
+  playRafId = requestAnimationFrame(playLoop);
+}
+
+// ── Wire timeline controls ────────────────────────────────
+tlPlayBtn.addEventListener('click', togglePlay);
+tlPrevBtn.addEventListener('click', () => { stopPlayback(); prevFrame(); });
+tlNextBtn.addEventListener('click', () => { stopPlayback(); nextFrame(); });
+tlAddBtn.addEventListener('click',  () => { stopPlayback(); addBlankFrame(); });
+tlDupBtn.addEventListener('click',  () => { stopPlayback(); duplicateFrame(); });
+tlDelBtn.addEventListener('click',  () => {
+  if (state.frames.length <= 1) return;
+  if (!confirm(`Delete frame ${state.activeFrame + 1}?`)) return;
+  stopPlayback();
+  deleteFrame();
+});
+tlDurInput.addEventListener('change', () => {
+  const v = Math.max(10, Math.min(2000, parseInt(tlDurInput.value, 10) || 100));
+  state.frames[state.activeFrame].duration = v;
+  tlDurInput.value = v;
+  renderTimeline();
+  autosave();
+});
+tlOnionPrevCheck.addEventListener('change', () => {
+  state.onionPrev = tlOnionPrevCheck.checked;
+  renderGrid();
+  autosave();
+});
+tlOnionNextCheck.addEventListener('change', () => {
+  state.onionNext = tlOnionNextCheck.checked;
+  renderGrid();
+  autosave();
+});
+
+// ────────────────────────────────────────────────────────────
 // INIT
 // ────────────────────────────────────────────────────────────
 restoreAutosave();
@@ -1779,6 +2237,9 @@ renderCode();
 setTool('paint');
 applyReference();
 rebuildAssetsDropdown();
+tlOnionPrevCheck.checked = state.onionPrev;
+tlOnionNextCheck.checked = state.onionNext;
+renderTimeline();
 
 // ────────────────────────────────────────────────────────────
 // HELP MODAL
@@ -1890,6 +2351,21 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (inField) return;
+
+  // Timeline shortcuts
+  if (e.key === ' ') { e.preventDefault(); togglePlay(); return; }
+  if (e.key === 'ArrowLeft')  { stopPlayback(); prevFrame(); return; }
+  if (e.key === 'ArrowRight') { stopPlayback(); nextFrame(); return; }
+  if (e.altKey && e.key.toLowerCase() === 'n') { e.preventDefault(); stopPlayback(); addBlankFrame(); return; }
+  if (e.altKey && e.key.toLowerCase() === 'd') { e.preventDefault(); stopPlayback(); duplicateFrame(); return; }
+  if (e.altKey && (e.key === 'Backspace' || e.key === 'Delete')) {
+    e.preventDefault();
+    if (state.frames.length > 1 && confirm(`Delete frame ${state.activeFrame + 1}?`)) {
+      stopPlayback();
+      deleteFrame();
+    }
+    return;
+  }
 
   // Tool shortcuts
   if (e.key === 'b' || e.key === 'p') { setTool('paint'); }
