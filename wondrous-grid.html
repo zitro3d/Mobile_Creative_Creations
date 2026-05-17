@@ -219,9 +219,12 @@
     cursor: pointer; position: relative;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
   }
-  .frame-thumb canvas { image-rendering: pixelated; max-width: 56px; max-height: 50px; }
-  .frame-thumb .frame-num { position: absolute; top: 2px; left: 4px; font-size: 9px; color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; }
-  .frame-thumb .frame-dur { position: absolute; bottom: 2px; right: 4px; font-size: 9px; color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; }
+  /* Child elements inside the thumb don't intercept mouse / drag events,
+     so dragstart + click always reach the draggable thumb parent. Critical
+     for the drag-to-reorder gesture to work in Chromium-based browsers. */
+  .frame-thumb canvas { image-rendering: pixelated; max-width: 56px; max-height: 50px; pointer-events: none; }
+  .frame-thumb .frame-num { position: absolute; top: 2px; left: 4px; font-size: 9px; color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; pointer-events: none; }
+  .frame-thumb .frame-dur { position: absolute; bottom: 2px; right: 4px; font-size: 9px; color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; pointer-events: none; }
   .frame-thumb:hover { border-color: var(--text-dim); }
   .frame-thumb.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim) inset, 0 0 6px rgba(255, 208, 96, 0.4); }
   .frame-thumb.playing { border-color: #4ade80; box-shadow: 0 0 8px rgba(74, 222, 128, 0.5); }
@@ -2455,8 +2458,11 @@ function renderTimeline() {
   const addBtn = document.createElement('div');
   addBtn.className = 'frame-thumb-add';
   addBtn.textContent = '+';
-  addBtn.title = 'Duplicate current frame (Alt+D)';
-  addBtn.addEventListener('click', () => { stopPlayback(); duplicateFrame(); });
+  addBtn.title = 'Duplicate the current frame to the end of the strip';
+  addBtn.addEventListener('click', () => {
+    stopPlayback();
+    duplicateFrameToEnd();
+  });
   timelineFrames.appendChild(addBtn);
   // Counter + duration input + FPS readout
   tlCounter.textContent = `Frame ${state.activeFrame + 1} / ${state.frames.length}`;
@@ -2487,14 +2493,22 @@ function wireFrameDrag(el, idx) {
   el.addEventListener('dragstart', (e) => {
     dragFrameIdx = idx;
     e.dataTransfer.effectAllowed = 'move';
+    // Some browsers refuse to start a drag if no data is set.
     e.dataTransfer.setData('text/plain', String(idx));
     el.style.opacity = '0.4';
   });
   el.addEventListener('dragend', () => {
     el.style.opacity = '';
     dragFrameIdx = null;
-    // Clear any leftover drag-target classes
     timelineFrames.querySelectorAll('.frame-thumb.drag-target').forEach(n => n.classList.remove('drag-target'));
+  });
+  // dragenter + dragover BOTH need preventDefault() to mark the element
+  // as a valid drop target in every browser. Chrome is more forgiving
+  // (dragover alone is enough), Firefox + Safari need both.
+  el.addEventListener('dragenter', (e) => {
+    if (dragFrameIdx === null || dragFrameIdx === idx) return;
+    e.preventDefault();
+    el.classList.add('drag-target');
   });
   el.addEventListener('dragover', (e) => {
     if (dragFrameIdx === null || dragFrameIdx === idx) return;
@@ -2507,21 +2521,28 @@ function wireFrameDrag(el, idx) {
   });
   el.addEventListener('drop', (e) => {
     e.preventDefault();
+    e.stopPropagation();
     el.classList.remove('drag-target');
     if (dragFrameIdx === null || dragFrameIdx === idx) return;
-    // Move the dragged frame to this position. Splice once to remove,
-    // splice once to insert.
+    // Move the dragged frame onto the drop target. After splicing it
+    // OUT of the array, every later index shifts left by 1 — so when
+    // dragging LEFT-to-RIGHT we want to insert at `idx - 1`. When
+    // dragging RIGHT-to-LEFT, indices to the left of dragFrameIdx are
+    // unaffected so we insert at `idx`.
     const moved = state.frames.splice(dragFrameIdx, 1)[0];
-    const insertAt = dragFrameIdx < idx ? idx : idx;
+    const insertAt = dragFrameIdx < idx ? idx - 1 : idx;
     state.frames.splice(insertAt, 0, moved);
-    // Keep activeFrame pointing at the frame the user was on. If they
-    // dragged the active frame, follow it.
+    // Track activeFrame so the user stays on whichever frame they were
+    // editing (or follows the dragged frame if it WAS the active one).
     if (state.activeFrame === dragFrameIdx) {
       state.activeFrame = insertAt;
-    } else if (dragFrameIdx < state.activeFrame && state.activeFrame <= insertAt) {
-      state.activeFrame--;
-    } else if (insertAt <= state.activeFrame && state.activeFrame < dragFrameIdx) {
-      state.activeFrame++;
+    } else {
+      // Compute the active frame's new index after the move.
+      const oldA = state.activeFrame;
+      let newA = oldA;
+      if (oldA > dragFrameIdx) newA--;             // splice-out shifted us left
+      if (newA >= insertAt && oldA !== dragFrameIdx) newA++;  // insert pushed us right
+      state.activeFrame = newA;
     }
     dragFrameIdx = null;
     stopPlayback();
@@ -2550,12 +2571,31 @@ function addBlankFrame() {
 }
 
 function duplicateFrame() {
+  // Duplicate immediately after the current frame. Used by the toolbar
+  // "Duplicate" button and the Alt+D shortcut.
   const cur = state.frames[state.activeFrame];
   state.frames.splice(state.activeFrame + 1, 0, {
     pixels: JSON.parse(JSON.stringify(cur.pixels)),
     duration: cur.duration,
   });
   setActiveFrame(state.activeFrame + 1);
+}
+
+function duplicateFrameToEnd() {
+  // Duplicate the active frame and APPEND it to the end of the strip.
+  // Used by the big "+" thumb at the right of the timeline so the new
+  // frame always shows up where the user clicked.
+  const cur = state.frames[state.activeFrame];
+  state.frames.push({
+    pixels: JSON.parse(JSON.stringify(cur.pixels)),
+    duration: cur.duration,
+  });
+  setActiveFrame(state.frames.length - 1);
+  // Scroll the new frame into view (useful when the strip overflows)
+  setTimeout(() => {
+    const lastThumb = timelineFrames.querySelector('.frame-thumb:last-of-type');
+    if (lastThumb) lastThumb.scrollIntoView({ behavior: 'smooth', inline: 'end', block: 'nearest' });
+  }, 0);
 }
 
 function deleteFrame() {
