@@ -57,8 +57,10 @@ function extractFn(src, name) {
   return src.slice(startIdx, end);
 }
 
-const pxRoadkillRigSrc       = extractFn(html, 'pxRoadkillRig');
-const drawPixelDailyThiefSrc = extractFn(html, 'drawPixelDailyThief');
+const pxRoadkillRigSrc            = extractFn(html, 'pxRoadkillRig');
+const drawPixelDailyThiefSrc      = extractFn(html, 'drawPixelDailyThief');
+const drawPixelDailyThiefAltSrc   = extractFn(html, 'drawPixelDailyThiefAlt');
+const drawPixelDailyThiefHarpoonerSrc = extractFn(html, 'drawPixelDailyThiefHarpooner');
 
 // ─── FakeCanvas + 2D context just enough for sprite-draw functions ─────
 function parseColor(s) {
@@ -157,8 +159,10 @@ class FakeCtx {
 // `ctx` and `frame` from globalThis (non-strict scope inside new Function).
 const buildFn = (name, src) => new Function('PXC', `${src}\nreturn ${name};`)(PXC);
 
-const pxRoadkillRig       = buildFn('pxRoadkillRig',       pxRoadkillRigSrc);
-const drawPixelDailyThief = buildFn('drawPixelDailyThief', drawPixelDailyThiefSrc);
+const pxRoadkillRig                 = buildFn('pxRoadkillRig',                 pxRoadkillRigSrc);
+const drawPixelDailyThief           = buildFn('drawPixelDailyThief',           drawPixelDailyThiefSrc);
+const drawPixelDailyThiefAlt        = buildFn('drawPixelDailyThiefAlt',        drawPixelDailyThiefAltSrc);
+const drawPixelDailyThiefHarpooner  = buildFn('drawPixelDailyThiefHarpooner',  drawPixelDailyThiefHarpoonerSrc);
 
 // ─── Save a FakeCtx as a PNG ───────────────────────────────────────────
 function savePng(fctx, path) {
@@ -185,29 +189,50 @@ globalThis.frame = 0;   // frame=0 → hover offset = 0 = stable static pose
   savePng(fctx, 'art/vehicles/hero/roadkill/reference_smashed.png');
 }
 
-// ─── AERIAL THIEF · DLX gunship ────────────────────────────────────────
-// drawPixelDailyThief() reads `ctx` and `frame` from globalThis. It
-// applies ctx.translate(tf.x, tf.y) + ctx.scale(2, 2) + ctx.translate(-26, -23)
-// internally, so:
+// ─── AERIAL THIEF · DLX gunship (variant 0 — swept-nose / cable + claw) ──
+// drawPixelDailyThief() reads `ctx` + `frame` from globalThis. Applies
+// ctx.translate(tf.x, tf.y) + ctx.scale(2, 2) + ctx.translate(-26, -23):
 //   world_x = tf.x + (mockup_x - 26) * 2
 //   world_y = tf.y + (mockup_y - 23) * 2
-// Mockup sprite extents (cockpit + hull + nose overhang):
-//   mockup_x: -1 to 46    → world_x span = 94 px
-//   mockup_y: 11 to 31    → world_y span = 40 px
-// To put the sprite at canvas origin with a 2 px margin all around:
-//   tf.x = 56 → world spans (2, 96)
-//   tf.y = 26 → world spans (2, 42)
-// Canvas: 100 × 44 (room for the full sprite + 2 px borders).
+// Mockup extents: x = -1..46 (94 px world), y = 11..31 (40 px world).
+// Canvas 100 × 44 with tf.x=56, tf.y=26 leaves a 2-px border.
 {
   const fctx = new FakeCtx(100, 44);
   globalThis.ctx = fctx;
   drawPixelDailyThief({
-    x: 56, y: 26,
-    vx: -1, vy: 0,
-    cableLen: 0,
-    state: 'cruise',
-    stateFrames: 0,
-    variant: 0,
+    x: 56, y: 26, vx: -1, vy: 0, cableLen: 0,
+    state: 'cruise', stateFrames: 0, variant: 0,
   });
   savePng(fctx, 'art/vehicles/enemy/gunship/reference.png');
+}
+
+// ─── AERIAL THIEF · variant 1 (blunt-front gunship) ────────────────────
+// Same translate offset (-26, -23) as variant 0 but a longer / blockier
+// silhouette: extents x = 0..62 (124 px world), y = 9..32 (46 px world).
+// Canvas 132 × 56 with tf.x=58, tf.y=34 leaves a 4-px border all around.
+{
+  const fctx = new FakeCtx(132, 56);
+  globalThis.ctx = fctx;
+  drawPixelDailyThiefAlt({
+    x: 58, y: 34, vx: -1, vy: 0, cableLen: 0,
+    state: 'cruise', stateFrames: 0, variant: 1,
+  });
+  savePng(fctx, 'art/vehicles/enemy/gunship_alt/reference.png');
+}
+
+// ─── AERIAL THIEF · variant 2 (harpooner — upward harpoon launcher) ────
+// Different translate offset (-28, -35), with a launcher mast that
+// extends UPWARD above the hull.
+//   world_x = tf.x + (mockup_x - 28) * 2
+//   world_y = tf.y + (mockup_y - 35) * 2
+// Mockup extents: x = 4..55 (102 px world), y = 16..42 (52 px world).
+// Canvas 110 × 60 with tf.x=52, tf.y=42 leaves a 4-px border all around.
+{
+  const fctx = new FakeCtx(110, 60);
+  globalThis.ctx = fctx;
+  drawPixelDailyThiefHarpooner({
+    x: 52, y: 42, vx: -1, vy: 0, cableLen: 0,
+    state: 'cruise', stateFrames: 0, variant: 2,
+  });
+  savePng(fctx, 'art/vehicles/enemy/harpooner/reference.png');
 }
