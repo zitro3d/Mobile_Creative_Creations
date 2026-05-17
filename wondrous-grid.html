@@ -347,7 +347,11 @@
       <button id="paintTool" class="tool-btn active" title="Paint (P or B)">✏️ Paint</button>
       <button id="eyedropperTool" class="tool-btn" title="Pick color from canvas (I)">💧 Pick</button>
       <button id="eraserTool" class="tool-btn" title="Erase (X or E, or right-click)">🩹 Erase</button>
+    </div>
+    <div class="tool-row">
       <button id="fillTool" class="tool-btn" title="Fill bucket (G)">🪣 Fill</button>
+      <button id="rectTool" class="tool-btn" title="Rectangle (R) — drag to draw a filled rectangle. Shift = square.">▭ Rect</button>
+      <button id="selectTool" class="tool-btn" title="Selection / marquee (M) — drag to select. Cmd/Ctrl + C/X/V/A, Esc to deselect.">⬚ Select</button>
     </div>
 
     <h2>Pick Any Color</h2>
@@ -469,11 +473,30 @@
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>I</kbd></td><td style="padding: 4px 0;">Eyedropper — click a painted pixel to pick its color</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>X</kbd> or <kbd>E</kbd></td><td style="padding: 4px 0;">Eraser (or <b>right-click</b> any time)</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>G</kbd></td><td style="padding: 4px 0;">Fill bucket — click to flood-fill a connected region with the active color (right-click to erase a region)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>R</kbd></td><td style="padding: 4px 0;">Rectangle tool — drag to draw a filled rect. <kbd>Shift</kbd> = square. Right-click drag = erase rect.</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>M</kbd></td><td style="padding: 4px 0;">Selection / marquee — drag to select a region (dashed "marching ants" outline)</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>+</kbd> / <kbd>−</kbd></td><td style="padding: 4px 0;">Zoom in / out on the paint grid</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>F</kbd></td><td style="padding: 4px 0;">Fit zoom to current pane size</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>X</kbd></td><td style="padding: 4px 0;">Swap to the previous active color (Photoshop-style fg / bg toggle)</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Shift</kbd> + click</td><td style="padding: 4px 0;">Draw a straight line from the last painted pixel to the click (Bresenham line tool, in paint mode)</td></tr>
       </table>
+
+      <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Selection &amp; Clipboard</h3>
+      <p style="margin: 0 0 8px 0;">
+        Pick the selection tool (<kbd>M</kbd>) and drag a rectangle to select cells.
+        The marquee animates as a dashed "marching ants" outline. Then:
+      </p>
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + A</kbd></td><td style="padding: 4px 0;">Select all (switches to selection tool)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + C</kbd></td><td style="padding: 4px 0;">Copy the selected pixels to an internal clipboard</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + X</kbd></td><td style="padding: 4px 0;">Cut (copy + clear)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + V</kbd></td><td style="padding: 4px 0;">Paste at the current selection's top-left (or 0,0 if no selection)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td style="padding: 4px 0;">Clear all pixels inside the selection</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Esc</kbd></td><td style="padding: 4px 0;">Deselect (or close an open modal)</td></tr>
+      </table>
+      <p style="margin: 6px 0 0 0; font-size: 11px; color: var(--text-dim);">
+        Clipboard is internal to Wondrous Grid — copy a sprite-region from one frame, switch to another frame, paste. Survives until overwritten or page refresh.
+      </p>
 
       <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Canvas Navigation (Pro)</h3>
       <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
@@ -677,6 +700,14 @@ let state = {
   customColors: [],           // user-added swatches
   zoom: 8,                    // px per cell in editor view (default 8× on first load)
   highlightedPixel: null,     // {x, y} when a code line is selected — drawn as a yellow ring
+  // Rectangle tool — drag preview state. Cleared on mouseup.
+  rectPreview: null,          // { x0, y0, x1, y1 } in grid cells
+  // Selection tool — committed marquee selection (after drag finishes).
+  selection: null,            // { x0, y0, x1, y1 } in grid cells (inclusive)
+  // Internal clipboard for Cut / Copy / Paste of selections. Map of
+  // "dx,dy" → hex relative to the selection top-left. Survives until
+  // overwritten.
+  clipboard: null,
   refSrc: null,               // data URL of reference image (or null)
   refOpacity: 0.4,            // 0..1
   refVisible: true,
@@ -903,23 +934,34 @@ hexInput.addEventListener('change', () => setActiveColor(hexInput.value));
 // ────────────────────────────────────────────────────────────
 // TOOL SELECTION
 // ────────────────────────────────────────────────────────────
+const fillTool   = document.getElementById('fillTool');
+const rectTool   = document.getElementById('rectTool');
+const selectTool = document.getElementById('selectTool');
+
 function setTool(t) {
   state.tool = t;
   paintTool.classList.toggle('active', t === 'paint');
   eyedropperTool.classList.toggle('active', t === 'pick');
   eraserTool.classList.toggle('active', t === 'erase');
   fillTool.classList.toggle('active', t === 'fill');
+  rectTool.classList.toggle('active', t === 'rect');
+  selectTool.classList.toggle('active', t === 'select');
   let cursor = 'crosshair';
-  if (t === 'pick')  cursor = 'cell';
-  if (t === 'erase') cursor = 'not-allowed';
-  if (t === 'fill')  cursor = 'pointer';
+  if (t === 'pick')   cursor = 'cell';
+  if (t === 'erase')  cursor = 'not-allowed';
+  if (t === 'fill')   cursor = 'pointer';
+  if (t === 'rect')   cursor = 'crosshair';
+  if (t === 'select') cursor = 'crosshair';
   paintCanvas.style.cursor = cursor;
+  // Leaving the selection tool clears any active marquee.
+  if (t !== 'select') clearSelection(false);
 }
-paintTool.addEventListener('click', () => setTool('paint'));
+paintTool.addEventListener('click',      () => setTool('paint'));
 eyedropperTool.addEventListener('click', () => setTool('pick'));
-eraserTool.addEventListener('click', () => setTool('erase'));
-const fillTool = document.getElementById('fillTool');
-fillTool.addEventListener('click', () => setTool('fill'));
+eraserTool.addEventListener('click',     () => setTool('erase'));
+fillTool.addEventListener('click',       () => setTool('fill'));
+rectTool.addEventListener('click',       () => setTool('rect'));
+selectTool.addEventListener('click',     () => setTool('select'));
 
 // ────────────────────────────────────────────────────────────
 // PRO CANVAS CONTROLS — wheel zoom, space/middle-mouse pan
@@ -1138,6 +1180,40 @@ function renderGrid() {
     paintCtx.fillStyle = hex;
     paintCtx.fillRect(px * Z, py * Z, Z, Z);
   }
+  // Rectangle-tool live preview (in-progress drag)
+  if (state.rectPreview) {
+    const p = state.rectPreview;
+    const xa = Math.min(p.x0, p.x1), xb = Math.max(p.x0, p.x1);
+    const ya = Math.min(p.y0, p.y1), yb = Math.max(p.y0, p.y1);
+    paintCtx.globalAlpha = 0.55;
+    paintCtx.fillStyle = state.activeColor;
+    paintCtx.fillRect(xa * Z, ya * Z, (xb - xa + 1) * Z, (yb - ya + 1) * Z);
+    paintCtx.globalAlpha = 1.0;
+    paintCtx.strokeStyle = '#ffd060';
+    paintCtx.lineWidth = 1;
+    paintCtx.strokeRect(xa * Z + 0.5, ya * Z + 0.5, (xb - xa + 1) * Z - 1, (yb - ya + 1) * Z - 1);
+  }
+  // Selection marquee — dashed yellow outline. Active when state.tool
+  // is 'select' OR when there's a saved selection (e.g. after paste).
+  if (state.selection) {
+    const s = state.selection;
+    const xa = Math.min(s.x0, s.x1), xb = Math.max(s.x0, s.x1);
+    const ya = Math.min(s.y0, s.y1), yb = Math.max(s.y0, s.y1);
+    const phase = ((performance.now() / 120) | 0) % 8;
+    paintCtx.save();
+    paintCtx.lineWidth = 1;
+    paintCtx.setLineDash([4, 4]);
+    paintCtx.lineDashOffset = -phase;
+    paintCtx.strokeStyle = '#ffffff';
+    paintCtx.strokeRect(xa * Z + 0.5, ya * Z + 0.5, (xb - xa + 1) * Z - 1, (yb - ya + 1) * Z - 1);
+    paintCtx.setLineDash([]);
+    paintCtx.strokeStyle = '#000000';
+    paintCtx.lineDashOffset = -phase + 4;
+    paintCtx.setLineDash([4, 4]);
+    paintCtx.strokeRect(xa * Z + 0.5, ya * Z + 0.5, (xb - xa + 1) * Z - 1, (yb - ya + 1) * Z - 1);
+    paintCtx.restore();
+  }
+
   // Highlight ring — drawn when the user clicks / cursors a line in the
   // code panel. Pulses gently between yellow and orange so it's easy to
   // spot against any color. See updateCodeLineHighlight() for the wiring.
@@ -1245,7 +1321,6 @@ function handlePaintAction(cell, isRightClick) {
 
 paintCanvas.addEventListener('mousedown', (e) => {
   // Pan-mode handoff: Space-held OR middle-mouse takes priority over paint.
-  // (Photoshop / Aseprite convention.)
   if ((spaceHeld && e.button === 0) || e.button === 1) {
     e.preventDefault();
     if (spaceHeld) spaceUsedForPan = true;
@@ -1253,15 +1328,33 @@ paintCanvas.addEventListener('mousedown', (e) => {
     return;
   }
   e.preventDefault();
+  const cell = cellFromEvent(e);
+
+  // Rectangle tool — start a drag-preview. Pixels commit on mouseup.
+  if (state.tool === 'rect' && cell) {
+    isPainting = true;
+    preStrokeSnapshot = snapshotPixels();
+    rectStart = { x: cell.x, y: cell.y };
+    state.rectPreview = { x0: cell.x, y0: cell.y, x1: cell.x, y1: cell.y };
+    renderGrid();
+    return;
+  }
+
+  // Selection tool — start a new marquee drag.
+  if (state.tool === 'select' && cell) {
+    isPainting = true;
+    selectionStart = { x: cell.x, y: cell.y };
+    state.selection = { x0: cell.x, y0: cell.y, x1: cell.x, y1: cell.y };
+    startMarqueeAnts();
+    renderGrid();
+    return;
+  }
+
   isPainting = true;
   lastCellKey = null;
-  // Snapshot current pixels BEFORE the stroke starts. We commit it to
-  // the undo stack at mouseup if anything actually changed during the
-  // stroke. Skip snapshot for the eyedropper tool — it doesn't paint.
   preStrokeSnapshot = (state.tool === 'pick') ? null : snapshotPixels();
-  // Shift + click while in paint mode: draw a Bresenham line from the
-  // last painted cell to this one. Pixel-art convention.
-  const cell = cellFromEvent(e);
+  // Shift + click while in paint mode: Bresenham line from the last
+  // painted cell to this one. Pixel-art line-tool convention.
   if (e.shiftKey && state.tool === 'paint' && lastPaintedCell && cell) {
     drawLineBresenham(lastPaintedCell.x, lastPaintedCell.y, cell.x, cell.y, state.activeColor);
     lastPaintedCell = cell;
@@ -1272,6 +1365,120 @@ paintCanvas.addEventListener('mousedown', (e) => {
   handlePaintAction(cell, e.button === 2);
   if (cell && state.tool === 'paint') lastPaintedCell = cell;
 });
+
+// ── Rectangle tool ────────────────────────────────────────
+// Drag from corner to corner. Live preview rendered in renderGrid().
+// Mouseup commits all cells in the rect to the active color.
+let rectStart = null;   // { x, y } anchor during drag
+
+function rectCellsFromPreview(p, shift) {
+  let { x0, y0, x1, y1 } = p;
+  let xa = Math.min(x0, x1), xb = Math.max(x0, x1);
+  let ya = Math.min(y0, y1), yb = Math.max(y0, y1);
+  if (shift) {
+    // Shift = constrain to square. Use the smaller dimension so the
+    // square fits inside the original drag bbox.
+    const side = Math.min(xb - xa, yb - ya);
+    xb = xa + side;
+    yb = ya + side;
+  }
+  return { xa, ya, xb, yb };
+}
+
+function commitRectangle(p, color, shift) {
+  const { xa, ya, xb, yb } = rectCellsFromPreview(p, shift);
+  for (let y = ya; y <= yb; y++) {
+    for (let x = xa; x <= xb; x++) {
+      if (x < 0 || y < 0 || x >= state.width || y >= state.height) continue;
+      if (color == null) delete state.pixels[`${x},${y}`];
+      else state.pixels[`${x},${y}`] = color;
+    }
+  }
+}
+
+// ── Selection tool ────────────────────────────────────────
+// Drag to define a rectangular region. The selection becomes a dashed
+// marquee that you can copy/cut/paste/delete via keyboard shortcuts.
+let selectionStart = null;
+
+function clearSelection(rerender = true) {
+  if (!state.selection) return;
+  state.selection = null;
+  if (rerender) renderGrid();
+}
+
+function copySelectionToClipboard(cutMode = false) {
+  if (!state.selection) return;
+  const { x0, y0, x1, y1 } = state.selection;
+  const xa = Math.min(x0, x1), xb = Math.max(x0, x1);
+  const ya = Math.min(y0, y1), yb = Math.max(y0, y1);
+  const clip = {};
+  const before = cutMode ? snapshotPixels() : null;
+  for (let y = ya; y <= yb; y++) {
+    for (let x = xa; x <= xb; x++) {
+      const k = `${x},${y}`;
+      if (state.pixels[k]) {
+        clip[`${x - xa},${y - ya}`] = state.pixels[k];
+        if (cutMode) delete state.pixels[k];
+      }
+    }
+  }
+  state.clipboard = { w: xb - xa + 1, h: yb - ya + 1, pixels: clip };
+  if (cutMode) {
+    commitHistory(before);
+    renderGrid(); renderPreview(); renderCode(); renderTimeline();
+    autosave();
+  }
+}
+
+function pasteClipboard() {
+  if (!state.clipboard) return;
+  // Paste at the top-left of the current selection if there is one,
+  // otherwise paste at (0, 0). Standard Photoshop-ish behavior.
+  let px = 0, py = 0;
+  if (state.selection) {
+    const { x0, y0, x1, y1 } = state.selection;
+    px = Math.min(x0, x1);
+    py = Math.min(y0, y1);
+  }
+  const before = snapshotPixels();
+  for (const [k, hex] of Object.entries(state.clipboard.pixels)) {
+    const [dx, dy] = k.split(',').map(Number);
+    const nx = px + dx, ny = py + dy;
+    if (nx >= 0 && ny >= 0 && nx < state.width && ny < state.height) {
+      state.pixels[`${nx},${ny}`] = hex;
+    }
+  }
+  // Re-select the pasted region so successive pastes feel coherent.
+  state.selection = { x0: px, y0: py, x1: px + state.clipboard.w - 1, y1: py + state.clipboard.h - 1 };
+  startMarqueeAnts();
+  commitHistory(before);
+  renderGrid(); renderPreview(); renderCode(); renderTimeline();
+  autosave();
+}
+
+function deleteSelectionContents() {
+  if (!state.selection) return;
+  const { x0, y0, x1, y1 } = state.selection;
+  const xa = Math.min(x0, x1), xb = Math.max(x0, x1);
+  const ya = Math.min(y0, y1), yb = Math.max(y0, y1);
+  const before = snapshotPixels();
+  for (let y = ya; y <= yb; y++) {
+    for (let x = xa; x <= xb; x++) {
+      delete state.pixels[`${x},${y}`];
+    }
+  }
+  commitHistory(before);
+  renderGrid(); renderPreview(); renderCode(); renderTimeline();
+  autosave();
+}
+
+function selectAll() {
+  state.selection = { x0: 0, y0: 0, x1: state.width - 1, y1: state.height - 1 };
+  if (state.tool !== 'select') setTool('select');
+  startMarqueeAnts();
+  renderGrid();
+}
 
 // Bresenham's line — paints every cell along the line from (x0,y0) to
 // (x1,y1) with the given color. Standard for pixel-art line tools.
@@ -1293,10 +1500,43 @@ function drawLineBresenham(x0, y0, x1, y1, color) {
 paintCanvas.addEventListener('mousemove', (e) => {
   if (!isPainting) return;
   const cell = cellFromEvent(e);
+  // Rectangle tool drag — update preview endpoint
+  if (state.tool === 'rect' && cell && rectStart) {
+    state.rectPreview = { x0: rectStart.x, y0: rectStart.y, x1: cell.x, y1: cell.y };
+    renderGrid();
+    return;
+  }
+  // Selection tool drag — update marquee endpoint
+  if (state.tool === 'select' && cell && selectionStart) {
+    state.selection = { x0: selectionStart.x, y0: selectionStart.y, x1: cell.x, y1: cell.y };
+    renderGrid();
+    return;
+  }
   handlePaintAction(cell, (e.buttons & 2) !== 0);
   if (cell && state.tool === 'paint') lastPaintedCell = cell;
 });
-window.addEventListener('mouseup', () => {
+window.addEventListener('mouseup', (e) => {
+  // Rectangle tool — commit the preview to pixels
+  if (state.tool === 'rect' && state.rectPreview && preStrokeSnapshot) {
+    const erasing = (e && e.button === 2);
+    commitRectangle(state.rectPreview, erasing ? null : state.activeColor, e && e.shiftKey);
+    if (!erasing) addToRecent(state.activeColor);
+    state.rectPreview = null;
+    rectStart = null;
+    commitHistory(preStrokeSnapshot);
+    preStrokeSnapshot = null;
+    isPainting = false;
+    renderGrid(); renderPreview(); renderCode(); renderTimeline();
+    autosave();
+    return;
+  }
+  // Selection tool — just finalize the marquee bounds; no pixel commit
+  if (state.tool === 'select' && selectionStart) {
+    selectionStart = null;
+    isPainting = false;
+    return;
+  }
+
   if (isPainting && preStrokeSnapshot) {
     commitHistory(preStrokeSnapshot);
     preStrokeSnapshot = null;
@@ -1507,6 +1747,20 @@ function startHighlightPulse() {
     highlightLoopId = setTimeout(tick, 250);
   };
   highlightLoopId = setTimeout(tick, 250);
+}
+
+// Marching-ants animation for the selection marquee — re-renders the
+// canvas every ~120ms while a selection exists so the dashed outline
+// appears to scroll. Stops automatically when selection is cleared.
+let marqueeLoopId = null;
+function startMarqueeAnts() {
+  if (marqueeLoopId) return;
+  const tick = () => {
+    if (!state.selection) { marqueeLoopId = null; return; }
+    renderGrid();
+    marqueeLoopId = setTimeout(tick, 120);
+  };
+  marqueeLoopId = setTimeout(tick, 120);
 }
 
 // ────────────────────────────────────────────────────────────
@@ -2776,6 +3030,8 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (helpModal.style.display === 'flex') { closeHelp(); e.preventDefault(); return; }
     if (assetsModal.style.display === 'flex') { closeAssetsModal(); e.preventDefault(); return; }
+    // Esc with no modal open clears any active selection
+    if (state.selection) { e.preventDefault(); clearSelection(); return; }
   }
 
   // The rest are skipped when typing in a text field — except a few
@@ -2817,11 +3073,32 @@ window.addEventListener('keydown', (e) => {
     openAssetsModal();
     return;
   }
-  // Cmd/Ctrl + C — copy generated code (only when NOT in a text field;
-  // otherwise the browser's native copy works as expected).
+  // Cmd/Ctrl + C / X / V — selection clipboard (only when not in a
+  // text field; in a textarea the browser's native copy/paste works
+  // normally). When there's an active selection, C copies pixels and
+  // X cuts them. Otherwise C falls through to "copy generated code".
   if (mod && e.key.toLowerCase() === 'c' && !inField) {
     e.preventDefault();
-    copyBtn.click();
+    if (state.selection) copySelectionToClipboard(false);
+    else copyBtn.click();
+    return;
+  }
+  if (mod && e.key.toLowerCase() === 'x' && !inField) {
+    if (state.selection) {
+      e.preventDefault();
+      copySelectionToClipboard(true);
+      return;
+    }
+    // Otherwise let the X-color-swap shortcut handle it (below)
+  }
+  if (mod && e.key.toLowerCase() === 'v' && !inField) {
+    e.preventDefault();
+    if (state.clipboard) pasteClipboard();
+    return;
+  }
+  if (mod && e.key.toLowerCase() === 'a' && !inField) {
+    e.preventDefault();
+    selectAll();
     return;
   }
 
@@ -2877,11 +3154,20 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  // Delete / Backspace — clear pixels inside the selection (if any)
+  if ((e.key === 'Delete' || e.key === 'Backspace') && state.selection && !inField) {
+    e.preventDefault();
+    deleteSelectionContents();
+    return;
+  }
+
   // Tool shortcuts
   if (e.key === 'b' || e.key === 'p') { setTool('paint'); }
   else if (e.key === 'i') { setTool('pick'); }
-  else if (e.key === 'x' || e.key === 'e') { setTool('erase'); }
+  else if (e.key === 'e') { setTool('erase'); }
   else if (e.key === 'g') { setTool('fill'); }
+  else if (e.key === 'r' && !e.shiftKey) { setTool('rect'); }
+  else if (e.key === 'm') { setTool('select'); }
   // Zoom
   else if (e.key === '+' || e.key === '=') { zoomInBtn.click(); }
   else if (e.key === '-' || e.key === '_') { zoomOutBtn.click(); }
