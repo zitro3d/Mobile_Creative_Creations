@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451V-audit-cleanup';
+const DLX_BUILD = 'v451W-optional-anim-states';
 
 (function() {
   // ---------- Device detection ----------
@@ -28265,10 +28265,19 @@ const DLX_BUILD = 'v451V-audit-cleanup';
     const SCALE = 2;
     ctx.translate(Math.round(tf.x) | 0, Math.round(tf.y) | 0);
     ctx.scale(SCALE, SCALE);
+    // Retreat pose — small nose-up tilt while fleeing (faces LEFT, so
+    // a NEGATIVE rotation pitches the nose up). README spec for the
+    // optional `retreat` animation state.
+    if (tf.state === 'retreat') ctx.rotate(-0.14);
     ctx.translate(-26, -23);
     const t = frame;
     const hover = Math.round(Math.sin(t * 0.12));
     const oy = hover;
+    // Lock-on phase — gunship hovers above cargo for 12 frames before
+    // dropping the cable. Eye-slits go sustained-bright (no pulse) as
+    // a "target locked" tell. README spec for the optional `lock_on`
+    // animation state.
+    const inLockOn = (tf.state === 'lower' && tf.stateFrames < 12);
 
     const O = '#04060a';
 
@@ -28302,15 +28311,17 @@ const DLX_BUILD = 'v451V-audit-cleanup';
     blk('#4a3a50', 8, 19, 1, 8);
     blk('#4a3a50', 44, 19, 1, 8);
 
-    // Cockpit bubble — pulsing red eye-slit
-    const eyeHot = ((t >> 3) & 1);
+    // Cockpit bubble — pulsing red eye-slit. Lock-on: sustained
+    // bright (yellow hot core, no pulse) instead of normal pulsing red.
+    const eyeHot = inLockOn || ((t >> 3) & 1);
     blk(O, 10, 11, 10, 5);
     blk('#1a0a06', 11, 12, 8, 3);
-    blk(eyeHot ? '#ff4020' : '#a01a0a', 12, 13, 2, 1);
-    blk(eyeHot ? '#ff4020' : '#a01a0a', 16, 13, 2, 1);
+    const eyeColor = inLockOn ? '#ffd060' : (eyeHot ? '#ff4020' : '#a01a0a');
+    blk(eyeColor, 12, 13, 2, 1);
+    blk(eyeColor, 16, 13, 2, 1);
     if (eyeHot) {
-      blk('#ffd060', 12, 13, 1, 1);
-      blk('#ffd060', 16, 13, 1, 1);
+      blk(inLockOn ? '#ffffff' : '#ffd060', 12, 13, 1, 1);
+      blk(inLockOn ? '#ffffff' : '#ffd060', 16, 13, 1, 1);
     }
     blk('#4a3a50', 10, 11, 10, 1);
 
@@ -28550,10 +28561,15 @@ const DLX_BUILD = 'v451V-audit-cleanup';
     const SCALE = 2;
     ctx.translate(Math.round(tf.x) | 0, Math.round(tf.y) | 0);
     ctx.scale(SCALE, SCALE);
+    // Retreat tilt (nose-up, faces LEFT) — same logic as the variant-0
+    // gunship. Optional `retreat` state from the README.
+    if (tf.state === 'retreat') ctx.rotate(-0.14);
     ctx.translate(-26, -23);
     const t = frame;
     const hover = Math.round(Math.sin(t * 0.10));
     const oy = hover;
+    // Lock-on phase — sustained-bright eye-slits, target-locked tell.
+    const inLockOn = (tf.state === 'lower' && tf.stateFrames < 12);
     const O = '#04060a';
     const blk = (color, x, y, w, h) => {
       ctx.fillStyle = color;
@@ -28586,14 +28602,16 @@ const DLX_BUILD = 'v451V-audit-cleanup';
     blk('#4a3a50', 42, 19, 1, 9);
 
     // ── COCKPIT (low-profile, front-top) ──
-    const eyeHot = ((t >> 3) & 1);
+    // Lock-on: sustained bright (no pulse). Otherwise normal pulsing red.
+    const eyeHot = inLockOn || ((t >> 3) & 1);
     blk(O,        5, 16, 9, 6);
     blk('#1a0a06', 6, 17, 7, 4);
-    blk(eyeHot ? '#ff4020' : '#a01a0a',  7, 18, 2, 1);
-    blk(eyeHot ? '#ff4020' : '#a01a0a', 11, 18, 2, 1);
+    const eyeColor = inLockOn ? '#ffd060' : (eyeHot ? '#ff4020' : '#a01a0a');
+    blk(eyeColor,  7, 18, 2, 1);
+    blk(eyeColor, 11, 18, 2, 1);
     if (eyeHot) {
-      blk('#ffd060',  7, 18, 1, 1);
-      blk('#ffd060', 11, 18, 1, 1);
+      blk(inLockOn ? '#ffffff' : '#ffd060',  7, 18, 1, 1);
+      blk(inLockOn ? '#ffffff' : '#ffd060', 11, 18, 1, 1);
     }
     blk('#4a3a50', 5, 16, 9, 1);
 
@@ -28777,7 +28795,10 @@ const DLX_BUILD = 'v451V-audit-cleanup';
         blk('#3ad8ff', clawX + 6, clawY + 1, 1, 2);
         blk('#3ad8ff', clawX + 3, clawY - 1, 1, 1);
       }
-      const clawClosed = tf.state === 'reeling';
+      // Same 'reeling' → 'retract' fix as drawPixelDailyThief — this
+      // alt-variant got missed in v451V (audit only flagged 2 of the
+      // 3 occurrences). Claw closes during the cable-reel-back phase.
+      const clawClosed = tf.state === 'retract';
       if (clawClosed) {
         blk(O, clawX + 1, clawY + 4, 1, 2);
         blk(O, clawX + 3, clawY + 4, 1, 2);
@@ -28822,6 +28843,8 @@ const DLX_BUILD = 'v451V-audit-cleanup';
     const SCALE = 2;
     ctx.translate(Math.round(tf.x) | 0, Math.round(tf.y) | 0);
     ctx.scale(SCALE, SCALE);
+    // Retreat tilt — same nose-up logic as the gunship variants.
+    if (tf.state === 'retreat') ctx.rotate(-0.14);
     ctx.translate(-28, -35);
 
     const t = frame;
@@ -34664,7 +34687,7 @@ const DLX_BUILD = 'v451V-audit-cleanup';
   }
 
 
-  function pxRoadkillRig(ctx, ox, oy, frame, smashed) {
+  function pxRoadkillRig(ctx, ox, oy, frame, smashed, victory) {
       ctx.imageSmoothingEnabled = false;
       const x = ox | 0, y = oy | 0;
       const C = PXC;
@@ -34710,7 +34733,16 @@ const DLX_BUILD = 'v451V-audit-cleanup';
           ctx.fillStyle = C.chromeDark; ctx.fillRect(antX+sway, segY, 1, 1);
         }
         const tipSway = Math.round(Math.sin(wPhase + (antLen-1)*0.20) * wMax);
-        ctx.fillStyle = C.podGlow; ctx.fillRect(antX+tipSway, antTop-1, 1, 1);
+        // Victory pose: antenna tip pulses extra bright (white-hot) and
+        // extends one pixel further up — reads as "we made it, parked +
+        // glowing".
+        const vTipBright = victory && ((frame >> 3) & 1);
+        ctx.fillStyle = vTipBright ? '#ffffff' : C.podGlow;
+        ctx.fillRect(antX+tipSway, antTop-1, 1, 1);
+        if (victory) {
+          ctx.fillStyle = vTipBright ? '#ffffff' : C.podGlow;
+          ctx.fillRect(antX+tipSway, antTop-2, 1, 1);   // extended tip
+        }
       }
   
       // Bubble cockpit (20-wide, was 24)
@@ -34751,10 +34783,12 @@ const DLX_BUILD = 'v451V-audit-cleanup';
         // 3 vertical slats (was 4)
         ctx.fillStyle = C.outline;
         ctx.fillRect(x+47, y+24, 1, 5); ctx.fillRect(x+50, y+24, 1, 5); ctx.fillRect(x+53, y+24, 1, 5);
-        // 3 yellow headlight dots (was 4)
-        ctx.fillStyle = C.yellow;
+        // 3 yellow headlight dots (was 4). Victory pose: pulse the
+        // headlights white-hot every 8 frames as a celebratory tell.
+        const vFlash = victory && ((frame >> 2) & 1);
+        ctx.fillStyle = vFlash ? '#ffffff' : C.yellow;
         ctx.fillRect(x+47, y+21, 2, 1); ctx.fillRect(x+50, y+21, 2, 1); ctx.fillRect(x+53, y+21, 2, 1);
-        ctx.fillStyle = '#fff5a0';
+        ctx.fillStyle = vFlash ? '#ffffff' : '#fff5a0';
         ctx.fillRect(x+47, y+21, 1, 1); ctx.fillRect(x+50, y+21, 1, 1); ctx.fillRect(x+53, y+21, 1, 1);
       } else {
         // SMASHED B-ALT — GRAND damage. Extends past the grille into
@@ -35036,7 +35070,11 @@ const DLX_BUILD = 'v451V-audit-cleanup';
     // caved on the left half, right half disintegrated with embers +
     // exposed wires + scorch streaks.
     const smashed = (state === STATE_OVER);
-    pxRoadkillRig(ctx, -31, -38, frame, smashed);
+    // Victory pose at the truck-stop dock — headlights flash brighter
+    // and the antenna tip glows extra-saturated. Reads as "delivery
+    // complete, parked + happy". Optional state from the rig README.
+    const victory = (state === STATE_VICTORY);
+    pxRoadkillRig(ctx, -31, -38, frame, smashed, victory);
     ctx.restore();
   }
 
