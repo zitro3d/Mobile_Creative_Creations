@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451B-fix-gunship-reference-canvas-size';
+const DLX_BUILD = 'v451C-restore-dust-additive-blend';
 
 (function() {
   // ---------- Device detection ----------
@@ -7284,16 +7284,22 @@ const DLX_BUILD = 'v451B-fix-gunship-reference-canvas-size';
 
   function drawDailyDust() {
     if (!isDaily || !dailyDust.length) return;
-    // Pixel-art dust motes (v450F) — chunky 1-2 px squares with no
-    // shadowBlur, no 'lighter' composite, no ctx.arc. Replaces the
-    // smooth-art glowing-circle motes that the user flagged as the
-    // last legacy-render layer in the sky.
+    // Pixel-art dust motes — chunky fillRect squares, no shadowBlur,
+    // no ctx.arc. KEEPS globalCompositeOperation = 'lighter' though:
+    // the mote colors are cream/peach (close to the sky tone), and
+    // without additive blending they vanish into the background. v450F
+    // dropped the composite by mistake; v451C restores it. Now: pixel
+    // chunks that ADD their color to the sky underneath = visible
+    // sparkle without anti-aliasing.
     ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
     for (const d of dailyDust) {
       const yPos = (d.y + Math.sin(d.bobPhase) * d.bobAmp) | 0;
       const xPos = d.x | 0;
-      // 2-px chunks for the bigger motes (r >= 1.5), 1-px for the rest.
-      const sz = d.r >= 1.5 ? 2 : 1;
+      // Three-tier size: 3-px for fattest motes, 2-px for mids, 1-px
+      // for fine specks. Bigger upper tier so the brighter "ember"
+      // motes pop more against the cream sky.
+      const sz = d.r >= 2.0 ? 3 : d.r >= 1.2 ? 2 : 1;
       const half = sz >> 1;
       ctx.globalAlpha = d.a;
       ctx.fillStyle = d.color;
