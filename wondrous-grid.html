@@ -233,6 +233,8 @@
     <button id="saveBtn">💾 Save JSON</button>
     <button id="loadBtn">📂 Load JSON</button>
     <input id="loadInput" type="file" accept=".json" style="display: none;">
+    <button id="undoBtn" disabled title="Undo (Cmd/Ctrl+Z)">↶ Undo</button>
+    <button id="redoBtn" disabled title="Redo (Cmd/Ctrl+Shift+Z)">↷ Redo</button>
     <button id="copyBtn">⎘ Copy Code</button>
     <button id="clearBtn">🗑 Clear</button>
     <button id="helpBtn" title="Keyboard shortcuts + how to use">? Help</button>
@@ -346,6 +348,13 @@
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>+</kbd> / <kbd>−</kbd></td><td style="padding: 4px 0;">Zoom in / out on the paint grid</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>F</kbd></td><td style="padding: 4px 0;">Fit zoom to current pane size</td></tr>
       </table>
+
+      <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Edit</h3>
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + Z</kbd></td><td style="padding: 4px 0;">Undo last action (up to 50 steps back)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + Shift + Z</kbd> or <kbd>Cmd/Ctrl + Y</kbd></td><td style="padding: 4px 0;">Redo</td></tr>
+      </table>
+      <p style="margin: 6px 0 0 0; font-size: 11px; color: var(--text-dim);">Each paint stroke (one mousedown→mouseup) counts as one undo step. Loading a sprite, importing a PNG, or resizing the canvas wipes the undo history.</p>
 
       <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">File</h3>
       <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
@@ -469,6 +478,65 @@ let state = {
 const RECENT_MAX = 16;
 const ZOOM_MIN = 2;
 const ZOOM_MAX = 32;
+const UNDO_MAX = 50;     // history cap — session-only, not persisted
+
+// ── UNDO / REDO ──────────────────────────────────────────
+// Each entry is a snapshot of state.pixels at a commit boundary.
+// Boundaries: end of a paint stroke, Apply Edits, Clear, etc.
+// Wholesale loads (PNG import, asset open, JSON load) reset history.
+const undoStack = [];
+const redoStack = [];
+let preStrokeSnapshot = null;   // captured at mousedown, committed at mouseup
+
+function snapshotPixels() {
+  // Cheap clone — flat hex strings, no nested refs.
+  return JSON.parse(JSON.stringify(state.pixels));
+}
+
+function pixelsEqual(a, b) {
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) if (a[k] !== b[k]) return false;
+  return true;
+}
+
+function commitHistory(beforeSnapshot) {
+  // Only commit if the snapshot actually differs from the current state.
+  if (pixelsEqual(beforeSnapshot, state.pixels)) return;
+  undoStack.push(beforeSnapshot);
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+  redoStack.length = 0;  // new action invalidates redo
+  refreshUndoUI();
+}
+
+function resetHistory() {
+  undoStack.length = 0;
+  redoStack.length = 0;
+  refreshUndoUI();
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  redoStack.push(snapshotPixels());
+  state.pixels = undoStack.pop();
+  renderGrid(); renderPreview(); renderCode();
+  refreshUndoUI();
+  autosave();
+}
+
+function redo() {
+  if (redoStack.length === 0) return;
+  undoStack.push(snapshotPixels());
+  state.pixels = redoStack.pop();
+  renderGrid(); renderPreview(); renderCode();
+  refreshUndoUI();
+  autosave();
+}
+
+function refreshUndoUI() {
+  document.getElementById('undoBtn').disabled = undoStack.length === 0;
+  document.getElementById('redoBtn').disabled = redoStack.length === 0;
+}
 
 // ────────────────────────────────────────────────────────────
 // DOM refs
@@ -637,6 +705,7 @@ eraserTool.addEventListener('click', () => setTool('erase'));
 function resizeGrid(w, h) {
   state.width = Math.max(1, Math.min(512, w | 0));
   state.height = Math.max(1, Math.min(512, h | 0));
+  resetHistory();  // resize is a wholesale change — don't try to undo across it
   // Clip out-of-bounds pixels
   const fresh = {};
   for (const [k, v] of Object.entries(state.pixels)) {
@@ -774,6 +843,10 @@ paintCanvas.addEventListener('mousedown', (e) => {
   e.preventDefault();
   isPainting = true;
   lastCellKey = null;
+  // Snapshot current pixels BEFORE the stroke starts. We commit it to
+  // the undo stack at mouseup if anything actually changed during the
+  // stroke. Skip snapshot for the eyedropper tool — it doesn't paint.
+  preStrokeSnapshot = (state.tool === 'pick') ? null : snapshotPixels();
   handlePaintAction(cellFromEvent(e), e.button === 2);
 });
 paintCanvas.addEventListener('mousemove', (e) => {
@@ -781,6 +854,10 @@ paintCanvas.addEventListener('mousemove', (e) => {
   handlePaintAction(cellFromEvent(e), (e.buttons & 2) !== 0);
 });
 window.addEventListener('mouseup', () => {
+  if (isPainting && preStrokeSnapshot) {
+    commitHistory(preStrokeSnapshot);
+    preStrokeSnapshot = null;
+  }
   isPainting = false;
   lastCellKey = null;
   autosave();
@@ -847,7 +924,9 @@ function parseCodeIntoState(text) {
 }
 
 applyCodeBtn.addEventListener('click', () => {
+  const before = snapshotPixels();
   parseCodeIntoState(codeText.value);
+  commitHistory(before);
   renderCode();   // re-canonicalize
   autosave();
 });
@@ -896,8 +975,10 @@ copyBtn.addEventListener('click', async () => {
 
 clearBtn.addEventListener('click', () => {
   if (Object.keys(state.pixels).length === 0) return;
-  if (!confirm('Clear all painted pixels? (canvas size + palette stay)')) return;
+  if (!confirm('Clear all painted pixels? (canvas size + palette stay — undoable)')) return;
+  const before = snapshotPixels();
   state.pixels = {};
+  commitHistory(before);
   renderGrid();
   renderPreview();
   renderCode();
@@ -948,6 +1029,7 @@ loadInput.addEventListener('change', () => {
       widthInput.value = state.width;
       heightInput.value = state.height;
       presetSelect.value = 'custom';
+      resetHistory();   // wholesale load
       fitZoomToScreen();
       setActiveColor(state.activeColor);
       renderGrid();
@@ -1135,6 +1217,7 @@ function loadPngIntoGrid(src, opts = {}) {
       widthInput.value = state.width;
       heightInput.value = state.height;
       presetSelect.value = 'custom';
+      resetHistory();   // wholesale load — wipe undo
       fitZoomToScreen();
       renderGrid();
       renderPreview();
@@ -1305,6 +1388,7 @@ function loadAssetIntoState(asset) {
   widthInput.value = state.width;
   heightInput.value = state.height;
   presetSelect.value = 'custom';
+  resetHistory();   // wholesale load — wipe undo
   fitZoomToScreen();
   renderGrid();
   renderPreview();
@@ -1635,6 +1719,8 @@ rebuildAssetsDropdown();
 const helpModal = document.getElementById('helpModal');
 function openHelp()  { helpModal.style.display = 'flex'; }
 function closeHelp() { helpModal.style.display = 'none'; }
+document.getElementById('undoBtn').addEventListener('click', undo);
+document.getElementById('redoBtn').addEventListener('click', redo);
 document.getElementById('helpBtn').addEventListener('click', openHelp);
 document.getElementById('helpModalClose').addEventListener('click', closeHelp);
 document.getElementById('helpModalDone').addEventListener('click', closeHelp);
@@ -1657,6 +1743,18 @@ window.addEventListener('keydown', (e) => {
   // Cmd/Ctrl combos that should always work.
   const inField = e.target.matches('input, textarea, select');
   const mod = e.metaKey || e.ctrlKey;
+
+  // Cmd/Ctrl + Z — undo;  Cmd/Ctrl + Shift + Z (or Cmd+Y) — redo
+  if (mod && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    if (e.shiftKey) redo(); else undo();
+    return;
+  }
+  if (mod && e.key.toLowerCase() === 'y') {
+    e.preventDefault();
+    redo();
+    return;
+  }
 
   // Cmd/Ctrl + S — save JSON (always, never the browser's save-page)
   if (mod && e.key.toLowerCase() === 's') {
