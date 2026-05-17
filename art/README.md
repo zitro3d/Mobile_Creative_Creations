@@ -104,8 +104,3 @@ node bin/render-references.mjs
 That re-reads the current sprite-draw functions from the game source
 and re-renders every `reference.png` and `reference_smashed.png`.
 Commit the updated files.
-
-## Questions
-
-Ping the team channel. Small early drops beat one big polish pass at
-the end — ship rough, we iterate.
