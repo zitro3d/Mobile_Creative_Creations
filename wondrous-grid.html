@@ -99,6 +99,8 @@
   .hex-input-row { display: flex; gap: 4px; margin-top: 6px; }
   .hex-input-row input { flex: 1; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 4px 6px; font-family: 'SF Mono', Consolas, monospace; font-size: 11px; border-radius: 3px; }
   .hex-input-row button { padding: 4px 8px; font-size: 11px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; }
+  .ref-row { display: flex; gap: 6px; }
+  .ref-row .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .swatch-group { margin-bottom: 10px; }
   .swatch-group-label { font-size: 10px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -114,7 +116,16 @@
   /* Center column — paint grid */
   .panel-grid { display: flex; flex-direction: column; align-items: center; padding: 14px; gap: 10px; }
   .grid-wrap { position: relative; background: var(--paint-bg); border: 1px solid var(--border); padding: 0; max-width: 100%; max-height: 100%; overflow: auto; }
-  #paintCanvas { display: block; image-rendering: pixelated; cursor: crosshair; }
+  #refImage {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    image-rendering: pixelated;
+    pointer-events: none;
+    display: none;
+    z-index: 0;
+  }
+  #refImage.visible { display: block; }
+  #paintCanvas { display: block; image-rendering: pixelated; cursor: crosshair; position: relative; z-index: 1; }
+  #paintCanvas.ref-active { /* paint canvas keeps its painted pixels but the checker gets thinned out — see renderGrid() */ }
   .preview-row { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 11px; }
   .preview-row .preview-wrap { background: var(--paint-bg); border: 1px solid var(--border); padding: 4px; }
   #previewCanvas { display: block; image-rendering: pixelated; }
@@ -200,7 +211,27 @@
       </div>
     </div>
 
-    <h2>DLX Palette</h2>
+    <h2 style="display: flex; align-items: center; justify-content: space-between;">
+      <span>Reference Layer</span>
+      <span id="refStatusDot" style="font-size: 9px; color: var(--text-dim);"></span>
+    </h2>
+    <div class="ref-row">
+      <button id="refLoadBtn" class="tool-btn" style="flex: 1;">📷 Load Image</button>
+      <button id="refClearBtn" class="tool-btn" style="max-width: 60px;" disabled>Clear</button>
+      <input id="refLoadInput" type="file" accept="image/*" style="display: none;">
+    </div>
+    <div id="refControls" style="display: none; margin-top: 8px;">
+      <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
+        <input id="refVisibleCheck" type="checkbox" checked> Show reference
+      </label>
+      <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px;">
+        Opacity: <span id="refOpacityValue">40%</span>
+      </label>
+      <input id="refOpacitySlider" type="range" min="0" max="100" value="40"
+             style="width: 100%; background: var(--bg-input); accent-color: var(--accent);">
+    </div>
+
+    <h2 style="margin-top: 14px;">DLX Palette</h2>
     <div id="paletteContainer"></div>
 
     <h2 style="margin-top: 12px;">Recent</h2>
@@ -212,6 +243,7 @@
   <!-- CENTER — Paint grid -->
   <div class="panel panel-grid">
     <div class="grid-wrap">
+      <img id="refImage" alt="">
       <canvas id="paintCanvas"></canvas>
     </div>
     <div class="preview-row">
@@ -289,6 +321,9 @@ let state = {
   recentColors: [],           // last N colors used
   customColors: [],           // user-added swatches
   zoom: 12,                   // px per cell in editor view
+  refSrc: null,               // data URL of reference image (or null)
+  refOpacity: 0.4,            // 0..1
+  refVisible: true,
 };
 
 const RECENT_MAX = 16;
@@ -326,6 +361,15 @@ const zoomLabel     = document.getElementById('zoomLabel');
 const paintTool     = document.getElementById('paintTool');
 const eyedropperTool= document.getElementById('eyedropperTool');
 const eraserTool    = document.getElementById('eraserTool');
+const refImage      = document.getElementById('refImage');
+const refLoadBtn    = document.getElementById('refLoadBtn');
+const refLoadInput  = document.getElementById('refLoadInput');
+const refClearBtn   = document.getElementById('refClearBtn');
+const refControls   = document.getElementById('refControls');
+const refVisibleCheck = document.getElementById('refVisibleCheck');
+const refOpacitySlider = document.getElementById('refOpacitySlider');
+const refOpacityValue  = document.getElementById('refOpacityValue');
+const refStatusDot  = document.getElementById('refStatusDot');
 
 paintCtx.imageSmoothingEnabled = false;
 previewCtx.imageSmoothingEnabled = false;
@@ -490,12 +534,19 @@ function renderGrid() {
   paintCanvas.width = state.width * Z;
   paintCanvas.height = state.height * Z;
   paintCtx.imageSmoothingEnabled = false;
-  // Background — checker pattern so transparent reads as transparent
-  for (let y = 0; y < state.height; y++) {
-    for (let x = 0; x < state.width; x++) {
-      const isAlt = ((x + y) & 1) === 0;
-      paintCtx.fillStyle = isAlt ? '#1a1a1c' : '#222226';
-      paintCtx.fillRect(x * Z, y * Z, Z, Z);
+  // Clear to transparent — when a reference image is showing through,
+  // the canvas needs actual alpha=0 in empty cells so the image is visible.
+  paintCtx.clearRect(0, 0, paintCanvas.width, paintCanvas.height);
+  // Checker background — drawn only when no reference is active, so the
+  // reference image isn't covered up by the gray checkerboard.
+  const refOn = state.refSrc && state.refVisible;
+  if (!refOn) {
+    for (let y = 0; y < state.height; y++) {
+      for (let x = 0; x < state.width; x++) {
+        const isAlt = ((x + y) & 1) === 0;
+        paintCtx.fillStyle = isAlt ? '#1a1a1c' : '#222226';
+        paintCtx.fillRect(x * Z, y * Z, Z, Z);
+      }
     }
   }
   // Painted pixels
@@ -723,6 +774,9 @@ saveBtn.addEventListener('click', () => {
     activeColor: state.activeColor,
     customColors: state.customColors,
     recentColors: state.recentColors,
+    refSrc: state.refSrc,
+    refOpacity: state.refOpacity,
+    refVisible: state.refVisible,
     savedAt: new Date().toISOString(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -748,6 +802,9 @@ loadInput.addEventListener('change', () => {
       state.activeColor = payload.activeColor || state.activeColor;
       state.customColors = payload.customColors || [];
       state.recentColors = payload.recentColors || [];
+      state.refSrc = payload.refSrc || null;
+      if (typeof payload.refOpacity === 'number') state.refOpacity = payload.refOpacity;
+      if (typeof payload.refVisible === 'boolean') state.refVisible = payload.refVisible;
       widthInput.value = state.width;
       heightInput.value = state.height;
       presetSelect.value = 'custom';
@@ -756,6 +813,7 @@ loadInput.addEventListener('change', () => {
       renderGrid();
       renderPreview();
       renderCode();
+      applyReference();
       autosave();
     } catch (err) {
       alert('Invalid JSON file: ' + err.message);
@@ -779,8 +837,25 @@ function autosave() {
       customColors: state.customColors,
       recentColors: state.recentColors,
       zoom: state.zoom,
+      refSrc: state.refSrc,
+      refOpacity: state.refOpacity,
+      refVisible: state.refVisible,
     }));
-  } catch {}
+  } catch (e) {
+    // localStorage quota exceeded — most likely the reference image is
+    // too big. Save without the ref and warn the user.
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        version: 1,
+        width: state.width, height: state.height,
+        pixels: state.pixels,
+        activeColor: state.activeColor,
+        customColors: state.customColors, recentColors: state.recentColors,
+        zoom: state.zoom,
+      }));
+      console.warn('Reference image too big to autosave — it will be lost on refresh. Save the JSON to keep it.');
+    } catch {}
+  }
 }
 
 function restoreAutosave() {
@@ -795,11 +870,101 @@ function restoreAutosave() {
     state.customColors = data.customColors || [];
     state.recentColors = data.recentColors || [];
     if (data.zoom) state.zoom = data.zoom;
+    state.refSrc = data.refSrc || null;
+    if (typeof data.refOpacity === 'number') state.refOpacity = data.refOpacity;
+    if (typeof data.refVisible === 'boolean') state.refVisible = data.refVisible;
     widthInput.value = state.width;
     heightInput.value = state.height;
     return true;
   } catch { return false; }
 }
+
+// ────────────────────────────────────────────────────────────
+// REFERENCE LAYER
+// Drop a PNG/JPG behind the grid as a tracing template. Adjustable
+// opacity, toggleable visibility, scaled to fit the paint canvas.
+// Persisted via localStorage (sized down through a hidden canvas if
+// the original is huge, so we don't blow the storage quota).
+// ────────────────────────────────────────────────────────────
+function applyReference() {
+  const refOn = !!state.refSrc;
+  refClearBtn.disabled = !refOn;
+  refControls.style.display = refOn ? 'block' : 'none';
+  refStatusDot.textContent = refOn ? '● loaded' : '○ none';
+  refStatusDot.style.color = refOn ? 'var(--accent)' : 'var(--text-dim)';
+  if (refOn) {
+    refImage.src = state.refSrc;
+    refImage.classList.toggle('visible', state.refVisible);
+    refImage.style.opacity = state.refOpacity;
+    refOpacitySlider.value = Math.round(state.refOpacity * 100);
+    refOpacityValue.textContent = Math.round(state.refOpacity * 100) + '%';
+    refVisibleCheck.checked = state.refVisible;
+  } else {
+    refImage.src = '';
+    refImage.classList.remove('visible');
+  }
+  // The paint canvas needs to redraw without the checker if the ref
+  // is now visible (or with the checker if it just got cleared).
+  renderGrid();
+}
+
+// Downscale big images so a 4MP photo doesn't blow localStorage.
+// Caps the longer dimension at 1024px and emits a moderate-quality JPEG.
+function downscaleImage(dataUrl, callback) {
+  const img = new Image();
+  img.onload = () => {
+    const MAX = 1024;
+    let w = img.naturalWidth, h = img.naturalHeight;
+    if (w > MAX || h > MAX) {
+      const scale = MAX / Math.max(w, h);
+      w = Math.round(w * scale);
+      h = Math.round(h * scale);
+    }
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    c.getContext('2d').drawImage(img, 0, 0, w, h);
+    // Use JPEG for photos, PNG only if there's transparency. We don't
+    // know without inspecting alpha; JPEG is way smaller. Default to JPEG.
+    callback(c.toDataURL('image/jpeg', 0.82));
+  };
+  img.onerror = () => callback(dataUrl);  // fallback: keep original
+  img.src = dataUrl;
+}
+
+refLoadBtn.addEventListener('click', () => refLoadInput.click());
+refLoadInput.addEventListener('change', () => {
+  const f = refLoadInput.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    downscaleImage(e.target.result, (small) => {
+      state.refSrc = small;
+      applyReference();
+      autosave();
+    });
+  };
+  reader.readAsDataURL(f);
+  refLoadInput.value = '';
+});
+
+refClearBtn.addEventListener('click', () => {
+  state.refSrc = null;
+  applyReference();
+  autosave();
+});
+
+refVisibleCheck.addEventListener('change', () => {
+  state.refVisible = refVisibleCheck.checked;
+  applyReference();
+  autosave();
+});
+
+refOpacitySlider.addEventListener('input', () => {
+  state.refOpacity = (+refOpacitySlider.value) / 100;
+  refOpacityValue.textContent = (+refOpacitySlider.value) + '%';
+  refImage.style.opacity = state.refOpacity;
+  autosave();
+});
 
 // ────────────────────────────────────────────────────────────
 // RESIZABLE COLUMN SPLITTERS
@@ -894,6 +1059,7 @@ renderGrid();
 renderPreview();
 renderCode();
 setTool('paint');
+applyReference();
 
 // Keyboard shortcuts
 window.addEventListener('keydown', (e) => {
