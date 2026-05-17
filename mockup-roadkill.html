@@ -308,13 +308,16 @@
 
   <!-- ISO REDRAW · FULL HAULER -->
   <div class="panel">
-    <div class="panelLabel">A · ISO REDRAW · ROAD KILL (2:1 DIMETRIC)</div>
+    <div class="panelLabel">A · ISO REDRAW · ROAD KILL HERO (2:1 DIMETRIC)</div>
     <div class="panelSub">
-      Vehicle faces lower-RIGHT; grille at lower-right of body. Cargo +
-      chain + flame trail all extend BEHIND the rig to upper-LEFT.
-      Engine pod hangs below body, narrowing toward the front. Three-
-      value face lighting (sun upper-right): TOP brightest, lower-right
-      face mid, lower-left face shadow.
+      Full hero rig redrawn in 2:1 dimetric — every detail from Panel A
+      translated onto iso faces. Triangular fin (stacked-narrowing
+      tiers), bubble cockpit with driver + steering wheel + glass
+      reflection, orange grille with 3 yellow headlights + license
+      plate + hood mascot, bottle-shaped engine pod with turbine vents
+      + caution stripe + chrome strut + dark intake, rust spots,
+      animated antenna with cyan tip. Cargo trails behind upper-left
+      with chain beads + flame trail + sparks.
     </div>
     <div class="canvasWrap">
       <canvas id="isoFullStage" width="240" height="160" class="pixelCanvas"></canvas>
@@ -3403,7 +3406,7 @@ function renderHaulerIso(frame) {
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, c.width, c.height);
 
-  // Soft ground band at the bottom of the canvas
+  // Soft ground band
   ctx.fillStyle = '#1a0820';
   ctx.fillRect(0, c.height - 30, c.width, 30);
   ctx.fillStyle = '#28102a';
@@ -3416,33 +3419,43 @@ function renderHaulerIso(frame) {
   }
 
   const ox = 130, oy = 70;
-
   const bob = Math.round(Math.sin(frame * 0.05) * 1);
   const oyB = oy + bob;
   const cargoBob = Math.round(Math.sin(frame * 0.045) * 1);
 
+  // Helper to project a world point relative to the rig anchor
+  const W = (f, l, t) => {
+    const pt = projIso(f, l, t);
+    return { x: pt.x + ox, y: pt.y + oyB };
+  };
+
   // ── CAST SHADOWS ──
   const shadowY = oy + 38;
-  isoShadowAt(ctx, ox, shadowY, -18, 0, 8, 8, 0.45);   // cargo
-  isoShadowAt(ctx, ox, shadowY, -1, -1, 22, 10, 0.55); // body + engine pod
-  // Rear-nozzle shadow extends behind body (F=-2)
+  isoShadowAt(ctx, ox, shadowY, -18, 0, 8, 8, 0.45);
+  isoShadowAt(ctx, ox, shadowY, -1, -1, 22, 10, 0.55);
   isoShadowAt(ctx, ox, shadowY, -3, 2, 3, 4, 0.35);
 
-  // ── CARGO BOX (BEHIND the rig — upper-right of screen) ──
+  // ── CARGO BOX ──
   isoBoxAt(ctx, ox, oyB + cargoBob, -18, 1, 0, 8, 7, 7, PAL.cargo);
-  // Cargo X detail on the rig-facing face (cargo's high-F end, world F=-10)
   {
     const cp = (f, l, t) => {
       const pt = projIso(-18+f, 1+l, t);
       return { x: pt.x + ox, y: pt.y + oyB + cargoBob };
     };
+    // Cargo X-pattern detail on rig-facing F face
     const a = cp(8, 2, 5), b = cp(8, 5, 5), cC = cp(8, 5, 2), d = cp(8, 2, 2);
     fillIsoPolygon(ctx, [a, b, cC, d], '#a08428');
     const a2 = cp(8, 2.5, 4.5), b2 = cp(8, 4.5, 4.5), c2 = cp(8, 4.5, 2.5), d2 = cp(8, 2.5, 2.5);
     fillIsoPolygon(ctx, [a2, b2, c2, d2], '#ffd040');
+    // Cargo rivets (corners on top face)
+    [[1,2], [1,6], [7,2], [7,6]].forEach(([cf,cl]) => {
+      const r = cp(cf, cl, 7);
+      ctx.fillStyle = '#7a6028';
+      ctx.fillRect(r.x, r.y, 1, 1);
+    });
   }
 
-  // ── CHAIN — from cargo (F=-10) to rear of rig (F=0) ──
+  // ── CHAIN — animated glowing beads ──
   isoWorldLine(ctx, ox, oyB, [-10, 4, 4], [-1, 4, 4], '#1850c0');
   for (let i = 0; i < 6; i++) {
     const t = i / 5;
@@ -3456,79 +3469,194 @@ function renderHaulerIso(frame) {
     ctx.fillRect(pt.x + ox, pt.y + oyB, 1, 1);
   }
 
-  // ── REAR NOZZLE (BACK of rig — F=-2..0, on the upper-right side) ──
+  // ── REAR NOZZLE (with cyan glow + white-hot core) ──
   isoBoxAt(ctx, ox, oyB, -2, 3, 1, 2, 2, 3, PAL.nozzle);
   {
     const np = (f, l, t) => {
       const pt = projIso(-2+f, 3+l, t);
       return { x: pt.x + ox, y: pt.y + oyB };
     };
-    // Glow at nozzle's low-F end (F=-2) where flame exits
     const a = np(0, 0.5, 3.5), b = np(0, 1.5, 3.5), c2 = np(0, 1.5, 1.5), d = np(0, 0.5, 1.5);
     fillIsoPolygon(ctx, [a, b, c2, d], '#7eddeb');
     const a2 = np(0, 0.8, 3), b2 = np(0, 1.2, 3), c3 = np(0, 1.2, 2), d2 = np(0, 0.8, 2);
     fillIsoPolygon(ctx, [a2, b2, c3, d2], '#ffffff');
   }
-  // Flame trail extends from F=-2 in -F direction (upper-right in screen, behind vehicle)
+  // Flame trail
   drawIsoFlame(ctx, ox, oyB, -2, 4, 2.5, frame, -1);
 
-  // ── ENGINE POD (under body, narrowing toward FRONT at lower-left) ──
-  isoBoxAt(ctx, ox, oyB,  1, 1, -6, 6, 6, 6, PAL.engine);   // bell (back, F=1-7)
-  isoBoxAt(ctx, ox, oyB,  7, 2, -4, 5, 4, 4, PAL.engine);   // waist (middle, F=7-12)
-  isoBoxAt(ctx, ox, oyB, 12, 2.5, -3, 4, 3, 3, PAL.engine); // nose (front, F=12-16)
-
-  // ── BODY ──
-  isoBoxAt(ctx, ox, oyB, 0, 0, 0, 18, 8, 6, PAL.hull);
-  // Yellow caution stripe on FRONT face (F=18, lower-left of screen)
+  // ── CHAIN ANCHOR PORT on rear of body (cyan glow pip) ──
+  isoBoxAt(ctx, ox, oyB, 0, 3, 2, 1, 2, 2, PAL.nozzle);
   {
-    const sp = (f, l, t) => {
-      const pt = projIso(f, l, t);
-      return { x: pt.x + ox, y: pt.y + oyB };
-    };
-    const a = sp(18, 0, 1.5), b = sp(18, 8, 1.5), c2 = sp(18, 8, 0.5), d = sp(18, 0, 0.5);
+    const p = W(0.5, 4, 2.8);
+    ctx.fillStyle = '#7eddeb'; ctx.fillRect(p.x, p.y, 1, 1);
+  }
+
+  // ── ENGINE POD (3 segments — bottle shape, narrowing toward front) ──
+  isoBoxAt(ctx, ox, oyB,  1, 1, -6, 6, 6, 6, PAL.engine);   // bell back
+  isoBoxAt(ctx, ox, oyB,  7, 2, -4, 5, 4, 4, PAL.engine);   // waist
+  isoBoxAt(ctx, ox, oyB, 12, 2.5, -3, 4, 3, 3, PAL.engine); // nose
+
+  // Engine yellow caution stripe — on the L face of each engine segment (lower-left visible face)
+  // For Option A projection, L face is at L=Ll (so we draw at the L=Ll plane of each segment)
+  {
+    // Bell back: L=Ll=7 face (l=1+6=7), from f=1 to f=7, at t=-3 to t=-2
+    const a = W(1, 7, -3), b = W(7, 7, -3), cC = W(7, 7, -4), d = W(1, 7, -4);
+    fillIsoPolygon(ctx, [a, b, cC, d], '#ffc628');
+    // Waist L=6 face
+    const a2 = W(7, 6, -2), b2 = W(12, 6, -2), c2 = W(12, 6, -3), d2 = W(7, 6, -3);
+    fillIsoPolygon(ctx, [a2, b2, c2, d2], '#ffc628');
+    // Nose L=5.5 face
+    const a3 = W(12, 5.5, -1.5), b3 = W(16, 5.5, -1.5), c3 = W(16, 5.5, -2), d3 = W(12, 5.5, -2);
+    fillIsoPolygon(ctx, [a3, b3, c3, d3], '#ffc628');
+  }
+  // Turbine vents on bell back top face (3 dark vertical lines visible on top)
+  {
+    [2.5, 4, 5.5].forEach(fp => {
+      const v1 = W(fp, 2, 0), v2 = W(fp, 6, 0);
+      drawIsoLine(ctx, v1, v2, '#04060a');
+    });
+  }
+  // Strut between body bottom and engine pod top (chrome)
+  {
+    isoBoxAt(ctx, ox, oyB, 8, 3.5, -1, 6, 1, 1, {
+      top: '#cfd2d4', front: '#9a9aa0', side: '#48484e', outline: '#04181c'
+    });
+  }
+  // Front intake on engine nose (dark with chrome rim)
+  {
+    const ip = (f, l, t) => W(12+f, 2.5+l, t);
+    // Outer chrome
+    const a = ip(4, 0.5, -1), b = ip(4, 2.5, -1), c2 = ip(4, 2.5, -2.5), d = ip(4, 0.5, -2.5);
+    fillIsoPolygon(ctx, [a, b, c2, d], '#48484e');
+    // Black interior
+    const a2 = ip(4, 1, -1.5), b2 = ip(4, 2, -1.5), c3 = ip(4, 2, -2), d2 = ip(4, 1, -2);
+    fillIsoPolygon(ctx, [a2, b2, c3, d2], '#0c0c10');
+  }
+
+  // ── BODY (the hull) ──
+  isoBoxAt(ctx, ox, oyB, 0, 0, 0, 18, 8, 6, PAL.hull);
+
+  // Rust spots on body top + L face (sun-catching surface)
+  {
+    [[6, 1, 6], [12, 4, 6], [3, 7, 4]].forEach(([f, l, t]) => {
+      const p = W(f, l, t);
+      ctx.fillStyle = '#c83828';
+      ctx.fillRect(p.x, p.y, 2, 1);
+      ctx.fillStyle = '#7a1a10';
+      ctx.fillRect(p.x, p.y + 1, 1, 1);
+    });
+  }
+
+  // Yellow caution stripe on F face (lower band)
+  {
+    const a = W(18, 0, 1.5), b = W(18, 8, 1.5), c2 = W(18, 8, 0.5), d = W(18, 0, 0.5);
     fillIsoPolygon(ctx, [a, b, c2, d], '#ffc628');
-    const a2 = sp(18, 0, 1), b2 = sp(18, 8, 1), c3 = sp(18, 8, 0.5), d2 = sp(18, 0, 0.5);
+    const a2 = W(18, 0, 1), b2 = W(18, 8, 1), c3 = W(18, 8, 0.5), d2 = W(18, 0, 0.5);
     fillIsoPolygon(ctx, [a2, b2, c3, d2], '#a06820');
   }
-  // Headlight pip on front face
+  // Also yellow stripe on L face (continues the caution line around the body)
   {
-    const hp = projIso(18, 1.5, 4.5);
-    ctx.fillStyle = '#fff5a0';
-    ctx.fillRect(hp.x + ox, hp.y + oyB, 2, 1);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(hp.x + ox, hp.y + oyB, 1, 1);
+    const a = W(2, 8, 1.5), b = W(16, 8, 1.5), c2 = W(16, 8, 0.5), d = W(2, 8, 0.5);
+    fillIsoPolygon(ctx, [a, b, c2, d], '#ffc628');
+    const a2 = W(2, 8, 1), b2 = W(16, 8, 1), c3 = W(16, 8, 0.5), d2 = W(2, 8, 0.5);
+    fillIsoPolygon(ctx, [a2, b2, c3, d2], '#a06820');
   }
 
-  // ── FIN (BACK-TOP — at F=0.5-4.5, upper-right side of body) ──
-  isoBoxAt(ctx, ox, oyB, 0.5, 3.5, 6, 4, 1, 7, PAL.fin);
+  // Grille slats (3 vertical dark lines on front face)
+  {
+    [2, 4, 6].forEach(li => {
+      const v1 = W(18, li, 2.5), v2 = W(18, li, 4.5);
+      drawIsoLine(ctx, v1, v2, '#04060a');
+    });
+  }
+  // 3 Headlight pips on grille (top row of front face)
+  {
+    [2, 4, 6].forEach(li => {
+      const p = W(18, li, 4.7);
+      ctx.fillStyle = '#fff5a0';
+      ctx.fillRect(p.x, p.y, 2, 1);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(p.x, p.y, 1, 1);
+    });
+  }
+  // License plate (small yellow rectangle on front bumper area)
+  {
+    const a = W(18, 3, 0.3), b = W(18, 5, 0.3), c2 = W(18, 5, 0), d = W(18, 3, 0);
+    fillIsoPolygon(ctx, [a, b, c2, d], '#080808');
+    const a2 = W(18, 3.2, 0.25), b2 = W(18, 4.8, 0.25), c3 = W(18, 4.8, 0.05), d2 = W(18, 3.2, 0.05);
+    fillIsoPolygon(ctx, [a2, b2, c3, d2], '#ffd040');
+  }
+  // Hood mascot (small black sphere on top of hood, near front)
+  {
+    const p = W(16, 4, 6);
+    ctx.fillStyle = '#04060a';
+    ctx.fillRect(p.x, p.y - 1, 2, 2);
+    ctx.fillStyle = '#cfd2d4';
+    ctx.fillRect(p.x, p.y - 1, 1, 1);
+  }
 
-  // ── COCKPIT DOME (mid-back of body, slight back of center) ──
+  // ── FIN (triangular wedge on top, back-left area) ──
+  // Implemented as stacked narrowing boxes (3 tiers) to approximate triangle
+  {
+    isoBoxAt(ctx, ox, oyB, 1, 3.5, 6, 4, 1, 2, PAL.fin);   // base
+    isoBoxAt(ctx, ox, oyB, 1.5, 3.5, 8, 3, 1, 2, PAL.fin); // mid
+    isoBoxAt(ctx, ox, oyB, 2, 3.5, 10, 2, 1, 3, PAL.fin);  // tip
+  }
+
+  // ── COCKPIT DOME (chamfered box with full interior detail) ──
   isoBoxAt(ctx, ox, oyB, 7, 2, 6, 6, 4, 4, PAL.cockpit);
-  // Sun-catch pip on top
+  // Sun pip on top of dome
   {
-    const hp = projIso(8, 2.5, 10);
+    const hp = W(8, 2.5, 10);
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(hp.x + ox, hp.y + oyB, 3, 1);
-    ctx.fillRect(hp.x + ox, hp.y + oyB + 1, 2, 1);
+    ctx.fillRect(hp.x, hp.y, 3, 1);
+    ctx.fillRect(hp.x, hp.y + 1, 2, 1);
   }
-  // Glass on cockpit's high-F (front-facing) side
+  // GLASS on the front-facing face (high-F end of cockpit, world F=13)
   {
-    const gp = (f, l, t) => {
-      const pt = projIso(7+f, 2+l, t);
-      return { x: pt.x + ox, y: pt.y + oyB };
-    };
-    const a = gp(6, 0.5, 9), b = gp(6, 3.5, 9), c2 = gp(6, 3.5, 7), d = gp(6, 0.5, 7);
+    // Dark glass background
+    const a = W(13, 2.3, 9.5), b = W(13, 5.7, 9.5), c2 = W(13, 5.7, 6.5), d = W(13, 2.3, 6.5);
     fillIsoPolygon(ctx, [a, b, c2, d], '#142028');
-    const a2 = gp(6, 0.5, 9), b2 = gp(6, 3.5, 9), c3 = gp(6, 3.5, 8.5), d2 = gp(6, 0.5, 8.5);
+    // Cyan glass tint
+    const a2 = W(13, 2.3, 9.5), b2 = W(13, 5.7, 9.5), c3 = W(13, 5.7, 9), d2 = W(13, 2.3, 9);
     fillIsoPolygon(ctx, [a2, b2, c3, d2], '#7eddeb');
+    // Diagonal white glass reflection (5 pips going down-right)
+    for (let i = 0; i < 5; i++) {
+      const p = W(13, 2.5 + i*0.3, 9 - i*0.3);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillRect(p.x, p.y, 2, 1);
+    }
+    // Driver silhouette (dark blob lower-front)
+    {
+      const a3 = W(13, 3.5, 8), b3 = W(13, 4.5, 8), c4 = W(13, 4.5, 6.8), d3 = W(13, 3.5, 6.8);
+      fillIsoPolygon(ctx, [a3, b3, c4, d3], '#0a0a14');
+    }
+    // Steering wheel ring (5 cyan pips in cross pattern)
+    [[2.8, 7.5], [4.2, 7.5], [3.5, 7.0], [2.8, 6.5], [4.2, 6.5]].forEach(([l, t]) => {
+      const p = W(13, l, t);
+      ctx.fillStyle = '#7eddeb';
+      ctx.fillRect(p.x, p.y, 1, 1);
+    });
   }
 
-  // ── ANTENNA (on top of cockpit, F=8) ──
-  isoWorldLine(ctx, ox, oyB, [8, 2.5, 10], [8, 2.5, 16], '#48484e');
+  // ── ANTENNA (animated sway, cyan tip) ──
   {
-    const tp = projIso(8, 2.5, 16);
+    const wPhase = frame * 0.05;
+    // Draw antenna as series of pixels, each slightly swayed
+    for (let i = 0; i < 7; i++) {
+      const t = i / 6;
+      const sway = Math.sin(wPhase + i * 0.20) * t * t * 1;
+      const p = W(8 + sway, 2.5, 10 + i * 1);
+      ctx.fillStyle = '#48484e';
+      ctx.fillRect(p.x, p.y, 1, 1);
+    }
+    // Glowing tip
+    const tipSway = Math.sin(wPhase + 6 * 0.20) * 1;
+    const tip = W(8 + tipSway, 2.5, 17);
     ctx.fillStyle = '#7eddeb';
-    ctx.fillRect(tp.x + ox, tp.y + oyB - 1, 1, 1);
+    ctx.fillRect(tip.x, tip.y - 1, 1, 1);
+    ctx.fillRect(tip.x - 1, tip.y, 1, 1);
+    ctx.fillRect(tip.x + 1, tip.y, 1, 1);
   }
 }
 
