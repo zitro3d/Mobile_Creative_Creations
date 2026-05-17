@@ -18,6 +18,30 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100vh; background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, system-ui, sans-serif; font-size: 13px; overflow: hidden; }
+  body {
+    display: grid;
+    grid-template-rows: auto 1fr 5px var(--row-timeline, 124px) auto;
+    grid-template-columns: 1fr;
+  }
+  .vsplitter {
+    background: var(--border);
+    cursor: row-resize;
+    position: relative;
+    transition: background-color 0.12s ease;
+  }
+  .vsplitter:hover, .vsplitter.dragging { background: var(--accent); }
+  .vsplitter::before { content: ''; position: absolute; inset: -3px 0; }
+  .vsplitter::after {
+    content: ''; position: absolute; top: 1px; left: 50%; width: 32px; height: 3px;
+    background-image: radial-gradient(circle, var(--text-dim) 0.8px, transparent 1.2px);
+    background-size: 6px 3px;
+    transform: translateX(-50%);
+    opacity: 0.7;
+  }
+  .vsplitter:hover::after, .vsplitter.dragging::after { opacity: 1; }
+  body.resizing-row { cursor: row-resize !important; user-select: none; }
+  body.resizing-row * { cursor: row-resize !important; user-select: none; pointer-events: none; }
+  body.resizing-row .vsplitter { pointer-events: auto; }
 
   /* Top bar */
   header {
@@ -49,11 +73,11 @@
   header button:hover { background: #2a2a30; border-color: var(--accent); }
   header .spacer { flex: 1; }
 
-  /* Main layout */
+  /* Main layout — fills whatever vertical space the body grid gives it */
   main {
     display: grid;
     grid-template-columns: var(--col-left, 220px) 5px 1fr 5px var(--col-right, 380px);
-    height: calc(100vh - 50px - 26px - 124px);  /* header + footer + timeline */
+    min-height: 0;
     background: var(--bg);
   }
   .panel { background: var(--bg); padding: 12px; overflow-y: auto; min-width: 0; }
@@ -153,10 +177,10 @@
 
   /* Timeline */
   .timeline {
-    height: 124px;
     background: var(--bg-panel); border-top: 1px solid var(--border);
     display: flex; flex-direction: column;
     overflow: hidden;
+    min-height: 0;
   }
   .timeline-toolbar {
     display: flex; align-items: center; gap: 8px;
@@ -249,6 +273,7 @@
 
 <header>
   <h1>WONDROUS GRID <span class="sub">pixel studio</span></h1>
+  <!-- ART (left of spacer): canvas / sprite operations -->
   <div class="group">
     <label>Size</label>
     <input id="widthInput" type="number" min="1" max="512" value="58">
@@ -278,18 +303,21 @@
     </select>
     <input id="pngImportInput" type="file" accept="image/png,image/jpeg" style="display:none">
   </div>
-  <div class="spacer"></div>
   <div class="group">
-    <button id="saveBtn">💾 Save JSON</button>
-    <button id="loadBtn">📂 Load JSON</button>
-    <input id="loadInput" type="file" accept=".json" style="display: none;">
     <button id="undoBtn" disabled title="Undo (Cmd/Ctrl+Z)">↶ Undo</button>
     <button id="redoBtn" disabled title="Redo (Cmd/Ctrl+Shift+Z)">↷ Redo</button>
     <button id="flipHBtn" title="Flip horizontal (Shift+H)">↔ Flip H</button>
     <button id="flipVBtn" title="Flip vertical (Shift+V)">↕ Flip V</button>
     <button id="rotate90Btn" title="Rotate 90° clockwise (Shift+R)">↻ 90°</button>
-    <button id="copyBtn">⎘ Copy Code</button>
     <button id="clearBtn">🗑 Clear</button>
+  </div>
+  <div class="spacer"></div>
+  <!-- FILE / CODE (right of spacer): I/O + code output + help -->
+  <div class="group">
+    <button id="saveBtn">💾 Save JSON</button>
+    <button id="loadBtn">📂 Load JSON</button>
+    <input id="loadInput" type="file" accept=".json" style="display: none;">
+    <button id="copyBtn">⎘ Copy Code</button>
     <button id="helpBtn" title="Keyboard shortcuts + how to use">? Help</button>
   </div>
 </header>
@@ -382,6 +410,8 @@
 
 </main>
 
+<div class="vsplitter" id="splitterTimeline" title="Drag to resize the timeline (double-click to reset)"></div>
+
 <!-- TIMELINE — multi-frame animation strip -->
 <div class="timeline" id="timelinePanel">
   <div class="timeline-toolbar">
@@ -392,11 +422,12 @@
     <button id="tlDupBtn" title="Duplicate current frame (Alt+D)">⎘ Duplicate</button>
     <button id="tlDelBtn" title="Delete current frame (Alt+Del)">× Delete</button>
     <label>Duration <input id="tlDurInput" type="number" min="10" max="2000" step="10" value="100"> ms</label>
-    <label style="margin-left: 12px; display: flex; align-items: center; gap: 4px; cursor: pointer;">
-      <input id="tlOnionPrevCheck" type="checkbox"> onion ◀
+    <label style="margin-left: 12px; color: var(--text-dim);">Onion skin:</label>
+    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Show previous frame faintly under the current one">
+      <input id="tlOnionPrevCheck" type="checkbox"> ◀ prev
     </label>
-    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
-      <input id="tlOnionNextCheck" type="checkbox"> ▶ onion
+    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Show next frame faintly under the current one">
+      <input id="tlOnionNextCheck" type="checkbox"> next ▶
     </label>
     <span class="spacer"></span>
     <span class="frame-counter" id="tlCounter">Frame 1 / 1</span>
@@ -591,7 +622,8 @@ let state = {
   tool: 'paint',              // 'paint' | 'pick' | 'erase' | 'fill'
   recentColors: [],           // last N colors used
   customColors: [],           // user-added swatches
-  zoom: 12,                   // px per cell in editor view
+  zoom: 8,                    // px per cell in editor view (default 8× on first load)
+  highlightedPixel: null,     // {x, y} when a code line is selected — drawn as a yellow ring
   refSrc: null,               // data URL of reference image (or null)
   refOpacity: 0.4,            // 0..1
   refVisible: true,
@@ -905,6 +937,13 @@ function fitZoomToScreen() {
   state.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
   zoomLabel.textContent = `Zoom: ${state.zoom}×`;
 }
+// On first open (no saved zoom in localStorage, no other state), use a
+// nice middle-of-the-road default rather than auto-fitting to whatever
+// pane size the browser happens to give us. F still fits-to-pane.
+function defaultZoom() {
+  state.zoom = 8;
+  zoomLabel.textContent = `Zoom: ${state.zoom}×`;
+}
 
 function renderGrid() {
   const Z = state.zoom;
@@ -956,6 +995,20 @@ function renderGrid() {
     const [px, py] = k.split(',').map(Number);
     paintCtx.fillStyle = hex;
     paintCtx.fillRect(px * Z, py * Z, Z, Z);
+  }
+  // Highlight ring — drawn when the user clicks / cursors a line in the
+  // code panel. Pulses gently between yellow and orange so it's easy to
+  // spot against any color. See updateCodeLineHighlight() for the wiring.
+  if (state.highlightedPixel) {
+    const { x, y } = state.highlightedPixel;
+    const t = (performance.now() / 240) | 0;
+    paintCtx.strokeStyle = (t & 1) ? '#ffd060' : '#ff8028';
+    paintCtx.lineWidth = 2;
+    paintCtx.strokeRect(x * Z + 1, y * Z + 1, Z - 2, Z - 2);
+    // Outer faint glow ring for extra visibility
+    paintCtx.strokeStyle = 'rgba(255, 208, 96, 0.35)';
+    paintCtx.lineWidth = 1;
+    paintCtx.strokeRect(x * Z - 1, y * Z - 1, Z + 2, Z + 2);
   }
   // Grid overlay (faint) — only when zoom is big enough to see AND the
   // user-controlled toggle is on. Off by user choice, or off below
@@ -1209,6 +1262,57 @@ applyCodeBtn.addEventListener('click', () => {
   renderCode();   // re-canonicalize
   autosave();
 });
+
+// ── Code line ↔ pixel correlation ─────────────────────────
+// When the user clicks / cursors a line inside the code panel, pull
+// the (x, y) out of the px() call on that line and draw a highlight
+// ring on the canvas. Comment lines and other text don't match — the
+// ring just clears. Selecting elsewhere also clears.
+function lineAtCursor(text, cursor) {
+  const lineStart = text.lastIndexOf('\n', cursor - 1) + 1;
+  let lineEnd = text.indexOf('\n', cursor);
+  if (lineEnd === -1) lineEnd = text.length;
+  return text.slice(lineStart, lineEnd);
+}
+const PX_LINE_RE = /px\s*\(\s*ctx\s*,\s*['"`](#[0-9a-fA-F]{3,6})['"`]\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/;
+function updateCodeLineHighlight() {
+  if (document.activeElement !== codeText) return;
+  const line = lineAtCursor(codeText.value, codeText.selectionStart);
+  const m = PX_LINE_RE.exec(line);
+  const next = m ? { x: +m[2], y: +m[3] } : null;
+  // Only re-render if the highlighted cell actually changed (cheap check)
+  const cur = state.highlightedPixel;
+  const same = (cur && next && cur.x === next.x && cur.y === next.y) || (!cur && !next);
+  if (same) return;
+  state.highlightedPixel = next;
+  renderGrid();
+  if (next) startHighlightPulse();
+}
+// `selectionchange` fires on the document for any input/textarea cursor
+// movement — caret keys, mouse click, etc. — so we don't need to wire
+// up every individual event on the textarea.
+document.addEventListener('selectionchange', updateCodeLineHighlight);
+// Also clear the highlight when the textarea loses focus, so clicking
+// out into the paint canvas drops the ring.
+codeText.addEventListener('blur', () => {
+  if (state.highlightedPixel) {
+    state.highlightedPixel = null;
+    renderGrid();
+  }
+});
+// Pulse the highlight ring 4× / second so it's easy to spot. The loop
+// only runs while a pixel is actually highlighted — naturally exits
+// when state.highlightedPixel goes back to null.
+let highlightLoopId = null;
+function startHighlightPulse() {
+  if (highlightLoopId) return;
+  const tick = () => {
+    if (!state.highlightedPixel) { highlightLoopId = null; return; }
+    renderGrid();
+    highlightLoopId = setTimeout(tick, 250);
+  };
+  highlightLoopId = setTimeout(tick, 250);
+}
 
 // ────────────────────────────────────────────────────────────
 // CONTROLS — header buttons
@@ -1972,16 +2076,21 @@ refOpacitySlider.addEventListener('input', () => {
 // sprite autosave (layout is global to the tool, not per-sprite).
 // ────────────────────────────────────────────────────────────
 const LAYOUT_KEY = 'wondrous-grid-layout-v1';
-const LAYOUT_DEFAULT = { colLeft: 220, colRight: 380 };
+const LAYOUT_DEFAULT = { colLeft: 220, colRight: 380, rowTimeline: 124 };
 const LAYOUT_LIMITS = {
-  colLeft:  { min: 140, max: 480 },
-  colRight: { min: 220, max: 700 },
+  // Lower colLeft min so the toolbar / color column can be shrunk further
+  // when the user wants more paint-canvas room. Right code panel stays
+  // generous since the textarea needs width to be readable.
+  colLeft:     { min: 80,  max: 480 },
+  colRight:    { min: 200, max: 700 },
+  rowTimeline: { min: 60,  max: 400 },
 };
 let layout = { ...LAYOUT_DEFAULT };
 
 function applyLayout() {
-  document.documentElement.style.setProperty('--col-left',  layout.colLeft + 'px');
-  document.documentElement.style.setProperty('--col-right', layout.colRight + 'px');
+  document.documentElement.style.setProperty('--col-left',     layout.colLeft + 'px');
+  document.documentElement.style.setProperty('--col-right',    layout.colRight + 'px');
+  document.documentElement.style.setProperty('--row-timeline', layout.rowTimeline + 'px');
 }
 function saveLayout() {
   try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch {}
@@ -1992,8 +2101,9 @@ function restoreLayout() {
     if (raw) Object.assign(layout, JSON.parse(raw));
   } catch {}
   // Clamp to bounds in case the saved values are out of range
-  layout.colLeft  = Math.max(LAYOUT_LIMITS.colLeft.min,  Math.min(LAYOUT_LIMITS.colLeft.max,  layout.colLeft));
-  layout.colRight = Math.max(LAYOUT_LIMITS.colRight.min, Math.min(LAYOUT_LIMITS.colRight.max, layout.colRight));
+  layout.colLeft     = Math.max(LAYOUT_LIMITS.colLeft.min,     Math.min(LAYOUT_LIMITS.colLeft.max,     layout.colLeft));
+  layout.colRight    = Math.max(LAYOUT_LIMITS.colRight.min,    Math.min(LAYOUT_LIMITS.colRight.max,    layout.colRight));
+  layout.rowTimeline = Math.max(LAYOUT_LIMITS.rowTimeline.min, Math.min(LAYOUT_LIMITS.rowTimeline.max, layout.rowTimeline || LAYOUT_DEFAULT.rowTimeline));
   applyLayout();
 }
 
@@ -2042,9 +2152,50 @@ function wireSplitter(el, side) {
   });
 }
 
+// Vertical splitter — drag UP to grow the timeline, DOWN to shrink.
+// Distinct from the two horizontal column splitters above; uses a
+// row-resize cursor and its own per-mouse handler.
+function wireVSplitter(el) {
+  let startY = 0, startVal = 0;
+  el.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    startY = e.clientY;
+    startVal = layout.rowTimeline;
+    document.body.classList.add('resizing-row');
+    el.classList.add('dragging');
+    const onMove = (ev) => {
+      const dy = ev.clientY - startY;
+      // Dragging UP (negative dy) grows the timeline; dragging DOWN shrinks it.
+      const delta = -dy;
+      const { min, max } = LAYOUT_LIMITS.rowTimeline;
+      layout.rowTimeline = Math.max(min, Math.min(max, startVal + delta));
+      applyLayout();
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('resizing-row');
+      el.classList.remove('dragging');
+      saveLayout();
+      // Re-fit the main paint area zoom since the available vertical
+      // space changed when the timeline grew / shrank.
+      // Skipped — the user-controlled zoom should stick (they may have
+      // intentionally chosen 8×); they can hit F to re-fit if they want.
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+  el.addEventListener('dblclick', () => {
+    layout.rowTimeline = LAYOUT_DEFAULT.rowTimeline;
+    applyLayout();
+    saveLayout();
+  });
+}
+
 restoreLayout();
 wireSplitter(document.getElementById('splitterLeft'),  'left');
 wireSplitter(document.getElementById('splitterRight'), 'right');
+wireVSplitter(document.getElementById('splitterTimeline'));
 
 // ────────────────────────────────────────────────────────────
 // TIMELINE — multi-frame animation
@@ -2226,8 +2377,11 @@ tlOnionNextCheck.addEventListener('change', () => {
 // ────────────────────────────────────────────────────────────
 // INIT
 // ────────────────────────────────────────────────────────────
-restoreAutosave();
-fitZoomToScreen();
+const restored = restoreAutosave();
+// First-time load (no saved state): default to 8× zoom rather than
+// auto-fitting against an arbitrary pane size. If you've used the
+// tool before, your last zoom level is restored from localStorage.
+if (!restored) defaultZoom();
 setActiveColor(state.activeColor);
 renderPalette();
 renderRecent();
