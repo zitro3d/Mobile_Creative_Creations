@@ -20,7 +20,7 @@
   html, body { margin: 0; padding: 0; height: 100vh; background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, system-ui, sans-serif; font-size: 13px; overflow: hidden; }
   body {
     display: grid;
-    grid-template-rows: auto 1fr 5px var(--row-timeline, 124px) auto;
+    grid-template-rows: auto 1fr 5px var(--row-timeline, 150px) auto;
     grid-template-columns: 1fr;
   }
   .vsplitter {
@@ -76,7 +76,7 @@
   /* Main layout — fills whatever vertical space the body grid gives it */
   main {
     display: grid;
-    grid-template-columns: var(--col-left, 220px) 5px 1fr 5px var(--col-right, 380px);
+    grid-template-columns: var(--col-left, 240px) 5px 1fr 5px var(--col-right, 420px);
     min-height: 0;
     background: var(--bg);
   }
@@ -198,13 +198,21 @@
   .timeline-toolbar input[type=number] { width: 60px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 3px 4px; font-size: 12px; border-radius: 3px; }
   .timeline-toolbar .spacer { flex: 1; }
   .timeline-toolbar .frame-counter { color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; font-size: 11px; }
+  .timeline-toolbar .fps-readout { color: var(--accent); font-family: 'SF Mono', Consolas, monospace; font-size: 11px; padding: 0 4px; }
 
   .timeline-frames {
     flex: 1; overflow-x: auto; overflow-y: hidden;
     display: flex; gap: 4px;
     padding: 6px 12px;
     align-items: center;
+    /* Visible dark-mode scrollbar so it doesn't disappear when frames overflow */
+    scrollbar-width: thin;
+    scrollbar-color: var(--accent-dim) var(--bg-input);
   }
+  .timeline-frames::-webkit-scrollbar { height: 10px; }
+  .timeline-frames::-webkit-scrollbar-track { background: var(--bg-input); }
+  .timeline-frames::-webkit-scrollbar-thumb { background: var(--accent-dim); border-radius: 5px; }
+  .timeline-frames::-webkit-scrollbar-thumb:hover { background: var(--accent); }
   .frame-thumb {
     flex-shrink: 0; width: 70px; height: 70px;
     background: var(--bg); border: 2px solid var(--border); border-radius: 3px;
@@ -215,8 +223,9 @@
   .frame-thumb .frame-num { position: absolute; top: 2px; left: 4px; font-size: 9px; color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; }
   .frame-thumb .frame-dur { position: absolute; bottom: 2px; right: 4px; font-size: 9px; color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; }
   .frame-thumb:hover { border-color: var(--text-dim); }
-  .frame-thumb.active { border-color: var(--accent); }
+  .frame-thumb.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim) inset, 0 0 6px rgba(255, 208, 96, 0.4); }
   .frame-thumb.playing { border-color: #4ade80; box-shadow: 0 0 8px rgba(74, 222, 128, 0.5); }
+  .frame-thumb.drag-target { border-color: var(--accent); border-style: dashed; }
   .frame-thumb-add {
     flex-shrink: 0; width: 30px; height: 70px;
     background: var(--bg-input); border: 1px dashed var(--border); border-radius: 3px;
@@ -418,10 +427,11 @@
     <button id="tlPlayBtn" class="primary" title="Play / Pause (Space)">▶ Play</button>
     <button id="tlPrevBtn" title="Previous frame (←)">⏮</button>
     <button id="tlNextBtn" title="Next frame (→)">⏭</button>
-    <button id="tlAddBtn" title="Add new blank frame (Alt+N)">+ Frame</button>
-    <button id="tlDupBtn" title="Duplicate current frame (Alt+D)">⎘ Duplicate</button>
+    <button id="tlDupBtn" title="Duplicate current frame (Alt+D, or click the + thumbnail at the end of the strip)">⎘ Duplicate</button>
+    <button id="tlAddBtn" title="Add new BLANK frame (Alt+N)">+ Blank</button>
     <button id="tlDelBtn" title="Delete current frame (Alt+Del)">× Delete</button>
     <label>Duration <input id="tlDurInput" type="number" min="10" max="2000" step="10" value="100"> ms</label>
+    <span class="fps-readout" id="tlFpsReadout" title="Frame rate equivalent of the active frame's duration">≈ 10 FPS</span>
     <label style="margin-left: 12px; color: var(--text-dim);">Onion skin:</label>
     <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Show previous frame faintly under the current one">
       <input id="tlOnionPrevCheck" type="checkbox"> ◀ prev
@@ -462,29 +472,57 @@
 
       <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Animation Timeline</h3>
       <p style="margin: 0 0 8px 0;">
-        The strip at the bottom of the window holds one or more <b>frames</b>. Each
-        frame is a separate pixel map with its own duration. Click any frame thumbnail
-        to switch to it for editing. Use the timeline toolbar (or shortcuts below) to
-        add / duplicate / delete frames, set frame timing, and play the animation.
+        The strip at the bottom holds one or more <b>frames</b>. Each frame is a
+        separate pixel map with its own duration. Click any thumbnail to switch frames
+        for editing. The active frame gets a yellow ring with a soft glow.
       </p>
       <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Space</kbd></td><td style="padding: 4px 0;">Play / pause animation</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>←</kbd> / <kbd>→</kbd></td><td style="padding: 4px 0;">Previous / next frame</td></tr>
-        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Alt + N</kbd></td><td style="padding: 4px 0;">Add new blank frame</td></tr>
-        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Alt + D</kbd></td><td style="padding: 4px 0;">Duplicate current frame</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Alt + D</kbd></td><td style="padding: 4px 0;">Duplicate current frame (also: click the <b>+</b> thumbnail at the end of the strip)</td></tr>
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Alt + N</kbd></td><td style="padding: 4px 0;">Add new <b>blank</b> frame (toolbar "+ Blank")</td></tr>
         <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Alt + Delete</kbd></td><td style="padding: 4px 0;">Delete current frame (confirms)</td></tr>
       </table>
       <p style="margin: 8px 0 0 0; font-size: 11px; color: var(--text-dim);">
-        <b>Onion skin</b> checkboxes show the previous (<b>◀ onion</b>) and / or next
-        (<b>onion ▶</b>) frame faintly under the current one — useful for animating smooth
-        movement. <b>Duration</b> (ms) is per-frame.
+        <b>Drag any thumbnail</b> onto another to reorder frames. Dragging the active
+        frame keeps it active in its new position.
       </p>
       <p style="margin: 8px 0 0 0; font-size: 11px; color: var(--text-dim);">
-        <b>Code output:</b> the code panel always shows the <i>current frame only</i>
-        (so Apply Edits has a clear target). <b>⎘ Copy Code</b> in the header emits the
-        whole sprite — a list of <code>px()</code> calls for single-frame sprites, or a
-        <code>drawSprite(ctx, gameFrame)</code> function with a switch-case across all
+        <b>Onion skin</b> shows the previous (<b>◀ prev</b>) and / or next (<b>next ▶</b>)
+        frame faintly under the one you're editing — useful for animating smooth motion.
+        <b>Duration</b> (ms) is per-frame. The <b>≈ N FPS</b> readout next to the duration
+        input is the frame-rate equivalent (1000 / duration ms).
+      </p>
+      <p style="margin: 8px 0 0 0; font-size: 11px; color: var(--text-dim);">
+        <b>Code output:</b> the code panel shows the <i>current frame only</i> so Apply
+        Edits has a clear target. <b>⎘ Copy Code</b> in the header emits the whole
+        sprite — a list of <code>px()</code> calls for single-frame sprites, or a full
+        <code>drawSprite(ctx, gameFrame)</code> function with a switch-case across
         frames for animated sprites.
+      </p>
+
+      <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Code Panel</h3>
+      <p style="margin: 0 0 8px 0;">
+        Click any line in the code panel that's a <code>px()</code> call — the matching
+        pixel gets a pulsing yellow ring on the canvas. Lets you trace code lines back
+        to the pixel they draw without hunting visually.
+      </p>
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <tr><td style="padding: 4px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl + Enter</kbd></td><td style="padding: 4px 0;">Apply Edits — re-render grid from the current code panel text (same as clicking the orange button)</td></tr>
+      </table>
+
+      <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Layout</h3>
+      <p style="margin: 0;">
+        Three column splitters + one row splitter, all drag-resizable, all double-
+        click-resettable:
+      </p>
+      <ul style="margin: 4px 0 0 0; padding-left: 18px; font-size: 12px;">
+        <li>Between the Color panel and the paint grid (horizontal)</li>
+        <li>Between the paint grid and the Code panel (horizontal)</li>
+        <li>Between the main area and the Timeline (vertical — drag up to grow the timeline)</li>
+      </ul>
+      <p style="margin: 8px 0 0 0; font-size: 11px; color: var(--text-dim);">
+        Sizes persist across sessions in browser storage.
       </p>
 
       <h3 style="margin: 14px 0 8px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase;">Canvas Transforms</h3>
@@ -1255,12 +1293,26 @@ function parseCodeIntoState(text) {
   renderPreview();
 }
 
-applyCodeBtn.addEventListener('click', () => {
+function applyCodeNow() {
   const before = snapshotPixels();
   parseCodeIntoState(codeText.value);
   commitHistory(before);
   renderCode();   // re-canonicalize
+  renderTimeline();   // active-frame thumb may have changed
   autosave();
+}
+applyCodeBtn.addEventListener('click', applyCodeNow);
+// Cmd/Ctrl + Enter while typing in the code panel applies edits
+// without having to mouse over to the orange button. Standard
+// keyboard convention for "submit form within a textarea".
+codeText.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    applyCodeNow();
+    // Subtle visual feedback so the user knows it fired
+    applyCodeBtn.textContent = '✓ Applied!';
+    setTimeout(() => { applyCodeBtn.textContent = 'Apply Edits → Grid'; }, 1200);
+  }
 });
 
 // ── Code line ↔ pixel correlation ─────────────────────────
@@ -2076,7 +2128,10 @@ refOpacitySlider.addEventListener('input', () => {
 // sprite autosave (layout is global to the tool, not per-sprite).
 // ────────────────────────────────────────────────────────────
 const LAYOUT_KEY = 'wondrous-grid-layout-v1';
-const LAYOUT_DEFAULT = { colLeft: 220, colRight: 380, rowTimeline: 124 };
+// Bumped a notch wider / taller per user-revision so first-open
+// breathing room feels right (left was 220, right was 380, timeline
+// was 124). Existing users keep their custom sizes via localStorage.
+const LAYOUT_DEFAULT = { colLeft: 240, colRight: 420, rowTimeline: 150 };
 const LAYOUT_LIMITS = {
   // Lower colLeft min so the toolbar / color column can be shrunk further
   // when the user wants more paint-canvas room. Right code panel stays
@@ -2209,6 +2264,7 @@ const tlAddBtn        = document.getElementById('tlAddBtn');
 const tlDupBtn        = document.getElementById('tlDupBtn');
 const tlDelBtn        = document.getElementById('tlDelBtn');
 const tlDurInput      = document.getElementById('tlDurInput');
+const tlFpsReadout    = document.getElementById('tlFpsReadout');
 const tlOnionPrevCheck= document.getElementById('tlOnionPrevCheck');
 const tlOnionNextCheck= document.getElementById('tlOnionNextCheck');
 const tlCounter       = document.getElementById('tlCounter');
@@ -2220,7 +2276,9 @@ function renderTimeline() {
     const f = state.frames[i];
     const thumb = document.createElement('div');
     thumb.className = 'frame-thumb' + (i === state.activeFrame ? ' active' : '');
-    thumb.title = `Frame ${i + 1} — click to edit`;
+    thumb.title = `Frame ${i + 1} — click to edit · drag to reorder`;
+    thumb.draggable = true;
+    thumb.dataset.frameIdx = String(i);
     // Thumbnail canvas
     const tcvs = document.createElement('canvas');
     const tmax = 50;
@@ -2245,19 +2303,93 @@ function renderTimeline() {
     dur.className = 'frame-dur'; dur.textContent = f.duration + 'ms';
     thumb.appendChild(dur);
     thumb.addEventListener('click', () => setActiveFrame(i));
+    wireFrameDrag(thumb, i);
     timelineFrames.appendChild(thumb);
   }
-  // "+ add" affordance at the end
+  // "+ Duplicate" affordance at the end. v451-revision per user feedback:
+  // the original "+ Blank" behavior added an empty frame which was easy
+  // to miss visually (looked identical to clicking nothing). Duplicating
+  // the current frame is the far-more-common animation workflow — start
+  // from a copy and tweak. "Add Blank" is still available as a toolbar
+  // button for the rare case you want a clean slate.
   const addBtn = document.createElement('div');
   addBtn.className = 'frame-thumb-add';
   addBtn.textContent = '+';
-  addBtn.title = 'Add new blank frame';
-  addBtn.addEventListener('click', addBlankFrame);
+  addBtn.title = 'Duplicate current frame (Alt+D)';
+  addBtn.addEventListener('click', () => { stopPlayback(); duplicateFrame(); });
   timelineFrames.appendChild(addBtn);
-  // Counter + duration input
+  // Counter + duration input + FPS readout
   tlCounter.textContent = `Frame ${state.activeFrame + 1} / ${state.frames.length}`;
   tlDurInput.value = state.frames[state.activeFrame].duration;
+  refreshFpsReadout();
   tlDelBtn.disabled = state.frames.length <= 1;
+}
+
+function refreshFpsReadout() {
+  // FPS readout — shows the frame-rate equivalent of the active frame's
+  // duration. Approximate because at 60fps tick rate, the smallest
+  // distinguishable step is ~16.67ms.
+  const ms = state.frames[state.activeFrame].duration;
+  const fps = ms > 0 ? (1000 / ms) : 0;
+  // Use one decimal place when it's not a whole number — 100ms = 10 FPS
+  // (clean), but 80ms = 12.5 FPS so we don't round it to 13.
+  const shown = (Math.abs(fps - Math.round(fps)) < 0.05)
+    ? Math.round(fps).toString()
+    : fps.toFixed(1);
+  tlFpsReadout.textContent = `≈ ${shown} FPS`;
+}
+
+// ── Frame drag-to-reorder ──────────────────────────────────
+// HTML5 drag-drop. Drag any thumbnail and drop it onto another to swap
+// positions (more useful than insert-before since it's a one-step move).
+let dragFrameIdx = null;
+function wireFrameDrag(el, idx) {
+  el.addEventListener('dragstart', (e) => {
+    dragFrameIdx = idx;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(idx));
+    el.style.opacity = '0.4';
+  });
+  el.addEventListener('dragend', () => {
+    el.style.opacity = '';
+    dragFrameIdx = null;
+    // Clear any leftover drag-target classes
+    timelineFrames.querySelectorAll('.frame-thumb.drag-target').forEach(n => n.classList.remove('drag-target'));
+  });
+  el.addEventListener('dragover', (e) => {
+    if (dragFrameIdx === null || dragFrameIdx === idx) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    el.classList.add('drag-target');
+  });
+  el.addEventListener('dragleave', () => {
+    el.classList.remove('drag-target');
+  });
+  el.addEventListener('drop', (e) => {
+    e.preventDefault();
+    el.classList.remove('drag-target');
+    if (dragFrameIdx === null || dragFrameIdx === idx) return;
+    // Move the dragged frame to this position. Splice once to remove,
+    // splice once to insert.
+    const moved = state.frames.splice(dragFrameIdx, 1)[0];
+    const insertAt = dragFrameIdx < idx ? idx : idx;
+    state.frames.splice(insertAt, 0, moved);
+    // Keep activeFrame pointing at the frame the user was on. If they
+    // dragged the active frame, follow it.
+    if (state.activeFrame === dragFrameIdx) {
+      state.activeFrame = insertAt;
+    } else if (dragFrameIdx < state.activeFrame && state.activeFrame <= insertAt) {
+      state.activeFrame--;
+    } else if (insertAt <= state.activeFrame && state.activeFrame < dragFrameIdx) {
+      state.activeFrame++;
+    }
+    dragFrameIdx = null;
+    stopPlayback();
+    resetHistory();
+    renderGrid(); renderPreview(); renderCode();
+    renderTimeline();
+    autosave();
+  });
 }
 
 function setActiveFrame(idx) {
@@ -2360,8 +2492,17 @@ tlDurInput.addEventListener('change', () => {
   const v = Math.max(10, Math.min(2000, parseInt(tlDurInput.value, 10) || 100));
   state.frames[state.activeFrame].duration = v;
   tlDurInput.value = v;
+  refreshFpsReadout();
   renderTimeline();
   autosave();
+});
+// Also update FPS readout live as the user types — feels more responsive
+tlDurInput.addEventListener('input', () => {
+  const v = parseInt(tlDurInput.value, 10);
+  if (v >= 10 && v <= 2000) {
+    state.frames[state.activeFrame].duration = v;
+    refreshFpsReadout();
+  }
 });
 tlOnionPrevCheck.addEventListener('change', () => {
   state.onionPrev = tlOnionPrevCheck.checked;
