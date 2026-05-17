@@ -19,13 +19,24 @@ and claw are procedural.
 
 ## Required Aseprite tags
 
+These map to the gunship's in-game state machine. Single frame `idle`
+covers everything — the others are optional polish. We list them so
+you can SEE what beats the sprite passes through and (if you want)
+draw a unique pose for each.
+
 | Tag | Frames | When game uses it |
 |---|---|---|
-| `idle`     | 1+ | Cruising / hovering pose |
+| `idle`     | 1+ | Cruise — flying horizontally toward the rig from off-screen right (default pose) |
+| `lock_on`  | 1+ | Hovers in place over the cargo for ~12 frames before the drop (running lights brighter is a nice option) |
+| `dropping` | 1   | Mid-drop pose while the cable extends downward (cable + claw are procedural — body just holds steady) |
+| `retreat`  | 1   | Climbs / flees away after a grab attempt (slight nose-up tilt works well here) |
+| `damaged`  | 1   | Optional — cracked canopy / flickering lights / smoke trail (currently we just puff-explode the sprite on destruction) |
 
-Single frame is fine. The function-level animation (cable extending,
-claw closing, retreat) is all procedural — your sprite is just the
-static body.
+Single `idle` frame is fine. The cable extension, claw closing,
+energy field, and engine flame are ALL procedural — your sprite is
+just the body. The extra tags above just tell the engine "use this
+pose during this state" so the gunship reads more alive if you
+choose to draw them.
 
 ## What to draw
 

@@ -17,13 +17,25 @@ The current player rig — DLX-branded mid-haul cargo vehicle.
 
 ## Required Aseprite tags
 
+These map to the rig's in-game state machine. Single frame `idle` +
+single frame `damaged` covers everything; the rest are optional
+polish. Listed so you can SEE what beats the sprite passes through
+and (if you want) draw a unique pose for each.
+
 | Tag | Frames | When game uses it |
 |---|---|---|
-| `idle`     | 1+ | Default flight pose |
-| `damaged`  | 1  | After crash (replaces `idle` during `STATE_OVER`) |
+| `idle`        | 1+ | Default flight pose — drawn every frame during STATE_PLAY |
+| `idle_flap`   | 2–3 | Optional — subtle 1-pixel "breathing" loop at ~100 ms/frame (engine pulse, antenna twitch) for live feel |
+| `flap_up`     | 1   | Optional — cockpit pitched UP a degree, fin slightly raised; drawn during a tap (when the rig is gaining altitude) |
+| `flap_down`   | 1   | Optional — cockpit pitched DOWN a degree; drawn when the rig is falling between taps |
+| `damaged`     | 1   | After crash — replaces `idle` during STATE_OVER (front-right third of the hull destroyed; see SMASHED section below) |
+| `victory`     | 1+  | Optional — celebratory pose at the truck-stop dock after delivery (e.g. headlights flashing, antenna fully extended) |
 
-Multi-frame `idle` (2–3 frames, 100 ms each, subtle 1-pixel breathing
-movement) is welcome but not required.
+Single `idle` + single `damaged` is fine. Everything else (engine
+flame, antenna sway, shield bubble, ghost halo, magnet ring,
+force-field, stun crackle, sparks, exhaust trail, cargo chain, score
+floaters) is procedurally rendered ON TOP of your sprite — so you
+don't need to redraw the rig for any of those effects.
 
 ## Optional Aseprite slices
 

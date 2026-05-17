@@ -19,12 +19,25 @@ silhouette with a blunt front bumper instead of a swept nose.
 
 ## Required Aseprite tags
 
+These map to the alt-gunship's in-game state machine (same as the
+sleek gunship — both variants share the same cable-drop behavior).
+Single frame `idle` covers everything; the rest are optional polish.
+Listed so you can SEE what beats the sprite passes through and (if
+you want) draw a unique pose for each.
+
 | Tag | Frames | When game uses it |
 |---|---|---|
-| `idle`     | 1+ | Cruising / hovering pose |
+| `idle`     | 1+ | Cruise — flying horizontally toward the rig from off-screen right (default pose) |
+| `lock_on`  | 1+ | Hovers in place over the cargo for ~12 frames before the drop (running lights brighter is a nice option) |
+| `dropping` | 1   | Mid-drop pose while the cable extends downward (cable + claw are procedural — body just holds steady) |
+| `retreat`  | 1   | Climbs / flees away after a grab attempt (slight nose-up tilt works well on the blunt bumper) |
+| `damaged`  | 1   | Optional — dented bumper / flickering lights / smoke trail (currently we just puff-explode the sprite on destruction) |
 
-Single frame is fine. Cable extension, claw closing, retreat motion
-are all procedural in code.
+Single `idle` frame is fine. The cable extension, claw closing,
+energy field, and engine flame are ALL procedural — your sprite is
+just the body. The extra tags above just tell the engine "use this
+pose during this state" so the gunship reads more alive if you
+choose to draw them.
 
 ## What to draw
 
