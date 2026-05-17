@@ -1,0 +1,795 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wondrous Grid — Everything Wondrous</title>
+<style>
+  :root {
+    --bg:        #1a1a1c;
+    --bg-panel:  #232328;
+    --bg-input:  #15151a;
+    --border:    #3a3a40;
+    --text:      #e8e8ec;
+    --text-dim:  #8a8a92;
+    --accent:    #ffd060;
+    --accent-dim:#a06820;
+    --paint-bg:  #15151a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100vh; background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, system-ui, sans-serif; font-size: 13px; overflow: hidden; }
+
+  /* Top bar */
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px;
+    background: var(--bg-panel); border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  header h1 {
+    margin: 0; font-size: 16px; font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+  }
+  header h1 .sub { color: var(--text-dim); font-size: 11px; font-weight: 400; margin-left: 6px; letter-spacing: 0; }
+  header .group { display: flex; align-items: center; gap: 6px; }
+  header label { color: var(--text-dim); font-size: 12px; }
+  header input[type=number], header select {
+    background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
+    padding: 4px 6px; font-family: inherit; font-size: 12px; border-radius: 3px;
+  }
+  header input[type=number] { width: 56px; }
+  header select { min-width: 140px; }
+  header button {
+    background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
+    padding: 5px 10px; font-family: inherit; font-size: 12px; border-radius: 3px;
+    cursor: pointer;
+  }
+  header button:hover { background: #2a2a30; border-color: var(--accent); }
+  header .spacer { flex: 1; }
+
+  /* Main layout */
+  main {
+    display: grid;
+    grid-template-columns: 220px 1fr 380px;
+    gap: 1px;
+    height: calc(100vh - 50px - 26px);
+    background: var(--border);
+  }
+  .panel { background: var(--bg); padding: 12px; overflow-y: auto; }
+
+  /* Left column — color panel */
+  .panel-color h2 { margin: 0 0 8px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); font-weight: 600; }
+  .active-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .active-swatch { width: 32px; height: 32px; border: 2px solid var(--border); border-radius: 3px; flex-shrink: 0; }
+  .active-hex { font-family: 'SF Mono', Consolas, monospace; font-size: 12px; cursor: pointer; padding: 4px 6px; background: var(--bg-input); border-radius: 3px; }
+  .active-hex:hover { color: var(--accent); }
+  .tool-row { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tool-btn { flex: 1; padding: 5px 4px; font-size: 11px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; text-align: center; }
+  .tool-btn.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .tool-btn:hover { border-color: var(--accent); }
+
+  .picker-row { margin-bottom: 12px; }
+  .picker-row input[type=color] { width: 100%; height: 28px; border: 1px solid var(--border); background: var(--bg-input); cursor: pointer; padding: 2px; border-radius: 3px; }
+  .hex-input-row { display: flex; gap: 4px; margin-top: 6px; }
+  .hex-input-row input { flex: 1; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 4px 6px; font-family: 'SF Mono', Consolas, monospace; font-size: 11px; border-radius: 3px; }
+  .hex-input-row button { padding: 4px 8px; font-size: 11px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; }
+
+  .swatch-group { margin-bottom: 10px; }
+  .swatch-group-label { font-size: 10px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .swatch-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+  .swatch {
+    aspect-ratio: 1; border: 1px solid #000; cursor: pointer; border-radius: 2px;
+    position: relative;
+  }
+  .swatch:hover { transform: scale(1.15); border-color: var(--accent); z-index: 2; }
+  .swatch.active { border: 2px solid var(--accent); transform: scale(1.1); }
+  .swatch[title] {}
+
+  /* Center column — paint grid */
+  .panel-grid { display: flex; flex-direction: column; align-items: center; padding: 14px; gap: 10px; }
+  .grid-wrap { position: relative; background: var(--paint-bg); border: 1px solid var(--border); padding: 0; max-width: 100%; max-height: 100%; overflow: auto; }
+  #paintCanvas { display: block; image-rendering: pixelated; cursor: crosshair; }
+  .preview-row { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 11px; }
+  .preview-row .preview-wrap { background: var(--paint-bg); border: 1px solid var(--border); padding: 4px; }
+  #previewCanvas { display: block; image-rendering: pixelated; }
+  .zoom-controls { display: flex; gap: 4px; align-items: center; }
+  .zoom-controls button { padding: 3px 8px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; font-size: 11px; }
+
+  /* Right column — code panel */
+  .panel-code { display: flex; flex-direction: column; padding: 0; }
+  .panel-code h2 { margin: 0; padding: 12px 12px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); font-weight: 600; }
+  .code-info { padding: 0 12px 8px; font-size: 10px; color: var(--text-dim); }
+  #codeText {
+    flex: 1; resize: none; border: none; background: var(--bg-input); color: var(--text);
+    font-family: 'SF Mono', Consolas, monospace; font-size: 11px;
+    padding: 10px 12px; outline: none; line-height: 1.5;
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
+  .code-actions { padding: 10px 12px; display: flex; gap: 6px; }
+  .code-actions button { flex: 1; padding: 6px 8px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; font-size: 12px; }
+  .code-actions button:hover { border-color: var(--accent); }
+  .code-actions button.primary { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+
+  footer { padding: 5px 14px; background: var(--bg-panel); border-top: 1px solid var(--border); color: var(--text-dim); font-size: 10px; display: flex; justify-content: space-between; align-items: center; }
+  footer .brand { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>WONDROUS GRID <span class="sub">pixel studio</span></h1>
+  <div class="group">
+    <label>Size</label>
+    <input id="widthInput" type="number" min="1" max="512" value="58">
+    <span style="color: var(--text-dim);">×</span>
+    <input id="heightInput" type="number" min="1" max="512" value="52">
+    <button id="resizeBtn">Resize</button>
+  </div>
+  <div class="group">
+    <label>Preset</label>
+    <select id="presetSelect">
+      <option value="custom">Custom…</option>
+      <option value="58,52">Rig (58 × 52)</option>
+      <option value="100,44">Gunship (100 × 44)</option>
+      <option value="132,56">Gunship Alt (132 × 56)</option>
+      <option value="110,60">Harpooner (110 × 60)</option>
+      <option value="28,28">Cargo (28 × 28)</option>
+      <option value="260,140">Truck Stop Scene (260 × 140)</option>
+      <option value="80,40">Drone (80 × 40)</option>
+      <option value="32,32">Tile (32 × 32)</option>
+      <option value="16,16">Tile (16 × 16)</option>
+    </select>
+  </div>
+  <div class="spacer"></div>
+  <div class="group">
+    <button id="saveBtn">💾 Save JSON</button>
+    <button id="loadBtn">📂 Load JSON</button>
+    <input id="loadInput" type="file" accept=".json" style="display: none;">
+    <button id="copyBtn">⎘ Copy Code</button>
+    <button id="clearBtn">🗑 Clear</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- LEFT — Color panel -->
+  <div class="panel panel-color">
+    <h2>Active Color</h2>
+    <div class="active-row">
+      <div id="activeSwatch" class="active-swatch" style="background: #3aa8b8;"></div>
+      <div id="activeHex" class="active-hex" title="Click to copy hex">#3aa8b8</div>
+    </div>
+    <div class="tool-row">
+      <button id="paintTool" class="tool-btn active" title="Paint (left click)">✏️ Paint</button>
+      <button id="eyedropperTool" class="tool-btn" title="Pick color from canvas">💧 Pick</button>
+      <button id="eraserTool" class="tool-btn" title="Erase (or right-click)">🩹 Erase</button>
+    </div>
+
+    <h2>Pick Any Color</h2>
+    <div class="picker-row">
+      <input id="colorPicker" type="color" value="#3aa8b8">
+      <div class="hex-input-row">
+        <input id="hexInput" type="text" maxlength="7" value="#3aa8b8" placeholder="#rrggbb">
+        <button id="addCustomBtn" title="Save current color to custom palette">+ Add</button>
+      </div>
+    </div>
+
+    <h2>DLX Palette</h2>
+    <div id="paletteContainer"></div>
+
+    <h2 style="margin-top: 12px;">Recent</h2>
+    <div id="recentGrid" class="swatch-grid"></div>
+  </div>
+
+  <!-- CENTER — Paint grid -->
+  <div class="panel panel-grid">
+    <div class="grid-wrap">
+      <canvas id="paintCanvas"></canvas>
+    </div>
+    <div class="preview-row">
+      <span>Native 1× preview:</span>
+      <div class="preview-wrap"><canvas id="previewCanvas"></canvas></div>
+      <div class="zoom-controls">
+        <button id="zoomOutBtn">−</button>
+        <span id="zoomLabel">Zoom: 12×</span>
+        <button id="zoomInBtn">+</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT — Code panel -->
+  <div class="panel panel-code">
+    <h2>Generated Code</h2>
+    <div class="code-info">Each painted pixel → one <code>px(ctx, '#hex', x, y, 1, 1)</code> call. Edit freely, then click <em>Apply Edits</em>.</div>
+    <textarea id="codeText" spellcheck="false"></textarea>
+    <div class="code-actions">
+      <button id="applyCodeBtn" class="primary">Apply Edits → Grid</button>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  <div>Wondrous Grid v1 · paint and code in sync</div>
+  <div class="brand">Everything Wondrous ™</div>
+</footer>
+
+<script>
+'use strict';
+
+// ────────────────────────────────────────────────────────────
+// DLX PALETTE — TSC (truck-stop scenery) + PXC (rig + cargo)
+// Pulled verbatim from dlx-garbage-hauler-pixel.html
+// ────────────────────────────────────────────────────────────
+const TSC_GROUPS = [
+  ['Outline / black',         [['outline','#04060a'], ['black','#1a0a06']]],
+  ['Rig hull (teal)',         [['hullDeep','#0a3038'], ['hullDark','#1c5e6e'], ['hullCore','#3aa8b8'], ['hullLit','#7ed4dc']]],
+  ['Drone body (gray)',       [['droneDeep','#1a1c20'], ['droneDark','#3a3e44'], ['droneMid','#5a5e68'], ['droneLit','#787c80'], ['droneRim','#a0a4a8']]],
+  ['Yellow / orange',         [['yellow','#ffc628'], ['yellowLit','#ffd060'], ['orange','#e87028'], ['rust','#c83828']]],
+  ['Red (lens / lights)',     [['redCore','#a01a0a'], ['redLit','#ff4020']]],
+  ['Cyan (rotor / glass)',    [['cyanLit','#7eddeb'], ['cyanCore','#3ad8ff'], ['cyanDark','#1a3a48']]],
+  ['Magenta / alien',         [['purpleDark','#3a1a4a'], ['purpleCore','#7c4abe'], ['purpleLit','#a07ade'], ['greenAlien','#88b840'], ['greenAlienD','#5a9028']]],
+  ['Bone / cream',            [['cream','#f4e8d8'], ['creamD','#a88858']]],
+  ['Diner',                   [['dinerWall','#f4e8d8'], ['dinerTrim','#cfd2d4'], ['dinerShade','#9a9aa0'], ['dinerRed','#c83828']]],
+  ['Stone / sandstone',       [['stoneCore','#a06038'], ['stoneShade','#5a3018'], ['stoneDeep','#3a1a08'], ['stoneLit','#c87850'], ['roof','#d8421a'], ['roofD','#a82812']]],
+];
+
+const PXC_GROUPS = [
+  ['Hull (weathered teal)',   [['hullCore','#3aa8b8'], ['hullLight','#7ed4dc'], ['hullDark','#1c5e6e'], ['hullDeep','#0a3038']]],
+  ['Accents',                 [['yellow','#ffc628'], ['yellowDeep','#a06820'], ['orange','#e87028'], ['orangeDeep','#a04018']]],
+  ['Damage',                  [['rust','#c83828'], ['rustDark','#7a1a10']]],
+  ['Cockpit',                 [['domeFrame','#909488'], ['domeShadow','#787c70'], ['glassDark','#142028'], ['glassLit','#7eddeb']]],
+  ['Engine + chrome',         [['chrome','#9a9aa0'], ['chromeLight','#cfd2d4'], ['chromeDark','#48484e'], ['podGrey','#28282e'], ['podBlack','#0c0c10'], ['podGlow','#7eddeb']]],
+  ['Cargo',                   [['cargoOuter','#2a221a'], ['cargoFrame','#08060a'], ['cargoInner','#a0822a'], ['cargoHi','#ffd454'], ['cargoRivet','#7a6028'], ['plateYellow','#ffd040'], ['plateBlack','#080808']]],
+  ['Chain (blue beaded)',     [['chainCore','#ffffff'], ['chainGlow','#3090ff'], ['chainDark','#1850c0']]],
+  ['Flame',                   [['flameCore','#ffffff'], ['flameHot','#bcecff'], ['flameMid','#3090ff'], ['flameOuter','#1060e0'], ['flameDeep','#0838a0']]],
+  ['Outline',                 [['outline','#04060a']]],
+];
+
+// ────────────────────────────────────────────────────────────
+// STATE
+// ────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'wondrous-grid-autosave-v1';
+let state = {
+  width: 58,
+  height: 52,
+  pixels: {},                 // "x,y" -> hex color string (lowercase)
+  activeColor: '#3aa8b8',
+  tool: 'paint',              // 'paint' | 'pick' | 'erase'
+  recentColors: [],           // last N colors used
+  customColors: [],           // user-added swatches
+  zoom: 12,                   // px per cell in editor view
+};
+
+const RECENT_MAX = 16;
+const ZOOM_MIN = 2;
+const ZOOM_MAX = 32;
+
+// ────────────────────────────────────────────────────────────
+// DOM refs
+// ────────────────────────────────────────────────────────────
+const paintCanvas   = document.getElementById('paintCanvas');
+const paintCtx      = paintCanvas.getContext('2d');
+const previewCanvas = document.getElementById('previewCanvas');
+const previewCtx    = previewCanvas.getContext('2d');
+const widthInput    = document.getElementById('widthInput');
+const heightInput   = document.getElementById('heightInput');
+const presetSelect  = document.getElementById('presetSelect');
+const resizeBtn     = document.getElementById('resizeBtn');
+const activeSwatch  = document.getElementById('activeSwatch');
+const activeHex     = document.getElementById('activeHex');
+const colorPicker   = document.getElementById('colorPicker');
+const hexInput      = document.getElementById('hexInput');
+const addCustomBtn  = document.getElementById('addCustomBtn');
+const paletteContainer = document.getElementById('paletteContainer');
+const recentGrid    = document.getElementById('recentGrid');
+const codeText      = document.getElementById('codeText');
+const applyCodeBtn  = document.getElementById('applyCodeBtn');
+const saveBtn       = document.getElementById('saveBtn');
+const loadBtn       = document.getElementById('loadBtn');
+const loadInput     = document.getElementById('loadInput');
+const copyBtn       = document.getElementById('copyBtn');
+const clearBtn      = document.getElementById('clearBtn');
+const zoomInBtn     = document.getElementById('zoomInBtn');
+const zoomOutBtn    = document.getElementById('zoomOutBtn');
+const zoomLabel     = document.getElementById('zoomLabel');
+const paintTool     = document.getElementById('paintTool');
+const eyedropperTool= document.getElementById('eyedropperTool');
+const eraserTool    = document.getElementById('eraserTool');
+
+paintCtx.imageSmoothingEnabled = false;
+previewCtx.imageSmoothingEnabled = false;
+
+// ────────────────────────────────────────────────────────────
+// PALETTE PANEL RENDERING
+// ────────────────────────────────────────────────────────────
+function renderPalette() {
+  paletteContainer.innerHTML = '';
+  const sections = [
+    ['TSC — Truck-stop scenery', TSC_GROUPS],
+    ['PXC — Rig + cargo', PXC_GROUPS],
+  ];
+  if (state.customColors.length) {
+    sections.push(['Custom (this session)', [['Custom', state.customColors.map((hex, i) => [`custom${i+1}`, hex])]]]);
+  }
+  for (const [label, groups] of sections) {
+    const section = document.createElement('div');
+    section.innerHTML = `<div class="swatch-group-label" style="margin-top:6px;color:var(--accent);">${label}</div>`;
+    paletteContainer.appendChild(section);
+    for (const [groupName, swatches] of groups) {
+      const groupDiv = document.createElement('div');
+      groupDiv.className = 'swatch-group';
+      groupDiv.innerHTML = `<div class="swatch-group-label">${groupName}</div>`;
+      const grid = document.createElement('div');
+      grid.className = 'swatch-grid';
+      for (const [name, hex] of swatches) {
+        const sw = document.createElement('div');
+        sw.className = 'swatch';
+        sw.style.background = hex;
+        sw.title = `${name} · ${hex}`;
+        if (hex.toLowerCase() === state.activeColor.toLowerCase()) sw.classList.add('active');
+        sw.addEventListener('click', () => setActiveColor(hex));
+        grid.appendChild(sw);
+      }
+      groupDiv.appendChild(grid);
+      section.appendChild(groupDiv);
+    }
+  }
+}
+
+function renderRecent() {
+  recentGrid.innerHTML = '';
+  for (const hex of state.recentColors) {
+    const sw = document.createElement('div');
+    sw.className = 'swatch';
+    sw.style.background = hex;
+    sw.title = hex;
+    if (hex.toLowerCase() === state.activeColor.toLowerCase()) sw.classList.add('active');
+    sw.addEventListener('click', () => setActiveColor(hex));
+    recentGrid.appendChild(sw);
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// ACTIVE COLOR
+// ────────────────────────────────────────────────────────────
+function normalizeHex(h) {
+  h = h.trim().toLowerCase();
+  if (!h.startsWith('#')) h = '#' + h;
+  if (/^#[0-9a-f]{3}$/.test(h)) {
+    h = '#' + h.slice(1).split('').map(c => c + c).join('');
+  }
+  return /^#[0-9a-f]{6}$/.test(h) ? h : null;
+}
+
+function setActiveColor(hex) {
+  const n = normalizeHex(hex);
+  if (!n) return;
+  state.activeColor = n;
+  activeSwatch.style.background = n;
+  activeHex.textContent = n;
+  colorPicker.value = n;
+  hexInput.value = n;
+  renderPalette();
+  renderRecent();
+  autosave();
+}
+
+function addToRecent(hex) {
+  const n = normalizeHex(hex);
+  if (!n) return;
+  state.recentColors = [n, ...state.recentColors.filter(c => c !== n)].slice(0, RECENT_MAX);
+  renderRecent();
+}
+
+addCustomBtn.addEventListener('click', () => {
+  const n = normalizeHex(hexInput.value);
+  if (!n) { alert('Invalid hex code'); return; }
+  if (!state.customColors.includes(n)) {
+    state.customColors.push(n);
+    renderPalette();
+    autosave();
+  }
+});
+
+activeHex.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(state.activeColor);
+    activeHex.textContent = 'copied!';
+    setTimeout(() => { activeHex.textContent = state.activeColor; }, 1000);
+  } catch {}
+});
+
+colorPicker.addEventListener('input', () => setActiveColor(colorPicker.value));
+hexInput.addEventListener('change', () => setActiveColor(hexInput.value));
+
+// ────────────────────────────────────────────────────────────
+// TOOL SELECTION
+// ────────────────────────────────────────────────────────────
+function setTool(t) {
+  state.tool = t;
+  paintTool.classList.toggle('active', t === 'paint');
+  eyedropperTool.classList.toggle('active', t === 'pick');
+  eraserTool.classList.toggle('active', t === 'erase');
+  paintCanvas.style.cursor = t === 'pick' ? 'cell' : (t === 'erase' ? 'not-allowed' : 'crosshair');
+}
+paintTool.addEventListener('click', () => setTool('paint'));
+eyedropperTool.addEventListener('click', () => setTool('pick'));
+eraserTool.addEventListener('click', () => setTool('erase'));
+
+// ────────────────────────────────────────────────────────────
+// GRID
+// ────────────────────────────────────────────────────────────
+function resizeGrid(w, h) {
+  state.width = Math.max(1, Math.min(512, w | 0));
+  state.height = Math.max(1, Math.min(512, h | 0));
+  // Clip out-of-bounds pixels
+  const fresh = {};
+  for (const [k, v] of Object.entries(state.pixels)) {
+    const [px, py] = k.split(',').map(Number);
+    if (px < state.width && py < state.height) fresh[k] = v;
+  }
+  state.pixels = fresh;
+  widthInput.value = state.width;
+  heightInput.value = state.height;
+  fitZoomToScreen();
+  renderGrid();
+  renderPreview();
+  renderCode();
+}
+
+function fitZoomToScreen() {
+  // Auto-pick a zoom that fits both width + height comfortably
+  const maxW = 700, maxH = 540;
+  const z = Math.min(
+    Math.floor(maxW / state.width),
+    Math.floor(maxH / state.height)
+  );
+  state.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+  zoomLabel.textContent = `Zoom: ${state.zoom}×`;
+}
+
+function renderGrid() {
+  const Z = state.zoom;
+  paintCanvas.width = state.width * Z;
+  paintCanvas.height = state.height * Z;
+  paintCtx.imageSmoothingEnabled = false;
+  // Background — checker pattern so transparent reads as transparent
+  for (let y = 0; y < state.height; y++) {
+    for (let x = 0; x < state.width; x++) {
+      const isAlt = ((x + y) & 1) === 0;
+      paintCtx.fillStyle = isAlt ? '#1a1a1c' : '#222226';
+      paintCtx.fillRect(x * Z, y * Z, Z, Z);
+    }
+  }
+  // Painted pixels
+  for (const [k, hex] of Object.entries(state.pixels)) {
+    const [px, py] = k.split(',').map(Number);
+    paintCtx.fillStyle = hex;
+    paintCtx.fillRect(px * Z, py * Z, Z, Z);
+  }
+  // Grid overlay (faint) — only when zoom is big enough to see
+  if (Z >= 6) {
+    paintCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+    paintCtx.lineWidth = 1;
+    paintCtx.beginPath();
+    for (let x = 0; x <= state.width; x++) {
+      paintCtx.moveTo(x * Z + 0.5, 0);
+      paintCtx.lineTo(x * Z + 0.5, state.height * Z);
+    }
+    for (let y = 0; y <= state.height; y++) {
+      paintCtx.moveTo(0, y * Z + 0.5);
+      paintCtx.lineTo(state.width * Z, y * Z + 0.5);
+    }
+    paintCtx.stroke();
+  }
+  zoomLabel.textContent = `Zoom: ${state.zoom}×`;
+}
+
+function renderPreview() {
+  previewCanvas.width = state.width;
+  previewCanvas.height = state.height;
+  previewCtx.imageSmoothingEnabled = false;
+  previewCtx.clearRect(0, 0, state.width, state.height);
+  for (const [k, hex] of Object.entries(state.pixels)) {
+    const [px, py] = k.split(',').map(Number);
+    previewCtx.fillStyle = hex;
+    previewCtx.fillRect(px, py, 1, 1);
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// MOUSE INTERACTION
+// ────────────────────────────────────────────────────────────
+let isPainting = false;
+let lastCellKey = null;
+
+function cellFromEvent(e) {
+  const rect = paintCanvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - rect.left) / state.zoom);
+  const y = Math.floor((e.clientY - rect.top)  / state.zoom);
+  if (x < 0 || y < 0 || x >= state.width || y >= state.height) return null;
+  return { x, y };
+}
+
+function paintAt(x, y, hex) {
+  const k = `${x},${y}`;
+  if (hex == null) {
+    if (state.pixels[k]) delete state.pixels[k];
+  } else {
+    state.pixels[k] = hex;
+  }
+}
+
+function handlePaintAction(cell, isRightClick) {
+  if (!cell) return;
+  const key = `${cell.x},${cell.y}`;
+  if (key === lastCellKey) return;
+  lastCellKey = key;
+  if (state.tool === 'pick') {
+    const hex = state.pixels[key];
+    if (hex) setActiveColor(hex);
+    return;
+  }
+  const erase = (state.tool === 'erase') || isRightClick;
+  if (erase) {
+    paintAt(cell.x, cell.y, null);
+  } else {
+    paintAt(cell.x, cell.y, state.activeColor);
+    addToRecent(state.activeColor);
+  }
+  renderGrid();
+  renderPreview();
+  renderCode();
+}
+
+paintCanvas.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  isPainting = true;
+  lastCellKey = null;
+  handlePaintAction(cellFromEvent(e), e.button === 2);
+});
+paintCanvas.addEventListener('mousemove', (e) => {
+  if (!isPainting) return;
+  handlePaintAction(cellFromEvent(e), (e.buttons & 2) !== 0);
+});
+window.addEventListener('mouseup', () => {
+  isPainting = false;
+  lastCellKey = null;
+  autosave();
+});
+paintCanvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// ────────────────────────────────────────────────────────────
+// CODE GENERATION + PARSING
+// ────────────────────────────────────────────────────────────
+function generateCode() {
+  const lines = [];
+  for (let y = 0; y < state.height; y++) {
+    for (let x = 0; x < state.width; x++) {
+      const hex = state.pixels[`${x},${y}`];
+      if (hex) lines.push(`px(ctx, '${hex}', ${x}, ${y}, 1, 1);`);
+    }
+  }
+  // Header: warn about custom colors not in the master palettes
+  const customUsed = [];
+  const knownColors = new Set();
+  for (const [, gs] of TSC_GROUPS) for (const [, h] of gs) knownColors.add(h.toLowerCase());
+  for (const [, gs] of PXC_GROUPS) for (const [, h] of gs) knownColors.add(h.toLowerCase());
+  const usedColors = new Map();
+  for (const hex of Object.values(state.pixels)) {
+    usedColors.set(hex, (usedColors.get(hex) || 0) + 1);
+  }
+  for (const [hex, count] of usedColors) {
+    if (!knownColors.has(hex.toLowerCase())) customUsed.push([hex, count]);
+  }
+  let header = `// Generated by Wondrous Grid — sprite ${state.width}×${state.height}\n`;
+  if (customUsed.length) {
+    header += `// Custom colors used (not yet in TSC / PXC):\n`;
+    for (const [hex, count] of customUsed) {
+      header += `//   ${hex}  — used ${count} time${count !== 1 ? 's' : ''}\n`;
+    }
+    header += `// Add these to the master palettes if you want them globally available.\n`;
+  }
+  return header + lines.join('\n');
+}
+
+function renderCode() {
+  codeText.value = generateCode();
+}
+
+function parseCodeIntoState(text) {
+  const re = /px\s*\(\s*ctx\s*,\s*['"`](#[0-9a-fA-F]{3,6})['"`]\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g;
+  const fresh = {};
+  let m;
+  while ((m = re.exec(text))) {
+    const hex = normalizeHex(m[1]);
+    const x = +m[2], y = +m[3], w = +m[4], h = +m[5];
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const nx = x + dx, ny = y + dy;
+        if (nx >= 0 && ny >= 0 && nx < state.width && ny < state.height) {
+          fresh[`${nx},${ny}`] = hex;
+        }
+      }
+    }
+  }
+  state.pixels = fresh;
+  renderGrid();
+  renderPreview();
+}
+
+applyCodeBtn.addEventListener('click', () => {
+  parseCodeIntoState(codeText.value);
+  renderCode();   // re-canonicalize
+  autosave();
+});
+
+// ────────────────────────────────────────────────────────────
+// CONTROLS — header buttons
+// ────────────────────────────────────────────────────────────
+resizeBtn.addEventListener('click', () => {
+  const w = +widthInput.value | 0;
+  const h = +heightInput.value | 0;
+  resizeGrid(w, h);
+  presetSelect.value = 'custom';
+  autosave();
+});
+
+presetSelect.addEventListener('change', () => {
+  const v = presetSelect.value;
+  if (v === 'custom') return;
+  const [w, h] = v.split(',').map(Number);
+  if (!confirm(`Resize to ${w}×${h}? This will clip any pixels outside the new bounds.`)) {
+    presetSelect.value = 'custom';
+    return;
+  }
+  resizeGrid(w, h);
+  autosave();
+});
+
+zoomInBtn.addEventListener('click', () => {
+  state.zoom = Math.min(ZOOM_MAX, state.zoom + 2);
+  renderGrid();
+});
+zoomOutBtn.addEventListener('click', () => {
+  state.zoom = Math.max(ZOOM_MIN, state.zoom - 2);
+  renderGrid();
+});
+
+copyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(codeText.value);
+    copyBtn.textContent = '✓ Copied!';
+    setTimeout(() => { copyBtn.textContent = '⎘ Copy Code'; }, 1500);
+  } catch (e) {
+    alert('Clipboard copy failed; select the code panel and Cmd/Ctrl-C.');
+  }
+});
+
+clearBtn.addEventListener('click', () => {
+  if (Object.keys(state.pixels).length === 0) return;
+  if (!confirm('Clear all painted pixels? (canvas size + palette stay)')) return;
+  state.pixels = {};
+  renderGrid();
+  renderPreview();
+  renderCode();
+  autosave();
+});
+
+saveBtn.addEventListener('click', () => {
+  const payload = {
+    version: 1,
+    tool: 'Wondrous Grid',
+    width: state.width,
+    height: state.height,
+    pixels: state.pixels,
+    activeColor: state.activeColor,
+    customColors: state.customColors,
+    recentColors: state.recentColors,
+    savedAt: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sprite-${state.width}x${state.height}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+});
+
+loadBtn.addEventListener('click', () => loadInput.click());
+loadInput.addEventListener('change', () => {
+  const f = loadInput.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const payload = JSON.parse(e.target.result);
+      state.width = payload.width;
+      state.height = payload.height;
+      state.pixels = payload.pixels || {};
+      state.activeColor = payload.activeColor || state.activeColor;
+      state.customColors = payload.customColors || [];
+      state.recentColors = payload.recentColors || [];
+      widthInput.value = state.width;
+      heightInput.value = state.height;
+      presetSelect.value = 'custom';
+      fitZoomToScreen();
+      setActiveColor(state.activeColor);
+      renderGrid();
+      renderPreview();
+      renderCode();
+      autosave();
+    } catch (err) {
+      alert('Invalid JSON file: ' + err.message);
+    }
+  };
+  reader.readAsText(f);
+  loadInput.value = '';
+});
+
+// ────────────────────────────────────────────────────────────
+// LOCAL-STORAGE AUTOSAVE
+// ────────────────────────────────────────────────────────────
+function autosave() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      version: 1,
+      width: state.width,
+      height: state.height,
+      pixels: state.pixels,
+      activeColor: state.activeColor,
+      customColors: state.customColors,
+      recentColors: state.recentColors,
+      zoom: state.zoom,
+    }));
+  } catch {}
+}
+
+function restoreAutosave() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    state.width = data.width || 58;
+    state.height = data.height || 52;
+    state.pixels = data.pixels || {};
+    state.activeColor = data.activeColor || '#3aa8b8';
+    state.customColors = data.customColors || [];
+    state.recentColors = data.recentColors || [];
+    if (data.zoom) state.zoom = data.zoom;
+    widthInput.value = state.width;
+    heightInput.value = state.height;
+    return true;
+  } catch { return false; }
+}
+
+// ────────────────────────────────────────────────────────────
+// INIT
+// ────────────────────────────────────────────────────────────
+restoreAutosave();
+fitZoomToScreen();
+setActiveColor(state.activeColor);
+renderPalette();
+renderRecent();
+renderGrid();
+renderPreview();
+renderCode();
+setTool('paint');
+
+// Keyboard shortcuts
+window.addEventListener('keydown', (e) => {
+  // Skip if typing in a text field
+  if (e.target.matches('input, textarea, select')) return;
+  if (e.key === 'b' || e.key === 'p') setTool('paint');
+  else if (e.key === 'i' || e.key === 'e' && !e.shiftKey) setTool('pick');
+  else if (e.key === 'x' || (e.shiftKey && e.key === 'E')) setTool('erase');
+  else if (e.key === '+' || e.key === '=') zoomInBtn.click();
+  else if (e.key === '-' || e.key === '_') zoomOutBtn.click();
+});
+</script>
+
+</body>
+</html>
