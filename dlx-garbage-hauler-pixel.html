@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451S-alien-ground-crew-uniform';
+const DLX_BUILD = 'v451T-truckstop-game-port';
 
 (function() {
   // ---------- Device detection ----------
@@ -19209,307 +19209,1141 @@ const DLX_BUILD = 'v451S-alien-ground-crew-uniform';
       drawLandmarkScrapyardSmeltWorks(x, y);
       return;
     }
+    // ── SUNSET BIOME — pixel-art "GOOD BUDDY DINER" pad. v451S/T port
+    // of the standalone drawDock mockup (mockup-sunset-wastes-v7.html).
+    // Mockup is in absolute 260×140 coords with the platform top at y=88.
+    // Translate so mockup origin maps to (x - 130, padY - 88) — centers
+    // the 260-wide pad horizontally on the landmark anchor and plants
+    // its top edge at the game's standard dock altitude.
     ctx.save();
-    // Match the warehouse runway altitude so the rig docks at the same
-    // height it launched from
-    const padY    = PLAY_H / 2 + 28;
-    const padTopY = padY - 6;
-    // GRAND-ending pad — 480 wide so the finish feels like a proper
-    // destination: cargo pile on the left, generous landing zone, gas
-    // pumps + chrome hot rod parked at the island, full diner on the
-    // right with the big neon sign towering above.
-    const padLeft  = x - 240;
-    const padRight = x + 240;
-    const padW = padRight - padLeft;
+    const padY = PLAY_H / 2 + 28;
+    const ox = (x - 130) | 0;
+    const oy = (padY - 88) | 0;
+    ctx.translate(ox, oy);
+    ctx.imageSmoothingEnabled = false;
 
-    // ---- Anti-grav support haze under the platform (sells "floating") ----
-    ctx.fillStyle = 'rgba(80, 200, 255, 0.20)';
-    ctx.beginPath();
-    ctx.ellipse(x, padY + 24, 230, 10, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(80, 200, 255, 0.12)';
-    ctx.beginPath();
-    ctx.ellipse(x, padY + 42, 270, 8, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Four anti-grav thruster nodes hanging under the platform
-    for (const tx of [x - 160, x - 60, x + 60, x + 160]) {
-      ctx.fillStyle = '#3a2418';
-      ctx.fillRect(tx - 4, padY + 4, 8, 7);
-      ctx.shadowBlur = 9; ctx.shadowColor = '#60d0ff';
-      ctx.fillStyle = 'rgba(120, 220, 255, 0.85)';
-      ctx.beginPath();
-      ctx.arc(tx, padY + 15, 3.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
+    const blink = ((frame / 6) | 0) & 1;
+    const blink2 = ((frame / 10) | 0) & 1;
+    const blink3 = ((frame / 14) | 0) & 1;
+    const fastBlink = (frame & 1);
+
+    // ── PYLON SIGN — minimal "GOOD BUDDY" red marquee, OVER THE DINER
+    // Sign sits above the diner (matches the in-game drawLandmarkTruckStop
+    // layout where the GOOD BUDDY neon tower rises over the diner roof).
+    // Mast extends down to the diner. v451-revisions:
+    //   - sign panel narrowed to fit just "GOOD BUDDY" (was 116 → 76)
+    //   - removed chase-light bulb border (flashing)
+    //   - removed "DINER" subtitle + twin stars
+    //   - removed "OPEN 24/7" subscript
+    //   - removed white glow halo around the red text
+    //   - v451L: re-positioned over the diner (was momentarily centered)
+    const signPanelW = 76, signPanelH = 22;
+    // Sign sits flush with the diner's right edge (v451N revision —
+    // user wanted the diner shifted to the canvas edge with the sign
+    // aligned to it instead of centered above an interior position).
+    const signPanelX = 256 - signPanelW - 2;  // right edge of canvas
+    const signPanelY = 2;
+    // Mast structure (twin pillars) — kept, repositioned to bracket the new panel
+    const mastInsetL = signPanelX + 14;
+    const mastInsetR = signPanelX + signPanelW - 18;
+    px(ctx, '#3a2418', mastInsetL,     signPanelH + 2, 4, 50);
+    px(ctx, '#5a3020', mastInsetL + 1, signPanelH + 2, 2, 50);
+    px(ctx, '#3a2418', mastInsetR,     signPanelH + 2, 4, 50);
+    px(ctx, '#5a3020', mastInsetR + 1, signPanelH + 2, 2, 50);
+    // Sign frame — chrome outer + trim
+    px(ctx, TSC.outline, signPanelX, signPanelY, signPanelW, signPanelH);
+    px(ctx, TSC.dinerShade, signPanelX + 1, signPanelY + 1, signPanelW - 2, signPanelH - 2);
+    px(ctx, TSC.dinerTrim, signPanelX + 1, signPanelY + 1, signPanelW - 2, 1);
+    px(ctx, TSC.dinerTrim, signPanelX + 1, signPanelY + signPanelH - 2, signPanelW - 2, 1);
+    // Inner black neon backing
+    px(ctx, TSC.black, signPanelX + 3, signPanelY + 3, signPanelW - 6, signPanelH - 6);
+    // "GOOD BUDDY" blinking red neon — 10 chars × 5 + 9 gaps = 59 wide.
+    // Centered in 76-wide panel → start at signPanelX + (76-59)/2 = +8.
+    // v451O — re-added blink animation per user-revisions. The sign now
+    // alternates between bright-lit neon (with a soft red halo + inner
+    // highlight) and a dim-unlit phase (dark red glass tubes still
+    // visible). v451Q slowed the cycle from 8 → 32 frames so the blink
+    // feels lazy/lived-in, like a real sluggish diner neon.
+    const neonOn = ((frame / 32) | 0) & 1;
+    const neonTextX = signPanelX + 8;
+    const neonTextY = signPanelY + 8;
+    if (neonOn) {
+      // Soft halo glow around the letters (4-direction 1px offset, dim red)
+      for (const [dxN, dyN] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        drawString(ctx, neonTextX + dxN, neonTextY + dyN, 'GOOD BUDDY', '#5a1010');
+      }
+      // Bright neon-red letter core
+      drawString(ctx, neonTextX, neonTextY, 'GOOD BUDDY', '#ff3030');
+      // White-hot inner highlight on the top-left pixel of each letter
+      // (sells gas-discharge glow — the brightest part of the tube)
+      for (let i = 0; i < 10; i++) {
+        const cxN = neonTextX + i * 6;
+        if ('GOOD BUDDY'[i] === ' ') continue;
+        px(ctx, '#ffb0b0', cxN, neonTextY, 1, 1);
+      }
+      // Faint ambient red bloom along the panel interior (sells the
+      // neon gas glow against the black backing)
+      px(ctx, '#3a0808', signPanelX + 3, signPanelY + 3, signPanelW - 6, 1);
+      px(ctx, '#3a0808', signPanelX + 3, signPanelY + signPanelH - 4, signPanelW - 6, 1);
+    } else {
+      // Dim/unlit phase — dark red tubes visible but not glowing
+      drawString(ctx, neonTextX, neonTextY, 'GOOD BUDDY', '#5a0a04');
     }
 
-    // ---- Platform / dock pad ----
-    ctx.fillStyle = '#7a6a5a';                        // concrete underside
-    ctx.fillRect(padLeft, padY, padW, 9);
-    ctx.fillStyle = '#5a4a3a';
-    ctx.fillRect(padLeft, padY + 7, padW, 2);
-    // Pad top surface
-    ctx.fillStyle = '#3a2418';
-    ctx.fillRect(padLeft, padTopY, padW, 6);
-    // Yellow runway centerline dashes (LEFT half — the approach path)
-    ctx.fillStyle = '#ffd83d';
-    for (let s = 0; s < 16; s++) {
-      ctx.fillRect(padLeft + 6 + s * 14, padTopY + 2, 9, 1.4);
+    // ── "DINER →" 1950s RETRO ARROW SIGN ─────────────────────
+    // v451R rebuild for readability: dropped the tan-text + teal-shadow
+    // combo (unreadable at 5×7 pixel scale, too pastel to feel vintage).
+    // New look — bold DARK BROWN "DINER" on warm ivory with a gold
+    // drop-shadow, chrome trim around the panel so it bookends with
+    // the GOOD BUDDY sign above. Maroon arrow strip below with the
+    // teal Christmas-light dots kept (those work at the larger scale).
+    // NOT neon — static painted-tin sign.
+    const dnsW = 72, dnsPanelH = 14, dnsArrH = 12;
+    const dnsH = dnsPanelH + dnsArrH;
+    const dnsX = signPanelX + ((signPanelW - dnsW) >> 1);
+    const dnsY = signPanelY + signPanelH + 4;
+    // Palette — bolder + warmer + higher contrast
+    const DN_IVORY    = '#f4dca0';   // warmer aged ivory (was pastel cream)
+    const DN_IVORY_HI = '#fce8b8';
+    const DN_GOLD     = '#c8a040';   // pinstripe + shadow gold
+    const DN_GOLD_DK  = '#8a6818';
+    const DN_DARK     = '#1a0a06';   // dark-brown letter core (almost black)
+    const DN_CHROME   = '#9aa4ac';   // panel border chrome
+    const DN_CHROME_HI= '#cfd2d4';
+    const DN_TEAL     = '#3a8a9a';   // accent for arrow dots only
+    const DN_TEAL_DK  = '#1a5868';
+    const DN_MAROON   = '#5a1018';   // deeper than before (was candy-bright)
+    const DN_MAROON_DK= '#2a0608';
+    const DN_MAROON_HI= '#8a1828';
+    // Mounting wires connecting the sign to the bottom of GOOD BUDDY
+    px(ctx, '#3a2a20', dnsX + 14,        dnsY - 2, 1, 2);
+    px(ctx, '#3a2a20', dnsX + dnsW - 16, dnsY - 2, 1, 2);
+    px(ctx, DN_MAROON, dnsX + 13,        dnsY - 3, 3, 2);
+    px(ctx, DN_MAROON, dnsX + dnsW - 17, dnsY - 3, 3, 2);
+
+    // === TOP PANEL — chrome-framed ivory rect with bold DINER text ===
+    // Chrome outer frame
+    px(ctx, TSC.outline,    dnsX, dnsY, dnsW, dnsPanelH);
+    px(ctx, DN_CHROME,    dnsX + 1, dnsY + 1, dnsW - 2, dnsPanelH - 2);
+    px(ctx, DN_CHROME_HI, dnsX + 1, dnsY + 1, dnsW - 2, 1);
+    // Ivory interior (inset 2px from chrome edge)
+    px(ctx, DN_IVORY,     dnsX + 2, dnsY + 2, dnsW - 4, dnsPanelH - 4);
+    px(ctx, DN_IVORY_HI,  dnsX + 2, dnsY + 2, dnsW - 4, 1);
+    // Gold pinstripes (top + bottom of ivory area, classic enamel-sign trim)
+    px(ctx, DN_GOLD,      dnsX + 4, dnsY + 3, dnsW - 8, 1);
+    px(ctx, DN_GOLD,      dnsX + 4, dnsY + dnsPanelH - 4, dnsW - 8, 1);
+    // "DINER" letters — bold dark-brown core with gold offset-shadow.
+    // 5 chars × 5 + 4 gaps = 29 wide. Plenty of contrast against ivory.
+    const dnTextX = dnsX + ((dnsW - 29) >> 1);
+    const dnTextY = dnsY + 5;
+    // Gold drop-shadow (1px down-right offset)
+    drawString(ctx, dnTextX + 1, dnTextY + 1, 'DINER', DN_GOLD_DK);
+    // Bold dark-brown core (high contrast — readable at 5px)
+    drawString(ctx, dnTextX, dnTextY, 'DINER', DN_DARK);
+
+    // === BOTTOM ARROW STRIP — deep maroon with teal dots + tip ===
+    const arrowY = dnsY + dnsPanelH;
+    const tipLen = 10;
+    const bodyEnd = dnsW - tipLen;
+    // Rectangular body
+    px(ctx, DN_MAROON_DK, dnsX, arrowY, bodyEnd, dnsArrH);
+    px(ctx, DN_MAROON,    dnsX + 1, arrowY + 1, bodyEnd - 1, dnsArrH - 2);
+    px(ctx, DN_MAROON_HI, dnsX + 1, arrowY + 1, bodyEnd - 1, 1);
+    // Triangular arrow tip
+    for (let i = 0; i < tipLen; i++) {
+      const tipH = dnsArrH - i * 2;
+      if (tipH < 1) break;
+      const yOff = ((dnsArrH - tipH) >> 1);
+      px(ctx, DN_MAROON_DK, dnsX + bodyEnd + i, arrowY + yOff,     1, tipH);
+      if (tipH > 1) {
+        px(ctx, DN_MAROON, dnsX + bodyEnd + i, arrowY + yOff + 1, 1, tipH - 1);
+      }
+      if (tipH > 2) {
+        px(ctx, DN_MAROON_HI, dnsX + bodyEnd + i, arrowY + yOff + 1, 1, 1);
+      }
     }
-    // Caution-stripe edge along the front of the pad
-    ctx.fillStyle = '#ffd83d';
-    ctx.fillRect(padLeft, padY + 4, padW, 2);
-    ctx.fillStyle = '#1a0408';
-    for (let s = 0; s < 48; s++) ctx.fillRect(padLeft + 2 + s * 10, padY + 4, 2.8, 2);
-
-    // ============================================================
-    // CLASSIC 1950s STREAMLINED DINER on the right of the platform
-    // ============================================================
-    const dnX = x + 36, dnY = padTopY;
-    const dnW = 130, dnH = 64;
-    // Diner body — long horizontal cream-white streamlined facade
-    ctx.fillStyle = '#e8d8a8';                        // cream stucco
-    ctx.fillRect(dnX, dnY - dnH, dnW, dnH);
-    // Sun-lit right edge
-    ctx.fillStyle = '#fce4b8';
-    ctx.fillRect(dnX + dnW - 4, dnY - dnH, 4, dnH);
-    // Shadow left edge
-    ctx.fillStyle = 'rgba(80, 60, 30, 0.40)';
-    ctx.fillRect(dnX, dnY - dnH, 3, dnH);
-    // CHROME streamlined band — horizontal silver Art Deco line
-    ctx.fillStyle = '#c8d0d8';
-    ctx.fillRect(dnX, dnY - dnH * 0.62, dnW, 5);
-    ctx.fillStyle = '#a0a8b0';
-    ctx.fillRect(dnX, dnY - dnH * 0.62 + 5, dnW, 1.4);
-    // Red enamel accent stripe under the chrome band
-    ctx.fillStyle = '#d8421a';
-    ctx.fillRect(dnX, dnY - dnH * 0.62 + 7, dnW, 3);
-    // Curved chrome roof eave at the top — silver overhang
-    ctx.fillStyle = '#d8dde4';
-    ctx.fillRect(dnX - 6, dnY - dnH - 5, dnW + 12, 6);
-    ctx.fillStyle = '#7a8088';
-    ctx.fillRect(dnX - 6, dnY - dnH + 1, dnW + 12, 2);
-    // Vertical chrome corner posts (Art Deco)
-    ctx.fillStyle = '#c8d0d8';
-    ctx.fillRect(dnX,           dnY - dnH, 4, dnH);
-    ctx.fillRect(dnX + dnW - 4, dnY - dnH, 4, dnH);
-    // Big horizontal counter window with row of stools visible inside
-    const winX = dnX + 8, winY = dnY - dnH + 7, winW = dnW - 50, winH = 18;
-    ctx.fillStyle = '#1a0604';                        // window frame dark
-    ctx.fillRect(winX, winY, winW, winH);
-    // Warm interior glow (cream lighting)
-    ctx.shadowBlur = 6; ctx.shadowColor = '#ffd060';
-    ctx.fillStyle = 'rgba(255, 220, 140, 0.65)';
-    ctx.fillRect(winX + 1, winY + 1, winW - 2, winH - 2);
-    ctx.shadowBlur = 0;
-    // Counter line inside (silhouette of the bar top)
-    ctx.fillStyle = 'rgba(80, 40, 20, 0.55)';
-    ctx.fillRect(winX + 2, winY + winH - 5, winW - 4, 1.4);
-    // Row of bar-stool customer silhouettes at the counter
-    ctx.fillStyle = '#1a0604';
-    for (let s = 0; s < 4; s++) {
-      const sx = winX + 8 + s * 15;
-      // Body
-      ctx.fillRect(sx, winY + 5, 3, 8);
-      // Head
-      ctx.beginPath(); ctx.arc(sx + 1.5, winY + 4, 1.6, 0, Math.PI * 2); ctx.fill();
+    // Gold pinstripe along the top of the arrow (matches the panel pinstripes)
+    px(ctx, DN_GOLD, dnsX + 3, arrowY + 2, bodyEnd - 6, 1);
+    // Teal Christmas-light dots along the arrow body
+    const dotsY = arrowY + 6;
+    for (let i = 0; i < 4; i++) {
+      const dotX = dnsX + 6 + i * 12;
+      if (dotX + 3 > dnsX + bodyEnd - 1) break;
+      px(ctx, DN_TEAL_DK, dotX,     dotsY,     3, 3);
+      px(ctx, DN_TEAL,    dotX,     dotsY,     2, 2);
+      px(ctx, DN_IVORY_HI,dotX,     dotsY,     1, 1);  // tiny sparkle
     }
-    // Window mullion crossbars (chrome frame)
-    ctx.fillStyle = '#a0a8b0';
-    ctx.fillRect(winX + winW * 0.33, winY, 1.2, winH);
-    ctx.fillRect(winX + winW * 0.66, winY, 1.2, winH);
-    // RED + WHITE awning above the window (classic diner stripe)
-    ctx.fillStyle = '#d8421a';
-    ctx.fillRect(winX - 2, winY - 5, winW + 4, 4);
-    ctx.fillStyle = '#fce8d4';
-    for (let st = 0; st < 8; st++) {
-      ctx.fillRect(winX - 2 + st * (winW + 4) / 8, winY - 5, (winW + 4) / 16, 4);
+    // Gold stripe along the bottom of the arrow body
+    px(ctx, DN_GOLD_DK, dnsX + 3, arrowY + dnsArrH - 3, bodyEnd - 6, 1);
+
+    // ── PYLON SIGN DAMAGE / WEAR — chipped paint, scorch corners ──
+    // Adds lived-in patina matching the dispatch center's style.
+    // Chip the top-left corner of the chrome frame
+    px(ctx, TSC.dinerShade, signPanelX,     signPanelY,     2, 1);
+    px(ctx, TSC.dinerShade, signPanelX,     signPanelY + 1, 1, 1);
+    // Chip the top-right corner
+    px(ctx, TSC.dinerShade, signPanelX + signPanelW - 2, signPanelY,     2, 1);
+    // Scorch streak on the bottom-right of the frame
+    px(ctx, '#3a2a30', signPanelX + signPanelW - 4, signPanelY + signPanelH - 3, 3, 2);
+    px(ctx, '#1a0a06', signPanelX + signPanelW - 3, signPanelY + signPanelH - 2, 2, 1);
+    // Bullet pock through the "G" first letter (1 missing pixel)
+    px(ctx, '#1a0a06', signPanelX + 10, signPanelY + 10, 1, 1);
+    // Bullet pock through the "Y" last letter
+    px(ctx, '#1a0a06', signPanelX + 63, signPanelY + 11, 1, 1);
+    // Faded paint patch in the bottom-left of the neon area (dim dot)
+    px(ctx, '#5a1410', signPanelX + 14, signPanelY + 16, 2, 1);
+    px(ctx, '#5a1410', signPanelX + 38, signPanelY + 17, 3, 1);
+    // Scuff / scratch across the chrome trim band
+    px(ctx, '#5a3818', signPanelX + 22, signPanelY + 1, 4, 1);
+    // Rust trickle running down from the top-left bolt
+    px(ctx, '#7a2a10', signPanelX + 3, signPanelY + 3, 1, 4);
+    px(ctx, '#5a1a08', signPanelX + 3, signPanelY + 5, 1, 2);
+    // Mast hazard-stripe scrapes (paint flaked off bottom of left pillar)
+    px(ctx, '#3a2010', mastInsetL,     50, 4, 2);
+    px(ctx, '#1a0a06', mastInsetL + 1, 51, 2, 1);
+    // Mast scorch at bottom of right pillar
+    px(ctx, '#3a2010', mastInsetR,     54, 4, 2);
+    px(ctx, '#1a0a06', mastInsetR + 1, 55, 2, 1);
+
+    // ── DECORATIVE PALM SILHOUETTES (left + right of platform) ──
+    // Left palm
+    const palmL_x = 12, palmL_y = 76;
+    px(ctx, '#1a1a14', palmL_x, palmL_y, 2, 32);
+    for (let f = 0; f < 5; f++) {
+      const ang = -1.0 + f * 0.5;
+      const fLen = 8;
+      for (let s = 0; s < fLen; s++) {
+        const px_ = palmL_x + Math.round(Math.cos(ang) * s);
+        const py_ = palmL_y - 2 + Math.round(Math.sin(ang) * s);
+        px(ctx, '#1a1a14', px_, py_, 2, 1);
+      }
     }
-    // Door (right side of diner)
-    const doorX = dnX + dnW - 26;
-    ctx.fillStyle = '#3a2418';
-    ctx.fillRect(doorX, dnY - 22, 10, 22);
-    ctx.fillStyle = '#1a0604';
-    ctx.fillRect(doorX + 1, dnY - 21, 8, 14);         // door window
-    ctx.fillStyle = 'rgba(255, 220, 140, 0.6)';
-    ctx.fillRect(doorX + 2, dnY - 20, 6, 12);
-    // Door handle
-    ctx.fillStyle = '#c8d0d8';
-    ctx.beginPath(); ctx.arc(doorX + 2, dnY - 6, 0.7, 0, Math.PI * 2); ctx.fill();
-    // Small "EATS" neon sign on the diner facade above the door
-    const eatsX = doorX + 5, eatsY = dnY - dnH + 28;
-    ctx.shadowBlur = 6; ctx.shadowColor = '#ff60a0';
-    ctx.fillStyle = '#1a0408';
-    ctx.fillRect(eatsX - 8, eatsY, 16, 7);
-    ctx.fillStyle = '#ff60a0';
-    ctx.font = 'bold 6px Impact, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('EATS', eatsX, eatsY + 3.5);
-    ctx.shadowBlur = 0;
-    ctx.textBaseline = 'alphabetic';
-    // Diner outline
-    ctx.strokeStyle = '#1a0604';
-    ctx.lineWidth = 1.2;
-    ctx.strokeRect(dnX, dnY - dnH, dnW, dnH);
+    // Right palm removed — the diner's rocket fin lives there now.
 
-    // ============================================================
-    // DLX GROUND CREW WAVER — orange-vest character with glowing
-    // light wands, signaling the rig in like airport ground crew
-    // ============================================================
-    drawDLXWaver(x - 50, padTopY);
+    // ── DINER — chrome streamline-moderne with futurist shape ──
+    // Old-school 1950s diner aesthetic (silver-chrome panels, neon,
+    // red booths) fused with rocket-age forms (rounded front bulge,
+    // vertical rocket fin at the back). All hard-edged 3-step chrome.
+    // v451N — diner shifted to the canvas right edge so the runway in
+    // the middle has more breathing room around the rig.
+    const dx = 162, dy = 46;
+    const dw = 92, dh = 42;     // main body 92 × 42 (right edge at 254)
+    // Chrome palette (3 steps + specular accent)
+    const CH_SHA  = '#3a3a44';
+    const CH_MID  = '#7a7e85';
+    const CH_HI   = '#c0c4cc';
+    const CH_SPEC = '#ffffff';
 
-    // ============================================================
-    // FUTURISTIC OVERHEAD CRANE picking up crates from the pile
-    // ============================================================
-    drawCargoCrane(padLeft + 30, padTopY);
+    // (The big rocket-age tail fin that used to live at the diner's
+    // back-right was removed per user-revisions. The cargo scaffolding +
+    // crane + crate pile that replaces it is drawn AFTER the diner body
+    // so the suspended crate + base pile render in front of the diner
+    // chrome panels — see "CARGO SCAFFOLDING" block below.)
 
-    // ============================================================
-    // PILE OF DELIVERED CARGO CRATES on the LEFT of the pad
-    // (mix of OLD weathered and NEW pristine, plus crates leaning
-    // against the diner wall on the right)
-    // ============================================================
-    const cpX = padLeft + 18;
-    // Two crate styles: NEW (clean steel + bright caution stripe) and
-    // OLD (rusted, dented, faded stripe). Mix-and-match through the pile.
-    const drawNewCrate = (cx, cy, w, h, rot) => {
-      ctx.save();
-      ctx.translate(cx + w / 2, cy);
-      if (rot) ctx.rotate(rot);
-      const grad = ctx.createLinearGradient(0, -h, 0, 0);
-      grad.addColorStop(0,    '#8a9098');
-      grad.addColorStop(0.5,  '#5a6068');
-      grad.addColorStop(1,    '#3a3e44');
-      ctx.fillStyle = grad;
-      ctx.fillRect(-w / 2, -h, w, h);
-      ctx.fillStyle = 'rgba(220, 232, 244, 0.45)';
-      ctx.fillRect(-w / 2 + 1, -h + 1, w - 2, 1);
-      ctx.fillStyle = '#ffd060';
-      ctx.fillRect(-w / 2 + 1, -h * 0.6, w - 2, h * 0.18);
-      ctx.fillStyle = '#1a0408';
-      for (let i = 0; i < 4; i++) ctx.fillRect(-w / 2 + 2 + i * (w / 4), -h * 0.6, 1.2, h * 0.18);
-      ctx.strokeStyle = '#1a1c20';
-      ctx.lineWidth = 1.1;
-      ctx.strokeRect(-w / 2, -h, w, h);
-      ctx.fillStyle = '#1a1c20';
-      ctx.beginPath(); ctx.arc(-w / 2 + 2, -h + 2, 0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( w / 2 - 2, -h + 2, 0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(-w / 2 + 2, -2,     0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( w / 2 - 2, -2,     0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
+    // ── ROUNDED FRONT CAP (streamline nose) ──────────────────
+    // Curved left-end bulge facing the landing runway. Anchored to
+    // the diner's left edge (dx) so it follows the diner's position.
+    px(ctx, TSC.outline, dx - 6, dy + 2, 8, dh - 4);
+    px(ctx, CH_SHA, dx - 5, dy + 3, 7, dh - 6);
+    px(ctx, CH_MID, dx - 5, dy + 3, 7, dh - 6);
+    px(ctx, CH_HI,  dx - 5, dy + 3, 3, dh - 6);
+    // Rounded top corner
+    px(ctx, TSC.outline, dx - 4, dy,     5, 2);
+    px(ctx, CH_HI,     dx - 3, dy + 1, 4, 1);
+    // Rounded bottom corner
+    px(ctx, TSC.outline, dx - 4, dy + dh - 2, 5, 2);
+    px(ctx, CH_SHA,    dx - 3, dy + dh - 2, 4, 1);
+
+    // ── MAIN BODY (silver-chrome panels) ─────────────────────
+    px(ctx, TSC.outline, dx, dy, dw, dh);
+    px(ctx, CH_SHA,    dx + 1, dy + 1, dw - 2, dh - 2);
+    px(ctx, CH_MID,    dx + 1, dy + 1, dw - 2, dh - 4);
+    // Top specular band (chrome curve)
+    px(ctx, CH_HI,     dx + 1, dy + 1, dw - 2, 2);
+    px(ctx, CH_SPEC,   dx + 1, dy + 1, dw - 2, 1);
+    // Bottom skirt shadow
+    px(ctx, CH_SHA,    dx + 1, dy + dh - 3, dw - 2, 2);
+    px(ctx, TSC.outline, dx + 1, dy + dh - 2, dw - 2, 1);
+
+    // ── HORIZONTAL SPEED-LINE RIBS (streamline detail) ───────
+    for (const ribY of [dy + 7, dy + 28, dy + 32, dy + 36]) {
+      px(ctx, TSC.outline, dx + 1, ribY,     dw - 2, 1);
+      px(ctx, CH_HI,     dx + 1, ribY - 1, dw - 2, 1);
+      px(ctx, CH_SHA,    dx + 1, ribY + 1, dw - 2, 1);
+      // Carry the rib across the rounded front cap (anchored to dx
+      // so it follows the diner — fixes v451N stranded ribs floating
+      // in the gap between rig and diner after diner moved right).
+      px(ctx, TSC.outline, dx - 5, ribY,     7, 1);
+      px(ctx, CH_HI,     dx - 5, ribY - 1, 7, 1);
+    }
+    // Vertical panel-seam rivets every 14 px (greebling)
+    for (let pv = 12; pv < dw; pv += 14) {
+      for (let pvY = dy + 10; pvY < dy + dh - 4; pvY += 4) {
+        px(ctx, TSC.outline, dx + pv, pvY, 1, 1);
+      }
+    }
+
+    // ── LONG CURVED-GLASS WINDOW STRIP ───────────────────────
+    // One single horizontal pane running the body length, showing
+    // booth interior with patrons.
+    const winY = dy + 10;
+    const winH = 16;
+    px(ctx, TSC.outline, dx + 4, winY,     dw - 8, winH);
+    px(ctx, TSC.cyanDark, dx + 5, winY + 1, dw - 10, winH - 2);
+    // Upper-half glass reflection (gradient → mid → light at top)
+    px(ctx, TSC.cyanLit,  dx + 5, winY + 1, dw - 10, winH / 2);
+    px(ctx, '#ffffff',  dx + 8, winY + 1, dw - 16, 1);
+    // Chrome mullion dividers (vertical pane edges)
+    for (let p = 1; p < 6; p++) {
+      const mx_ = (dx + 4 + p * ((dw - 8) / 6)) | 0;
+      px(ctx, TSC.outline, mx_, winY,     1, winH);
+      px(ctx, CH_HI,     mx_ - 1, winY, 1, winH);
+    }
+    // (Booth red benches + bobbing patron silhouettes removed per
+    // user-revisions — empty glass window now reads as "closed for
+    // business, focus on the landing pad". Small "OPEN" neon was also
+    // removed.)
+
+    // ── CHROME PORTHOLE DOOR (right of center) ───────────────
+    const doorX = dx + dw - 26;
+    const doorY = dy + 28;
+    const doorW = 14;
+    const doorH = 16;
+    px(ctx, TSC.outline, doorX, doorY,         doorW, doorH);
+    px(ctx, CH_SHA,    doorX + 1, doorY + 1, doorW - 2, doorH - 2);
+    px(ctx, CH_MID,    doorX + 1, doorY + 1, doorW - 2, doorH - 4);
+    px(ctx, CH_HI,     doorX + 1, doorY + 1, doorW - 2, 1);
+    // Round porthole window with chrome bezel
+    px(ctx, TSC.outline, doorX + 4, doorY + 3, 6, 6);
+    px(ctx, CH_HI,     doorX + 4, doorY + 3, 6, 1);
+    px(ctx, CH_HI,     doorX + 4, doorY + 8, 6, 1);
+    px(ctx, TSC.cyanLit, doorX + 5, doorY + 4, 4, 4);
+    px(ctx, '#ffffff', doorX + 5, doorY + 4, 2, 1);
+    // Door lever (chrome)
+    px(ctx, TSC.outline, doorX + 9, doorY + 11, 3, 1);
+    px(ctx, CH_HI,     doorX + 9, doorY + 11, 3, 1);
+    // Step at the door base
+    px(ctx, TSC.outline, doorX - 2, doorY + doorH,     doorW + 4, 2);
+    px(ctx, CH_SHA,    doorX - 1, doorY + doorH + 1, doorW + 2, 1);
+    px(ctx, CH_HI,     doorX - 1, doorY + doorH,     doorW + 2, 1);
+
+    // ── CHROME ROOF CAP (curved horizontal) ──────────────────
+    px(ctx, TSC.outline, dx - 2, dy - 6, dw + 4, 8);
+    px(ctx, CH_SHA,    dx - 1, dy - 5, dw + 2, 7);
+    px(ctx, CH_MID,    dx - 1, dy - 5, dw + 2, 5);
+    px(ctx, CH_HI,     dx - 1, dy - 5, dw + 2, 2);
+    px(ctx, CH_SPEC,   dx + 2, dy - 5, dw - 4, 1);
+    // Rounded end caps on the roof
+    px(ctx, TSC.outline, dx - 4, dy - 3, 2, 4);
+    px(ctx, CH_HI,     dx - 3, dy - 2, 1, 3);
+    px(ctx, TSC.outline, dx + dw + 2, dy - 3, 2, 4);
+    px(ctx, CH_HI,     dx + dw + 2, dy - 2, 1, 3);
+    // Roof rivet line
+    for (let rr = 4; rr < dw; rr += 6) {
+      px(ctx, TSC.outline, dx + rr, dy - 4, 1, 1);
+    }
+
+    // (The smaller cyan "GOOD BUDDY" neon sign that used to sit on the
+    // chrome roof was removed per user-revisions — the GOOD BUDDY name
+    // now appears once total, on the red pylon marquee above.)
+
+    // ── BUMPER trim at the very bottom of the body ───────────
+    px(ctx, TSC.outline, dx - 4, dy + dh, dw + 8, 2);
+    px(ctx, CH_HI,     dx - 3, dy + dh, dw + 6, 1);
+    px(ctx, CH_SHA,    dx - 3, dy + dh + 1, dw + 6, 1);
+
+    // ── EXHAUST / VENT GRILLES on the lower body ─────────────
+    for (let v = 0; v < 4; v++) {
+      const vx = dx + 12 + v * 22;
+      px(ctx, TSC.outline, vx, dy + dh - 6, 6, 4);
+      px(ctx, TSC.black,   vx + 1, dy + dh - 5, 4, 2);
+      for (let vs = 0; vs < 3; vs++) {
+        px(ctx, CH_MID, vx + 1, dy + dh - 5 + vs, 4, 0.5 | 0);
+      }
+      px(ctx, CH_MID, vx + 1, dy + dh - 4, 4, 1);
+    }
+
+    // (Searchlight towers + their yellow alternating beams that used to
+    // sit on the diner roof were removed per user-revisions — the diner
+    // now reads quiet at the top, and the only "tall" thing above it is
+    // the GOOD BUDDY pylon sign + the cargo crane on the opposite side.)
+
+    // ── DINER DAMAGE / WEAR — chipped chrome, scorch, dents ────
+    // Matches the dispatch center's lived-in patina (scorch, pock
+    // marks, chipped paint, missing rivets). All static; reads as
+    // "this diner has been here a hundred years and seen weather".
+    // Roof cap — missing chunks on the rounded end caps
+    px(ctx, '#3a2418', dx - 4, dy - 3, 2, 2);  // left corner dent
+    px(ctx, '#3a2418', dx + dw + 3, dy - 3, 1, 2);
+    // Roof scorch streak (long dark smear along the chrome top)
+    px(ctx, '#3a2a30', dx + 20, dy - 4, 8, 1);
+    px(ctx, '#1a0a06', dx + 22, dy - 4, 4, 1);
+    // Missing rivets on the roof (gaps in the rivet line)
+    px(ctx, CH_HI,     dx + 16, dy - 4, 1, 1);   // overwrite rivet with chrome
+    px(ctx, CH_HI,     dx + 64, dy - 4, 1, 1);
+    // Dent in the top specular band (dark notch)
+    px(ctx, CH_SHA,    dx + 38, dy + 1, 4, 1);
+    px(ctx, '#1a0a06', dx + 40, dy + 1, 2, 1);
+    // Chipped paint exposing dark substrate on the front cap (rounded nose)
+    px(ctx, '#3a2418', dx - 6, dy + 10, 2, 3);
+    px(ctx, '#1a0a06', dx - 6, dy + 11, 1, 1);
+    // Scorch mark on the window frame (top-left corner of the glass)
+    px(ctx, '#1a0a06', dx + 4, winY,     3, 2);
+    px(ctx, '#3a2a30', dx + 4, winY + 2, 3, 1);
+    // Cracked glass panel — diagonal hairline crack (3 dark dots)
+    px(ctx, '#142028', dx + 22, winY + 4, 1, 1);
+    px(ctx, '#142028', dx + 23, winY + 5, 1, 1);
+    px(ctx, '#142028', dx + 24, winY + 6, 1, 1);
+    // Pock mark on the cyan glass (something hit it)
+    px(ctx, '#142028', dx + 56, winY + 8, 2, 2);
+    px(ctx, '#08101a', dx + 56, winY + 8, 1, 1);
+    // Big rust streak down the body below the window
+    px(ctx, '#7a2a10', dx + 14, winY + winH + 1, 1, 6);
+    px(ctx, '#5a1a08', dx + 14, winY + winH + 3, 1, 4);
+    // Chipped paint patches on the main body (exposed dark metal)
+    px(ctx, '#3a2418', dx + 30, dy + 18, 3, 1);
+    px(ctx, '#3a2418', dx + 68, dy + 24, 2, 1);
+    px(ctx, '#3a2418', dx + 50, dy + 30, 4, 1);
+    // Pock holes on the body (small dark dots — bullet marks / debris hits)
+    px(ctx, '#1a0a06', dx + 26, dy + 22, 1, 1);
+    px(ctx, '#1a0a06', dx + 42, dy + 16, 1, 1);
+    px(ctx, '#1a0a06', dx + 78, dy + 20, 1, 1);
+    px(ctx, '#1a0a06', dx + 86, dy + 14, 1, 1);
+    // Scorch on the door (dark stain near the lever)
+    px(ctx, '#3a2a30', doorX + 1, doorY + 12, 4, 2);
+    px(ctx, '#1a0a06', doorX + 2, doorY + 13, 2, 1);
+    // Chipped step at the door base (missing chrome chunk)
+    px(ctx, '#3a2418', doorX + 6, doorY + doorH, 4, 1);
+    // Bumper trim scrapes (missing rivets / dings along the bottom edge)
+    px(ctx, '#3a2418', dx + 10, dy + dh, 3, 1);
+    px(ctx, '#3a2418', dx + 44, dy + dh, 2, 1);
+    px(ctx, '#3a2418', dx + 76, dy + dh, 3, 1);
+    // Soot / scorch around one of the vent grilles (heaviest use)
+    px(ctx, '#3a2a30', dx + 10, dy + dh - 8, 8, 2);
+    px(ctx, '#1a0a06', dx + 12, dy + dh - 7, 4, 1);
+
+    // ── CARGO SCAFFOLDING + CRANE + STACKED CRATES (LEFT of diner) ──
+    // Industrial drop zone showing prior cargo deliveries. Matches the
+    // in-game drawLandmarkTruckStop layout: crane + crate pile sit on
+    // the LEFT side of the platform, diner on the right. Vertical
+    // lattice tower near the left edge; horizontal crane arm extends
+    // RIGHT toward the helipad; cable + hook lowered onto a stack of
+    // crates of varying sizes piled at the tower's base. v451L flipped
+    // the whole composition from right→left. All hard-edged pixel
+    // blocks (Rule 4).
+
+    // ── TOWER (vertical lattice, 4 stages) ─────────────────────
+    // v451Q — tower raised even higher (twY 8 → 4) and the arm gets
+    // longer + slow up/down bob (see armBob below). twH grows in
+    // lockstep so the tower base still lands on the platform at y=88.
+    const twX = 6, twY = 4, twW = 14, twH = 84;
+    // Twin vertical legs (3-px wide, hazard-stripe painted)
+    for (let cs = 0; cs < twH; cs += 6) {
+      const stripe = ((cs >> 1) & 1) ? TSC.yellow : '#1a0a06';
+      px(ctx, TSC.outline, twX,             twY + cs, 3, 6);
+      px(ctx, stripe,    twX + 1,         twY + cs, 1, 6);
+      px(ctx, TSC.outline, twX + twW - 3,   twY + cs, 3, 6);
+      px(ctx, stripe,    twX + twW - 2,   twY + cs, 1, 6);
+    }
+    // Horizontal cross-platforms every 18 px (5 levels)
+    for (const lvl of [twY, twY + 18, twY + 36, twY + 54, twY + twH - 2]) {
+      px(ctx, TSC.outline, twX, lvl, twW, 2);
+      px(ctx, '#a06820', twX + 1, lvl, twW - 2, 1);
+    }
+    // X-cross diagonal braces (stepped lines) between each level
+    for (let stg = 0; stg < 4; stg++) {
+      const sy0 = twY + 2 + stg * 18;
+      const eh = 16;
+      for (let s = 0; s < eh; s++) {
+        const sxA = twX + 3 + (((s * (twW - 6)) / eh) | 0);
+        const sxB = twX + (twW - 3) - (((s * (twW - 6)) / eh) | 0);
+        px(ctx, '#5a3020', sxA, sy0 + s, 1, 1);
+        px(ctx, '#5a3020', sxB, sy0 + s, 1, 1);
+      }
+    }
+    // Tower top warning beacon
+    const beaconOn = ((frame >> 3) & 1);
+    px(ctx, TSC.outline, twX + 5, twY - 4, 4, 4);
+    px(ctx, beaconOn ? TSC.redLit : TSC.redCore, twX + 6, twY - 3, 2, 2);
+    if (beaconOn) px(ctx, '#ffffff', twX + 6, twY - 3, 2, 1);
+
+    // ── CRANE ARM (horizontal, extends RIGHT over the crate pile) ──
+    // v451Q — arm now bobs slowly up/down via a long sine wave (≈80
+    // frame period, ±3 px range). Arm length bumped from 28 → 40 so the
+    // crane reaches further toward the rig hover position. Everything
+    // anchored to armY moves in lockstep (beam, truss, counter-weight,
+    // pulley, cable + hook + suspended crate) — the whole arm bobs as
+    // one piece, like the crane is gently swinging its load.
+    const armBob   = Math.round(Math.sin(frame * 0.08) * 3);
+    const armY     = twY + 2 + armBob;
+    const armStartX = twX + twW - 4;   // arm root on the right side of tower
+    const armEndX   = armStartX + 40;  // arm reaches ~x=56 (further right)
+    const armLen    = armEndX - armStartX;
+    // Main horizontal beam (chrome+yellow industrial)
+    px(ctx, TSC.outline, armStartX,     armY,     armLen, 3);
+    px(ctx, '#a06820', armStartX + 1, armY + 1, armLen - 2, 1);
+    px(ctx, TSC.yellow,  armStartX + 1, armY,     armLen - 2, 1);
+    // Triangular truss along the bottom of the arm (small V's)
+    for (let tr = 0; tr < 7; tr++) {
+      const trX = armStartX + 2 + tr * 6;
+      if (trX + 4 > armEndX) break;
+      px(ctx, '#5a3020', trX,     armY + 3, 1, 1);
+      px(ctx, '#5a3020', trX + 1, armY + 4, 1, 1);
+      px(ctx, '#5a3020', trX + 2, armY + 5, 1, 1);
+      px(ctx, '#5a3020', trX + 3, armY + 4, 1, 1);
+      px(ctx, '#5a3020', trX + 4, armY + 3, 1, 1);
+    }
+    // Counter-weight at the tower-side of the arm (behind the tower)
+    px(ctx, TSC.outline, twX - 4, armY - 2, 8, 7);
+    px(ctx, '#3a2418', twX - 3, armY - 1, 6, 5);
+    px(ctx, '#7a5a3a', twX - 3, armY - 1, 6, 1);
+    // Pulley wheel at the arm tip
+    px(ctx, TSC.outline, armEndX - 4, armY + 4, 4, 4);
+    px(ctx, '#7a5a3a', armEndX - 3, armY + 5, 2, 2);
+
+    // ── CRANE CABLE + HOOK + SUSPENDED CRATE (descending) ─────
+    const hookX = armEndX - 3;
+    const cableLen = 22 + ((frame / 8) | 0) % 4;   // gentle sway
+    for (let cy = armY + 8; cy < armY + 8 + cableLen; cy++) {
+      px(ctx, '#3a2418', hookX, cy, 1, 1);
+    }
+    const hkY = armY + 8 + cableLen;
+    px(ctx, TSC.outline, hookX - 2, hkY,     5, 2);
+    px(ctx, '#7a5a3a', hookX - 2, hkY,     5, 1);
+    px(ctx, TSC.outline, hookX - 2, hkY + 2, 2, 3);
+    px(ctx, TSC.outline, hookX - 2, hkY + 5, 4, 1);
+    const hcY = hkY + 6;
+    px(ctx, TSC.outline, hookX - 5, hcY,     10, 9);
+    px(ctx, '#a06820', hookX - 4, hcY + 1, 8,  7);
+    px(ctx, TSC.yellow,  hookX - 4, hcY + 1, 8,  1);
+    px(ctx, '#5a3020', hookX,     hcY + 1, 1,  7);
+    px(ctx, '#5a3020', hookX - 4, hcY + 4, 8,  1);
+    drawString(ctx, hookX - 4, hcY + 2, 'DLX', '#3a0a06');
+
+    // ── PILED CRATES at the tower base (varying sizes) ─────────
+    // Pile of previously-dropped cargo. Different palettes/sizes so it
+    // reads as a real industrial stack, not a uniform repeat. Pile sits
+    // to the RIGHT of the tower base (toward the helipad).
+    const pileBaseY = 88;  // platform top
+    // Bottom row — 2 large crates straddling the tower base.
+    // v451P — both bumped bigger per user request ("some of the crates
+    // should be just a little bit bigger").
+    const baseCrates = [
+      { x: 2,  w: 18, h: 18, col: '#7a4818', acc: TSC.yellow,    tag: '01' },
+      { x: 20, w: 18, h: 18, col: '#a06820', acc: TSC.yellow,    tag: '02' },
+    ];
+    for (const cr of baseCrates) {
+      px(ctx, TSC.outline, cr.x, pileBaseY - cr.h,     cr.w, cr.h);
+      px(ctx, cr.col,    cr.x + 1, pileBaseY - cr.h + 1, cr.w - 2, cr.h - 2);
+      px(ctx, cr.acc,    cr.x + 1, pileBaseY - cr.h + 1, cr.w - 2, 1);
+      px(ctx, '#5a3020', cr.x + 1, pileBaseY - (cr.h >> 1), cr.w - 2, 1);
+      px(ctx, '#5a3020', cr.x + (cr.w >> 1), pileBaseY - cr.h + 1, 1, cr.h - 2);
+      drawString(ctx, cr.x + 2, pileBaseY - cr.h + 3, cr.tag, '#3a0a06');
+    }
+    // Middle row — medium crate, offset so it sits on the seam.
+    // v451P — slightly bigger.
+    const midCr = { x: 10, y: pileBaseY - 18, w: 14, h: 12,
+                    col: '#8a5018', acc: TSC.yellowLit, tag: '03' };
+    px(ctx, TSC.outline, midCr.x, midCr.y - midCr.h,     midCr.w, midCr.h);
+    px(ctx, midCr.col, midCr.x + 1, midCr.y - midCr.h + 1, midCr.w - 2, midCr.h - 2);
+    px(ctx, midCr.acc, midCr.x + 1, midCr.y - midCr.h + 1, midCr.w - 2, 1);
+    px(ctx, '#5a3020', midCr.x + 1, midCr.y - (midCr.h >> 1), midCr.w - 2, 1);
+    drawString(ctx, midCr.x + 2, midCr.y - midCr.h + 3, midCr.tag, '#3a0a06');
+    // Smaller crate beside the medium one (showing varied sizes)
+    const smCr = { x: 26, y: pileBaseY - 18, w: 12, h: 10,
+                   col: '#a06820', acc: TSC.yellow, tag: '04' };
+    px(ctx, TSC.outline, smCr.x, smCr.y - smCr.h,     smCr.w, smCr.h);
+    px(ctx, smCr.col,  smCr.x + 1, smCr.y - smCr.h + 1, smCr.w - 2, smCr.h - 2);
+    px(ctx, smCr.acc,  smCr.x + 1, smCr.y - smCr.h + 1, smCr.w - 2, 1);
+    px(ctx, '#5a3020', smCr.x + 1, smCr.y - (smCr.h >> 1), smCr.w - 2, 1);
+    drawString(ctx, smCr.x + 2, smCr.y - smCr.h + 3, smCr.tag, '#3a0a06');
+    // Top — tiniest crate perched on the medium one
+    const tinyCr = { x: 24, y: midCr.y - midCr.h, w: 8, h: 7,
+                     col: '#a06820', acc: TSC.yellowLit, tag: '05' };
+    px(ctx, TSC.outline, tinyCr.x, tinyCr.y - tinyCr.h,     tinyCr.w, tinyCr.h);
+    px(ctx, tinyCr.col, tinyCr.x + 1, tinyCr.y - tinyCr.h + 1, tinyCr.w - 2, tinyCr.h - 2);
+    px(ctx, tinyCr.acc, tinyCr.x + 1, tinyCr.y - tinyCr.h + 1, tinyCr.w - 2, 1);
+    drawString(ctx, tinyCr.x + 1, tinyCr.y - tinyCr.h + 2, tinyCr.tag, '#3a0a06');
+    // Cargo netting strap dangling from the small crate (greebling)
+    px(ctx, '#3a2418', smCr.x + smCr.w - 1, smCr.y - smCr.h + 1, 1, 5);
+    px(ctx, '#3a2418', smCr.x + smCr.w - 1, smCr.y - 4, 2, 1);
+
+    // ── CRANE / CRATE PILE DAMAGE / WEAR ─────────────────────
+    // Adds rust, chipped paint, scorch marks to the industrial gear
+    // so it reads as "been here for decades dropping cargo".
+    // Rust running down the tower legs
+    px(ctx, '#7a2a10', twX,             twY + 22, 1, 6);
+    px(ctx, '#5a1a08', twX,             twY + 24, 1, 4);
+    px(ctx, '#7a2a10', twX + twW - 1,   twY + 40, 1, 6);
+    px(ctx, '#5a1a08', twX + twW - 1,   twY + 42, 1, 4);
+    // Missing chunks of the hazard stripe paint on the legs
+    px(ctx, '#3a2010', twX + 1, twY + 14, 1, 2);
+    px(ctx, '#3a2010', twX + twW - 2, twY + 36, 1, 2);
+    // Scorch on the crane arm (dark stain across the top beam)
+    px(ctx, '#3a2a30', armStartX + 6, armY,     6, 1);
+    px(ctx, '#1a0a06', armStartX + 8, armY,     3, 1);
+    // Pock marks on the arm beam
+    px(ctx, '#1a0a06', armStartX + 18, armY + 1, 1, 1);
+    px(ctx, '#1a0a06', armEndX - 8,    armY + 1, 1, 1);
+    // Chipped paint on the counter-weight box
+    px(ctx, '#1a0a06', twX - 2, armY,     2, 1);
+    // Bent / dented base of the tower (scuffed up by cargo drops)
+    px(ctx, '#3a2010', twX + 2, twY + twH - 4, 3, 2);
+    // Crate damage — splintered corners, faded stencils, water stains
+    // Big crate #01 — splintered top-left corner
+    px(ctx, '#3a2010', baseCrates[0].x,     pileBaseY - baseCrates[0].h, 2, 1);
+    // Big crate #02 — water stain running down the front
+    px(ctx, '#5a3818', baseCrates[1].x + 4, pileBaseY - 8, 1, 6);
+    px(ctx, '#3a2010', baseCrates[1].x + 4, pileBaseY - 6, 1, 4);
+    // Small crate #04 — broken plank (missing slat)
+    px(ctx, '#3a2010', smCr.x + 2, smCr.y - 4, 2, 1);
+    // Stamps faded / weathered (overwrite parts of the DLX text)
+    px(ctx, '#7a4818', baseCrates[1].x + 4, pileBaseY - baseCrates[1].h + 3, 2, 1);
+    // Scattered debris on the platform around the crates (small dots)
+    px(ctx, '#3a2010', 28, 87, 1, 1);
+    px(ctx, '#3a2010', 38, 87, 1, 1);
+    px(ctx, '#3a2010', 50, 87, 2, 1);
+
+    // (The WELCOME ARCH that used to span the left side of the platform
+    // was removed in v451L — that area now belongs to the cargo crane +
+    // crate pile, which matches the in-game drawLandmarkTruckStop
+    // layout. The lanterns under the arch went with it.)
+
+    // ── ANTI-GRAV HAZE — geometric stepped bands (Rule 4) ────
+    // 3 stacked rectangles of decreasing width, hard-edged.
+    px(ctx, TSC.cyanDark,  30,  117, 200, 1);  // base (widest)
+    px(ctx, '#5a3a6a',   46,  118, 168, 1);  // mid
+    px(ctx, '#3a1a4a',   66,  119, 128, 1);  // tip (narrowest)
+    // Cyan spark blocks scattered through the haze (geometric specks)
+    for (let s = 0; s < 6; s++) {
+      const sx_ = 36 + ((s * 31 + (frame >> 1)) % 188);
+      px(ctx, fastBlink ? TSC.cyanLit : TSC.cyanCore, sx_, 117 + (s & 1), 1, 1);
+    }
+
+    // ── ANTI-GRAV THRUSTERS — geometric stepped flame pyramids ──
+    for (const tx_ of [16, 56, 96, 136, 176, 216]) {
+      // Thruster nozzle (greebling: vent slats + bolts)
+      px(ctx, TSC.outline, tx_ - 1, 110, 8, 6);
+      px(ctx, '#3a2418', tx_, 111, 6, 4);
+      px(ctx, TSC.droneRim, tx_, 111, 6, 1);
+      px(ctx, TSC.outline, tx_, 112, 6, 1);   // vent slat
+      px(ctx, TSC.outline, tx_ + 1, 110, 1, 1);  // bolt
+      px(ctx, TSC.outline, tx_ + 4, 110, 1, 1);  // bolt
+      // Stepped flame pyramid extending DOWN
+      const flameH = 5 + (fastBlink ? 1 : 0);
+      pxFlame(ctx, tx_ + 3, 116, flameH, 'D',
+              TSC.cyanCore, blink ? TSC.cyanLit : TSC.cyanCore, '#ffffff');
+    }
+
+    // ── PLATFORM (concrete landing pad, very wide) ───────────
+    px(ctx, TSC.outline, 4, 88, 252, 22);
+    px(ctx, '#7a6a5a', 5, 89, 250, 18);
+    px(ctx, '#a08868', 5, 89, 250, 1);
+    px(ctx, '#5a4a3a', 5, 105, 250, 2);
+    // Heavy duty bottom edge
+    px(ctx, '#3a2a20', 5, 107, 250, 1);
+    // Caution stripe along front edge
+    for (let i = 0; i < 250; i += 6) {
+      px(ctx, TSC.yellow, 5 + i, 88, 3, 1);
+      px(ctx, TSC.outline, 8 + i, 88, 3, 1);
+    }
+
+    // ── PLATFORM DAMAGE / WEAR — heavy lived-in pavement ──────
+    // v451N: BIG pass on stains, oil patches, burn marks, faded
+    // discoloration so the pad reads like it's seen a thousand rig
+    // landings + cargo drops. Five-layer approach (back to front):
+    //   1. Wide diffuse discoloration patches (faded concrete)
+    //   2. Big elliptical oil/grease pools (the worst spots)
+    //   3. Thruster scorch zones (concentric burn under landing pads)
+    //   4. Skid lines + drag marks
+    //   5. Pock holes + cracks + chipped caution stripe pixels
+
+    // ── 1. WIDE DISCOLORATION PATCHES — faded sun-bleached concrete
+    // Big light irregular blobs (lighter tone, weathered look)
+    px(ctx, '#8a7868', 30, 90,  40, 6);
+    px(ctx, '#8a7868', 32, 96,  36, 2);
+    px(ctx, '#8a7868', 130, 89, 50, 4);
+    px(ctx, '#8a7868', 132, 93, 46, 3);
+    px(ctx, '#8a7868', 200, 95, 36, 8);
+    // Darker grime ribbon along the back of the pad
+    px(ctx, '#5a4a3a', 30,  104, 220, 2);
+    px(ctx, '#3a2a20', 70,  105, 60,  1);
+    px(ctx, '#3a2a20', 150, 105, 70,  1);
+
+    // ── 2. BIG OIL / GREASE POOLS (under the rig and the crane base)
+    // Pool A — big spread under the rig hover position
+    px(ctx, '#3a2a1a', 85,  99,  18, 4);
+    px(ctx, '#1a0a06', 88,  100, 14, 3);
+    px(ctx, '#08020a', 92,  101, 8,  2);
+    px(ctx, '#3a2a1a', 80,  103, 10, 1);
+    px(ctx, '#3a2a1a', 106, 103, 8,  1);
+    // Pool B — under the crane base / cargo pile (drip from hauling)
+    px(ctx, '#3a2a1a', 18,  100, 14, 4);
+    px(ctx, '#1a0a06', 20,  101, 10, 3);
+    px(ctx, '#08020a', 22,  102, 6,  2);
+    // Pool C — small pool right of the rig
+    px(ctx, '#3a2a1a', 130, 100, 10, 3);
+    px(ctx, '#1a0a06', 132, 101, 6,  2);
+    // Pool D — pool near the diner entrance
+    px(ctx, '#3a2a1a', 180, 102, 12, 2);
+    px(ctx, '#1a0a06', 184, 103, 6,  1);
+    // Drip trails from each pool (small dribbles toward platform edge)
+    px(ctx, '#3a2a1a', 95,  103, 1, 3);
+    px(ctx, '#3a2a1a', 24,  104, 1, 2);
+    px(ctx, '#3a2a1a', 138, 104, 1, 2);
+
+    // ── 3. THRUSTER SCORCH ZONES — dark blooms radiating outward
+    // Main blast zone directly under the rig hover (3 concentric tones)
+    px(ctx, '#3a2010', 74, 96, 52, 10);
+    px(ctx, '#2a1408', 78, 97, 44, 8);
+    px(ctx, '#1a0a06', 82, 98, 36, 6);
+    px(ctx, '#08020a', 86, 99, 28, 4);
+    // Smaller scorch on the right side (from a recent cargo lift)
+    px(ctx, '#3a2010', 158, 98, 24, 6);
+    px(ctx, '#1a0a06', 162, 99, 16, 4);
+    px(ctx, '#08020a', 166, 100, 8, 2);
+    // Small scorch under the alien (he's been standing here ages)
+    px(ctx, '#3a2010', 38, 99, 18, 5);
+    px(ctx, '#2a1408', 40, 100, 14, 3);
+
+    // ── 4. SKID LINES + DRAG MARKS — long tire-stripe drags
+    // Long skid through the helipad (rig dragged sideways once)
+    for (let s = 0; s < 24; s++) {
+      px(ctx, '#5a4a3a', 56 + s * 3, 95 + ((s >> 2) & 1), 2, 1);
+    }
+    // Shorter skid through the right side of pad
+    for (let s = 0; s < 12; s++) {
+      px(ctx, '#5a4a3a', 154 + s * 4, 101, 3, 1);
+      px(ctx, '#3a2a20', 154 + s * 4, 102, 3, 1);
+    }
+    // Diagonal drag line (something heavy was dragged across)
+    for (let s = 0; s < 14; s++) {
+      px(ctx, '#3a2a20', 30 + s * 4, 97 - ((s >> 1) & 1), 2, 1);
+    }
+
+    // ── 5. POCK HOLES + CRACKS + CHIPPED CAUTION STRIPE
+    // Scattered pock holes (small dark dots)
+    const pockSpots = [
+      [60, 95], [72, 98], [88, 96], [98, 103], [104, 96], [126, 98],
+      [148, 95], [162, 99], [176, 96], [190, 102], [204, 96], [218, 99],
+      [230, 96], [54, 99], [42, 102], [228, 94], [196, 91], [144, 102],
+      [76, 91], [110, 93], [240, 100], [22, 96], [12, 102], [248, 103],
+    ];
+    for (const [px_, py_] of pockSpots) {
+      px(ctx, '#3a2a1a', px_, py_, 1, 1);
+    }
+    // Bigger gouges / cracks
+    px(ctx, '#1a0a06', 50,  96,  2, 1);
+    px(ctx, '#5a4030', 50,  95,  2, 1);
+    px(ctx, '#1a0a06', 144, 100, 3, 1);
+    px(ctx, '#5a4030', 144, 99,  3, 1);
+    px(ctx, '#1a0a06', 200, 100, 3, 1);
+    px(ctx, '#5a4030', 200, 99,  3, 1);
+    px(ctx, '#1a0a06', 224, 95,  3, 1);
+    px(ctx, '#5a4030', 224, 94,  3, 1);
+    // Hairline cracks (zigzag of dark dots)
+    px(ctx, '#3a2a1a', 64,  94, 1, 1);
+    px(ctx, '#3a2a1a', 65,  95, 1, 1);
+    px(ctx, '#3a2a1a', 66,  94, 1, 1);
+    px(ctx, '#3a2a1a', 67,  95, 1, 1);
+    px(ctx, '#3a2a1a', 152, 92, 1, 1);
+    px(ctx, '#3a2a1a', 153, 93, 1, 1);
+    px(ctx, '#3a2a1a', 154, 92, 1, 1);
+    // Worn-off caution-stripe chips (random missing pixels)
+    for (const cx_ of [22, 56, 102, 124, 154, 188, 212, 232]) {
+      px(ctx, '#5a4a3a', cx_, 88, 2, 1);
+    }
+    // Sand / dust drift at the back-left corner of the platform
+    px(ctx, '#a08868', 6, 103, 12, 1);
+    px(ctx, '#8a7048', 8, 104, 8, 1);
+    px(ctx, '#a08868', 10, 102, 4, 1);
+    // Sand drift at the back-right corner too
+    px(ctx, '#a08868', 240, 104, 14, 1);
+    px(ctx, '#8a7048', 244, 105, 8, 1);
+    // Small piece of debris (broken concrete chunk) near the cargo pile
+    px(ctx, '#5a4030', 50, 86, 2, 2);
+    px(ctx, '#3a2418', 50, 86, 1, 1);
+    // Crushed-can debris near the alien (workplace litter)
+    px(ctx, '#7a4818', 32, 86, 2, 2);
+    px(ctx, '#5a2818', 32, 86, 1, 1);
+    px(ctx, '#a06820', 36, 87, 1, 1);
+    // Spilled cargo dust trail (yellow-orange near the crate pile)
+    px(ctx, '#a06820', 42, 91, 3, 1);
+    px(ctx, '#7a4818', 42, 92, 2, 1);
+    px(ctx, '#a06820', 60, 95, 2, 1);
+    px(ctx, '#a06820', 64, 93, 3, 1);
+
+    // ── HELIPAD — big painted "H" inside a circle, lit perimeter
+    // Replaces the road-style runway (centerline + edge stripes). Reads
+    // as a proper landing pad: clear wide-open space for the rig to
+    // touch down, with a stenciled H ring centered under the rig.
+    // Pad center is aligned with the actual rig's idle anchor X
+    // (rigAnchorX=100) so the hover position is right on the pad.
+    // Ring outer radius bumped from 26 → 30 px in v451N so the runway
+    // doesn't feel squished around the actual 58-wide rig.
+    const padCx = 100, padCy = 99;
+    // Stepped circular ring (4-step pixel circle, hard-edged).
+    // Drawn as a series of short horizontal spans approximating an arc.
+    // v451N — radius bumped from 26 → 32 so the runway/touchdown zone
+    // doesn't feel squished around the 58-wide rig.
+    const ringSpans = [
+      { y:  -9, half: 30 }, { y:  -8, half: 31 }, { y:  -7, half: 31 },
+      { y:  -6, half: 32 }, { y:  -5, half: 32 }, { y:  -4, half: 32 },
+      { y:  -3, half: 32 }, { y:  -2, half: 32 }, { y:  -1, half: 32 },
+      { y:   0, half: 32 }, { y:   1, half: 32 }, { y:   2, half: 32 },
+      { y:   3, half: 32 }, { y:   4, half: 32 }, { y:   5, half: 32 },
+      { y:   6, half: 32 }, { y:   7, half: 31 }, { y:   8, half: 31 },
+      { y:   9, half: 30 },
+    ];
+    // Paint a thick 2-px white ring by drawing inner+outer spans.
+    for (const rs of ringSpans) {
+      // Outer ring (1 px wide on each side)
+      px(ctx, '#ffffff', padCx - rs.half,     padCy + rs.y, 1, 1);
+      px(ctx, '#ffffff', padCx + rs.half - 1, padCy + rs.y, 1, 1);
+    }
+    // (The big stenciled "H" inside the ring was removed in v451M per
+    // user-revisions — the ring + perimeter lights + corner chevrons
+    // are enough to read the pad. The H read as a drop-shadow under
+    // the rig, which doesn't make sense since the rig is hovering.)
+    // Perimeter approach lights — 8 evenly-spaced points around the ring
+    // (lit by twinkle pattern so they read as practical edge lighting)
+    const padLights = [
+      { x: padCx - 32, y: padCy      },
+      { x: padCx + 31, y: padCy      },
+      { x: padCx,      y: padCy - 9  },
+      { x: padCx,      y: padCy + 9  },
+      { x: padCx - 22, y: padCy - 8  },
+      { x: padCx + 21, y: padCy - 8  },
+      { x: padCx - 22, y: padCy + 8  },
+      { x: padCx + 21, y: padCy + 8  },
+    ];
+    for (let li = 0; li < padLights.length; li++) {
+      const lit = ((li + (frame >> 2)) & 1);
+      const lp = padLights[li];
+      px(ctx, lit ? TSC.yellowLit : '#5a4020', lp.x, lp.y, 1, 1);
+      if (lit) {
+        // Tiny halo block (single corner pixels) for geometric glow
+        px(ctx, '#fff8e0', lp.x, lp.y, 1, 1);
+      }
+    }
+    // Helipad corner chevrons — yellow+black hazard wedges at the 4
+    // corners of the touchdown zone (frames the landing pad only, leaves
+    // the right portion of the platform clear for the cargo dock + crane).
+    const chevPairs = [
+      [68,  91, 1],    // top-left, points right
+      [134, 91, -1],   // top-right, points left
+      [68,  105, 1],   // bottom-left
+      [134, 105, -1],  // bottom-right
+    ];
+    for (const [cxC, cyC, dir] of chevPairs) {
+      for (let i = 0; i < 4; i++) {
+        const col = (i & 1) ? TSC.yellowLit : TSC.outline;
+        px(ctx, col, cxC + dir * i * 2, cyC, 2, 2);
+      }
+    }
+
+    // ── 6-ARMED ALIEN GREETER (yellowish-green, more detailed) ──
+    // 3-step skin shading + spots + brow ridge + cheekbones + fangs
+    // + tongue + nostrils + ear tendrils + bioluminescent antennae +
+    // shoulder pauldrons + diagonal sash + multi-section belt +
+    // pleated overalls + tassels + wristbands + 3-fingered hands.
+    // v451M: clothing changed from purple robe → blue denim overalls
+    // (working-class hauler hand-off look) per user-revisions.
+    // v451N — moved alien UP so his boots PLANT on the pavement.
+    // v451Q — shifted ax 46 → 30 (further left, in front of the crate
+    // pile) so the longer crane arm + suspended hook crate doesn't
+    // hang directly over his head.
+    const ax = 30, ay = 63;
+    // Yellowish-green skin palette (3 steps + specular accent)
+    const AL_SHA  = '#4a7818';   // shadow (darker green)
+    const AL_MID  = '#9ac038';   // mid (yellow-green core)
+    const AL_HI   = '#d8e860';   // highlight (pale yellow-green)
+    const AL_SPEC = '#f8ff80';   // specular (bright lemon)
+    const AL_SPOT = '#3a5810';   // skin spots / freckles
+    // Denim/jeans palette for the overalls (3 steps + dark seam)
+    const AL_DENIM_SHA = '#1a2848';   // shadow (deep indigo)
+    const AL_DENIM_MID = '#2a4470';   // mid (denim core blue)
+    const AL_DENIM_HI  = '#5a78a8';   // highlight (faded denim wash)
+    const AL_DENIM_STITCH = '#d8a040'; // gold stitching (classic Levi look)
+
+    // ── DENIM JEANS / LOWER OVERALLS (pleated, with tassels) ─
+    px(ctx, TSC.outline, ax - 10, ay + 8, 20, 14);
+    px(ctx, AL_DENIM_SHA, ax - 9, ay + 9, 18, 12);
+    px(ctx, AL_DENIM_MID, ax - 9, ay + 9, 18, 11);
+    px(ctx, AL_DENIM_HI,  ax - 9, ay + 9, 18, 2);
+    // Denim seam folds (vertical shadow lines on the jeans)
+    for (let pf = -8; pf <= 8; pf += 4) {
+      px(ctx, AL_DENIM_SHA, ax + pf, ay + 11, 1, 9);
+    }
+    // Center inseam (running down the middle of the jeans)
+    px(ctx, AL_DENIM_SHA, ax, ay + 9, 1, 12);
+    // Denim cuff at the bottom of the jeans (rolled-up hem, stitched)
+    px(ctx, TSC.outline,       ax - 9, ay + 21, 18, 1);
+    px(ctx, AL_DENIM_HI,     ax - 9, ay + 20, 18, 1);
+    px(ctx, AL_DENIM_STITCH, ax - 8, ay + 19, 16, 1);
+    // Work boots peeking out from under the cuff (left + right foot)
+    px(ctx, TSC.outline, ax - 7, ay + 22, 5, 3);
+    px(ctx, '#3a2418', ax - 6, ay + 22, 3, 2);
+    px(ctx, TSC.outline, ax + 2, ay + 22, 5, 3);
+    px(ctx, '#3a2418', ax + 3, ay + 22, 3, 2);
+
+    // ── TORSO + HI-VIS ORANGE SAFETY VEST (v451S ground-crew swap) ──
+    // DLX ground crew uniform. Bright orange hi-vis vest with two yellow
+    // reflective stripes wrapping around the body — same template as the
+    // smooth-art drawDLXWaver character, rendered in our pixel-art style.
+    const AL_VEST_DK  = '#a04018';   // vest shadow (deep orange)
+    const AL_VEST_MID = '#e87028';   // vest core
+    const AL_VEST_HI  = '#ff9040';   // vest highlight
+    const AL_REFLECT  = '#ffd83d';   // yellow reflective stripe
+    const AL_REFLECT_DK = '#a06820';
+    // Inner shirt underneath the vest (dark navy work shirt — peeks at sides)
+    px(ctx, TSC.outline, ax - 8, ay - 4, 16, 13);
+    px(ctx, '#1a2030', ax - 7, ay - 3, 14, 11);
+    // Hi-vis vest body (covers the chest, cinches in slightly at the waist)
+    px(ctx, AL_VEST_DK,  ax - 7, ay - 3, 14, 10);
+    px(ctx, AL_VEST_MID, ax - 7, ay - 3, 14, 9);
+    px(ctx, AL_VEST_HI,  ax - 7, ay - 3, 14, 1);
+    // Vest front-zipper / centerline (dark vertical seam)
+    px(ctx, AL_VEST_DK,  ax, ay - 3, 1, 9);
+    // Yellow REFLECTIVE STRIPES (two horizontal bands wrapping the vest)
+    px(ctx, AL_REFLECT_DK, ax - 7, ay - 1, 14, 1);
+    px(ctx, AL_REFLECT,    ax - 7, ay,     14, 1);
+    px(ctx, AL_REFLECT_DK, ax - 7, ay + 3, 14, 1);
+    px(ctx, AL_REFLECT,    ax - 7, ay + 4, 14, 1);
+    // Vest collar / neckline (V-cut at the top showing inner shirt)
+    px(ctx, '#1a2030', ax - 1, ay - 4, 2, 2);
+    px(ctx, AL_VEST_DK, ax - 2, ay - 3, 1, 1);
+    px(ctx, AL_VEST_DK, ax + 1, ay - 3, 1, 1);
+    // Shoulder pads (orange epaulettes — chunky construction-vest shoulders)
+    px(ctx, TSC.outline,  ax - 10, ay - 5, 5, 4);
+    px(ctx, AL_VEST_DK, ax - 9,  ay - 4, 3, 3);
+    px(ctx, AL_VEST_MID,ax - 9,  ay - 4, 3, 2);
+    px(ctx, AL_VEST_HI, ax - 9,  ay - 4, 3, 1);
+    px(ctx, TSC.outline,  ax + 5,  ay - 5, 5, 4);
+    px(ctx, AL_VEST_DK, ax + 6,  ay - 4, 3, 3);
+    px(ctx, AL_VEST_MID,ax + 6,  ay - 4, 3, 2);
+    px(ctx, AL_VEST_HI, ax + 6,  ay - 4, 3, 1);
+    // Tool belt (brown leather work belt + simple brass buckle —
+    // matches the overalls workwear look, no gem)
+    px(ctx, TSC.outline, ax - 8, ay + 4, 16, 4);
+    px(ctx, '#3a2418', ax - 7, ay + 5, 14, 2);
+    px(ctx, '#5a3020', ax - 7, ay + 5, 14, 1);
+    // Brass buckle (small rectangle centered)
+    px(ctx, TSC.outline, ax - 2, ay + 4, 4, 4);
+    px(ctx, '#a06820', ax - 1, ay + 5, 2, 2);
+    px(ctx, TSC.yellowLit, ax - 1, ay + 5, 2, 1);
+
+    // (Hillbilly touches — red-check bib patch, yellow knee patch, torn
+    // strap, plaid collar — were removed in the v451S ground-crew swap.
+    // He's on the clock now in DLX uniform, not field-mended overalls.)
+
+    // ── CHEST INSIGNIA (DLX delivery badge, more detailed) ──
+    px(ctx, TSC.outline, ax - 4, ay - 1, 8, 4);
+    px(ctx, TSC.cream,   ax - 3, ay,     6, 2);
+    px(ctx, TSC.creamD,  ax - 3, ay + 1, 6, 1);
+    // "DLX" letters (3 black blocks)
+    px(ctx, '#3a0a06', ax - 2, ay, 1, 1);
+    px(ctx, '#3a0a06', ax,     ay, 1, 1);
+    px(ctx, '#3a0a06', ax + 2, ay, 1, 1);
+    // Red badge dots
+    px(ctx, TSC.dinerRed, ax - 3, ay + 1, 1, 1);
+    px(ctx, TSC.dinerRed, ax + 2, ay + 1, 1, 1);
+
+    // ── ALIEN HEAD (yellowish-green, detailed) ──────────────
+    px(ctx, TSC.outline, ax - 8, ay - 18, 16, 14);
+    px(ctx, AL_SHA, ax - 7, ay - 17, 14, 13);
+    px(ctx, AL_MID, ax - 7, ay - 17, 14, 12);
+    // Top sun-catch (specular wedge)
+    px(ctx, AL_HI,   ax - 6, ay - 17, 12, 2);
+    px(ctx, AL_SPEC, ax - 4, ay - 17, 6,  1);
+    px(ctx, AL_SPEC, ax - 3, ay - 16, 1,  1);
+    px(ctx, AL_SPEC, ax + 2, ay - 16, 1,  1);
+    // Cheek shading (AO)
+    px(ctx, AL_SHA, ax - 7, ay - 8, 14, 2);
+    // Cheekbone definition (subtle highlight bumps)
+    px(ctx, AL_HI,  ax - 6, ay - 9, 2, 1);
+    px(ctx, AL_HI,  ax + 4, ay - 9, 2, 1);
+    // Brow ridge above eyes
+    px(ctx, AL_SHA, ax - 6, ay - 15, 5, 1);
+    px(ctx, AL_SHA, ax + 1, ay - 15, 5, 1);
+    // ── SKIN SPOTS / FRECKLES (greebling) ─────────────────
+    px(ctx, AL_SPOT, ax - 6, ay - 11, 1, 1);
+    px(ctx, AL_SPOT, ax - 4, ay - 16, 1, 1);
+    px(ctx, AL_SPOT, ax + 3, ay - 16, 1, 1);
+    px(ctx, AL_SPOT, ax + 5, ay - 11, 1, 1);
+    px(ctx, AL_SPOT, ax + 5, ay - 9,  1, 1);
+    px(ctx, AL_SPOT, ax - 1, ay - 17, 1, 1);
+    // Forehead crest (3 ridge bumps)
+    px(ctx, AL_HI, ax - 1, ay - 17, 1, 1);
+    px(ctx, AL_HI, ax + 1, ay - 17, 1, 1);
+    px(ctx, AL_SHA, ax,    ay - 16, 1, 1);
+
+    // ── EAR TENDRILS (fleshy ridges on sides of head) ───────
+    px(ctx, TSC.outline, ax - 9, ay - 13, 1, 5);
+    px(ctx, AL_MID,    ax - 9, ay - 13, 1, 5);
+    px(ctx, AL_HI,     ax - 9, ay - 13, 1, 1);
+    // Tendril barb
+    px(ctx, TSC.outline, ax - 10, ay - 11, 1, 2);
+    px(ctx, AL_MID,    ax - 10, ay - 11, 1, 2);
+    px(ctx, TSC.outline, ax + 8, ay - 13, 1, 5);
+    px(ctx, AL_MID,    ax + 8, ay - 13, 1, 5);
+    px(ctx, AL_HI,     ax + 8, ay - 13, 1, 1);
+    px(ctx, TSC.outline, ax + 9, ay - 11, 1, 2);
+    px(ctx, AL_MID,    ax + 9, ay - 11, 1, 2);
+
+    // ── EYES (bigger, with iris + pupil + reflection) ───────
+    const eyeBlink = ((frame / 40) | 0) % 8 === 0;
+    px(ctx, TSC.outline, ax - 6, ay - 14, 5, 5);
+    px(ctx, TSC.outline, ax + 1, ay - 14, 5, 5);
+    if (eyeBlink) {
+      // Closed happy line
+      px(ctx, AL_HI, ax - 5, ay - 12, 4, 1);
+      px(ctx, AL_HI, ax + 2, ay - 12, 4, 1);
+    } else {
+      // Sclera
+      px(ctx, '#ffffff', ax - 5, ay - 13, 3, 3);
+      px(ctx, '#ffffff', ax + 2, ay - 13, 3, 3);
+      // Cyan iris
+      px(ctx, TSC.cyanDark, ax - 4, ay - 12, 1, 2);
+      px(ctx, TSC.cyanDark, ax + 3, ay - 12, 1, 2);
+      px(ctx, TSC.cyanLit, ax - 4, ay - 12, 1, 1);
+      px(ctx, TSC.cyanLit, ax + 3, ay - 12, 1, 1);
+      // Pupil reflection
+      px(ctx, '#ffffff', ax - 5, ay - 13, 1, 1);
+      px(ctx, '#ffffff', ax + 2, ay - 13, 1, 1);
+    }
+
+    // ── NOSTRIL SLITS ────────────────────────────────────────
+    px(ctx, TSC.outline, ax - 2, ay - 9, 1, 1);
+    px(ctx, TSC.outline, ax + 1, ay - 9, 1, 1);
+    // Nose ridge highlight
+    px(ctx, AL_HI, ax, ay - 10, 1, 2);
+
+    // ── TOOTHY GRIN with fangs + tongue ─────────────────────
+    px(ctx, TSC.outline, ax - 5, ay - 7, 11, 4);
+    px(ctx, '#1a0a06', ax - 4, ay - 6, 9, 2);
+    // Fangs (sharp tooth points)
+    px(ctx, '#ffffff', ax - 4, ay - 6, 1, 2);
+    px(ctx, '#ffffff', ax - 2, ay - 6, 1, 1);
+    px(ctx, '#ffffff', ax,     ay - 6, 1, 1);
+    px(ctx, '#ffffff', ax + 2, ay - 6, 1, 1);
+    px(ctx, '#ffffff', ax + 4, ay - 6, 1, 2);
+    // Tongue tip (red, animated bob)
+    const tongueOut = (frame & 7) < 3;
+    if (tongueOut) px(ctx, TSC.dinerRed, ax, ay - 4, 2, 1);
+
+    // ── YELLOW DLX HARD HAT with antennae poking through ──────
+    // v451S — swapped from the cowboy hat to a classic construction
+    // hard hat to match the orange hi-vis vest below. Same antennae-
+    // through-the-crown trick the cowboy hat used: bulbs + a stub
+    // stem visible above the hat; everything else is hidden inside.
+    const HAT_SHELL    = '#ffc628';   // bright safety yellow
+    const HAT_SHELL_HI = '#ffe080';   // sun-catch highlight
+    const HAT_SHELL_DK = '#a06820';   // shadow
+    const HAT_BRIM_DK  = '#3a2010';   // dark under-brim
+    // BRIM (flat, narrower than the cowboy brim — sticks out a couple px)
+    px(ctx, TSC.outline,    ax - 9, ay - 18, 19, 2);
+    px(ctx, HAT_SHELL_DK, ax - 8, ay - 18, 17, 1);
+    px(ctx, HAT_BRIM_DK,  ax - 8, ay - 17, 17, 1);  // under-brim shadow
+    // SHELL (rounded dome — taller in the center, gentle slope to sides)
+    px(ctx, TSC.outline,    ax - 7, ay - 22, 15, 5);
+    px(ctx, HAT_SHELL,    ax - 6, ay - 21, 13, 4);
+    px(ctx, HAT_SHELL_HI, ax - 6, ay - 21, 13, 1);
+    px(ctx, HAT_SHELL_HI, ax - 5, ay - 22, 11, 1);  // top crown row
+    px(ctx, TSC.outline,    ax - 5, ay - 22, 11, 1);  // top outline above
+    // Crown center ridge (classic hard-hat reinforcement seam)
+    px(ctx, HAT_SHELL_DK, ax,     ay - 21, 1, 4);
+    // "DLX" STENCIL on the front of the shell (1px dark block per letter)
+    px(ctx, '#3a1a06', ax - 4, ay - 20, 1, 1);   // D
+    px(ctx, '#3a1a06', ax - 2, ay - 20, 1, 1);   // L
+    px(ctx, '#3a1a06', ax,     ay - 20, 1, 1);   // X
+    // (Strap notches under the brim — small dark dots on each side)
+    px(ctx, HAT_BRIM_DK, ax - 7, ay - 17, 1, 1);
+    px(ctx, HAT_BRIM_DK, ax + 7, ay - 17, 1, 1);
+    // ANTENNAE poking THROUGH the crown — only bulbs + tiny stems visible
+    // Holes in the hat (dark pixels where antennae poke through)
+    px(ctx, TSC.outline, ax - 5, ay - 22, 1, 1);
+    px(ctx, TSC.outline, ax + 5, ay - 22, 1, 1);
+    // Stub stem above the hat (1px between crown and bulb)
+    px(ctx, AL_MID,    ax - 5, ay - 24, 1, 2);
+    px(ctx, AL_MID,    ax + 5, ay - 24, 1, 2);
+    // Bulb tips (3×3 each) — bioluminescent blue
+    px(ctx, TSC.outline, ax - 6, ay - 27, 3, 3);
+    px(ctx, TSC.outline, ax + 4, ay - 27, 3, 3);
+    px(ctx, blink ? '#ffffff' : TSC.cyanLit, ax - 5, ay - 26, 1, 2);
+    px(ctx, blink ? '#ffffff' : TSC.cyanLit, ax + 5, ay - 26, 1, 2);
+    // Geometric halo blocks around bulbs when lit (Rule 4)
+    if (blink) {
+      px(ctx, TSC.cyanCore, ax - 6, ay - 26, 1, 1);
+      px(ctx, TSC.cyanCore, ax - 4, ay - 26, 1, 1);
+      px(ctx, TSC.cyanCore, ax + 4, ay - 26, 1, 1);
+      px(ctx, TSC.cyanCore, ax + 6, ay - 26, 1, 1);
+      px(ctx, TSC.cyanCore, ax - 5, ay - 28, 1, 1);
+      px(ctx, TSC.cyanCore, ax + 5, ay - 28, 1, 1);
+    }
+
+    // ── 6 ARMS — yellow-green skin, wristbands, 3 fingers ────
+    const drawArm = (sx_, sy_, phase, side) => {
+      const w = Math.sin(phase) * 7;
+      const v = Math.cos(phase * 0.7) * 4;
+      const ex = (sx_ + side * (6 + w * 0.5)) | 0;
+      const ey = (sy_ + 4 + v * 0.5) | 0;
+      const hx = (ex + side * (7 + w * 0.6)) | 0;
+      const hy = (ey + 3 + v * 0.7 - 4) | 0;
+      // Shoulder joint (orange vest sleeve cap)
+      px(ctx, TSC.outline,  sx_ - 1, sy_ - 1, 4, 4);
+      px(ctx, AL_VEST_DK, sx_, sy_, 3, 3);
+      px(ctx, AL_VEST_MID,sx_, sy_, 3, 2);
+      px(ctx, AL_VEST_HI, sx_, sy_, 3, 1);
+      // Upper arm (skin)
+      const ux = ((sx_ + 1 + ex) * 0.5) | 0;
+      const uy = ((sy_ + 1 + ey) * 0.5) | 0;
+      px(ctx, TSC.outline, ux - 1, uy - 1, 4, 4);
+      px(ctx, AL_SHA, ux, uy, 2, 2);
+      px(ctx, AL_MID, ux, uy, 2, 1);
+      // Elbow joint
+      px(ctx, TSC.outline, ex - 1, ey - 1, 4, 4);
+      px(ctx, AL_SHA, ex, ey, 3, 3);
+      px(ctx, AL_MID, ex, ey, 3, 2);
+      px(ctx, AL_HI,  ex, ey, 3, 1);
+      // Forearm
+      const fx = ((ex + hx) * 0.5) | 0;
+      const fy = ((ey + hy) * 0.5) | 0;
+      px(ctx, TSC.outline, fx - 1, fy - 1, 4, 4);
+      px(ctx, AL_MID, fx, fy, 2, 2);
+      px(ctx, AL_HI,  fx, fy, 2, 1);
+      // Wristband (gold)
+      px(ctx, TSC.outline, fx - 1, fy + 2, 4, 2);
+      px(ctx, TSC.yellow,    fx, fy + 2, 2, 1);
+      px(ctx, TSC.yellowLit, fx, fy + 2, 2, 1);
+      px(ctx, TSC.dinerRed,  fx + 0, fy + 3, 1, 1);   // gem stud
+      // Hand (palm)
+      px(ctx, TSC.outline, hx - 1, hy - 1, 5, 5);
+      px(ctx, AL_SHA, hx, hy, 3, 3);
+      px(ctx, AL_MID, hx, hy, 3, 2);
+      px(ctx, AL_HI,  hx, hy, 3, 1);
+      // 3 fingers (small outline blocks fanning from palm)
+      px(ctx, TSC.outline, hx - 1, hy + 3, 1, 2);
+      px(ctx, TSC.outline, hx + 1, hy + 3, 1, 2);
+      px(ctx, TSC.outline, hx + 3, hy + 3, 1, 2);
+      // Finger highlights
+      px(ctx, AL_MID, hx,     hy + 3, 1, 1);
+      px(ctx, AL_MID, hx + 2, hy + 3, 1, 1);
     };
-    const drawOldCrate = (cx, cy, w, h, rot) => {
-      ctx.save();
-      ctx.translate(cx + w / 2, cy);
-      if (rot) ctx.rotate(rot);
-      // Rusted weathered body
-      const grad = ctx.createLinearGradient(0, -h, 0, 0);
-      grad.addColorStop(0,    '#7a6850');
-      grad.addColorStop(0.5,  '#5a4838');
-      grad.addColorStop(1,    '#3a2c20');
-      ctx.fillStyle = grad;
-      ctx.fillRect(-w / 2, -h, w, h);
-      // Faded mustard caution stripe (mostly worn off)
-      ctx.fillStyle = '#8a7838';
-      ctx.fillRect(-w / 2 + 1, -h * 0.6, w - 2, h * 0.18);
-      ctx.fillStyle = '#3a2418';
-      for (let i = 0; i < 4; i++) ctx.fillRect(-w / 2 + 2 + i * (w / 4), -h * 0.6, 1.2, h * 0.18);
-      // Big rust streak down the front
-      ctx.fillStyle = 'rgba(120, 60, 24, 0.55)';
-      ctx.fillRect(-w * 0.3, -h + 2, 1.4, h - 4);
-      ctx.fillRect( w * 0.2, -h + 2, 1.2, h - 4);
-      // Dented corner
-      ctx.fillStyle = '#3a2c20';
-      ctx.beginPath();
-      ctx.moveTo(w / 2 - 4, -h);
-      ctx.lineTo(w / 2,     -h);
-      ctx.lineTo(w / 2,     -h + 4);
-      ctx.closePath();
-      ctx.fill();
-      // Hairline outline
-      ctx.strokeStyle = '#1a1208';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(-w / 2, -h, w, h);
-      // Rivets
-      ctx.fillStyle = '#1a1208';
-      ctx.beginPath(); ctx.arc(-w / 2 + 2, -h + 2, 0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( w / 2 - 2, -h + 2, 0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(-w / 2 + 2, -2,     0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( w / 2 - 2, -2,     0.7, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    };
+    // 3 LEFT arms (shoulders along left flank, evenly spaced)
+    drawArm(ax - 7, ay - 2, frame * 0.16,        -1);
+    drawArm(ax - 7, ay + 2, frame * 0.16 + 1.0,  -1);
+    drawArm(ax - 7, ay + 6, frame * 0.16 + 2.0,  -1);
+    // 3 RIGHT arms (mirrored phases)
+    drawArm(ax + 4, ay - 2, frame * 0.16 + 0.5,  1);
+    drawArm(ax + 4, ay + 2, frame * 0.16 + 1.5,  1);
+    drawArm(ax + 4, ay + 6, frame * 0.16 + 2.5,  1);
 
-    // LEFT pile — bigger, mixed old/new
-    drawNewCrate(cpX,      padTopY,      24, 18);          // base wide
-    drawOldCrate(cpX + 4,  padTopY - 18, 20, 16);          // old on top
-    drawNewCrate(cpX + 26, padTopY,      16, 14);          // new beside
-    drawOldCrate(cpX - 1,  padTopY - 34, 16, 12);          // crowning old crate
-    drawNewCrate(cpX + 28, padTopY - 14, 14, 10);          // small new on top
-    drawOldCrate(cpX + 44, padTopY,      18, 14);          // outlier
-    drawNewCrate(cpX + 50, padTopY - 14, 14, 12);          // stacked
-    // Green CHECKMARK stamp on the top crate showing "delivered"
-    ctx.shadowBlur = 4; ctx.shadowColor = '#3afc70';
-    ctx.strokeStyle = '#3afc70';
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.moveTo(cpX + 2, padTopY - 28);
-    ctx.lineTo(cpX + 5, padTopY - 25);
-    ctx.lineTo(cpX + 11, padTopY - 33);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+    // ("WELCOME!" speech bubble + the confetti / sparkle cascade
+    // around the alien were both removed per user-revisions.)
 
-    // CRATES LEANING against the diner left wall (right side of pad)
-    const dnLeftX = x + 36;          // matches dnX in the diner section
-    drawOldCrate(dnLeftX - 16, padTopY,     14, 18, -0.18);  // tall lean
-    drawNewCrate(dnLeftX - 28, padTopY,     12, 14,  0.22);  // smaller lean other way
-    drawOldCrate(dnLeftX - 14, padTopY - 18, 12, 10, -0.12); // stacked lean
-
-    // ============================================================
-    // BIG NEON "GOOD BUDDY" SIGN above the diner
-    // ============================================================
-    const signY = dnY - dnH - 14;
-    // Sign post on the diner roof
-    ctx.fillStyle = '#3a2418';
-    ctx.fillRect(dnX + dnW * 0.5 - 1.5, signY, 3, 18);
-    // Sign body — black plate with yellow glow border
-    ctx.fillStyle = '#1a0408';
-    ctx.fillRect(dnX - 14, signY - 36, dnW + 28, 38);
-    ctx.shadowBlur = 14; ctx.shadowColor = '#ffd060';
-    ctx.strokeStyle = '#ffd060';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(dnX - 14, signY - 36, dnW + 28, 38);
-    // Neon "GOOD BUDDY DINER" — single line, big and clean
-    ctx.fillStyle = '#ffd060';
-    ctx.font = 'bold 18px Impact, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('GOOD BUDDY DINER', dnX + dnW / 2, signY - 17);
-    ctx.shadowBlur = 0;
-    ctx.textBaseline = 'alphabetic';
-    // Star decorations along the top of the sign
-    ctx.fillStyle = '#fce0a8';
-    for (let i = 0; i < 5; i++) {
-      ctx.beginPath();
-      ctx.arc(dnX - 8 + i * (dnW + 16) / 4, signY - 39, 1, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // ============================================================
-    // PULSING LANDING ARROW on the left edge of the pad
-    // ============================================================
-    const arrowPulse = 0.5 + 0.5 * Math.sin(frame * 0.12);
-    ctx.save();
-    ctx.shadowBlur = 6 + arrowPulse * 4;
-    ctx.shadowColor = '#ffd060';
-    ctx.fillStyle = 'rgba(255, 224, 96, ' + (0.7 + arrowPulse * 0.3) + ')';
-    ctx.beginPath();
-    ctx.moveTo(padLeft - 16, padTopY - 12);
-    ctx.lineTo(padLeft -  2, padTopY - 5);
-    ctx.lineTo(padLeft - 16, padTopY + 2);
-    ctx.lineTo(padLeft - 11, padTopY - 5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
+    // Fuel pump removed — diner's rocket fin holds down the right
+    // side of the platform now.
 
     ctx.restore();
   }
@@ -33808,6 +34642,164 @@ const DLX_BUILD = 'v451S-alien-ground-crew-uniform';
     // Outline
     outline:     '#04060a',
   };
+
+  // ─────────────────────────────────────────────────────────
+  // PIXEL-ART KIT — palette, helpers, 5×7 font.
+  // Shared across pixel-art landmark / scenery code (Sunset
+  // truck-stop pad, future scenes). Mirrors the mockup helpers
+  // in mockup-sunset-wastes-v7.html.
+  // ─────────────────────────────────────────────────────────
+  const TSC = {
+    // Outline / black
+    outline:  '#04060a',
+    black:    '#1a0a06',
+    // Rig hull (ROAD KILL teal — used in drone + thief accents)
+    hullDeep: '#0a3038',
+    hullDark: '#1c5e6e',
+    hullCore: '#3aa8b8',
+    hullLit:  '#7ed4dc',
+    // Drone body (industrial gray)
+    droneDeep: '#1a1c20',
+    droneDark: '#3a3e44',
+    droneMid:  '#5a5e68',
+    droneLit:  '#787c80',
+    droneRim:  '#a0a4a8',
+    // Yellow + orange (hazard + warning)
+    yellow:    '#ffc628',
+    yellowLit: '#ffd060',
+    orange:    '#e87028',
+    rust:      '#c83828',
+    // Red (lens / lights)
+    redCore:   '#a01a0a',
+    redLit:    '#ff4020',
+    // Cyan (rotor blur / glass)
+    cyanLit:   '#7eddeb',
+    cyanCore:  '#3ad8ff',
+    cyanDark:  '#1a3a48',
+    // Magenta + purple (alien)
+    purpleDark:   '#3a1a4a',
+    purpleCore:   '#7c4abe',
+    purpleLit:    '#a07ade',
+    greenAlien:   '#88b840',
+    greenAlienD:  '#5a9028',
+    // Bone / cream
+    cream:     '#f4e8d8',
+    creamD:    '#a88858',
+    // Diner
+    dinerWall:    '#f4e8d8',
+    dinerTrim:    '#cfd2d4',
+    dinerShade:   '#9a9aa0',
+    dinerRed:     '#c83828',
+    // Stone / sandstone (dispatch hangar)
+    stoneCore: '#a06038',
+    stoneShade:'#5a3018',
+    stoneDeep: '#3a1a08',
+    stoneLit:  '#c87850',
+    roof:      '#d8421a',
+    roofD:     '#a82812',
+  };
+
+  function px(ctx, color, x, y, w, h) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x | 0, y | 0, w | 0, h | 0);
+  }
+
+  function pxDisc(ctx, cx, cy, r, color) {
+    cx |= 0; cy |= 0; r |= 0;
+    for (let dy = -r; dy <= r; dy++) {
+      const dx = Math.floor(Math.sqrt(r * r - dy * dy));
+      px(ctx, color, cx - dx, cy + dy, dx * 2 + 1, 1);
+    }
+  }
+
+  function pxBlockPuff(ctx, cx, cy, r, midColor, hiColor) {
+    cx |= 0; cy |= 0; r |= 0;
+    if (r <= 0) return;
+    if (r === 1) {
+      px(ctx, midColor, cx - 1, cy - 1, 3, 3);
+      if (hiColor) px(ctx, hiColor, cx - 1, cy - 1, 2, 1);
+      return;
+    }
+    // r >= 2: octagonal stepped block (square with single-pixel corner notches)
+    const w = r * 2 + 1;
+    px(ctx, midColor, cx - r + 1, cy - r,     w - 2, 1);
+    px(ctx, midColor, cx - r,     cy - r + 1, w,     w - 2);
+    px(ctx, midColor, cx - r + 1, cy + r,     w - 2, 1);
+    if (hiColor) {
+      px(ctx, hiColor, cx - r + 1, cy - r + 1, w - 2, 1);
+      px(ctx, hiColor, cx - r + 1, cy - r + 2, Math.max(1, r - 1), 1);
+    }
+  }
+
+  function pxFlame(ctx, cx, cy, length, dir, outerC, midC, coreC) {
+    cx |= 0; cy |= 0; length |= 0;
+    const horizontal = dir === 'L' || dir === 'R';
+    const sign = (dir === 'L' || dir === 'U') ? -1 : 1;
+    // 3 nested layers, each at decreasing length + decreasing thickness
+    const layers = [
+      { len: length,                  thick: 5, color: outerC },
+      { len: (length * 2 / 3) | 0,    thick: 3, color: midC },
+      { len: (length / 3) | 0,        thick: 1, color: coreC },
+    ];
+    for (const L of layers) {
+      if (L.len < 1) continue;
+      for (let i = 0; i < L.len; i++) {
+        // Linear taper from L.thick at base down to 1 at tip,
+        // quantized to discrete steps so the silhouette stays blocky.
+        const u = i / L.len;
+        const t = Math.max(1, Math.round(L.thick * (1 - u)));
+        const half = (t - 1) >> 1;
+        if (horizontal) {
+          px(ctx, L.color, cx + sign * i, cy - half, 1, t);
+        } else {
+          px(ctx, L.color, cx - half, cy + sign * i, t, 1);
+        }
+      }
+    }
+  }
+
+  const TS_GLYPHS = {
+    G: '0111110000100001011110001100010111',
+    O: '0111010001100011000110001100010111',
+    B: '1111010001100011111010001100011111',
+    U: '1000110001100011000110001100010111',
+    Y: '1000110001100010101000100001000010', // imperfect — vertical center
+    N: '1000111001101011001110001100011000',
+    E: '1111110000100001111010000100001111',
+    R: '1111010001100011111010100100110001',
+    I: '1111100100001000010000100001011111',
+    D: '1111010001100011000110001100011111',
+    H: '1000110001100011111110001100011000',
+    L: '1000010000100001000010000100001111',
+    X: '1000101010001000010000101010110001',
+    S: '0111110000100000111000001000011111',
+    P: '1111010001100011111010000100001000',
+    A: '0111010001100011111110001100011000',
+    T: '1111100100001000010000100001000010',
+    C: '0111110000100001000010000100000111',
+    M: '1000111011101011010110001100011000',
+    K: '1000110010101001100010100100101000',
+    W: '1000110001100011010111111110011000',
+    F: '1111110000100001111010000100001000',
+    ' ': '0000000000000000000000000000000000',
+    '!': '0010000100001000010000000000000010',
+  };
+
+  function drawLetter5x7(ctx, lx, ly, char, color) {
+    const g = TS_GLYPHS[char];
+    if (!g) return;
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < 5; c++) {
+        if (g[r * 5 + c] === '1') px(ctx, color, lx + c, ly + r, 1, 1);
+      }
+    }
+  }
+
+  function drawString(ctx, sx, sy, str, color, spacing = 1) {
+    for (let i = 0; i < str.length; i++) {
+      drawLetter5x7(ctx, sx + i * (5 + spacing), sy, str[i], color);
+    }
+  }
 
   // ─────────────────────────────────────────────────────────
   // PIXEL CARGO — 28×28 wood-crate sprite from mockup-roadkill v6.
