@@ -111,6 +111,6 @@ Or just `File → Save As → roadkill.png` (transparent, 1× scale) for
 a single frame.
 
 Commit the `.aseprite` source + the exported `.png` (+ `.json` if
-multi-frame). DM the team if you don't have GitHub access yet — we'll
+multi-frame). DM them over if you don't have GitHub access yet — we'll
 commit on your behalf.
 </parameter>
