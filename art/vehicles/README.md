@@ -22,10 +22,15 @@ folder. Each vehicle gets its own subfolder with the standard layout:
   visual center differs.
 - **Direction**: vehicles face RIGHT (positive X). The game flips them
   in code if needed for opposite-direction motion.
-- **State tags** (Aseprite tags inside the .aseprite file):
+- **State tags** (Aseprite tags inside the .aseprite file): each
+  vehicle's own README lists the FULL state machine the engine drives
+  it through, so you can see every beat in the animation even if you
+  only ship one frame. Common shared conventions:
   - `idle` (required, can be 1 frame) — default flight pose
-  - `damaged` (optional, 1 frame) — hit-state variant
-  - `boost` (optional, 1-3 frame loop) — accelerating pose
+  - `damaged` (optional, 1 frame) — hit-state variant (or destroyed)
+  - `lock_on` / `charging` (optional) — pre-attack hover / windup
+  - `dropping` / `firing` (optional) — attack pose
+  - `retract` / `retreat` (optional) — post-attack reel-back or flee
   - Custom tags are fine; the game can read any tag name.
 
 ## What's procedural (don't draw)

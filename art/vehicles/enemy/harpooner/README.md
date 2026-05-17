@@ -19,15 +19,23 @@ harpoon to snag cargo from below.
 
 ## Required Aseprite tags
 
+These map to the harpooner's in-game state machine. Single frame
+`idle` covers everything; the rest are optional polish. Listed so
+you can SEE what beats the sprite passes through and (if you want)
+draw a unique pose for each.
+
 | Tag | Frames | When game uses it |
 |---|---|---|
-| `idle`     | 1+ | Cruising — harpoon loaded, charge LED dim |
-| `charging` | 1+ | Lock-on phase before firing (charge LED ramping up) |
-| `firing`   | 1   | Mid-fire pose — harpoon tip stowed (extended out of frame) |
+| `idle`     | 1+ | Cruise — harpoon loaded, charge LED dim, flying horizontally toward the rig |
+| `charging` | 1+ | Lock-on hover for ~12 frames before firing (charge LED ramping up — perfect for a multi-frame loop) |
+| `firing`   | 1   | Mid-fire pose — harpoon tip stowed because the tip has already extended out of frame (procedural) |
+| `retract`  | 1   | Harpoon cable reeling back in (with or without snagged cargo) |
+| `retreat`  | 1   | Climbs / flees away after the attempt (slight nose-up tilt works well) |
+| `damaged`  | 1   | Optional — sparking launcher / scorched hull / flickering LED (currently we just puff-explode on destruction) |
 
-Single frame for `idle` is fine. The other tags are optional polish —
-if you don't ship them we use the same `idle` frame for all states and
-animate the charge LED + harpoon tip procedurally.
+Single `idle` frame is fine. The harpoon tip mid-flight, cable,
+energy field, and engine flames are ALL procedural — your sprite is
+just the body + launcher mast + the loaded tip in the cradle.
 
 ## What to draw
 
