@@ -1,6 +1,6 @@
 # HERO RIG · ROAD KILL
 
-The current player rig — DLX-branded mid-haul cargo vehicle.
+The current player rig. DLX-branded mid-haul cargo hauler.
 
 ![reference](reference.png)
 ![smashed B-alt](reference_smashed.png)
@@ -15,95 +15,90 @@ The current player rig — DLX-branded mid-haul cargo vehicle.
 | Facing direction  | RIGHT (positive X) |
 | Anchor (pivot)    | Center of hull — slice `center` at **(29, 26)** |
 
-## Required Aseprite tags
+## Aseprite tags
 
-These map to the rig's in-game state machine. Single frame `idle` +
-single frame `damaged` covers everything; the rest are optional
-polish. Listed so you can SEE what beats the sprite passes through
-and (if you want) draw a unique pose for each.
+The tags map to the rig's in-game state machine. A single `idle`
+frame + a single `damaged` frame covers everything; the rest is
+polish. Listed here so you can see what the game does with the
+sprite even if you only ship the basics.
 
 | Tag | Frames | When game uses it |
 |---|---|---|
-| `idle`        | 1+ | Default flight pose — drawn every frame during STATE_PLAY |
-| `idle_flap`   | 2–3 | Optional — subtle 1-pixel "breathing" loop at ~100 ms/frame (engine pulse, antenna twitch) for live feel |
-| `flap_up`     | 1   | Optional — cockpit pitched UP a degree, fin slightly raised; drawn during a tap (when the rig is gaining altitude) |
-| `flap_down`   | 1   | Optional — cockpit pitched DOWN a degree; drawn when the rig is falling between taps |
-| `damaged`     | 1   | After crash — replaces `idle` during STATE_OVER (front-right third of the hull destroyed; see SMASHED section below) |
-| `victory`     | 1+  | Optional — celebratory pose at the truck-stop dock after delivery (e.g. headlights flashing, antenna fully extended) |
+| `idle`        | 1+ | Default flight pose. Drawn every frame during STATE_PLAY. |
+| `idle_flap`   | 2–3 | Optional. Subtle 1-pixel "breathing" loop at ~100 ms/frame (engine pulse, antenna twitch). |
+| `flap_up`     | 1   | Optional. Cockpit pitched UP a degree, fin slightly raised. Played during a tap when the rig is climbing. |
+| `flap_down`   | 1   | Optional. Cockpit pitched DOWN a degree. Played when the rig is falling between taps. |
+| `damaged`     | 1   | Replaces `idle` during STATE_OVER. Front-right third of the hull destroyed (see SMASHED below). |
+| `victory`     | 1+  | Optional. Celebratory pose at the truck-stop dock after delivery — headlights flashing, antenna extended, etc. |
 
-Single `idle` + single `damaged` is fine. Everything else (engine
-flame, antenna sway, shield bubble, ghost halo, magnet ring,
-force-field, stun crackle, sparks, exhaust trail, cargo chain, score
-floaters) is procedurally rendered ON TOP of your sprite — so you
-don't need to redraw the rig for any of those effects.
+Everything else — engine flame, antenna sway, shield/ghost/magnet
+halos, force-field, stun crackle, sparks, exhaust, cargo chain,
+score floaters — is drawn in code on top of your sprite, so you
+don't need to redraw the rig for any of those.
 
-## Optional Aseprite slices
+## Optional slices
 
 | Slice name | Position (px) | What it's for |
 |---|---|---|
 | `center`         | (29, 26) | Pivot point for rotation/scaling |
 | `attach_chain`   | ( 2, 30) | Where the cargo bond chain anchors |
-| `attach_driver`  | (32, 16) | Where the cockpit driver sits (for future characters) |
+| `attach_driver`  | (32, 16) | Where the cockpit driver sits (future characters) |
 
-If you don't add slices, we'll hardcode the positions from the current
-code. Slices just let us update without code changes.
+No slices = we hardcode the positions in code. Slices let us tweak
+the anchors without touching the source.
 
 ## What to draw
 
-- Hull (the teal body)
+- Hull — the teal body
 - Cockpit dome + glass + driver
 - Front grille + 3 headlights
 - Single wing fin on the back-left
 - Engine pod silhouette (the gray cylinder slung below)
 - Chain anchor port (the small bead at the back-left of the body)
-- Antenna BASE (the vertical line from the body up) — the tip animates
-  procedurally, so just draw a static line straight up
+- Antenna BASE — a static vertical line up from the body. The tip
+  animates in code, so don't sway it.
 
 ## What NOT to draw
 
-These are all rendered procedurally on top of the rig at runtime:
+All handled in code on top of your sprite:
 
 - Engine flame (blue jet out the back)
 - Engine swirl particles (white-cyan motes near the nozzle)
-- Antenna tip sway (you can draw the base; tip is code)
+- Antenna tip sway
 - Exhaust trail / smoke
 - Sparks on collision
 - Shield bubble (cyan ring)
 - Ghost aura (mint halo)
 - Magnet ring (pink orbital)
 - Force-field bubble (amber halo)
-- Stun crackle arcs (cyan lightning) when stung
+- Stun crackle (cyan lightning) when stung
 - Cargo bond / chain to the cargo crate
-- Score floaters, damage flashes, etc.
+- Score floaters, damage flashes
 
 ## SMASHED (damaged) variant
 
-Use the same canvas size (58 × 52). The right third of the rig is
-destroyed:
+Same canvas size (58 × 52). The right third of the rig is destroyed:
 
 - Front grille gone entirely (cols ~48–56 empty)
 - Right end of the body chewed up with a jagged broken outline
-- Charred dark interior visible (use `#1a0a06` / `#0a0408`)
-- 3 headlights are dark sockets (no light)
-- Cockpit glass has visible cracks (use `#0a0a14`)
-- Hot embers inside the breakage — feel free to place a few static
-  ember pixels in the warm palette (the actual flicker animation we
-  handle in code on top of your sprite)
+- Charred dark interior visible (`#1a0a06` / `#0a0408`)
+- 3 headlights are dark sockets, no light
+- Cockpit glass cracked (`#0a0a14`)
+- Hot embers in the breakage — static ember pixels in the warm
+  palette. We add the flicker animation on top.
 - Exposed wire spark (cyan pixel) somewhere in the wreckage
 - Scorch streaks on the surviving body
 
-See `reference_smashed.png` for the current in-game version as a
-starting point. You can deviate; the brief is "front 30 % is wrecked".
+See `reference_smashed.png` for the current take. Deviate if you
+want — brief is "front 30% is wrecked".
 
 ## Palette
 
-Stay inside `art/palette/dlx-master-palette.gpl`. The relevant sections
-for this sprite are HULL, COCKPIT, ENGINE POD, ACCENTS, and (for the
-smashed variant) DAMAGE / EMBERS.
+Stay inside `art/palette/dlx-master-palette.gpl`. The relevant
+sections for this sprite are HULL, COCKPIT, ENGINE POD, ACCENTS,
+and DAMAGE / EMBERS for the smashed variant.
 
 ## Export
-
-When ready:
 
 ```bash
 aseprite -b roadkill.aseprite \
@@ -112,10 +107,10 @@ aseprite -b roadkill.aseprite \
   --sheet-pack --format json-array
 ```
 
-Or just `File → Save As → roadkill.png` (transparent, 1× scale) if
-you don't have multi-frame animation.
+Or just `File → Save As → roadkill.png` (transparent, 1× scale) for
+a single frame.
 
-Commit both the `.aseprite` source and the exported `.png` (and
-`.json` if multi-frame). DM the team if you don't have GitHub access
-yet — we'll commit on your behalf.
+Commit the `.aseprite` source + the exported `.png` (+ `.json` if
+multi-frame). DM the team if you don't have GitHub access yet — we'll
+commit on your behalf.
 </parameter>
