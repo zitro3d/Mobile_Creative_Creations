@@ -271,6 +271,26 @@
   .record-chip.recording { color: #ff6e6e; border-color: #ff6e6e; }
   .inline-record { display: flex; align-items: center; gap: 6px; }
   .header-spacer { flex: 1; }
+  /* Compact recording indicator — only visible WHILE recording, since
+     the Record toggle moved into the Animation menu. Clicking the
+     indicator stops + exports the current time-lapse. */
+  .recording-indicator {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    background: rgba(255, 110, 110, 0.12);
+    border: 1px solid rgba(255, 110, 110, 0.4);
+    color: #ff8a8a;
+    border-radius: 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    cursor: pointer;
+  }
+  .recording-indicator:hover { background: rgba(255, 110, 110, 0.18); }
+  .recording-indicator .rec-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #ff6e6e;
+    animation: timelapse-pulse 1s ease-in-out infinite;
+  }
+  .recording-indicator .rec-label { font-family: 'SF Mono', Consolas, monospace; }
 
   .brush-popover {
     position: absolute;
@@ -734,16 +754,16 @@
      swatch echoes the hex under the cursor so the artist can sample
      visually without switching to the eyedropper. */
   .xy-readout {
-    margin-left: 12px;
     display: inline-flex; align-items: center; gap: 6px;
-    padding: 2px 8px;
+    padding: 3px 10px;
     background: var(--bg-input);
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: 4px;
     font-family: 'SF Mono', Consolas, monospace;
-    font-size: 11px;
+    font-size: 10px;
     color: var(--accent);
     min-width: 110px;
+    letter-spacing: 0;
   }
   .xy-swatch {
     width: 12px; height: 12px;
@@ -917,8 +937,10 @@
     border-top: 1px solid var(--border);
     color: var(--text-dim); font-size: 10px;
     display: flex; justify-content: space-between; align-items: center;
+    gap: 12px;
     letter-spacing: 0.4px;
   }
+  footer > div:first-child { flex: 1; }
   footer .brand {
     color: var(--accent); font-weight: 600;
     letter-spacing: 0.8px;
@@ -1299,30 +1321,14 @@
     <button class="menu-trigger" data-menu="help">Help</button>
   </nav>
   <span class="header-spacer"></span>
-  <!-- Brush chip — collapses 5 toolbar groups (size / opacity / dither
-       / pressure / smoothing) into one popover. Live readout shows
-       current size + opacity so the user can see settings at a glance
-       without opening the popover. -->
-  <button id="brushChipTrigger" class="brush-chip" title="Brush settings — size, opacity, dither, pressure, smoothing">
-    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-      <g transform="rotate(-45 12 12)">
-        <polygon points="4,12 7,10 7,14" fill="#3a2818" stroke="#1a1a1c" stroke-width="1"/>
-        <rect x="7"  y="10" width="9" height="4" fill="#ffd060" stroke="#1a1a1c" stroke-width="1"/>
-        <rect x="16" y="10" width="2" height="4" fill="#aab"    stroke="#1a1a1c" stroke-width="1"/>
-        <rect x="18" y="10" width="2" height="4" fill="#ff9eb5" stroke="#1a1a1c" stroke-width="1"/>
-      </g>
-    </svg>
-    <span id="brushChipReadout">1 px · 100%</span>
-    <span class="chip-caret">▾</span>
-  </button>
-  <!-- Record button kept inline (state-bearing UI — the user wants the
-       pulsing recording indicator visible at all times while recording). -->
-  <div class="group inline-record" title="Time-lapse — record every paint stroke and export as a GIF when stopped.">
-    <button id="timelapseBtnHeader" class="record-chip">⏺ Record</button>
-    <span id="timelapseIndicatorHeader" style="display: none; align-items: center; gap: 4px; font-size: 10px; color: #ff6e6e;">
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #ff6e6e; animation: timelapse-pulse 1s ease-in-out infinite;"></span>
-      <span id="timelapseFrameCountHeader">0</span>
-    </span>
+  <!-- Recording indicator — only visible WHILE recording (user wants
+       the Record button itself out of the header and only in the
+       Animation menu). The pulsing dot + frame count stays so the
+       user knows recording is in progress. Click to stop. -->
+  <div id="recordingIndicator" class="recording-indicator" style="display: none;" title="Time-lapse recording — click to stop and export as GIF">
+    <span class="rec-dot"></span>
+    <span class="rec-label">REC</span>
+    <span id="timelapseFrameCountHeader">0</span>
   </div>
 </header>
 
@@ -1683,20 +1689,28 @@
                title="Drag to set zoom level (2× to 32×)">
         <button id="zoomInBtn" title="Zoom in (+)">+</button>
         <span id="zoomLabel" style="font-family: 'SF Mono', Consolas, monospace; min-width: 36px;">12×</span>
-        <label style="margin-left: 10px; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Toggle grid lines (Shift+G)">
-          <input id="gridLinesToggle" type="checkbox" checked> grid
-        </label>
-        <label style="margin-left: 8px; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Preview the canvas tiled in a 3×3 layout — useful for seam-checking tileable patterns">
-          <input id="tileModeCheck" type="checkbox"> tile 3×3
-        </label>
-        <!-- Live X,Y readout. Updates on every paint-canvas mousemove
-             and clears when the cursor leaves. Shows the hovered pixel
-             color underneath so the artist can sample at a glance
-             without switching to the eyedropper. -->
-        <span class="xy-readout" id="xyReadout" title="Pixel coordinates under the cursor">
-          <span class="xy-swatch" id="xySwatch"></span>
-          <span id="xyText">—</span>
-        </span>
+        <!-- Grid + tile-3× checkboxes are now toggles in the View menu;
+             keep the inputs hidden in the DOM so the View-menu toggles
+             can still flip them via their existing change-event wiring. -->
+        <input id="gridLinesToggle" type="checkbox" checked style="display: none;">
+        <input id="tileModeCheck" type="checkbox" style="display: none;">
+        <!-- Brush settings popover trigger lives here, next to the
+             canvas, so the artist doesn't have to reach into the
+             header to adjust size / opacity / dither / pressure /
+             smoothing while painting. Same chip + popover used in
+             the header before — just docked closer to where you work. -->
+        <button id="canvasBrushChipTrigger" class="brush-chip" title="Brush settings — size, opacity, dither, pressure, smoothing">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <g transform="rotate(-45 12 12)">
+              <polygon points="4,12 7,10 7,14" fill="#3a2818" stroke="#1a1a1c" stroke-width="1"/>
+              <rect x="7"  y="10" width="9" height="4" fill="#ffd060" stroke="#1a1a1c" stroke-width="1"/>
+              <rect x="16" y="10" width="2" height="4" fill="#aab"    stroke="#1a1a1c" stroke-width="1"/>
+              <rect x="18" y="10" width="2" height="4" fill="#ff9eb5" stroke="#1a1a1c" stroke-width="1"/>
+            </g>
+          </svg>
+          <span id="canvasBrushChipReadout">1 px · 100%</span>
+          <span class="chip-caret">▾</span>
+        </button>
       </div>
     </div>
   </div>
@@ -2154,6 +2168,13 @@
 
 <footer>
   <div>WONDROUS GRID · pixel + code + animation studio</div>
+  <!-- Live X,Y + color readout moved here from the canvas preview row
+       per user feedback — it stays in the bottom corner where the
+       eye can find it without crowding the canvas controls. -->
+  <span class="xy-readout" id="xyReadout" title="Pixel coordinates under the cursor">
+    <span class="xy-swatch" id="xySwatch"></span>
+    <span id="xyText">—</span>
+  </span>
   <div class="brand">Everything Wondrous ™</div>
 </footer>
 
@@ -7106,6 +7127,29 @@ togglePreviewBtn.addEventListener('click', () => {
       }));
     } catch {}
   });
+  // Re-clamp the preview window's position whenever the canvas pane
+  // resizes (window resize, splitter drag, etc.) — per user feedback
+  // that the preview was tucking under the code panel when the
+  // right column got wider. Always keeps it inside the dock parent.
+  function clampPreviewToParent() {
+    if (previewWindow.style.display === 'none') return;
+    const pr = dockParent.getBoundingClientRect();
+    const w = previewWindow.offsetWidth, h = previewWindow.offsetHeight;
+    if (pr.width === 0 || pr.height === 0) return;
+    // If we're using right/bottom anchoring (initial state), nothing
+    // to clamp — the browser handles that. Only re-clamp when the
+    // user has dragged it (left/top set).
+    if (previewWindow.style.left && previewWindow.style.left !== 'auto') {
+      const left = Math.max(8, Math.min(pr.width  - w - 8, parseInt(previewWindow.style.left, 10) || 0));
+      const top  = Math.max(8, Math.min(pr.height - h - 8, parseInt(previewWindow.style.top,  10) || 0));
+      previewWindow.style.left = left + 'px';
+      previewWindow.style.top  = top  + 'px';
+    }
+  }
+  window.addEventListener('resize', clampPreviewToParent);
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(clampPreviewToParent).observe(dockParent);
+  }
 })();
 
 // Build a brand-new frame seeded with the right number of empty layer
@@ -7352,7 +7396,10 @@ tlOnionRadius.addEventListener('input', () => {
 // the floating preview window's loop behavior so both follow the same
 // rule. Setting is persisted via autosave.
 const tlLoopModeBtn = document.getElementById('tlLoopModeBtn');
-const LOOP_MODE_LABELS = { loop: '🔁 Loop', once: '➡ Once', pingpong: '⇄ Ping-pong' };
+// Pure text characters (NOT emoji) so they pick up our gold accent
+// color via CSS instead of rendering with the browser's emoji glyph
+// palette (which makes ↻ render blue on some platforms).
+const LOOP_MODE_LABELS = { loop: '↻ Loop', once: '→ Once', pingpong: '⇄ Ping-pong' };
 function setLoopMode(mode) {
   state.loopMode = ['loop', 'once', 'pingpong'].includes(mode) ? mode : 'loop';
   tlLoopModeBtn.textContent = LOOP_MODE_LABELS[state.loopMode];
@@ -7444,6 +7491,58 @@ function reopenWelcome() {
   document.getElementById('welcomeModal').style.display = 'flex';
 }
 
+// Resize canvas — opens a branded dialog with width × height inputs.
+// Replaces the legacy "click resizeBtn silently with current values"
+// behavior that did nothing visible.
+function openResizeDialog() {
+  const m = document.getElementById('confirmModal');
+  const titleEl = document.getElementById('confirmModalTitle');
+  const bodyEl  = document.getElementById('confirmModalBody');
+  const okBtn   = document.getElementById('confirmModalOk');
+  const cancelBtn = document.getElementById('confirmModalCancel');
+  titleEl.lastChild.textContent = ' Resize canvas';
+  bodyEl.innerHTML = `
+    <p style="margin: 0 0 10px;">Resize the canvas. Pixels outside the new bounds will be clipped. Undo will not cross this step.</p>
+    <div style="display: flex; gap: 10px;">
+      <label style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Width</span>
+        <input id="_rsW" type="number" min="1" max="512" value="${state.width}"
+               style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px;">
+      </label>
+      <label style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Height</span>
+        <input id="_rsH" type="number" min="1" max="512" value="${state.height}"
+               style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px;">
+      </label>
+    </div>`;
+  okBtn.textContent = 'Resize';
+  okBtn.style.color = '';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.display = '';
+  m.style.display = 'flex';
+  const wInput = document.getElementById('_rsW');
+  const hInput = document.getElementById('_rsH');
+  setTimeout(() => { wInput.focus(); wInput.select(); }, 0);
+  const done = (apply) => {
+    m.style.display = 'none';
+    okBtn.onclick = null; cancelBtn.onclick = null;
+    if (apply) {
+      const w = Math.max(1, Math.min(512, parseInt(wInput.value, 10) || state.width));
+      const h = Math.max(1, Math.min(512, parseInt(hInput.value, 10) || state.height));
+      if (w !== state.width || h !== state.height) {
+        widthInput.value = w; heightInput.value = h;
+        document.getElementById('resizeBtn').click();
+      }
+    }
+  };
+  okBtn.onclick = () => done(true);
+  cancelBtn.onclick = () => done(false);
+  wInput.onkeydown = hInput.onkeydown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); done(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+  };
+}
+
 // View / animation toggle helpers.
 function toggleGridLines() {
   const cb = document.getElementById('gridLinesToggle');
@@ -7508,7 +7607,7 @@ const MENU_DEFS = {
     { label: 'Clear active layer', click: _legacyClick('clearBtn') },
   ],
   image: [
-    { label: 'Resize canvas',   shortcut: '',          click: _legacyClick('resizeBtn') },
+    { label: 'Resize canvas…',  click: openResizeDialog },
     { sep: true },
     { label: 'Flip horizontal', shortcut: '⇧H',        click: _legacyClick('flipHBtn') },
     { label: 'Flip vertical',   shortcut: '⇧V',        click: _legacyClick('flipVBtn') },
@@ -7645,28 +7744,32 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ── Brush popover ───────────────────────────────────────────
-// Transplant the five legacy brush groups (size / opacity / dither /
-// pressure / smoothing) into the popover at boot. They keep their
-// IDs + event listeners — they just live in a different DOM parent.
+// Brush popover trigger now docks next to the canvas in the preview
+// row (see #canvasBrushChipTrigger) instead of the header — per user
+// feedback that the brush settings were too far from the artwork.
+// The transplant model is the same: the legacy brush groups
+// (size / opacity / dither / pressure / smoothing) move into the
+// popover at boot, keeping all their event listeners.
 const brushPopover = document.getElementById('brushPopover');
-const brushChipTrigger = document.getElementById('brushChipTrigger');
-const brushChipReadout = document.getElementById('brushChipReadout');
+const brushChipTrigger = document.getElementById('canvasBrushChipTrigger');
+const brushChipReadout = document.getElementById('canvasBrushChipReadout');
 function syncBrushChipReadout() {
   const op = Math.round((state.brushOpacity ?? 1) * 100);
-  brushChipReadout.textContent = (state.brushSize | 0) + ' px · ' + op + '%';
+  if (brushChipReadout) brushChipReadout.textContent = (state.brushSize | 0) + ' px · ' + op + '%';
 }
 function openBrushPopover() {
   closeAllMenus();
   const r = brushChipTrigger.getBoundingClientRect();
-  brushPopover.style.top  = (r.bottom + 4) + 'px';
-  // Right-align to the chip when there's room, else just left at chip.
-  brushPopover.style.left = Math.min(window.innerWidth - 280, r.left - 100) + 'px';
+  // Open above the chip (popover above, caret-pointing-down feel)
+  // since the chip is near the bottom of the canvas pane.
+  brushPopover.style.left = Math.min(window.innerWidth - 280, r.left) + 'px';
+  brushPopover.style.top  = Math.max(20, r.top - 280) + 'px';
   brushPopover.classList.add('open');
   brushChipTrigger.classList.add('open');
 }
 function closeBrushPopover() {
   brushPopover.classList.remove('open');
-  brushChipTrigger.classList.remove('open');
+  if (brushChipTrigger) brushChipTrigger.classList.remove('open');
 }
 brushChipTrigger.addEventListener('click', (e) => {
   e.stopPropagation();
@@ -7678,30 +7781,19 @@ for (const cls of ['brush-size-group', 'brush-opacity-group', 'dither-group', 'p
   const el = document.querySelector('.legacy-toolbar .' + cls);
   if (el) brushPopover.appendChild(el);
 }
-// Header Record button mirror — the legacy #timelapseBtn lives hidden;
-// the new header button + indicator just shadow it. Clicks proxy
-// through .click() so the existing recording logic isn't touched.
-const headerRecordBtn = document.getElementById('timelapseBtnHeader');
-const headerRecordIndicator = document.getElementById('timelapseIndicatorHeader');
+// Recording indicator — visible only WHILE recording (the Record
+// toggle moved into the Animation menu per user feedback). The
+// existing time-lapse code writes to legacy #timelapseIndicator;
+// shadow its display + frame count into the new header indicator
+// via MutationObserver. Click the indicator to stop recording.
+const recordingIndicator = document.getElementById('recordingIndicator');
 const headerRecordFrameCount = document.getElementById('timelapseFrameCountHeader');
-headerRecordBtn.addEventListener('click', () => {
-  document.getElementById('timelapseBtn').click();
-});
-// Mirror the legacy indicator into the header indicator via a small
-// MutationObserver — the existing updateTimelapseIndicator function
-// writes to #timelapseBtn / #timelapseIndicator; we shadow that into
-// the header variants so the user sees pulsing dot + frame count.
 const _legacyTimelapseIndicator = document.getElementById('timelapseIndicator');
 const _legacyTimelapseFrameCount = document.getElementById('timelapseFrameCount');
 const _legacyTimelapseBtn = document.getElementById('timelapseBtn');
+recordingIndicator.addEventListener('click', () => _legacyTimelapseBtn.click());
 new MutationObserver(() => {
-  headerRecordIndicator.style.display = _legacyTimelapseIndicator.style.display;
-  headerRecordFrameCount.textContent  = _legacyTimelapseFrameCount.textContent;
-  headerRecordBtn.textContent         = _legacyTimelapseBtn.textContent;
-  headerRecordBtn.classList.toggle('recording', _legacyTimelapseIndicator.style.display !== 'none');
-}).observe(_legacyTimelapseBtn, { childList: true, attributes: true, characterData: true, subtree: true });
-new MutationObserver(() => {
-  headerRecordIndicator.style.display = _legacyTimelapseIndicator.style.display;
+  recordingIndicator.style.display = _legacyTimelapseIndicator.style.display === 'none' ? 'none' : 'inline-flex';
   headerRecordFrameCount.textContent  = _legacyTimelapseFrameCount.textContent;
 }).observe(_legacyTimelapseIndicator, { childList: true, attributes: true, characterData: true, subtree: true });
 // Keep the brush chip readout fresh when size or opacity changes.
