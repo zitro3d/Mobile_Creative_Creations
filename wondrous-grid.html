@@ -208,12 +208,56 @@
     min-width: 30px;
     /* The gutter's vertical scroll is driven by JS, mirroring the textarea. */
   }
+  /* Editor stack: a syntax-highlight <pre> overlay BEHIND a transparent
+     textarea. Both share font + padding + line-height so the rendered
+     spans land exactly where the textarea would draw the raw text.
+     The textarea's color is transparent so only the overlay text shows;
+     the caret stays visible via caret-color. */
+  .code-editor-stack {
+    position: relative; flex: 1; min-width: 0; min-height: 0;
+    background: var(--bg-input);
+    overflow: hidden;
+  }
+  #codeHighlight {
+    position: absolute; inset: 0; margin: 0;
+    padding: 10px 12px;
+    font-family: 'SF Mono', Consolas, monospace; font-size: 11px;
+    line-height: 1.5;
+    white-space: pre;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+    color: var(--text);
+    background: transparent;
+    box-sizing: border-box;
+  }
+  /* Token classes. Hex codes get inline-styled with their actual color so
+     each '#abc123' literal renders in that hue — instant visual mapping
+     between code line and pixel color. */
+  .hl-cmt { color: #6e7681; font-style: italic; }
+  .hl-num { color: #79c0ff; }
+  .hl-kw  { color: #ff7b72; }
+  .hl-fn  { color: #d2a8ff; }
+  .hl-str { color: #a5d6ff; }
+  .hl-pun { color: #8b949e; }
+  .hl-hex { font-weight: 600; text-shadow: 0 0 1px rgba(0,0,0,0.7); }
   #codeText {
-    flex: 1; resize: none; border: none; background: var(--bg-input); color: var(--text);
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    resize: none; border: none;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--accent);
     font-family: 'SF Mono', Consolas, monospace; font-size: 11px;
     padding: 10px 12px; outline: none; line-height: 1.5;
     white-space: pre; overflow: auto;
+    box-sizing: border-box;
   }
+  /* Selection: native textarea selection rectangle is drawn behind text
+     and is still visible even when text color is transparent. We only
+     need to give it a bit more contrast to look intentional. */
+  #codeText::selection { background: rgba(255, 208, 96, 0.3); }
+  #codeText::-moz-selection { background: rgba(255, 208, 96, 0.3); }
   /* Live stats line: pixel count, distinct colors, code-line count.
      Updated on every renderCode() + after every Apply Edits. */
   .code-stats {
@@ -512,10 +556,28 @@
   <!-- RIGHT — Code panel -->
   <div class="panel panel-code">
     <h2>Generated Code</h2>
-    <div class="code-info">Each painted pixel → one <code>px(ctx, '#hex', x, y, 1, 1)</code> call. Edit freely, then click <em>Apply Edits</em>.</div>
+    <div class="code-info">
+      <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px;">
+        <label style="display: flex; align-items: center; gap: 4px;">format:
+          <select id="formatSelect" style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font-family: inherit; font-size: 11px;">
+            <option value="px">px(ctx, …)</option>
+            <option value="fillRect">ctx.fillRect</option>
+            <option value="array">data array</option>
+            <option value="function">game-ready fn</option>
+          </select>
+        </label>
+        <label id="fnNameLabel" style="display: none; align-items: center; gap: 4px;">name:
+          <input id="fnNameInput" type="text" value="pxMySprite" style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 6px; font-family: 'SF Mono', Consolas, monospace; font-size: 11px; width: 110px;">
+        </label>
+      </div>
+      Each painted pixel → one <code>px(ctx, '#hex', x, y, 1, 1)</code> call (default). Edit freely, then click <em>Apply Edits</em>.
+    </div>
     <div class="code-body">
       <pre id="codeGutter" class="code-gutter" aria-hidden="true">1</pre>
-      <textarea id="codeText" spellcheck="false" wrap="off"></textarea>
+      <div class="code-editor-stack">
+        <pre id="codeHighlight" aria-hidden="true"></pre>
+        <textarea id="codeText" spellcheck="false" wrap="off"></textarea>
+      </div>
     </div>
     <div class="code-stats" id="codeStats">
       <span><span class="stat-key">pixels</span> <span class="stat-val" id="statPixels">0</span></span>
@@ -843,6 +905,13 @@ let state = {
   // seamless / tileable patterns. Painting on any tile maps back to
   // the canonical (0..W, 0..H) via modulo — change shows on all 9.
   tileMode: false,
+  // Code panel output format. Persisted via autosave.
+  //   'px'       — px(ctx, '#hex', x, y, 1, 1)   (default, editable)
+  //   'fillRect' — ctx.fillStyle = ...; ctx.fillRect(x, y, 1, 1)
+  //   'array'    — const SPRITE = [['#hex', x, y], ...]
+  //   'function' — function fnName(ctx, ox, oy) { px(...); ... }
+  codeFormat: 'px',
+  fnName: 'pxMySprite',         // only used by 'function' format
   refSrc: null,               // data URL of reference image (or null)
   refOpacity: 0.4,            // 0..1
   refVisible: true,
@@ -1940,14 +2009,19 @@ function generateCode() {
   // Code panel always shows JUST THE CURRENT FRAME (so Apply Edits has a
   // clear target). The "Copy Code" button below emits a multi-frame
   // wrapper function when there's more than one frame — see generateCopyCode().
-  const lines = [];
-  for (let y = 0; y < state.height; y++) {
-    for (let x = 0; x < state.width; x++) {
-      const hex = state.pixels[`${x},${y}`];
-      if (hex) lines.push(`px(ctx, '${hex}', ${x}, ${y}, 1, 1);`);
-    }
+  // Format is user-selectable — dispatch to the right generator.
+  switch (state.codeFormat) {
+    case 'fillRect': return genCodeFillRect();
+    case 'array':    return genCodeArray();
+    case 'function': return genCodeFunction();
+    case 'px':
+    default:         return genCodePx();
   }
-  // Header: warn about custom colors not in the master palettes
+}
+
+// Header builder shared by all formats. Lists custom (off-palette) colors
+// so the artist can wire them into the game's master palettes later.
+function codeHeader() {
   const customUsed = collectCustomColors(state.pixels);
   let header = `// Generated by Wondrous Grid — sprite ${state.width}×${state.height}`;
   if (state.frames.length > 1) {
@@ -1961,7 +2035,85 @@ function generateCode() {
     }
     header += `// Add these to the master palettes if you want them globally available.\n`;
   }
-  return header + lines.join('\n');
+  return header;
+}
+
+// 1) px() format — the editable default. Used by every existing tool.
+function genCodePx() {
+  const lines = [];
+  for (let y = 0; y < state.height; y++) {
+    for (let x = 0; x < state.width; x++) {
+      const hex = state.pixels[`${x},${y}`];
+      if (hex) lines.push(`px(ctx, '${hex}', ${x}, ${y}, 1, 1);`);
+    }
+  }
+  return codeHeader() + lines.join('\n');
+}
+
+// 2) ctx.fillRect format — copy-paste straight into vanilla canvas2D
+//    code without needing the px() helper. We group consecutive pixels
+//    of the same color so the output stays compact (one fillStyle per
+//    color run).
+function genCodeFillRect() {
+  let prevHex = null;
+  const lines = [];
+  for (let y = 0; y < state.height; y++) {
+    for (let x = 0; x < state.width; x++) {
+      const hex = state.pixels[`${x},${y}`];
+      if (!hex) continue;
+      if (hex !== prevHex) {
+        lines.push(`ctx.fillStyle = '${hex}';`);
+        prevHex = hex;
+      }
+      lines.push(`ctx.fillRect(${x}, ${y}, 1, 1);`);
+    }
+  }
+  return codeHeader() + lines.join('\n');
+}
+
+// 3) Data array format — emit a flat triples list so the sprite can be
+//    embedded as data and drawn from a single loop. Easiest format for
+//    procedural / data-driven rendering pipelines.
+function genCodeArray() {
+  const lines = [];
+  for (let y = 0; y < state.height; y++) {
+    for (let x = 0; x < state.width; x++) {
+      const hex = state.pixels[`${x},${y}`];
+      if (hex) lines.push(`  ['${hex}', ${x}, ${y}],`);
+    }
+  }
+  const head = codeHeader();
+  return head + `const SPRITE = [\n` + lines.join('\n') + `\n];\n` +
+    `// Draw with: for (const [c, x, y] of SPRITE) px(ctx, c, ox + x, oy + y, 1, 1);`;
+}
+
+// 4) Game-ready function format — wraps the px() calls in a named
+//    function with (ox, oy) offset args, exactly how the game's own
+//    sprite functions are written (e.g. pxRoadkillRig, pxLandmarkDiner).
+//    User picks the name via the input next to the format selector.
+function genCodeFunction() {
+  const name = sanitizeFnName(state.fnName || 'pxMySprite');
+  const lines = [];
+  for (let y = 0; y < state.height; y++) {
+    for (let x = 0; x < state.width; x++) {
+      const hex = state.pixels[`${x},${y}`];
+      if (hex) lines.push(`  px(ctx, '${hex}', ox + ${x}, oy + ${y}, 1, 1);`);
+    }
+  }
+  return codeHeader() +
+    `function ${name}(ctx, ox, oy) {\n` +
+    lines.join('\n') +
+    `\n}\n`;
+}
+
+function sanitizeFnName(s) {
+  // Strip anything that wouldn't be a valid JS identifier; ensure it
+  // doesn't start with a digit. Falls back to a sensible default if the
+  // user clears the input entirely.
+  let clean = String(s).replace(/[^A-Za-z0-9_$]/g, '');
+  if (!clean) clean = 'pxMySprite';
+  if (/^[0-9]/.test(clean)) clean = '_' + clean;
+  return clean;
 }
 
 function collectCustomColors(pixelMap) {
@@ -2038,9 +2190,10 @@ function renderCode() {
   codeText.value = generateCode();
   refreshCodeGutter();
   refreshCodeStats();
+  refreshCodeHighlight();
 }
 
-// ── Code-panel pro chrome: gutter + stats ─────────────────────
+// ── Code-panel pro chrome: gutter + stats + syntax highlight ─────
 // Line-number gutter is a separate <pre> driven entirely by the
 // textarea's content. We rebuild it on every renderCode(), on every
 // user keystroke inside the textarea, and keep its scrollTop synced
@@ -2054,8 +2207,108 @@ function refreshCodeGutter() {
   codeGutter.textContent = g;
   codeGutter.scrollTop = codeText.scrollTop;
 }
-codeText.addEventListener('scroll', () => { codeGutter.scrollTop = codeText.scrollTop; });
-codeText.addEventListener('input',  refreshCodeGutter);
+codeText.addEventListener('scroll', () => {
+  codeGutter.scrollTop = codeText.scrollTop;
+  codeHighlight.scrollTop = codeText.scrollTop;
+  codeHighlight.scrollLeft = codeText.scrollLeft;
+});
+codeText.addEventListener('input',  () => {
+  refreshCodeGutter();
+  refreshCodeStats();
+  refreshCodeHighlight();
+});
+
+// ── Syntax highlighter ─────────────────────────────────────────
+// Renders the textarea's content into a behind-overlay <pre> with
+// per-token spans. The textarea itself is transparent — the user sees
+// the colored overlay and a visible caret. Tokenizer is hand-rolled and
+// tolerant: any unrecognized input falls through as default-colored.
+// Hex literals get inline-styled with their own color value so a
+// '#3aa8b8' literal renders cyan, '#c83828' rust-red, etc. — instant
+// visual mapping between code line and pixel.
+const HL_KEYWORDS = new Set([
+  'function', 'return', 'const', 'let', 'var', 'if', 'else',
+  'for', 'while', 'switch', 'case', 'break', 'continue',
+  'new', 'true', 'false', 'null', 'undefined',
+]);
+function escapeHTML(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function highlightCodeLine(line) {
+  // Whole-line comment shortcut — preserves leading whitespace.
+  if (/^\s*\/\//.test(line)) return `<span class="hl-cmt">${escapeHTML(line)}</span>`;
+  let html = '';
+  let i = 0;
+  const n = line.length;
+  while (i < n) {
+    const ch = line[i];
+    // Inline comment from this point
+    if (ch === '/' && line[i + 1] === '/') {
+      html += `<span class="hl-cmt">${escapeHTML(line.slice(i))}</span>`;
+      break;
+    }
+    // String literal — quoted hex codes get colored as the actual hex
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const q = ch;
+      let j = i + 1;
+      while (j < n && line[j] !== q) {
+        if (line[j] === '\\' && j + 1 < n) j += 2; else j++;
+      }
+      const full = line.slice(i, Math.min(j + 1, n));
+      const inner = line.slice(i + 1, j);
+      if (/^#[0-9a-fA-F]{3,8}$/.test(inner)) {
+        html += `<span class="hl-hex" style="color:${inner}">${escapeHTML(full)}</span>`;
+      } else {
+        html += `<span class="hl-str">${escapeHTML(full)}</span>`;
+      }
+      i = j + 1;
+      continue;
+    }
+    // Number
+    if (ch >= '0' && ch <= '9') {
+      let j = i;
+      while (j < n && /[0-9.]/.test(line[j])) j++;
+      html += `<span class="hl-num">${escapeHTML(line.slice(i, j))}</span>`;
+      i = j;
+      continue;
+    }
+    // Identifier
+    if (/[A-Za-z_$]/.test(ch)) {
+      let j = i;
+      while (j < n && /[A-Za-z0-9_$]/.test(line[j])) j++;
+      const word = line.slice(i, j);
+      // Function-call detection: identifier followed by '(' (possibly
+      // with whitespace) gets the function color; otherwise keyword
+      // table or default.
+      let k = j;
+      while (k < n && line[k] === ' ') k++;
+      const isCall = line[k] === '(';
+      if (HL_KEYWORDS.has(word))   html += `<span class="hl-kw">${escapeHTML(word)}</span>`;
+      else if (isCall)             html += `<span class="hl-fn">${escapeHTML(word)}</span>`;
+      else                         html += escapeHTML(word);
+      i = j;
+      continue;
+    }
+    // Punctuation / operators
+    if (/[(){}\[\];,.=+\-*\/%<>!&|?:]/.test(ch)) {
+      html += `<span class="hl-pun">${escapeHTML(ch)}</span>`;
+      i++;
+      continue;
+    }
+    html += escapeHTML(ch);
+    i++;
+  }
+  return html;
+}
+function refreshCodeHighlight() {
+  const lines = codeText.value.split('\n');
+  // Trailing space-padded line so the overlay's final line gets line-box
+  // height even when the textarea ends with a newline (browsers omit
+  // height for a trailing empty line in <pre> otherwise).
+  codeHighlight.innerHTML = lines.map(highlightCodeLine).join('\n') + ' ';
+  codeHighlight.scrollTop = codeText.scrollTop;
+  codeHighlight.scrollLeft = codeText.scrollLeft;
+}
 
 // Stats line: pixel count, distinct colors, non-blank code lines, and
 // fill-% of the canvas. Cheap enough to recompute on every code change.
@@ -2115,12 +2368,17 @@ codeText.addEventListener('mouseleave', () => {
 });
 
 function parseCodeIntoState(text) {
-  const re = /px\s*\(\s*ctx\s*,\s*['"`](#[0-9a-fA-F]{3,6})['"`]\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g;
+  // Parse the editable code back into a pixel map. Recognizes ALL output
+  // formats so the user can edit in any of them and Apply Edits works:
+  //   1. px(ctx, '#hex', x, y, w, h)             — default
+  //   2. ctx.fillStyle = '#hex'; ctx.fillRect(x, y, w, h)
+  //   3. ['#hex', x, y] (or ['#hex', x, y, w, h]) — array entries
+  //   4. The function-wrapped px() format with `ox + N` / `oy + N` args
+  //
+  // Order matters: most-specific patterns first so they don't get eaten
+  // by the broader ones.
   const fresh = {};
-  let m;
-  while ((m = re.exec(text))) {
-    const hex = normalizeHex(m[1]);
-    const x = +m[2], y = +m[3], w = +m[4], h = +m[5];
+  const paint = (hex, x, y, w, h) => {
     for (let dy = 0; dy < h; dy++) {
       for (let dx = 0; dx < w; dx++) {
         const nx = x + dx, ny = y + dy;
@@ -2129,7 +2387,30 @@ function parseCodeIntoState(text) {
         }
       }
     }
+  };
+
+  // px() — also handles "ox + N" / "oy + N" by stripping them to just the N.
+  const pxRe = /px\s*\(\s*ctx\s*,\s*['"`](#[0-9a-fA-F]{3,6})['"`]\s*,\s*(?:ox\s*\+\s*)?(\d+)\s*,\s*(?:oy\s*\+\s*)?(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g;
+  let m;
+  while ((m = pxRe.exec(text))) {
+    paint(normalizeHex(m[1]), +m[2], +m[3], +m[4], +m[5]);
   }
+
+  // ctx.fillRect form — pair each fillStyle assignment with subsequent fillRects
+  // until the next fillStyle changes. Run a stateful pass over the source.
+  const fillRe = /ctx\.fillStyle\s*=\s*['"`](#[0-9a-fA-F]{3,6})['"`]\s*;?|ctx\.fillRect\s*\(\s*(?:ox\s*\+\s*)?(\d+)\s*,\s*(?:oy\s*\+\s*)?(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g;
+  let curHex = null;
+  while ((m = fillRe.exec(text))) {
+    if (m[1]) { curHex = normalizeHex(m[1]); continue; }
+    if (curHex) paint(curHex, +m[2], +m[3], +m[4], +m[5]);
+  }
+
+  // Array form — ['#hex', x, y] or ['#hex', x, y, w, h]
+  const arrRe = /\[\s*['"`](#[0-9a-fA-F]{3,6})['"`]\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+)\s*,\s*(\d+))?\s*\]/g;
+  while ((m = arrRe.exec(text))) {
+    paint(normalizeHex(m[1]), +m[2], +m[3], +(m[4] || 1), +(m[5] || 1));
+  }
+
   state.pixels = fresh;
   renderGrid();
   renderPreview();
@@ -2155,6 +2436,27 @@ codeText.addEventListener('keydown', (e) => {
     applyCodeBtn.textContent = '✓ Applied!';
     setTimeout(() => { applyCodeBtn.textContent = 'Apply Edits → Grid'; }, 1200);
   }
+});
+
+// Output format selector — px / fillRect / array / game-ready fn. The
+// fn-name input is only visible in 'function' mode (other formats don't
+// use it). Selection + name both persist via autosave().
+const formatSelect = document.getElementById('formatSelect');
+const fnNameInput  = document.getElementById('fnNameInput');
+const fnNameLabel  = document.getElementById('fnNameLabel');
+function syncFnNameVisibility() {
+  fnNameLabel.style.display = (state.codeFormat === 'function') ? 'flex' : 'none';
+}
+formatSelect.addEventListener('change', () => {
+  state.codeFormat = formatSelect.value;
+  syncFnNameVisibility();
+  renderCode();
+  autosave();
+});
+fnNameInput.addEventListener('input', () => {
+  state.fnName = fnNameInput.value;
+  renderCode();
+  autosave();
 });
 
 // ── Code line ↔ pixel correlation ─────────────────────────
@@ -2390,6 +2692,8 @@ function autosave() {
       symmetry: state.symmetry,
       lockAlpha: state.lockAlpha,
       tileMode: state.tileMode,
+      codeFormat: state.codeFormat,
+      fnName: state.fnName,
     }));
   } catch (e) {
     // localStorage quota exceeded — most likely the reference image is
@@ -2446,6 +2750,8 @@ function restoreAutosave() {
     if (typeof data.symmetry === 'string') state.symmetry = data.symmetry;
     if (typeof data.lockAlpha === 'boolean') state.lockAlpha = data.lockAlpha;
     if (typeof data.tileMode === 'boolean') state.tileMode = data.tileMode;
+    if (typeof data.codeFormat === 'string') state.codeFormat = data.codeFormat;
+    if (typeof data.fnName === 'string') state.fnName = data.fnName;
     widthInput.value = state.width;
     heightInput.value = state.height;
     return true;
@@ -3511,6 +3817,10 @@ renderTimeline();
   lockAlphaBtn.classList.toggle('active', state.lockAlpha);
   lockAlphaBtn.textContent = '🔒 Lock α' + (state.lockAlpha ? ' ✓' : '');
   document.getElementById('tileModeCheck').checked = state.tileMode;
+  formatSelect.value = state.codeFormat;
+  fnNameInput.value  = state.fnName;
+  syncFnNameVisibility();
+  renderCode();  // re-run with the just-restored format
 }
 
 // ────────────────────────────────────────────────────────────
