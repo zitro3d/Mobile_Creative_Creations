@@ -339,8 +339,52 @@
     z-index: 0;
   }
   #refImage.visible { display: block; }
-  #paintCanvas { display: block; image-rendering: pixelated; cursor: crosshair; position: relative; z-index: 1; }
+  #paintCanvas { display: block; image-rendering: pixelated; cursor: crosshair; position: relative; z-index: 1; touch-action: none; }
   #paintCanvas.ref-active { /* paint canvas keeps its painted pixels but the checker gets thinned out — see renderGrid() */ }
+
+  /* On-canvas floating action bar — top-right of the canvas pane on
+     coarse-pointer devices (iPad / pen tablets). Hidden on hover-
+     capable mouse devices where the keyboard + top toolbar are
+     adequate. */
+  .canvas-action-bar {
+    position: absolute;
+    top: 14px; right: 14px;
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 80;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+  }
+  .canvas-action-btn {
+    width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0;
+  }
+  .canvas-action-btn:hover { border-color: var(--accent); }
+  .canvas-action-btn.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .canvas-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  /* Touch / pen device tweaks — bigger tap targets per iOS HIG
+     (44px+), float the on-canvas action bar, give the timeline
+     toolbar room to breathe. */
+  @media (pointer: coarse) {
+    .canvas-action-bar { display: flex; }
+    .tool-btn { min-height: 36px; padding: 8px 6px; }
+    header button, .timeline-toolbar button, .code-actions button {
+      min-height: 36px;
+    }
+    .frame-thumb { width: 80px; height: 80px; }
+    .frame-thumb-add { width: 40px; height: 80px; font-size: 22px; }
+  }
   .preview-row { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 11px; flex-wrap: wrap; }
   .preview-row .preview-wrap { background: var(--paint-bg); border: 1px solid var(--border); padding: 4px; }
   /* Live X,Y + color readout next to the zoom controls. The little
@@ -978,6 +1022,19 @@
         <button id="previewWindowClose" class="preview-window-btn" title="Hide preview (re-open from the timeline toolbar)">×</button>
       </div>
       <canvas id="previewWindowCanvas"></canvas>
+    </div>
+    <!-- On-canvas floating action bar — visible on coarse pointers
+         (touch / pen) so iPad users have Undo / Redo / Eraser /
+         Fit-zoom one tap away without needing a keyboard. Hidden by
+         default on mouse-pointer devices where keyboard shortcuts +
+         the regular toolbar already cover these. -->
+    <div class="canvas-action-bar" id="canvasActionBar">
+      <button id="canvasUndoBtn"        class="canvas-action-btn" title="Undo">↶</button>
+      <button id="canvasRedoBtn"        class="canvas-action-btn" title="Redo">↷</button>
+      <button id="canvasEraseToggleBtn" class="canvas-action-btn" title="Toggle eraser (long-press equivalent)">
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g transform="rotate(-40 12 12)"><rect x="3" y="9" width="18" height="6" rx="1.5" fill="#ff9eb5" stroke="#1a1a1c" stroke-width="1"/><rect x="3" y="9" width="5" height="6" fill="#3a7ce8" stroke="#1a1a1c" stroke-width="1"/></g></svg>
+      </button>
+      <button id="canvasFitZoomBtn"     class="canvas-action-btn" title="Fit zoom to view">⛶</button>
     </div>
     <div class="grid-wrap">
       <img id="refImage" alt="">
@@ -2962,6 +3019,104 @@ window.addEventListener('mouseup', (e) => {
   autosave();
 });
 paintCanvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// ── iPad / touch — pinch-zoom + two-finger pan ─────────────
+// touch-action: none on the canvas suppresses the browser's default
+// pinch + pan so our custom gestures win. iOS Safari still fires
+// synthetic mouse events for single-finger taps, so the existing
+// paint flow keeps working unchanged. We only intervene when there
+// are 2+ fingers — that's the gesture mode.
+let _pinchStartDist = 0;
+let _pinchStartZoom = 0;
+let _twoFingerStartMid = null;
+let _twoFingerStartScroll = null;
+function _touchDist(t) {
+  const dx = t[0].clientX - t[1].clientX;
+  const dy = t[0].clientY - t[1].clientY;
+  return Math.hypot(dx, dy);
+}
+function _touchMid(t) {
+  return { x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 };
+}
+paintCanvas.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    _pinchStartDist = _touchDist(e.touches);
+    _pinchStartZoom = state.zoom;
+    _twoFingerStartMid = _touchMid(e.touches);
+    const gw = document.querySelector('.grid-wrap');
+    _twoFingerStartScroll = { left: gw.scrollLeft, top: gw.scrollTop };
+    // Cancel any in-progress single-finger paint stroke so the pinch
+    // doesn't accidentally smear pixels under one of the touches.
+    isPainting = false;
+    preStrokeSnapshot = null;
+    lastCellKey = null;
+  }
+}, { passive: false });
+paintCanvas.addEventListener('touchmove', (e) => {
+  if (e.touches.length === 2 && _pinchStartDist > 0) {
+    e.preventDefault();
+    // Pinch ratio drives zoom; midpoint movement drives pan. Both
+    // applied each frame so the gesture feels continuous.
+    const dist = _touchDist(e.touches);
+    const ratio = dist / _pinchStartDist;
+    const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(_pinchStartZoom * ratio)));
+    if (z !== state.zoom) {
+      state.zoom = z;
+      zoomLabel.textContent = `${state.zoom}×`;
+      document.getElementById('zoomSlider').value = state.zoom;
+      renderGrid();
+    }
+    const mid = _touchMid(e.touches);
+    if (_twoFingerStartMid && _twoFingerStartScroll) {
+      const gw = document.querySelector('.grid-wrap');
+      gw.scrollLeft = _twoFingerStartScroll.left - (mid.x - _twoFingerStartMid.x);
+      gw.scrollTop  = _twoFingerStartScroll.top  - (mid.y - _twoFingerStartMid.y);
+    }
+  }
+}, { passive: false });
+paintCanvas.addEventListener('touchend', () => {
+  _pinchStartDist = 0;
+  _twoFingerStartMid = null;
+  _twoFingerStartScroll = null;
+});
+
+// ── On-canvas floating action bar — iPad-friendly Undo / Redo /
+// Eraser-toggle / Fit-zoom. The eraser toggle FLIPS between paint
+// and erase, mirroring the right-click-erase mouse shortcut. Active
+// state on the button reflects current tool. ────────────────────
+const canvasActionBar      = document.getElementById('canvasActionBar');
+const canvasUndoBtn        = document.getElementById('canvasUndoBtn');
+const canvasRedoBtn        = document.getElementById('canvasRedoBtn');
+const canvasEraseToggleBtn = document.getElementById('canvasEraseToggleBtn');
+const canvasFitZoomBtn     = document.getElementById('canvasFitZoomBtn');
+canvasUndoBtn.addEventListener('click', () => undo());
+canvasRedoBtn.addEventListener('click', () => redo());
+canvasEraseToggleBtn.addEventListener('click', () => {
+  setTool(state.tool === 'erase' ? 'paint' : 'erase');
+  canvasEraseToggleBtn.classList.toggle('active', state.tool === 'erase');
+});
+canvasFitZoomBtn.addEventListener('click', () => {
+  fitZoomToScreen();
+  renderGrid();
+});
+// Mirror the undo/redo button disabled state. Hook into the existing
+// refreshUndoUI by adding a sync at the end (defined elsewhere, but
+// patched here with a tiny wrapper to also touch our canvas buttons).
+const _origRefreshUndoUI = refreshUndoUI;
+refreshUndoUI = function() {
+  _origRefreshUndoUI();
+  canvasUndoBtn.disabled = undoStack.length === 0;
+  canvasRedoBtn.disabled = redoStack.length === 0;
+};
+// Keep the eraser-toggle's active state in lock-step with the tool —
+// patches setTool the same way.
+const _origSetTool = setTool;
+setTool = function(t) {
+  _origSetTool(t);
+  canvasEraseToggleBtn.classList.toggle('active', state.tool === 'erase');
+};
+refreshUndoUI();
 
 // Live X,Y + color readout — driven by mousemove on the paint canvas.
 // Clears when the cursor leaves so the readout doesn't show stale
