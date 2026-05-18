@@ -377,6 +377,103 @@
     border-radius: 4px;
   }
 
+  /* Asset grid + tile — visual library for the project. Each tile
+     shows a thumbnail (img for built-in PNG starters, canvas for
+     user-saved sprites), name, dimensions / frame count, type
+     badge (STARTER / 🎞 / 🖼) in the corner, and an × delete
+     button on hover (user-saved only — starters are read-only). */
+  .pl-asset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 4px;
+  }
+  .pl-asset-tile {
+    position: relative;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 8px;
+    cursor: pointer;
+    transition: all var(--tdur) var(--ease);
+    display: flex; flex-direction: column; gap: 6px;
+    overflow: hidden;
+  }
+  .pl-asset-tile:hover {
+    border-color: var(--accent);
+    background: var(--bg-surface);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+  }
+  .pl-asset-tile.starter {
+    border-color: var(--border-strong);
+  }
+  .pl-asset-tile.starter:hover {
+    border-color: var(--accent);
+  }
+  .pl-asset-thumb {
+    width: 100%;
+    aspect-ratio: 1;
+    background: #0d0e10;
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .pl-asset-thumb img, .pl-asset-thumb canvas {
+    max-width: 100%; max-height: 100%;
+    object-fit: contain;
+  }
+  .pl-asset-labels {
+    display: flex; flex-direction: column; gap: 2px;
+    min-width: 0;
+  }
+  .pl-asset-name {
+    color: var(--text); font-size: 11px; font-weight: 600;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .pl-asset-meta {
+    color: var(--text-dim);
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 9px;
+    letter-spacing: 0.3px;
+  }
+  .pl-asset-badge {
+    position: absolute;
+    top: 6px; right: 6px;
+    background: rgba(0, 0, 0, 0.7);
+    color: var(--accent);
+    border: 1px solid rgba(255, 208, 96, 0.3);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    pointer-events: none;
+  }
+  .pl-asset-del {
+    position: absolute;
+    top: 6px; left: 6px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid transparent;
+    color: var(--text-dim);
+    width: 22px; height: 22px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0;
+    transition: all var(--tdur) var(--ease);
+  }
+  .pl-asset-tile:hover .pl-asset-del { opacity: 1; }
+  .pl-asset-del:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+    background: rgba(255, 110, 110, 0.15);
+  }
+
   .brush-popover {
     position: absolute;
     top: 0; left: 0;
@@ -8532,15 +8629,30 @@ document.getElementById('plAddPresetBtn').addEventListener('click', () => {
 // Assets — render saved assets for this project. Click loads;
 // delete removes. Asset save / import buttons route through the
 // existing IndexedDB pipeline; new flag .projectName scopes them.
+// Built-in starter assets for the DLX project — read-only PNG
+// references the team has already exported as art briefs. Anyone
+// who opens the DLX project sees these as starter thumbnails to
+// click into. Each is a single-image starter; the user can extend
+// it into an animation by adding frames + saving back as a new
+// project asset.
+const BUILT_IN_DLX_ASSETS = [
+  { builtin: true, name: 'Hero Rig — Roadkill',         w: 58,  h: 52,  url: 'art/vehicles/hero/roadkill/reference.png' },
+  { builtin: true, name: 'Hero Rig — Smashed',          w: 58,  h: 52,  url: 'art/vehicles/hero/roadkill/reference_smashed.png' },
+  { builtin: true, name: 'Aerial Thief — Gunship',      w: 100, h: 44,  url: 'art/vehicles/enemy/gunship/reference.png' },
+  { builtin: true, name: 'Aerial Thief — Gunship Alt',  w: 132, h: 56,  url: 'art/vehicles/enemy/gunship_alt/reference.png' },
+  { builtin: true, name: 'Aerial Thief — Harpooner',    w: 110, h: 60,  url: 'art/vehicles/enemy/harpooner/reference.png' },
+];
 async function listProjectAssets() {
-  if (typeof idbList !== 'function') return [];
+  // Built-in starter assets get prepended for the DLX project so
+  // anyone opening the workspace has the rig + thieves to click into.
+  // User-saved assets follow, scoped by projectName.
+  const builtins = (_activeProjectName === 'DLX') ? BUILT_IN_DLX_ASSETS : [];
+  if (typeof idbList !== 'function') return builtins;
   try {
     const all = await idbList();
-    // Pre-projects assets have no projectName — they show under DLX
-    // (legacy behavior). New assets carry the project they were
-    // saved under so each project's library is properly scoped.
-    return all.filter(a => (a.projectName || 'DLX') === _activeProjectName);
-  } catch { return []; }
+    const saved = all.filter(a => (a.projectName || 'DLX') === _activeProjectName);
+    return [...builtins, ...saved];
+  } catch { return builtins; }
 }
 async function renderProjectAssets() {
   const listEl = document.getElementById('plAssetList');
@@ -8554,39 +8666,103 @@ async function renderProjectAssets() {
     listEl.appendChild(empty);
     return;
   }
+  // Switch to a grid of thumbnail tiles. User-saved assets get a
+  // tiny canvas rendered from the first frame's flattened pixels;
+  // built-in assets get an <img> pointing at the reference PNG.
+  listEl.className = 'pl-asset-grid';
   for (const a of assets) {
-    const isAnim = Array.isArray(a.frames) && a.frames.length > 1;
-    const row = document.createElement('div');
-    row.className = 'pl-row';
-    row.title = `Load "${a.name}"`;
-    row.innerHTML =
-      `<span class="pl-row-icon">${isAnim ? '🎞' : '🖼'}</span>` +
-      `<span class="pl-row-name"></span>` +
-      `<span class="pl-row-meta">${a.width}×${a.height}${isAnim ? ' · ' + a.frames.length + ' frames' : ''}</span>` +
-      `<button class="pl-row-del" title="Delete asset">×</button>`;
-    row.querySelector('.pl-row-name').textContent = a.name;
-    row.addEventListener('click', async (e) => {
-      if (e.target.closest('.pl-row-del')) return;
+    const isAnim = !a.builtin && Array.isArray(a.frames) && a.frames.length > 1;
+    const tile = document.createElement('div');
+    tile.className = 'pl-asset-tile' + (a.builtin ? ' starter' : '');
+    tile.title = `Load "${a.name}"`;
+    // Thumbnail container
+    const thumb = document.createElement('div');
+    thumb.className = 'pl-asset-thumb';
+    if (a.builtin) {
+      const img = document.createElement('img');
+      img.src = a.url;
+      img.alt = a.name;
+      img.style.imageRendering = 'pixelated';
+      thumb.appendChild(img);
+    } else {
+      // User-saved — render first frame from its pixel map.
+      const cvs = document.createElement('canvas');
+      const aw = a.width, ah = a.height;
+      // Render at 1× then CSS-scale via image-rendering: pixelated.
+      cvs.width = aw; cvs.height = ah;
+      const ctx = cvs.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = '#15151a';
+      ctx.fillRect(0, 0, aw, ah);
+      // The first frame's pixels — flatten visible layers if present.
+      const f = a.frames && a.frames[0];
+      if (f) {
+        const px = (f.layerPixels && Array.isArray(f.layerPixels))
+          ? f.layerPixels.reduce((acc, lp, idx) => {
+              const visible = (a.layers && a.layers[idx]) ? a.layers[idx].visible !== false : true;
+              if (!visible) return acc;
+              for (const k in lp) acc[k] = lp[k];
+              return acc;
+            }, {})
+          : (f.pixels || {});
+        for (const k in px) {
+          const [x, y] = k.split(',').map(Number);
+          ctx.fillStyle = px[k];
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+      cvs.style.imageRendering = 'pixelated';
+      thumb.appendChild(cvs);
+    }
+    tile.appendChild(thumb);
+    // Label + meta
+    const labels = document.createElement('div');
+    labels.className = 'pl-asset-labels';
+    labels.innerHTML =
+      `<div class="pl-asset-name"></div>` +
+      `<div class="pl-asset-meta">${a.w || a.width}×${a.h || a.height}${isAnim ? ' · ' + a.frames.length + ' frames' : ''}</div>`;
+    labels.querySelector('.pl-asset-name').textContent = a.name;
+    tile.appendChild(labels);
+    // Type badge (top-right corner of the thumb)
+    const badge = document.createElement('span');
+    badge.className = 'pl-asset-badge';
+    badge.textContent = a.builtin ? 'STARTER' : (isAnim ? '🎞' : '🖼');
+    tile.appendChild(badge);
+    // Delete (only for user-saved — built-ins are read-only)
+    if (!a.builtin) {
+      const del = document.createElement('button');
+      del.className = 'pl-asset-del';
+      del.textContent = '×';
+      del.title = 'Delete asset';
+      del.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const okay = await showConfirm({
+          title: 'Delete asset',
+          body: `Permanently delete "${a.name}" from this project's library? Cannot be undone.`,
+          ok: 'Delete', danger: true,
+        });
+        if (!okay) return;
+        try { await idbDelete(a.id); } catch {}
+        renderProjectAssets();
+      });
+      tile.appendChild(del);
+    }
+    tile.addEventListener('click', async () => {
       if (!maybeReplaceConfirm()) return;
       try {
-        loadAssetIntoState(a);
+        if (a.builtin) {
+          // Built-in starter — fetch the PNG via the existing
+          // loadPngIntoGrid pipeline (single-frame load + reset).
+          await loadPngIntoGrid(a.url);
+        } else {
+          loadAssetIntoState(a);
+        }
         closeProjectLibrary();
       } catch (err) {
         showAlert({ title: 'Failed to load asset', body: String(err && err.message || err) });
       }
     });
-    row.querySelector('.pl-row-del').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const okay = await showConfirm({
-        title: 'Delete asset',
-        body: `Permanently delete "${a.name}" from this project's library? Cannot be undone.`,
-        ok: 'Delete', danger: true,
-      });
-      if (!okay) return;
-      try { await idbDelete(a.id); } catch {}
-      renderProjectAssets();
-    });
-    listEl.appendChild(row);
+    listEl.appendChild(tile);
   }
 }
 document.getElementById('plSaveCurrentBtn').addEventListener('click', async () => {
