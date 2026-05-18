@@ -131,6 +131,46 @@
   .tool-btn { flex: 1; padding: 5px 4px; font-size: 11px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; text-align: center; }
   .tool-btn.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
   .tool-btn:hover { border-color: var(--accent); }
+  /* Brush-size mini buttons: square, fixed-width chips. flex:0 keeps
+     them from stretching when there are only four in the row. */
+  .brush-btn { flex: 0 0 32px; font-family: 'SF Mono', Consolas, monospace; font-weight: 600; }
+
+  /* Floating animation preview window. Independent RAF loop drives a
+     dedicated canvas so the artist sees motion while editing without
+     having to click Play in the main timeline. */
+  .preview-window {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 90;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+    user-select: none;
+  }
+  .preview-window-head {
+    display: flex; align-items: center; gap: 4px;
+    padding: 4px 6px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    border-radius: 4px 4px 0 0;
+    font-size: 10px;
+  }
+  .preview-window-title {
+    flex: 1; color: var(--text-dim); letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .preview-window-btn {
+    background: transparent; border: none; color: var(--text-dim);
+    cursor: pointer; padding: 0 4px; font-size: 13px; line-height: 1;
+  }
+  .preview-window-btn:hover { color: var(--accent); }
+  #previewWindowCanvas {
+    display: block; image-rendering: pixelated;
+    background: #15151a;
+    margin: 8px;
+  }
 
   .picker-row { margin-bottom: 12px; }
   .picker-row input[type=color] { width: 100%; height: 28px; border: 1px solid var(--border); background: var(--bg-input); cursor: pointer; padding: 2px; border-radius: 3px; }
@@ -537,6 +577,7 @@
     <button id="saveBtn">💾 Save JSON</button>
     <button id="loadBtn">📂 Load JSON</button>
     <input id="loadInput" type="file" accept=".json" style="display: none;">
+    <button id="exportPngBtn" title="Export the sprite as a PNG. Animated sprites become a horizontal sprite-sheet (one frame per cell). Tags emit a sidecar JSON with frame ranges + durations.">🖼 Export PNG</button>
     <button id="copyBtn">⎘ Copy Code</button>
     <button id="helpBtn" title="Keyboard shortcuts + how to use">? Help</button>
   </div>
@@ -562,9 +603,22 @@
       <button id="ellipseTool" class="tool-btn" title="Ellipse (O) — drag to draw a filled ellipse. Shift = circle.">○ Ellipse</button>
     </div>
     <div class="tool-row">
-      <button id="selectTool" class="tool-btn" title="Selection / marquee (M) — drag to select. Cmd/Ctrl + C/X/V/A, Esc to deselect.">⬚ Select</button>
+      <button id="selectTool" class="tool-btn" title="Selection / marquee (M) — drag to select. Cmd/Ctrl + C/X/V/A, Esc to deselect. Drag inside the marquee to move it.">⬚ Select</button>
       <button id="symBtn" class="tool-btn" title="Toggle symmetry. Click again to cycle: off → vertical mirror → horizontal → both.">⫯ Sym: off</button>
       <button id="lockAlphaBtn" class="tool-btn" title="Lock transparent pixels — paint only affects already-painted cells.">🔒 Lock α</button>
+    </div>
+    <!-- Brush size + pixel-perfect mode. Brush sizes 1-4 (square nibs);
+         pixel-perfect mode auto-cleans the diagonal "L-joints" that
+         freehand strokes leave behind. -->
+    <div class="tool-row" style="align-items: center; gap: 6px;">
+      <span style="font-size: 11px; color: var(--text-dim); flex-shrink: 0;">brush</span>
+      <button id="brush1" class="tool-btn brush-btn active" title="1-pixel brush ( [ to shrink, ] to grow )" data-size="1">1</button>
+      <button id="brush2" class="tool-btn brush-btn" title="2×2 brush" data-size="2">2</button>
+      <button id="brush3" class="tool-btn brush-btn" title="3×3 brush" data-size="3">3</button>
+      <button id="brush4" class="tool-btn brush-btn" title="4×4 brush" data-size="4">4</button>
+    </div>
+    <div class="tool-row">
+      <button id="pixelPerfectBtn" class="tool-btn" title="Pixel-perfect mode: auto-remove the L-joints that freehand diagonal strokes leave behind. Aseprite's classic 'clean lines' toggle.">◢ Pixel-perfect</button>
     </div>
 
     <h2>Pick Any Color</h2>
@@ -986,6 +1040,19 @@
   </div>
 </div>
 
+<!-- Persistent preview window — always plays the current sprite's
+     animation in a small floating canvas so the artist sees motion
+     while editing. Auto-hides for single-frame sprites. -->
+<div id="previewWindow" class="preview-window" style="display: none;">
+  <div class="preview-window-head">
+    <span class="preview-window-title">Preview</span>
+    <button id="previewZoomDown" class="preview-window-btn" title="Smaller">−</button>
+    <button id="previewZoomUp" class="preview-window-btn" title="Larger">+</button>
+    <button id="previewWindowClose" class="preview-window-btn" title="Hide preview window (re-show via View menu)">×</button>
+  </div>
+  <canvas id="previewWindowCanvas"></canvas>
+</div>
+
 <footer>
   <div>Wondrous Grid v1 · paint and code in sync</div>
   <div class="brand">Everything Wondrous ™</div>
@@ -1082,6 +1149,16 @@ let state = {
   //   'function' — function fnName(ctx, ox, oy) { px(...); ... }
   codeFormat: 'px',
   fnName: 'pxMySprite',         // only used by 'function' format
+  // Brush size — number of pixels per side of a square brush nib.
+  // 1 = single cell (current default). 2–4 = nxn block centered on the
+  // click (odd) or offset down-right (even). Applies to paint + erase;
+  // fill / rect / ellipse / line ignore it.
+  brushSize: 1,
+  // Pixel-perfect mode: while painting a freehand stroke, auto-remove
+  // any pixel that would form a 3-in-a-row L-joint (the "stairstep
+  // double" that diagonal freehand strokes produce). Standard pro
+  // toggle. Set per-session, persisted via autosave.
+  pixelPerfect: false,
   // Animation tags — Aseprite-style named frame ranges. Each tag has a
   // name, an inclusive frame range (0-indexed internally; UI shows 1-
   // based), a color shown as a chip + thumb under-bar, and a `loop`
@@ -1442,6 +1519,26 @@ function toggleLockAlpha() {
 }
 lockAlphaBtn.addEventListener('click', toggleLockAlpha);
 
+// Brush-size buttons + pixel-perfect toggle.
+function setBrushSize(n) {
+  state.brushSize = Math.max(1, Math.min(4, n | 0));
+  for (const el of document.querySelectorAll('.brush-btn')) {
+    el.classList.toggle('active', (+el.dataset.size) === state.brushSize);
+  }
+  autosave();
+}
+for (const el of document.querySelectorAll('.brush-btn')) {
+  el.addEventListener('click', () => setBrushSize(+el.dataset.size));
+}
+const pixelPerfectBtn = document.getElementById('pixelPerfectBtn');
+function setPixelPerfect(v) {
+  state.pixelPerfect = !!v;
+  pixelPerfectBtn.classList.toggle('active', state.pixelPerfect);
+  pixelPerfectBtn.textContent = '◢ Pixel-perfect' + (state.pixelPerfect ? ' ✓' : '');
+  autosave();
+}
+pixelPerfectBtn.addEventListener('click', () => setPixelPerfect(!state.pixelPerfect));
+
 // Color quantize / snap-to-palette — for every painted cell, replace
 // its hex with the closest TSC ∪ PXC swatch color. Closest is the
 // minimum sum-of-squared-RGB-distance. Useful after PNG import where
@@ -1744,6 +1841,20 @@ function renderGrid() {
     }
   }
   paintCtx.globalAlpha = 1.0;
+  // Selection MOVE in-progress — render the lifted pixels at the
+  // current drag offset on top of the canvas. They've been removed
+  // from state.pixels for the duration of the drag, so this is the
+  // ONLY place they're drawn. Underlying layers show through any
+  // transparent cells inside the rectangle (Aseprite-style lift).
+  if (selectionMove) {
+    const ox = selectionMove.origin.x + selectionMove.offsetX;
+    const oy = selectionMove.origin.y + selectionMove.offsetY;
+    for (const k in selectionMove.pixels) {
+      const [dx, dy] = k.split(',').map(Number);
+      paintCtx.fillStyle = selectionMove.pixels[k];
+      paintCtx.fillRect((ox + dx) * Z, (oy + dy) * Z, Z, Z);
+    }
+  }
   // Rect / Ellipse live-preview (in-progress drag). The same yellow
   // outline shows the bounding box; the fill preview is rect-shaped
   // for the rect tool, ellipse-shaped for the ellipse tool.
@@ -1947,6 +2058,11 @@ function renderPreview() {
 // ────────────────────────────────────────────────────────────
 let isPainting = false;
 let lastCellKey = null;
+// Pixel-perfect stroke history — tracks the last two painted cell
+// coords during a freehand stroke. Used to detect & remove diagonal
+// L-joints when state.pixelPerfect is on. Reset at mousedown.
+let strokePrevCell = null;   // (x, y) of n-2
+let strokeLastCell = null;   // (x, y) of n-1
 
 function cellFromEvent(e) {
   const rect = paintCanvas.getBoundingClientRect();
@@ -1975,10 +2091,29 @@ function paintCellRaw(x, y, hex) {
     state.pixels[k] = hex;
   }
 }
-// Public paint — applies symmetry + lockAlpha to the input cell. Used
-// for the freehand paint / erase / fill / shift-line tools. The
-// rectangle and selection tools have their own bulk paint paths.
+// Public paint — applies brush size + symmetry + lockAlpha. Used by
+// the freehand paint / erase / shift-line tools. Rectangle, ellipse,
+// fill, and selection have their own bulk paint paths and always use
+// 1-px brush regardless of state.brushSize (a 4-px-thick rect outline
+// wouldn't be useful).
+//
+// Brush geometry: for odd N the brush is centered on (x, y); for even
+// N it extends down-right (so a 2×2 click at the top-left of a sprite
+// stays in-bounds). Each cell goes through paintAtCellWithSymmetry
+// which handles mirror axes + lockAlpha.
 function paintAt(x, y, hex) {
+  const N = Math.max(1, state.brushSize | 0);
+  const half = (N - 1) >> 1;        // odd → centered; even → 0
+  const evenOffset = (N % 2 === 0); // even sizes extend down-right
+  const x0 = evenOffset ? x : x - half;
+  const y0 = evenOffset ? y : y - half;
+  for (let dy = 0; dy < N; dy++) {
+    for (let dx = 0; dx < N; dx++) {
+      paintAtCellWithSymmetry(x0 + dx, y0 + dy, hex);
+    }
+  }
+}
+function paintAtCellWithSymmetry(x, y, hex) {
   paintCellRaw(x, y, hex);
   if (state.symmetry === 'v' || state.symmetry === 'both') {
     paintCellRaw(state.width - 1 - x, y, hex);
@@ -2015,11 +2150,39 @@ function handlePaintAction(cell, isRightClick) {
     return;
   }
   const erase = (state.tool === 'erase') || isRightClick;
+  // Pixel-perfect L-removal: if we're painting (not erasing) with a
+  // 1-px brush and pixel-perfect mode is on, check whether the previous
+  // cell forms an L-joint between the cell before it and this one.
+  // L-joint pattern: prev-prev and current are diagonally adjacent
+  // (Δx=1, Δy=1), and the previous cell sits at one of the two
+  // L-corner positions between them. If so, erase the previous cell
+  // so the stroke draws clean diagonals without stair-step doubles.
+  if (state.pixelPerfect && !erase && state.brushSize === 1
+      && strokePrevCell && strokeLastCell) {
+    const R = strokePrevCell, Q = strokeLastCell, P = cell;
+    const dx = Math.abs(R.x - P.x), dy = Math.abs(R.y - P.y);
+    if (dx === 1 && dy === 1) {
+      const corner1 = (Q.x === R.x && Q.y === P.y);
+      const corner2 = (Q.x === P.x && Q.y === R.y);
+      if (corner1 || corner2) {
+        paintAtCellWithSymmetry(Q.x, Q.y, null);  // erase the corner
+        // Q is gone — collapse history so the next check looks back
+        // one further: the new "last" is R, the new "prev" is unknown.
+        strokeLastCell = R;
+        strokePrevCell = null;
+      }
+    }
+  }
   if (erase) {
     paintAt(cell.x, cell.y, null);
   } else {
     paintAt(cell.x, cell.y, state.activeColor);
     addToRecent(state.activeColor);
+  }
+  // Bump stroke history forward so the NEXT cell can do the L-check.
+  if (!erase) {
+    strokePrevCell = strokeLastCell;
+    strokeLastCell = { x: cell.x, y: cell.y };
   }
   renderGrid();
   renderPreview();
@@ -2047,8 +2210,41 @@ paintCanvas.addEventListener('mousedown', (e) => {
     return;
   }
 
-  // Selection tool — start a new marquee drag.
+  // Selection tool — two modes depending on where the user clicked:
+  //   1. If the click is INSIDE an existing selection rectangle, enter
+  //      MOVE mode: lift the pixels out of the canvas, track the drag
+  //      offset, render the lifted pixels at the new position each frame.
+  //   2. Otherwise start a NEW marquee drag.
   if (state.tool === 'select' && cell) {
+    if (state.selection && cellInsideSelection(cell, state.selection)) {
+      const { x0, y0, x1, y1 } = state.selection;
+      const xa = Math.min(x0, x1), ya = Math.min(y0, y1);
+      const xb = Math.max(x0, x1), yb = Math.max(y0, y1);
+      // Lift the pixels into a relative-to-top-left buffer and clear
+      // them from the active layer. preStrokeSnapshot lets undo restore
+      // the un-moved layer if the user cancels mid-move.
+      const lifted = {};
+      preStrokeSnapshot = snapshotPixels();
+      for (let y = ya; y <= yb; y++) {
+        for (let x = xa; x <= xb; x++) {
+          const k = `${x},${y}`;
+          if (state.pixels[k]) {
+            lifted[`${x - xa},${y - ya}`] = state.pixels[k];
+            delete state.pixels[k];
+          }
+        }
+      }
+      selectionMove = {
+        startCell: { x: cell.x, y: cell.y },
+        offsetX: 0, offsetY: 0,
+        pixels: lifted,
+        origin: { x: xa, y: ya },
+        size: { w: xb - xa + 1, h: yb - ya + 1 },
+      };
+      isPainting = true;
+      renderGrid();
+      return;
+    }
     isPainting = true;
     selectionStart = { x: cell.x, y: cell.y };
     state.selection = { x0: cell.x, y0: cell.y, x1: cell.x, y1: cell.y };
@@ -2059,6 +2255,7 @@ paintCanvas.addEventListener('mousedown', (e) => {
 
   isPainting = true;
   lastCellKey = null;
+  strokePrevCell = strokeLastCell = null;  // reset pixel-perfect stroke memory
   preStrokeSnapshot = (state.tool === 'pick') ? null : snapshotPixels();
   // Shift + click while in paint mode: Bresenham line from the last
   // painted cell to this one. Pixel-art line-tool convention.
@@ -2107,9 +2304,30 @@ function commitRectangle(p, color, shift) {
 // Drag to define a rectangular region. The selection becomes a dashed
 // marquee that you can copy/cut/paste/delete via keyboard shortcuts.
 let selectionStart = null;
+// MOVE-selection in-progress state. When non-null, the selected pixels
+// have been lifted out of the active layer and are rendered at the
+// drag offset until mouseup commits them at the new position.
+let selectionMove = null;
+function cellInsideSelection(cell, sel) {
+  const xa = Math.min(sel.x0, sel.x1), xb = Math.max(sel.x0, sel.x1);
+  const ya = Math.min(sel.y0, sel.y1), yb = Math.max(sel.y0, sel.y1);
+  return cell.x >= xa && cell.x <= xb && cell.y >= ya && cell.y <= yb;
+}
 
 function clearSelection(rerender = true) {
   if (!state.selection) return;
+  // If a move was in progress when the selection is cleared (Esc mid-
+  // drag, switching tools, etc.), restore the lifted pixels at their
+  // ORIGINAL position so the user doesn't lose them.
+  if (selectionMove) {
+    const { origin, pixels } = selectionMove;
+    for (const k in pixels) {
+      const [dx, dy] = k.split(',').map(Number);
+      state.pixels[`${origin.x + dx},${origin.y + dy}`] = pixels[k];
+    }
+    selectionMove = null;
+    isPainting = false;
+  }
   state.selection = null;
   if (rerender) renderGrid();
 }
@@ -2190,14 +2408,15 @@ function selectAll() {
 // Bresenham's line — paints every cell along the line from (x0,y0) to
 // (x1,y1) with the given color. Standard for pixel-art line tools.
 function drawLineBresenham(x0, y0, x1, y1, color) {
+  // Brush-aware Bresenham — every step goes through paintAt so the
+  // line is brush-thick when state.brushSize > 1 (and so symmetry +
+  // lockAlpha + the per-brush-cell logic kicks in for free).
   const dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
   const dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
   let err = dx + dy;
   let x = x0, y = y0;
   while (true) {
-    if (x >= 0 && y >= 0 && x < state.width && y < state.height) {
-      state.pixels[`${x},${y}`] = color;
-    }
+    paintAt(x, y, color);
     if (x === x1 && y === y1) break;
     const e2 = 2 * err;
     if (e2 >= dy) { err += dy; x += sx; }
@@ -2205,6 +2424,17 @@ function drawLineBresenham(x0, y0, x1, y1, color) {
   }
 }
 paintCanvas.addEventListener('mousemove', (e) => {
+  // While NOT mid-drag, hover-detect inside-selection so we can swap
+  // the cursor to "move" — gives the user a visual cue that they can
+  // drag the marquee contents.
+  if (!isPainting && state.tool === 'select' && state.selection) {
+    const cellHover = cellFromEvent(e);
+    if (cellHover && cellInsideSelection(cellHover, state.selection)) {
+      paintCanvas.style.cursor = 'move';
+    } else {
+      paintCanvas.style.cursor = 'crosshair';
+    }
+  }
   if (!isPainting) return;
   const cell = cellFromEvent(e);
   // Rect / Ellipse drag — update preview endpoint
@@ -2216,6 +2446,18 @@ paintCanvas.addEventListener('mousemove', (e) => {
   // Selection tool drag — update marquee endpoint
   if (state.tool === 'select' && cell && selectionStart) {
     state.selection = { x0: selectionStart.x, y0: selectionStart.y, x1: cell.x, y1: cell.y };
+    renderGrid();
+    return;
+  }
+  // Selection tool — MOVE in progress. Update offsets + re-render.
+  if (state.tool === 'select' && cell && selectionMove) {
+    selectionMove.offsetX = cell.x - selectionMove.startCell.x;
+    selectionMove.offsetY = cell.y - selectionMove.startCell.y;
+    // Update the selection rectangle live so the marquee ants follow.
+    const { origin, size } = selectionMove;
+    const nx = origin.x + selectionMove.offsetX;
+    const ny = origin.y + selectionMove.offsetY;
+    state.selection = { x0: nx, y0: ny, x1: nx + size.w - 1, y1: ny + size.h - 1 };
     renderGrid();
     return;
   }
@@ -2242,6 +2484,28 @@ window.addEventListener('mouseup', (e) => {
   if (state.tool === 'select' && selectionStart) {
     selectionStart = null;
     isPainting = false;
+    return;
+  }
+  // Selection tool — finalize a MOVE: paint the lifted pixels at the
+  // new position into the active layer, commit one undo step.
+  if (state.tool === 'select' && selectionMove) {
+    const { origin, offsetX, offsetY, pixels } = selectionMove;
+    for (const k in pixels) {
+      const [dx, dy] = k.split(',').map(Number);
+      const nx = origin.x + offsetX + dx;
+      const ny = origin.y + offsetY + dy;
+      if (nx >= 0 && ny >= 0 && nx < state.width && ny < state.height) {
+        state.pixels[`${nx},${ny}`] = pixels[k];
+      }
+    }
+    if (preStrokeSnapshot) {
+      commitHistory(preStrokeSnapshot);
+      preStrokeSnapshot = null;
+    }
+    selectionMove = null;
+    isPainting = false;
+    renderGrid(); renderPreview(); renderCode(); renderTimeline();
+    autosave();
     return;
   }
 
@@ -2911,6 +3175,69 @@ saveBtn.addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 });
 
+// ── PNG sprite-sheet export ──────────────────────────────────
+// Single-frame sprites → a flat PNG. Multi-frame sprites → a
+// horizontal sprite-sheet (one frame per cell, left-to-right). If
+// any animation tags exist, we ALSO download a sidecar JSON listing
+// each frame's duration + each tag's range + color — drop-in
+// metadata for any game engine that wants to play named animations.
+document.getElementById('exportPngBtn').addEventListener('click', () => {
+  const N = state.frames.length;
+  const oc = document.createElement('canvas');
+  oc.width = state.width * N;
+  oc.height = state.height;
+  const ox = oc.getContext('2d');
+  ox.imageSmoothingEnabled = false;
+  // Each frame gets its own cell of width × height starting at i*width.
+  for (let i = 0; i < N; i++) {
+    const flat = flattenFrame(state.frames[i]);
+    const xOff = i * state.width;
+    for (const k in flat) {
+      const [px, py] = k.split(',').map(Number);
+      ox.fillStyle = flat[k];
+      ox.fillRect(xOff + px, py, 1, 1);
+    }
+  }
+  const baseName = `sprite-${state.width}x${state.height}` + (N > 1 ? `-${N}f` : '');
+  oc.toBlob((blob) => {
+    if (!blob) { alert('Export failed — could not encode PNG.'); return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = baseName + '.png';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }, 'image/png');
+  // Sidecar JSON — only emitted when there's metadata worth shipping
+  // (tags or > 1 frame). Mirrors common engine conventions: frames
+  // are uniform-width cells indexed left-to-right; tags name ranges.
+  if (N > 1 || state.tags.length > 0) {
+    const meta = {
+      tool: 'Wondrous Grid',
+      width: state.width,
+      height: state.height,
+      frameCount: N,
+      frameWidth: state.width,
+      frameHeight: state.height,
+      frames: state.frames.map((f, i) => ({ index: i, x: i * state.width, y: 0, duration: f.duration })),
+      tags: state.tags.map(t => ({
+        name: t.name,
+        from: t.from,
+        to: t.to,
+        loop: t.loop !== false,
+        color: t.color,
+      })),
+    };
+    const metaBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
+    const metaUrl = URL.createObjectURL(metaBlob);
+    const metaA = document.createElement('a');
+    metaA.href = metaUrl;
+    metaA.download = baseName + '.json';
+    metaA.click();
+    setTimeout(() => URL.revokeObjectURL(metaUrl), 5000);
+  }
+});
+
 loadBtn.addEventListener('click', () => loadInput.click());
 loadInput.addEventListener('change', () => {
   const f = loadInput.files[0];
@@ -2979,6 +3306,7 @@ loadInput.addEventListener('change', () => {
       applyReference();
       renderTimeline();
       renderLayers();
+      syncPreviewWindowVisibility();
       autosave();
     } catch (err) {
       alert('Invalid JSON file: ' + err.message);
@@ -3022,6 +3350,8 @@ function autosave() {
       tags: state.tags,
       layers: state.layers,
       activeLayer: state.activeLayer,
+      brushSize: state.brushSize,
+      pixelPerfect: state.pixelPerfect,
     }));
   } catch (e) {
     // localStorage quota exceeded — most likely the reference image is
@@ -3099,6 +3429,8 @@ function restoreAutosave() {
     if (typeof data.tileMode === 'boolean') state.tileMode = data.tileMode;
     if (typeof data.codeFormat === 'string') state.codeFormat = data.codeFormat;
     if (typeof data.fnName === 'string') state.fnName = data.fnName;
+    if (typeof data.brushSize === 'number') state.brushSize = data.brushSize;
+    if (typeof data.pixelPerfect === 'boolean') state.pixelPerfect = data.pixelPerfect;
     if (Array.isArray(data.tags)) {
       // Sanitize tags on restore — drop ones with bad ranges so a stale
       // payload from a smaller frame count doesn't crash playback.
@@ -3251,6 +3583,7 @@ function loadPngIntoGrid(src, opts = {}) {
       renderCode();
       renderTimeline();
       renderLayers();
+      syncPreviewWindowVisibility();
       autosave();
       resolve({ w: oc.width, h: oc.height, pixelCount: Object.keys(pixels).length });
     };
@@ -3463,6 +3796,7 @@ function loadAssetIntoState(asset) {
   renderPalette();
   renderTimeline();
   renderLayers();
+  syncPreviewWindowVisibility();
   autosave();
 }
 
@@ -4384,6 +4718,85 @@ layerOpacityInput.addEventListener('input', () => {
   autosave();
 });
 
+// ── Floating preview window ──────────────────────────────────
+// Independent RAF loop that cycles through frames in the current
+// sprite at their per-frame durations. Always loops. Resizes itself
+// to fit the sprite × preview-zoom and auto-hides when there's only
+// one frame (nothing to animate). User can dismiss for the session.
+const previewWindow      = document.getElementById('previewWindow');
+const previewWindowCanvas = document.getElementById('previewWindowCanvas');
+const previewWindowCtx   = previewWindowCanvas.getContext('2d');
+const previewZoomDownBtn = document.getElementById('previewZoomDown');
+const previewZoomUpBtn   = document.getElementById('previewZoomUp');
+const previewWindowCloseBtn = document.getElementById('previewWindowClose');
+let previewWindowZoom = 4;
+let previewWindowFrame = 0;
+let previewWindowFrameStart = 0;
+let previewWindowDismissed = false;
+let previewWindowRaf = null;
+
+function syncPreviewWindowVisibility() {
+  // Show whenever the sprite has motion (>1 frame) AND the user hasn't
+  // dismissed it this session. Single-frame sprites can't animate so
+  // the floating window would just sit there frozen — hide it.
+  const shouldShow = state.frames.length > 1 && !previewWindowDismissed;
+  previewWindow.style.display = shouldShow ? 'block' : 'none';
+  if (shouldShow && !previewWindowRaf) {
+    previewWindowFrameStart = performance.now();
+    previewWindowFrame = 0;
+    previewWindowRaf = requestAnimationFrame(previewWindowLoop);
+  } else if (!shouldShow && previewWindowRaf) {
+    cancelAnimationFrame(previewWindowRaf);
+    previewWindowRaf = null;
+  }
+}
+
+function previewWindowLoop() {
+  if (previewWindow.style.display === 'none') {
+    previewWindowRaf = null;
+    return;
+  }
+  const N = state.frames.length;
+  if (N < 1) { previewWindowRaf = null; return; }
+  const cur = previewWindowFrame % N;
+  const dur = state.frames[cur].duration;
+  if (performance.now() - previewWindowFrameStart >= dur) {
+    previewWindowFrameStart = performance.now();
+    previewWindowFrame = (previewWindowFrame + 1) % N;
+  }
+  drawPreviewWindowFrame();
+  previewWindowRaf = requestAnimationFrame(previewWindowLoop);
+}
+
+function drawPreviewWindowFrame() {
+  const cur = previewWindowFrame % state.frames.length;
+  const Z = previewWindowZoom;
+  previewWindowCanvas.width = state.width * Z;
+  previewWindowCanvas.height = state.height * Z;
+  previewWindowCtx.imageSmoothingEnabled = false;
+  previewWindowCtx.fillStyle = '#15151a';
+  previewWindowCtx.fillRect(0, 0, previewWindowCanvas.width, previewWindowCanvas.height);
+  const flat = flattenFrame(state.frames[cur]);
+  for (const k in flat) {
+    const [x, y] = k.split(',').map(Number);
+    previewWindowCtx.fillStyle = flat[k];
+    previewWindowCtx.fillRect(x * Z, y * Z, Z, Z);
+  }
+}
+
+previewZoomDownBtn.addEventListener('click', () => {
+  previewWindowZoom = Math.max(1, previewWindowZoom - 1);
+  drawPreviewWindowFrame();
+});
+previewZoomUpBtn.addEventListener('click', () => {
+  previewWindowZoom = Math.min(8, previewWindowZoom + 1);
+  drawPreviewWindowFrame();
+});
+previewWindowCloseBtn.addEventListener('click', () => {
+  previewWindowDismissed = true;
+  syncPreviewWindowVisibility();
+});
+
 // Build a brand-new frame seeded with the right number of empty layer
 // maps for the current sprite. Use this anywhere a new frame is
 // inserted so the layerPixels invariant always holds.
@@ -4407,6 +4820,7 @@ function addBlankFrame() {
   state.frames.splice(state.activeFrame + 1, 0, makeBlankFrame(dur));
   shiftTagsForInsert(state.activeFrame + 1);
   setActiveFrame(state.activeFrame + 1);
+  syncPreviewWindowVisibility();
 }
 
 function duplicateFrame() {
@@ -4415,6 +4829,7 @@ function duplicateFrame() {
   state.frames.splice(state.activeFrame + 1, 0, cloneActiveFrame());
   shiftTagsForInsert(state.activeFrame + 1);
   setActiveFrame(state.activeFrame + 1);
+  syncPreviewWindowVisibility();
 }
 
 function duplicateFrameToEnd() {
@@ -4429,6 +4844,7 @@ function duplicateFrameToEnd() {
     const lastThumb = timelineFrames.querySelector('.frame-thumb:last-of-type');
     if (lastThumb) lastThumb.scrollIntoView({ behavior: 'smooth', inline: 'end', block: 'nearest' });
   }, 0);
+  syncPreviewWindowVisibility();
 }
 
 function deleteFrame() {
@@ -4438,6 +4854,7 @@ function deleteFrame() {
   shiftTagsForRemove(removed);
   if (state.activeFrame >= state.frames.length) state.activeFrame = state.frames.length - 1;
   setActiveFrame(state.activeFrame);
+  syncPreviewWindowVisibility();
 }
 
 // Tag-index maintenance after frame add / remove. Tags pin to absolute
@@ -4610,6 +5027,9 @@ renderLayers();
   formatSelect.value = state.codeFormat;
   fnNameInput.value  = state.fnName;
   syncFnNameVisibility();
+  setBrushSize(state.brushSize);
+  setPixelPerfect(state.pixelPerfect);
+  syncPreviewWindowVisibility();
   renderCode();  // re-run with the just-restored format
 }
 
@@ -4832,6 +5252,9 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'r' && !e.shiftKey) { setTool('rect'); }
   else if (e.key === 'o') { setTool('ellipse'); }
   else if (e.key === 'm') { setTool('select'); }
+  // Brush size — [ / ] like Photoshop / Aseprite
+  else if (e.key === '[') { e.preventDefault(); setBrushSize(state.brushSize - 1); }
+  else if (e.key === ']') { e.preventDefault(); setBrushSize(state.brushSize + 1); }
   // Zoom
   else if (e.key === '+' || e.key === '=') { zoomInBtn.click(); }
   else if (e.key === '-' || e.key === '_') { zoomOutBtn.click(); }
