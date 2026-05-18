@@ -2,7 +2,7 @@
 
 **Last updated: May 18, 2026**
 
-**Everything Wondrous Inc.** ("Everything Wondrous", "we", "us", "our") operates **Wondrous Grid** (the "Service"). This Privacy Policy explains what data we do — and do not — collect when you use the Service.
+**Everything Wondrous Inc.** ("Everything Wondrous", "we", "us", "our") operates **Wondrous Grid** at **wondrousgrid.com** (the "Service"). This Privacy Policy explains what data we do — and do not — collect when you use the Service.
 
 ## TL;DR
 
@@ -46,7 +46,7 @@ The Service is not directed at children under the age of 13. We do not knowingly
 
 ## 6. Your rights
 
-Because we do not collect or store your personal information, there is no personal data on our servers for you to access, correct, delete, port, or restrict. To remove any data the Service has placed in your own browser, clear your browser's site data for the Wondrous Grid domain. This will permanently delete all of your projects, artwork, and settings stored locally.
+Because we do not collect or store your personal information, there is no personal data on our servers for you to access, correct, delete, port, or restrict. To remove any data the Service has placed in your own browser, clear your browser's site data for **wondrousgrid.com**. This will permanently delete all of your projects, artwork, and settings stored locally.
 
 If applicable privacy law (for example, GDPR, CCPA) grants you specific rights, you may exercise them by contacting us at the address below.
 
@@ -72,6 +72,7 @@ Privacy questions or concerns?
 
 Everything Wondrous Inc.
 [Mailing address]
-[Privacy contact email]
+privacy@wondrousgrid.com
+https://wondrousgrid.com
 
-> **Note for the operator:** Fill in the address and contact email before publishing. If you later add accounts, analytics, or any server-side data handling, this policy must be revised accordingly.
+> **Note for the operator:** Fill in the registered-agent mailing address before publishing. If you later add accounts, analytics, or any server-side data handling, this policy must be revised accordingly.
