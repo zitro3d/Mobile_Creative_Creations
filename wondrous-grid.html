@@ -1364,6 +1364,12 @@
       <option value="">— Load asset… —</option>
     </select>
     <input id="pngImportInput" type="file" accept="image/png,image/jpeg" style="display:none">
+    <!-- Animation imports — GIF parses each frame into the timeline;
+         sprite sheet asks for cell dimensions, slices the PNG into
+         frames. Both keep the existing sprite (or wholesale-replace
+         after confirm) per the same flow as PNG import. -->
+    <input id="gifImportInput" type="file" accept="image/gif" style="display:none">
+    <input id="sheetImportInput" type="file" accept="image/png,image/jpeg" style="display:none">
   </div>
   <div class="group">
     <button id="undoBtn" disabled title="Undo (Cmd/Ctrl+Z)">↶ Undo</button>
@@ -5875,6 +5881,281 @@ document.getElementById('pngImportInput').addEventListener('change', (e) => {
   e.target.value = '';
 });
 
+// ── Animation imports ────────────────────────────────────────
+// Both GIF and sprite-sheet imports build a new state.frames array
+// from scratch — wholesale replacement, undo cleared. Drag-handoff
+// workflow: person A exports a GIF or PNG sheet; person B imports
+// here, tweaks frames in the timeline, exports back out.
+
+// Convert raw RGBA from canvas getImageData into a Wondrous Grid
+// pixel map { "x,y": "#hex" }, skipping fully-transparent cells.
+function imageDataToPixelMap(data, w, h, ox = 0, oy = 0) {
+  const pixels = {};
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = ((y + oy) * (w + ox * 2) + (x + ox)) * 4;
+      const a = data[i + 3];
+      if (a < 32) continue;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const hex = '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+      pixels[`${x},${y}`] = hex;
+    }
+  }
+  return pixels;
+}
+// Simpler version when reading from a tightly-cropped ImageData of
+// exactly w×h with no offset.
+function rawRgbaToPixelMap(data, w, h) {
+  const pixels = {};
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const a = data[i + 3];
+      if (a < 32) continue;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const hex = '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+      pixels[`${x},${y}`] = hex;
+    }
+  }
+  return pixels;
+}
+
+// Import an animated GIF — uses the modern ImageDecoder API
+// (Chrome 94+, Edge 94+, Firefox 105+, Safari 16.4+). For older
+// browsers we throw a clear error explaining the limitation.
+async function importGifAnimation(file) {
+  if (typeof ImageDecoder !== 'function') {
+    showAlert({
+      title: 'Browser doesn\'t support GIF decoding',
+      body: 'Animated GIF import needs a modern browser (Chrome 94+, Firefox 105+, Safari 16.4+). Update your browser or save your GIF as a Wondrous Grid JSON elsewhere first.',
+    });
+    return;
+  }
+  const decoder = new ImageDecoder({ data: file.stream(), type: file.type || 'image/gif' });
+  await decoder.tracks.ready;
+  const N = decoder.tracks.selectedTrack ? decoder.tracks.selectedTrack.frameCount : 1;
+  if (N < 1) throw new Error('Empty GIF');
+  // Decode each frame, read its RGBA via offscreen canvas, build
+  // the layerPixels + duration for our timeline.
+  const newFrames = [];
+  let W = 0, H = 0;
+  for (let i = 0; i < N; i++) {
+    const result = await decoder.decode({ frameIndex: i });
+    const img = result.image;
+    if (!W) { W = img.displayWidth || img.codedWidth; H = img.displayHeight || img.codedHeight; }
+    const oc = document.createElement('canvas');
+    oc.width = W; oc.height = H;
+    const ox = oc.getContext('2d');
+    ox.imageSmoothingEnabled = false;
+    ox.drawImage(img, 0, 0);
+    const data = ox.getImageData(0, 0, W, H).data;
+    const pixels = rawRgbaToPixelMap(data, W, H);
+    // GIF frame durations are reported in microseconds. Our timeline
+    // uses milliseconds. Clamp to a sane range.
+    const durMs = Math.max(20, Math.min(2000, Math.round((result.image.duration || 100000) / 1000) || 100));
+    newFrames.push({ layerPixels: [pixels], duration: durMs });
+  }
+  // Wholesale replacement — wipe layers + tags + slices so the new
+  // animation starts clean. Re-establish a single default layer.
+  state.width = W; state.height = H;
+  widthInput.value = W; heightInput.value = H;
+  state.layers = [{ name: 'Layer 1', visible: true, opacity: 1 }];
+  state.activeLayer = 0;
+  state.frames = newFrames;
+  state.activeFrame = 0;
+  state.tags = [];
+  state.slices = [];
+  migrateAllFrames();
+  presetSelect.value = 'custom';
+  stopPlayback();
+  resetHistory();
+  fitZoomToScreen();
+  renderGrid(); renderPreview(); renderCode();
+  renderTimeline(); renderLayers(); renderSlices();
+  syncPreviewWindowVisibility();
+  autosave();
+  showAlert({
+    title: 'GIF imported',
+    body: `Loaded ${N} frame${N === 1 ? '' : 's'} at ${W}×${H}. Edit them in the timeline; export back out via File → Export GIF when done.`,
+  });
+}
+document.getElementById('gifImportInput').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (!maybeReplaceConfirm()) { e.target.value = ''; return; }
+  try {
+    await importGifAnimation(f);
+  } catch (err) {
+    showAlert({ title: 'GIF import failed', body: String(err && err.message || err) });
+  }
+  e.target.value = '';
+});
+
+// Import a sprite sheet — a PNG strip / grid of frames. Asks for
+// frame width × height + layout (horizontal / vertical / grid)
+// via a branded dialog before slicing.
+async function importSpriteSheet(file) {
+  // Load the image first so we can show its dimensions in the dialog.
+  const url = URL.createObjectURL(file);
+  const img = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error('Image failed to load'));
+    i.src = url;
+  });
+  const totalW = img.naturalWidth, totalH = img.naturalHeight;
+  // Show the slice-config modal — width, height, layout, duration.
+  const cfg = await spriteSheetConfigDialog(totalW, totalH);
+  URL.revokeObjectURL(url);
+  if (!cfg) return;  // canceled
+  const { fw, fh, durMs } = cfg;
+  // Read full image into an offscreen canvas; slice into frames.
+  const oc = document.createElement('canvas');
+  oc.width = totalW; oc.height = totalH;
+  const ox = oc.getContext('2d');
+  ox.imageSmoothingEnabled = false;
+  ox.drawImage(img, 0, 0);
+  const fullData = ox.getImageData(0, 0, totalW, totalH).data;
+  const cols = Math.max(1, Math.floor(totalW / fw));
+  const rows = Math.max(1, Math.floor(totalH / fh));
+  const newFrames = [];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      // Build the pixel map by reading a (fw × fh) window of the
+      // full image at the cell's offset.
+      const pixels = {};
+      for (let y = 0; y < fh; y++) {
+        for (let x = 0; x < fw; x++) {
+          const sx = col * fw + x;
+          const sy = row * fh + y;
+          if (sx >= totalW || sy >= totalH) continue;
+          const i = (sy * totalW + sx) * 4;
+          const a = fullData[i + 3];
+          if (a < 32) continue;
+          const r = fullData[i], g = fullData[i + 1], b = fullData[i + 2];
+          const hex = '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+          pixels[`${x},${y}`] = hex;
+        }
+      }
+      newFrames.push({ layerPixels: [pixels], duration: durMs });
+    }
+  }
+  if (newFrames.length < 1) throw new Error('No frames could be sliced from the sheet');
+  // Wholesale replace, same pattern as GIF import.
+  state.width = fw; state.height = fh;
+  widthInput.value = fw; heightInput.value = fh;
+  state.layers = [{ name: 'Layer 1', visible: true, opacity: 1 }];
+  state.activeLayer = 0;
+  state.frames = newFrames;
+  state.activeFrame = 0;
+  state.tags = [];
+  state.slices = [];
+  migrateAllFrames();
+  presetSelect.value = 'custom';
+  stopPlayback();
+  resetHistory();
+  fitZoomToScreen();
+  renderGrid(); renderPreview(); renderCode();
+  renderTimeline(); renderLayers(); renderSlices();
+  syncPreviewWindowVisibility();
+  autosave();
+  showAlert({
+    title: 'Sprite sheet imported',
+    body: `Sliced into ${newFrames.length} frame${newFrames.length === 1 ? '' : 's'} at ${fw}×${fh} (${cols}×${rows} grid).`,
+  });
+}
+// Branded modal asking for sheet slice dimensions. Returns { fw,
+// fh, durMs } or null on cancel. Auto-suggests dimensions based on
+// common divisors of the source image (square cells preferred).
+function spriteSheetConfigDialog(srcW, srcH) {
+  return new Promise((resolve) => {
+    const m = document.getElementById('confirmModal');
+    const titleEl = document.getElementById('confirmModalTitle');
+    const bodyEl  = document.getElementById('confirmModalBody');
+    const okBtn   = document.getElementById('confirmModalOk');
+    const cancelBtn = document.getElementById('confirmModalCancel');
+    titleEl.lastChild.textContent = ' Import sprite sheet';
+    // Suggest a reasonable starting cell size — use the image
+    // height as the default frame height (assuming horizontal strip),
+    // and pick a frame width that divides the source width evenly
+    // with a small default like 32 if no good divisor.
+    const suggestedH = srcH;
+    let suggestedW = srcH;  // square cells common
+    if (srcW % srcH !== 0) {
+      for (const guess of [32, 16, 24, 48, 64, 8]) {
+        if (srcW % guess === 0 && srcH % guess === 0) { suggestedW = guess; break; }
+      }
+    }
+    bodyEl.innerHTML = `
+      <p style="margin: 0 0 10px;">Source image is <b>${srcW} × ${srcH}</b>. Specify each frame's dimensions; the sheet will be sliced into a grid of cells left-to-right, top-to-bottom.</p>
+      <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+        <label style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Frame width</span>
+          <input id="_ssFW" type="number" min="1" max="${srcW}" value="${suggestedW}"
+                 style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px;">
+        </label>
+        <label style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Frame height</span>
+          <input id="_ssFH" type="number" min="1" max="${srcH}" value="${suggestedH}"
+                 style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px;">
+        </label>
+      </div>
+      <label style="display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Frame duration (ms)</span>
+        <input id="_ssDur" type="number" min="20" max="2000" value="100"
+               style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px;">
+      </label>
+      <p id="_ssPreview" style="margin: 10px 0 0; font-size: 11px; color: var(--text-dim);"></p>`;
+    okBtn.textContent = 'Slice';
+    okBtn.style.color = '';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.style.display = '';
+    m.style.display = 'flex';
+    const fwEl = document.getElementById('_ssFW');
+    const fhEl = document.getElementById('_ssFH');
+    const durEl = document.getElementById('_ssDur');
+    const previewEl = document.getElementById('_ssPreview');
+    function updatePreview() {
+      const fw = parseInt(fwEl.value, 10) || 0;
+      const fh = parseInt(fhEl.value, 10) || 0;
+      if (fw <= 0 || fh <= 0) { previewEl.textContent = ''; return; }
+      const cols = Math.floor(srcW / fw);
+      const rows = Math.floor(srcH / fh);
+      const n = cols * rows;
+      previewEl.innerHTML = `→ <b style="color: var(--accent);">${n}</b> frame${n === 1 ? '' : 's'} (${cols} cols × ${rows} rows)`;
+    }
+    updatePreview();
+    for (const el of [fwEl, fhEl]) el.addEventListener('input', updatePreview);
+    setTimeout(() => { fwEl.focus(); fwEl.select(); }, 0);
+    const done = (apply) => {
+      m.style.display = 'none';
+      okBtn.onclick = null; cancelBtn.onclick = null;
+      if (!apply) return resolve(null);
+      const fw = Math.max(1, Math.min(srcW, parseInt(fwEl.value, 10) || 32));
+      const fh = Math.max(1, Math.min(srcH, parseInt(fhEl.value, 10) || 32));
+      const durMs = Math.max(20, Math.min(2000, parseInt(durEl.value, 10) || 100));
+      resolve({ fw, fh, durMs });
+    };
+    okBtn.onclick = () => done(true);
+    cancelBtn.onclick = () => done(false);
+    fwEl.onkeydown = fhEl.onkeydown = durEl.onkeydown = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); done(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+    };
+  });
+}
+document.getElementById('sheetImportInput').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (!maybeReplaceConfirm()) { e.target.value = ''; return; }
+  try {
+    await importSpriteSheet(f);
+  } catch (err) {
+    showAlert({ title: 'Sprite sheet import failed', body: String(err && err.message || err) });
+  }
+  e.target.value = '';
+});
+
 // Save current sprite to My Assets
 async function saveCurrentAsNewAsset() {
   if (Object.keys(state.pixels).length === 0) {
@@ -7579,9 +7860,14 @@ const MENU_DEFS = {
     { sep: true },
     { label: 'My Assets…',             shortcut: '⌘L',       click: openAssetsLibrary },
     { sep: true },
+    { section: 'Import' },
+    { label: 'Import PNG…',            click: () => document.getElementById('pngImportInput').click() },
+    { label: 'Import animated GIF…',   click: () => document.getElementById('gifImportInput').click() },
+    { label: 'Import sprite sheet…',   click: () => document.getElementById('sheetImportInput').click() },
+    { sep: true },
     { section: 'Export' },
-    { label: 'Export PNG sheet…',      shortcut: '',         click: _legacyClick('exportPngBtn') },
-    { label: 'Export GIF…',            shortcut: '',         click: _legacyClick('exportGifBtn') },
+    { label: 'Export PNG sheet…',      click: _legacyClick('exportPngBtn') },
+    { label: 'Export GIF…',            click: _legacyClick('exportGifBtn') },
     { label: 'Copy code to clipboard', shortcut: '⌘C',       click: _legacyClick('copyBtn') },
     { sep: true },
     { section: 'Palette' },
