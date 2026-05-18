@@ -6156,6 +6156,152 @@ document.getElementById('sheetImportInput').addEventListener('change', async (e)
   e.target.value = '';
 });
 
+// ── Paste-code import — multi-frame handoff from AI / collab ────
+// Bring in ANY JS code with px() calls. Recognized formats:
+//   1. Bare list of px() calls       → single frame
+//   2. function pxName(ctx, ox, oy)  → single frame (ox/oy offsets parsed)
+//   3. switch (f) { case 0: ... }    → one frame per case
+//   4. Multiple "case N:" blocks anywhere in the text → one frame each
+// Empty cases produce empty frames so order is preserved.
+const PX_RE = /px\s*\(\s*ctx\s*,\s*['"`](#[0-9a-fA-F]{3,8})['"`]\s*,\s*(?:ox\s*\+\s*)?(-?\d+)\s*,\s*(?:oy\s*\+\s*)?(-?\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g;
+function _extractPxCalls(text) {
+  const cells = {};
+  let m;
+  PX_RE.lastIndex = 0;
+  while ((m = PX_RE.exec(text))) {
+    const hex = m[1].toLowerCase();
+    const x = +m[2], y = +m[3], w = +m[4], h = +m[5];
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        cells[`${x + dx},${y + dy}`] = hex;
+      }
+    }
+  }
+  return cells;
+}
+function parsePastedCode(text) {
+  // Try multi-frame first — look for "case N:" markers.
+  const caseRe = /case\s+(\d+)\s*:([\s\S]*?)(?=case\s+\d+\s*:|break\s*;[\s\S]*?case\s+\d+\s*:|^\s*\}\s*$)/gm;
+  const matches = [];
+  let m;
+  while ((m = caseRe.exec(text))) {
+    matches.push({ idx: +m[1], body: m[2] });
+  }
+  // Heuristic: at least 2 case blocks AND each has px() calls or is
+  // empty — treat as multi-frame.
+  if (matches.length >= 2) {
+    matches.sort((a, b) => a.idx - b.idx);
+    const frames = matches.map(m => ({ pixels: _extractPxCalls(m.body) }));
+    return frames;
+  }
+  // Fallback: single frame from all px() calls in the text.
+  const cells = _extractPxCalls(text);
+  if (Object.keys(cells).length === 0) return null;   // no px() at all
+  return [{ pixels: cells }];
+}
+function _bboxOfFrames(frames) {
+  // Largest x + 1 / y + 1 across every frame = sprite dimensions.
+  let maxX = 0, maxY = 0;
+  for (const f of frames) {
+    for (const k in f.pixels) {
+      const [x, y] = k.split(',').map(Number);
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  return { w: Math.max(1, maxX + 1), h: Math.max(1, maxY + 1) };
+}
+function applyPastedFrames(frames, opts = {}) {
+  if (!frames || frames.length === 0) {
+    showAlert({ title: 'No pixels found', body: 'The pasted text doesn\'t contain any recognizable px(ctx, ...) calls.' });
+    return;
+  }
+  const dur = Math.max(20, Math.min(2000, opts.durMs | 0 || 100));
+  const dims = opts.useStateSize ? { w: state.width, h: state.height } : _bboxOfFrames(frames);
+  state.width = dims.w; state.height = dims.h;
+  widthInput.value = dims.w; heightInput.value = dims.h;
+  state.layers = [{ name: 'Layer 1', visible: true, opacity: 1 }];
+  state.activeLayer = 0;
+  state.frames = frames.map(f => ({ layerPixels: [f.pixels], duration: dur }));
+  state.activeFrame = 0;
+  state.tags = [];
+  state.slices = [];
+  migrateAllFrames();
+  presetSelect.value = 'custom';
+  stopPlayback();
+  resetHistory();
+  fitZoomToScreen();
+  renderGrid(); renderPreview(); renderCode();
+  renderTimeline(); renderLayers(); renderSlices();
+  syncPreviewWindowVisibility();
+  autosave();
+  showAlert({
+    title: 'Code imported',
+    body: `Loaded ${frames.length} frame${frames.length === 1 ? '' : 's'} at ${dims.w}×${dims.h}. Edit in the timeline; copy back out via the code panel.`,
+  });
+}
+// Modal — paste any JS code; auto-detect single vs multi-frame.
+// Shows a live frame-count preview as the user types/pastes.
+function openPasteCodeDialog() {
+  const m = document.getElementById('confirmModal');
+  const titleEl = document.getElementById('confirmModalTitle');
+  const bodyEl  = document.getElementById('confirmModalBody');
+  const okBtn   = document.getElementById('confirmModalOk');
+  const cancelBtn = document.getElementById('confirmModalCancel');
+  titleEl.lastChild.textContent = ' Paste code to import';
+  bodyEl.innerHTML = `
+    <p style="margin: 0 0 10px;">Paste any JS code with <code>px(ctx, '#hex', x, y, w, h)</code> calls. Single bunch = one frame; a <code>switch (f) { case 0: … break; case 1: … }</code> block becomes one frame per case (the format File → Export → Copy Code emits for animated sprites).</p>
+    <textarea id="_pcText" spellcheck="false" placeholder="px(ctx, '#3aa8b8', 5, 5, 1, 1);&#10;px(ctx, '#3aa8b8', 6, 5, 1, 1);&#10;…"
+      style="width: 100%; min-height: 220px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 8px; font-family: 'SF Mono', Consolas, monospace; font-size: 11px; resize: vertical;"></textarea>
+    <div style="display: flex; gap: 10px; margin-top: 10px;">
+      <label style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Frame duration (ms)</span>
+        <input id="_pcDur" type="number" min="20" max="2000" value="100"
+               style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px;">
+      </label>
+      <label style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Canvas size</span>
+        <select id="_pcSize" style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px;">
+          <option value="auto">Auto-fit (from pixel bounds)</option>
+          <option value="state">Keep current (${state.width} × ${state.height})</option>
+        </select>
+      </label>
+    </div>
+    <p id="_pcPreview" style="margin: 10px 0 0; font-size: 11px; color: var(--text-dim);">→ paste code to see frame count</p>`;
+  okBtn.textContent = 'Import';
+  okBtn.style.color = '';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.display = '';
+  m.style.display = 'flex';
+  const textEl = document.getElementById('_pcText');
+  const durEl  = document.getElementById('_pcDur');
+  const sizeEl = document.getElementById('_pcSize');
+  const previewEl = document.getElementById('_pcPreview');
+  function updatePreview() {
+    const frames = parsePastedCode(textEl.value);
+    if (!frames) { previewEl.textContent = '→ no px() calls detected'; return; }
+    const dims = _bboxOfFrames(frames);
+    const totalPx = frames.reduce((sum, f) => sum + Object.keys(f.pixels).length, 0);
+    previewEl.innerHTML = `→ <b style="color: var(--accent);">${frames.length}</b> frame${frames.length === 1 ? '' : 's'}, ${totalPx} pixel${totalPx === 1 ? '' : 's'}, auto-fit ${dims.w}×${dims.h}`;
+  }
+  textEl.addEventListener('input', updatePreview);
+  setTimeout(() => textEl.focus(), 0);
+  const done = (apply) => {
+    m.style.display = 'none';
+    okBtn.onclick = null; cancelBtn.onclick = null;
+    if (!apply) return;
+    const frames = parsePastedCode(textEl.value);
+    if (!frames) { showAlert({ title: 'Nothing to import', body: 'Paste some px(ctx, …) calls first.' }); return; }
+    if (!maybeReplaceConfirm()) return;
+    applyPastedFrames(frames, {
+      durMs: parseInt(durEl.value, 10) || 100,
+      useStateSize: sizeEl.value === 'state',
+    });
+  };
+  okBtn.onclick = () => done(true);
+  cancelBtn.onclick = () => done(false);
+}
+
 // Save current sprite to My Assets
 async function saveCurrentAsNewAsset() {
   if (Object.keys(state.pixels).length === 0) {
@@ -7864,6 +8010,7 @@ const MENU_DEFS = {
     { label: 'Import PNG…',            click: () => document.getElementById('pngImportInput').click() },
     { label: 'Import animated GIF…',   click: () => document.getElementById('gifImportInput').click() },
     { label: 'Import sprite sheet…',   click: () => document.getElementById('sheetImportInput').click() },
+    { label: 'Paste code (any frames)…', click: openPasteCodeDialog },
     { sep: true },
     { section: 'Export' },
     { label: 'Export PNG sheet…',      click: _legacyClick('exportPngBtn') },
