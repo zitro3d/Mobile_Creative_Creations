@@ -108,6 +108,128 @@
     border-radius: 3px;
   }
   header h1 .sub { color: var(--text-dim); font-size: 11px; font-weight: 400; margin-left: 6px; letter-spacing: 0; }
+
+  /* ── Menubar ──────────────────────────────────────────────
+     File / Edit / Image / View / Animation / Help text triggers,
+     each opens a dropdown menu-popover. The whole bar lives in the
+     header to the right of the brand logo. Mouse-down on a trigger
+     opens / closes its menu; hovering another trigger while a menu
+     is open switches between them (modeless menubar UX). */
+  .menubar { display: flex; gap: 2px; align-items: center; }
+  .menu-trigger {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    padding: 4px 10px;
+    font-size: 13px; font-family: inherit;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .menu-trigger:hover { background: var(--bg-input); }
+  .menu-trigger.open { background: var(--bg-input); border-color: var(--border); }
+  .menu-popover {
+    position: absolute;
+    top: 0; left: 0;
+    display: none;
+    min-width: 220px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 0;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    z-index: 200;
+    font-size: 12px;
+  }
+  .menu-popover.open { display: block; }
+  .menu-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px 6px 24px;
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+    color: var(--text);
+  }
+  .menu-item:hover { background: var(--accent-dim); color: var(--accent); }
+  .menu-item.disabled { color: var(--text-dim); cursor: not-allowed; }
+  .menu-item.disabled:hover { background: transparent; color: var(--text-dim); }
+  .menu-item-check { position: absolute; left: 8px; opacity: 0; }
+  .menu-item.checked .menu-item-check { opacity: 1; }
+  .menu-item-label { flex: 1; }
+  .menu-item-shortcut {
+    color: var(--text-dim);
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 11px;
+    margin-left: auto;
+  }
+  .menu-item:hover .menu-item-shortcut { color: var(--accent); }
+  .menu-separator {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+  }
+  .menu-section-label {
+    padding: 2px 14px;
+    color: var(--text-dim);
+    font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase;
+  }
+
+  /* ── Brush chip + popover ────────────────────────────────
+     Single header chip "Brush ▾" with a live readout, opening a
+     popover containing all five legacy toolbar groups (size /
+     opacity / dither / pressure / smoothing). The legacy groups
+     are DOM-transplanted into the popover at boot — their event
+     listeners + state syncing stay attached. */
+  .brush-chip {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 4px 10px;
+    color: var(--text);
+    cursor: pointer;
+    font: inherit; font-size: 12px;
+  }
+  .brush-chip:hover { border-color: var(--accent); }
+  .brush-chip.open { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .brush-chip .chip-caret { color: var(--text-dim); font-size: 9px; }
+  .brush-chip.open .chip-caret { color: var(--accent); }
+  .record-chip {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 10px;
+    font: inherit; font-size: 12px;
+    border-radius: 3px; cursor: pointer;
+  }
+  .record-chip:hover { border-color: #ff6e6e; color: #ff6e6e; }
+  .record-chip.recording { color: #ff6e6e; border-color: #ff6e6e; }
+  .inline-record { display: flex; align-items: center; gap: 6px; }
+  .header-spacer { flex: 1; }
+
+  .brush-popover {
+    position: absolute;
+    top: 0; left: 0;
+    display: none;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    z-index: 200;
+    min-width: 260px;
+  }
+  .brush-popover.open { display: flex; flex-direction: column; gap: 10px; }
+  /* When transplanted INTO the popover, the legacy .group rules
+     (header context) don't apply. Reset to column-flex stacking so
+     each control gets its own row. */
+  .brush-popover .group {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%;
+    background: transparent; padding: 0;
+  }
+  .brush-popover .group > span:first-child {
+    min-width: 60px;
+  }
   header .group { display: flex; align-items: center; gap: 6px; }
   header label { color: var(--text-dim); font-size: 12px; }
   header input[type=number], header select {
@@ -895,7 +1017,50 @@
     <img src="assets/wondrous-grid-icon.svg" alt="" class="brand-logo">
     WONDROUS GRID <span class="sub">pixel studio</span>
   </h1>
-  <!-- ART (left of spacer): canvas / sprite operations -->
+  <!-- Menubar — File / Edit / Image / View / Animation / Help.
+       Each opens a dropdown built in JS from MENU_DEFS. The original
+       buttons all still exist below in .legacy-toolbar (display:none)
+       so menu items just .click() them — no re-wiring needed. -->
+  <nav class="menubar" id="menubar">
+    <button class="menu-trigger" data-menu="file">File</button>
+    <button class="menu-trigger" data-menu="edit">Edit</button>
+    <button class="menu-trigger" data-menu="image">Image</button>
+    <button class="menu-trigger" data-menu="view">View</button>
+    <button class="menu-trigger" data-menu="animation">Animation</button>
+    <button class="menu-trigger" data-menu="help">Help</button>
+  </nav>
+  <span class="header-spacer"></span>
+  <!-- Brush chip — collapses 5 toolbar groups (size / opacity / dither
+       / pressure / smoothing) into one popover. Live readout shows
+       current size + opacity so the user can see settings at a glance
+       without opening the popover. -->
+  <button id="brushChipTrigger" class="brush-chip" title="Brush settings — size, opacity, dither, pressure, smoothing">
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+      <g transform="rotate(-45 12 12)">
+        <polygon points="4,12 7,10 7,14" fill="#3a2818" stroke="#1a1a1c" stroke-width="1"/>
+        <rect x="7"  y="10" width="9" height="4" fill="#ffd060" stroke="#1a1a1c" stroke-width="1"/>
+        <rect x="16" y="10" width="2" height="4" fill="#aab"    stroke="#1a1a1c" stroke-width="1"/>
+        <rect x="18" y="10" width="2" height="4" fill="#ff9eb5" stroke="#1a1a1c" stroke-width="1"/>
+      </g>
+    </svg>
+    <span id="brushChipReadout">1 px · 100%</span>
+    <span class="chip-caret">▾</span>
+  </button>
+  <!-- Record button kept inline (state-bearing UI — the user wants the
+       pulsing recording indicator visible at all times while recording). -->
+  <div class="group inline-record" title="Time-lapse — record every paint stroke and export as a GIF when stopped.">
+    <button id="timelapseBtnHeader" class="record-chip">⏺ Record</button>
+    <span id="timelapseIndicatorHeader" style="display: none; align-items: center; gap: 4px; font-size: 10px; color: #ff6e6e;">
+      <span style="width: 8px; height: 8px; border-radius: 50%; background: #ff6e6e; animation: timelapse-pulse 1s ease-in-out infinite;"></span>
+      <span id="timelapseFrameCountHeader">0</span>
+    </span>
+  </div>
+</header>
+
+<!-- Legacy toolbar — every original control button kept in the DOM so
+     the existing event wiring continues to work. Hidden via CSS; menu
+     items + brush popover trigger these via .click(). -->
+<div class="legacy-toolbar" style="display: none;">
   <div class="group">
     <label>Size</label>
     <input id="widthInput" type="number" min="1" max="512" value="58">
@@ -933,10 +1098,6 @@
     <button id="rotate90Btn" title="Rotate 90° clockwise (Shift+R)">↻ 90°</button>
     <button id="clearBtn">🗑 Clear</button>
   </div>
-  <!-- Brush size + opacity — Photoshop-style options bar widgets.
-       Size: brush icon + slider + live ring preview that grows with
-       size. Opacity: % slider that blends each paint stroke with the
-       underlying pixel color. Both persist via autosave. -->
   <div class="group brush-size-group" title="Brush size — [ / ] to step">
     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
       <g transform="rotate(-45 12 12)">
@@ -957,10 +1118,6 @@
     <input id="brushOpacitySlider" type="range" min="10" max="100" step="5" value="100" style="width: 80px; accent-color: var(--accent);">
     <span id="brushOpacityReadout" class="brush-size-readout">100%</span>
   </div>
-  <!-- Dither brush patterns — when active, the paint tool ONLY fills
-       cells whose (x % w, y % h) hits the pattern's 1-bits. Classic
-       pixel-art shading shortcut: 50% creates a checker, 25% a
-       sparser scatter, horizontal/vertical for line-pattern fills. -->
   <div class="group dither-group" title="Dither pattern for the paint tool. Off = solid fill.">
     <span style="font-size: 11px; color: var(--text-dim);">dither</span>
     <select id="ditherSelect" style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font-family: inherit; font-size: 11px;">
@@ -973,12 +1130,7 @@
       <option value="dots">· dots</option>
     </select>
   </div>
-  <!-- Apple Pencil pressure + stroke smoothing — the Procreate-tier
-       iPad feel. Pressure maps to brush size or opacity (drop-down
-       picks); smoothing low-pass-filters the cursor so a wobbly hand
-       still draws clean diagonals. Both default to off so mouse users
-       see no change in behavior. -->
-  <div class="group" title="Apple Pencil pressure — pick what pressure controls during a pen stroke. Mouse / finger ignore this.">
+  <div class="group pressure-group" title="Apple Pencil pressure — pick what pressure controls during a pen stroke. Mouse / finger ignore this.">
     <span style="font-size: 11px; color: var(--text-dim);">pressure</span>
     <select id="pressureSelect" style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font-family: inherit; font-size: 11px;">
       <option value="none">off</option>
@@ -987,14 +1139,11 @@
       <option value="both">→ size + opacity</option>
     </select>
   </div>
-  <div class="group" title="Stroke smoothing — higher = the brush lags behind a wobbly cursor for cleaner freehand lines. 0% = no smoothing.">
+  <div class="group smoothing-group" title="Stroke smoothing — higher = the brush lags behind a wobbly cursor for cleaner freehand lines. 0% = no smoothing.">
     <span style="font-size: 11px; color: var(--text-dim);">smooth</span>
     <input id="smoothingSlider" type="range" min="0" max="80" step="5" value="0" style="width: 60px; accent-color: var(--accent);">
     <span id="smoothingReadout" class="brush-size-readout">0%</span>
   </div>
-  <!-- Time-lapse recorder — captures every paint stroke as a snapshot,
-       encodes the sequence as a GIF on Stop. Tiny pulsing dot during
-       recording so it's clear something is happening. -->
   <div class="group" title="Time-lapse — record every paint stroke and export as a GIF when stopped. Great for sharing your process.">
     <button id="timelapseBtn">⏺ Record</button>
     <span id="timelapseIndicator" style="display: none; align-items: center; gap: 4px; font-size: 10px; color: #ff6e6e;">
@@ -1002,8 +1151,6 @@
       <span id="timelapseFrameCount">0</span>
     </span>
   </div>
-  <div class="spacer"></div>
-  <!-- FILE / CODE (right of spacer): I/O + code output + help -->
   <div class="group">
     <button id="saveBtn">💾 Save JSON</button>
     <button id="loadBtn">📂 Load JSON</button>
@@ -1013,7 +1160,22 @@
     <button id="copyBtn">⎘ Copy Code</button>
     <button id="helpBtn" title="Keyboard shortcuts + how to use">? Help</button>
   </div>
-</header>
+</div>
+
+<!-- Menubar dropdown popovers — content built in JS via MENU_DEFS. -->
+<div class="menu-popover" id="menu-popover-file"></div>
+<div class="menu-popover" id="menu-popover-edit"></div>
+<div class="menu-popover" id="menu-popover-image"></div>
+<div class="menu-popover" id="menu-popover-view"></div>
+<div class="menu-popover" id="menu-popover-animation"></div>
+<div class="menu-popover" id="menu-popover-help"></div>
+
+<!-- Brush settings popover — brush controls from the legacy toolbar
+     get DOM-transplanted here at boot so their wiring stays attached
+     while they live in this new home. -->
+<div class="brush-popover" id="brushPopover">
+  <!-- transplanted at boot -->
+</div>
 
 <main>
 
@@ -6962,6 +7124,323 @@ tlReverseBtn.addEventListener('click', () => {
     autosave();
   });
 });
+
+// ────────────────────────────────────────────────────────────
+// MENUBAR + BRUSH POPOVER
+// ────────────────────────────────────────────────────────────
+// All the legacy header buttons stay in the DOM (inside
+// .legacy-toolbar with display:none). Menu items just .click()
+// them, so existing wiring + state tracking keeps working.
+
+// Helpers used by menu builders.
+const _legacyClick = (id) => () => document.getElementById(id)?.click();
+const _isDisabled  = (id) => !!document.getElementById(id)?.disabled;
+
+// Confirmable "new sprite" — wipes the canvas to a single blank
+// frame at the current size. Uses the branded showConfirm.
+function fileNew() {
+  showConfirm({
+    title: 'New sprite',
+    body: 'Discard the current sprite and start a blank canvas at the same size? Unsaved work is lost — Save JSON first if you want to keep it.',
+    ok: 'New canvas', danger: true,
+  }).then((okay) => {
+    if (!okay) return;
+    state.layers = [{ name: 'Layer 1', visible: true, opacity: 1 }];
+    state.activeLayer = 0;
+    state.frames = [{ layerPixels: [{}], duration: 100 }];
+    state.activeFrame = 0;
+    state.tags = [];
+    state.slices = [];
+    migrateAllFrames();
+    resetHistory();
+    renderGrid(); renderPreview(); renderCode(); renderTimeline();
+    renderLayers(); renderSlices();
+    syncPreviewWindowVisibility();
+    autosave();
+  });
+}
+
+// Open the assets modal (existing wiring on the modal stays the same).
+function openAssetsLibrary() {
+  const m = document.getElementById('assetsModal');
+  if (m) {
+    m.style.display = 'flex';
+    if (typeof renderAssetsModalBody === 'function') renderAssetsModalBody();
+  }
+}
+
+// Show the welcome modal again (the user can revisit even after
+// dismissing it for the session).
+function reopenWelcome() {
+  document.getElementById('welcomeModal').style.display = 'flex';
+}
+
+// View / animation toggle helpers.
+function toggleGridLines() {
+  const cb = document.getElementById('gridLinesToggle');
+  cb.checked = !cb.checked; cb.dispatchEvent(new Event('change'));
+}
+function toggleTileMode() {
+  const cb = document.getElementById('tileModeCheck');
+  cb.checked = !cb.checked; cb.dispatchEvent(new Event('change'));
+}
+function toggleOnionPrev() {
+  const cb = document.getElementById('tlOnionPrevCheck');
+  cb.checked = !cb.checked; cb.dispatchEvent(new Event('change'));
+}
+function toggleOnionNext() {
+  const cb = document.getElementById('tlOnionNextCheck');
+  cb.checked = !cb.checked; cb.dispatchEvent(new Event('change'));
+}
+function resetZoom() {
+  state.zoom = 12;
+  zoomLabel.textContent = '12×';
+  document.getElementById('zoomSlider').value = 12;
+  renderGrid();
+}
+
+// Menu definitions. Each item: { label, shortcut?, click, disabled?,
+// checked?, separator?, section? }. Disabled / checked may be
+// functions evaluated at open-time so menu state reflects live UI.
+const MENU_DEFS = {
+  file: [
+    { label: 'New…',                   shortcut: '',         click: fileNew },
+    { sep: true },
+    { label: 'Open JSON…',             shortcut: '⌘O',       click: _legacyClick('loadBtn') },
+    { label: 'Save JSON',              shortcut: '⌘S',       click: _legacyClick('saveBtn') },
+    { sep: true },
+    { label: 'My Assets…',             shortcut: '⌘L',       click: openAssetsLibrary },
+    { sep: true },
+    { section: 'Export' },
+    { label: 'Export PNG sheet…',      shortcut: '',         click: _legacyClick('exportPngBtn') },
+    { label: 'Export GIF…',            shortcut: '',         click: _legacyClick('exportGifBtn') },
+    { label: 'Copy code to clipboard', shortcut: '⌘C',       click: _legacyClick('copyBtn') },
+    { sep: true },
+    { section: 'Palette' },
+    { label: 'Load palette (.gpl / .hex)…', click: _legacyClick('loadPaletteBtn') },
+    { label: 'Snap pixels to palette',      click: _legacyClick('quantizeBtn') },
+  ],
+  edit: [
+    { label: 'Undo',           shortcut: '⌘Z',           click: _legacyClick('undoBtn'),
+      disabled: () => _isDisabled('undoBtn') },
+    { label: 'Redo',           shortcut: '⌘⇧Z',          click: _legacyClick('redoBtn'),
+      disabled: () => _isDisabled('redoBtn') },
+    { sep: true },
+    { label: 'Cut selection',     shortcut: '⌘X', click: () => copySelectionToClipboard(true),
+      disabled: () => !state.selection },
+    { label: 'Copy selection',    shortcut: '⌘C', click: () => copySelectionToClipboard(false),
+      disabled: () => !state.selection },
+    { label: 'Paste',             shortcut: '⌘V', click: () => pasteClipboard(),
+      disabled: () => !state.clipboard },
+    { label: 'Select all',        shortcut: '⌘A', click: () => selectAll() },
+    { label: 'Deselect',          shortcut: 'Esc', click: () => clearSelection(),
+      disabled: () => !state.selection },
+    { sep: true },
+    { label: 'Clear active layer', click: _legacyClick('clearBtn') },
+  ],
+  image: [
+    { label: 'Resize canvas',   shortcut: '',          click: _legacyClick('resizeBtn') },
+    { sep: true },
+    { label: 'Flip horizontal', shortcut: '⇧H',        click: _legacyClick('flipHBtn') },
+    { label: 'Flip vertical',   shortcut: '⇧V',        click: _legacyClick('flipVBtn') },
+    { label: 'Rotate 90° CW',   shortcut: '⇧R',        click: _legacyClick('rotate90Btn') },
+    { sep: true },
+    { label: 'Auto-outline (active layer)', click: _legacyClick('autoOutlineBtn') },
+  ],
+  view: [
+    { label: 'Preview window',   click: _legacyClick('togglePreviewBtn'),
+      checked: () => state.frames.length > 1 && !previewWindowDismissed },
+    { label: 'Grid lines',       shortcut: '⇧G', click: toggleGridLines,
+      checked: () => document.getElementById('gridLinesToggle')?.checked },
+    { label: 'Tile 3× preview',  click: toggleTileMode,
+      checked: () => state.tileMode },
+    { sep: true },
+    { label: 'Pixel-perfect mode', click: () => setPixelPerfect(!state.pixelPerfect),
+      checked: () => state.pixelPerfect },
+    { sep: true },
+    { label: 'Fit to view',  shortcut: 'F',     click: () => { fitZoomToScreen(); renderGrid(); } },
+    { label: 'Reset zoom (12×)', shortcut: '⌘1', click: resetZoom },
+  ],
+  animation: [
+    { label: 'Play / Pause',     shortcut: 'Space', click: _legacyClick('tlPlayBtn') },
+    { label: 'Reverse all frames', click: _legacyClick('tlReverseBtn') },
+    { sep: true },
+    { section: 'Loop mode' },
+    { label: 'Loop forever',    click: () => setLoopMode('loop'),
+      checked: () => (state.loopMode || 'loop') === 'loop' },
+    { label: 'Play once',       click: () => setLoopMode('once'),
+      checked: () => state.loopMode === 'once' },
+    { label: 'Ping-pong',       click: () => setLoopMode('pingpong'),
+      checked: () => state.loopMode === 'pingpong' },
+    { sep: true },
+    { section: 'Onion skin' },
+    { label: 'Previous frame',  click: toggleOnionPrev,
+      checked: () => state.onionPrev },
+    { label: 'Next frame',      click: toggleOnionNext,
+      checked: () => state.onionNext },
+    { sep: true },
+    { label: 'Start / stop time-lapse recording', click: _legacyClick('timelapseBtn') },
+  ],
+  help: [
+    { label: 'Keyboard shortcuts & guide', shortcut: '?',  click: _legacyClick('helpBtn') },
+    { label: 'Show welcome screen',         click: reopenWelcome },
+    { sep: true },
+    { label: 'About Wondrous Grid', click: () => showAlert({
+      title: 'About Wondrous Grid',
+      body: 'A pro pixel-art editor with code, animation, layers, slices, and an iPad-native workflow. Everything Wondrous™.',
+    }) },
+  ],
+};
+
+function buildMenu(name) {
+  const popover = document.getElementById('menu-popover-' + name);
+  if (!popover) return;
+  popover.innerHTML = '';
+  for (const item of MENU_DEFS[name]) {
+    if (item.sep) {
+      const sep = document.createElement('div');
+      sep.className = 'menu-separator';
+      popover.appendChild(sep);
+    } else if (item.section) {
+      const lbl = document.createElement('div');
+      lbl.className = 'menu-section-label';
+      lbl.textContent = item.section;
+      popover.appendChild(lbl);
+    } else {
+      const row = document.createElement('div');
+      row.className = 'menu-item';
+      const disabled = typeof item.disabled === 'function' ? item.disabled() : !!item.disabled;
+      if (disabled) row.classList.add('disabled');
+      const checked = typeof item.checked === 'function' ? item.checked() : !!item.checked;
+      if (checked) row.classList.add('checked');
+      row.innerHTML =
+        `<span class="menu-item-check">✓</span>` +
+        `<span class="menu-item-label"></span>` +
+        (item.shortcut ? `<span class="menu-item-shortcut">${item.shortcut}</span>` : '');
+      row.querySelector('.menu-item-label').textContent = item.label;
+      if (!disabled) {
+        row.addEventListener('click', () => {
+          closeAllMenus();
+          item.click();
+        });
+      }
+      popover.appendChild(row);
+    }
+  }
+}
+
+let _openMenu = null;
+function closeAllMenus() {
+  for (const t of document.querySelectorAll('.menu-trigger.open')) t.classList.remove('open');
+  for (const p of document.querySelectorAll('.menu-popover.open')) p.classList.remove('open');
+  _openMenu = null;
+}
+function openMenu(name, trigger) {
+  closeAllMenus();
+  buildMenu(name);
+  const popover = document.getElementById('menu-popover-' + name);
+  if (!popover) return;
+  const r = trigger.getBoundingClientRect();
+  popover.style.top  = (r.bottom + 4) + 'px';
+  popover.style.left = r.left + 'px';
+  popover.classList.add('open');
+  trigger.classList.add('open');
+  _openMenu = name;
+}
+document.getElementById('menubar').addEventListener('click', (e) => {
+  const t = e.target.closest('.menu-trigger');
+  if (!t) return;
+  e.stopPropagation();
+  const name = t.dataset.menu;
+  if (_openMenu === name) closeAllMenus();
+  else openMenu(name, t);
+});
+// Hovering another trigger while a menu is open switches to that
+// menu (modeless menubar UX).
+document.getElementById('menubar').addEventListener('mouseover', (e) => {
+  if (!_openMenu) return;
+  const t = e.target.closest('.menu-trigger');
+  if (!t) return;
+  const name = t.dataset.menu;
+  if (name !== _openMenu) openMenu(name, t);
+});
+// Click outside any menu closes it. Esc closes any menu.
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.menu-popover') || e.target.closest('.menubar') ||
+      e.target.closest('.brush-popover') || e.target.closest('.brush-chip')) return;
+  closeAllMenus();
+  closeBrushPopover();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { closeAllMenus(); closeBrushPopover(); }
+});
+
+// ── Brush popover ───────────────────────────────────────────
+// Transplant the five legacy brush groups (size / opacity / dither /
+// pressure / smoothing) into the popover at boot. They keep their
+// IDs + event listeners — they just live in a different DOM parent.
+const brushPopover = document.getElementById('brushPopover');
+const brushChipTrigger = document.getElementById('brushChipTrigger');
+const brushChipReadout = document.getElementById('brushChipReadout');
+function syncBrushChipReadout() {
+  const op = Math.round((state.brushOpacity ?? 1) * 100);
+  brushChipReadout.textContent = (state.brushSize | 0) + ' px · ' + op + '%';
+}
+function openBrushPopover() {
+  closeAllMenus();
+  const r = brushChipTrigger.getBoundingClientRect();
+  brushPopover.style.top  = (r.bottom + 4) + 'px';
+  // Right-align to the chip when there's room, else just left at chip.
+  brushPopover.style.left = Math.min(window.innerWidth - 280, r.left - 100) + 'px';
+  brushPopover.classList.add('open');
+  brushChipTrigger.classList.add('open');
+}
+function closeBrushPopover() {
+  brushPopover.classList.remove('open');
+  brushChipTrigger.classList.remove('open');
+}
+brushChipTrigger.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (brushPopover.classList.contains('open')) closeBrushPopover();
+  else openBrushPopover();
+});
+// Transplant the brush groups into the popover.
+for (const cls of ['brush-size-group', 'brush-opacity-group', 'dither-group', 'pressure-group', 'smoothing-group']) {
+  const el = document.querySelector('.legacy-toolbar .' + cls);
+  if (el) brushPopover.appendChild(el);
+}
+// Header Record button mirror — the legacy #timelapseBtn lives hidden;
+// the new header button + indicator just shadow it. Clicks proxy
+// through .click() so the existing recording logic isn't touched.
+const headerRecordBtn = document.getElementById('timelapseBtnHeader');
+const headerRecordIndicator = document.getElementById('timelapseIndicatorHeader');
+const headerRecordFrameCount = document.getElementById('timelapseFrameCountHeader');
+headerRecordBtn.addEventListener('click', () => {
+  document.getElementById('timelapseBtn').click();
+});
+// Mirror the legacy indicator into the header indicator via a small
+// MutationObserver — the existing updateTimelapseIndicator function
+// writes to #timelapseBtn / #timelapseIndicator; we shadow that into
+// the header variants so the user sees pulsing dot + frame count.
+const _legacyTimelapseIndicator = document.getElementById('timelapseIndicator');
+const _legacyTimelapseFrameCount = document.getElementById('timelapseFrameCount');
+const _legacyTimelapseBtn = document.getElementById('timelapseBtn');
+new MutationObserver(() => {
+  headerRecordIndicator.style.display = _legacyTimelapseIndicator.style.display;
+  headerRecordFrameCount.textContent  = _legacyTimelapseFrameCount.textContent;
+  headerRecordBtn.textContent         = _legacyTimelapseBtn.textContent;
+  headerRecordBtn.classList.toggle('recording', _legacyTimelapseIndicator.style.display !== 'none');
+}).observe(_legacyTimelapseBtn, { childList: true, attributes: true, characterData: true, subtree: true });
+new MutationObserver(() => {
+  headerRecordIndicator.style.display = _legacyTimelapseIndicator.style.display;
+  headerRecordFrameCount.textContent  = _legacyTimelapseFrameCount.textContent;
+}).observe(_legacyTimelapseIndicator, { childList: true, attributes: true, characterData: true, subtree: true });
+// Keep the brush chip readout fresh when size or opacity changes.
+const _origSetBrushSize = setBrushSize;
+setBrushSize = function(n) { _origSetBrushSize(n); syncBrushChipReadout(); };
+const _origSetBrushOpacity = setBrushOpacity;
+setBrushOpacity = function(pct) { _origSetBrushOpacity(pct); syncBrushChipReadout(); };
+syncBrushChipReadout();
 
 // ────────────────────────────────────────────────────────────
 // INIT
