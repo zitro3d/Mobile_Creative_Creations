@@ -302,6 +302,64 @@
   .timeline-toolbar .frame-counter { color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; font-size: 11px; }
   .timeline-toolbar .fps-readout { color: var(--accent); font-family: 'SF Mono', Consolas, monospace; font-size: 11px; padding: 0 4px; }
 
+  /* Layers panel (left sidebar). Pro-tool layer stack: visibility
+     toggle + name (click to activate; double-click to rename) + per-row
+     delete / reorder controls. Active layer gets the accent border.
+     Single opacity slider below the list drives whichever layer is
+     active — cleaner than a slider per row. */
+  .layer-list {
+    display: flex; flex-direction: column-reverse;
+    gap: 2px;
+    background: var(--bg);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 3px;
+    max-height: 180px; overflow-y: auto;
+  }
+  .layer-row {
+    display: flex; align-items: center; gap: 4px;
+    background: var(--bg-input); border: 1px solid transparent;
+    padding: 4px 6px; border-radius: 2px;
+    cursor: pointer; user-select: none;
+    font-size: 11px;
+  }
+  .layer-row:hover { border-color: var(--text-dim); }
+  .layer-row.active { border-color: var(--accent); background: var(--accent-dim); }
+  .layer-row.hidden { opacity: 0.45; }
+  .layer-vis-btn {
+    background: transparent; border: none; cursor: pointer; color: var(--text);
+    width: 18px; padding: 0; font-size: 13px; line-height: 1; flex-shrink: 0;
+  }
+  .layer-vis-btn:hover { color: var(--accent); }
+  .layer-name {
+    flex: 1; color: var(--text); overflow: hidden;
+    white-space: nowrap; text-overflow: ellipsis;
+  }
+  .layer-name-input {
+    flex: 1; background: var(--bg); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 2px;
+    padding: 0 4px; font-family: inherit; font-size: 11px;
+    outline: none;
+  }
+  .layer-row-ctrls {
+    display: flex; gap: 2px; flex-shrink: 0;
+  }
+  .layer-row-ctrls button {
+    background: transparent; border: 1px solid transparent;
+    color: var(--text-dim); cursor: pointer;
+    padding: 0 4px; font-size: 10px; line-height: 1.4;
+    border-radius: 2px;
+  }
+  .layer-row-ctrls button:hover { color: var(--accent); border-color: var(--accent); }
+  .layer-row-ctrls button:disabled { opacity: 0.3; cursor: not-allowed; }
+  .layer-opacity-row {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 6px; padding: 0 4px;
+    font-size: 10px; color: var(--text-dim);
+  }
+  .layer-opacity-row input[type=range] { flex: 1; accent-color: var(--accent); }
+  .layer-opacity-label { font-family: 'SF Mono', Consolas, monospace; }
+  .layer-opacity-val { font-family: 'SF Mono', Consolas, monospace; min-width: 30px; text-align: right; }
+
   /* Animation tags row — chips between the toolbar and the frame strip.
      Each chip = one named tag (a frame range). Click to play that
      range; the tag color is also drawn as a thin underline below
@@ -561,6 +619,18 @@
 
     <h2 style="margin-top: 12px;">Recent</h2>
     <div id="recentGrid" class="swatch-grid"></div>
+
+    <h2 style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+      <span>Layers</span>
+      <button id="layerAddBtn" class="tool-btn" style="font-size: 11px; padding: 3px 8px;"
+              title="Add a new empty layer on top of the stack">+ Layer</button>
+    </h2>
+    <div id="layerList" class="layer-list"></div>
+    <div class="layer-opacity-row" id="layerOpacityRow" style="display: none;">
+      <span class="layer-opacity-label">α</span>
+      <input id="layerOpacityInput" type="range" min="0" max="100" step="5" value="100" title="Opacity of the active layer">
+      <span id="layerOpacityVal" class="layer-opacity-val">100%</span>
+    </div>
 
     <h2 style="margin-top: 12px;">Navigator</h2>
     <div class="minimap-wrap" title="Click to jump the paint canvas to that position. The yellow box shows the visible viewport when zoomed in.">
@@ -961,10 +1031,19 @@ let state = {
   width: 58,
   height: 52,
   // Frames — list of independent pixel maps. Each frame has its own
-  // `pixels` map + `duration` (ms). One frame = single sprite (current
-  // behavior unchanged). Multiple frames = animated sprite.
-  frames: [{ pixels: {}, duration: 100 }],
+  // `layerPixels` array (one map per layer, parallel to `state.layers`)
+  // + `duration` (ms). Legacy single-pixel-map frames are migrated on
+  // restore. Old code that touches `frame.pixels` keeps working via a
+  // back-compat getter on every frame (see migrateFrame).
+  frames: [{ layerPixels: [{}], duration: 100 }],
   activeFrame: 0,
+  // Layer system — sprite-wide list of layer metadata, parallel to
+  // every frame's `layerPixels` array. Visible layers composite in
+  // index order (0 = bottom, N-1 = top). Opacity 0..1 is applied as
+  // canvas globalAlpha in renderGrid. Code export flattens visible
+  // layers into a single pixel map (top-most non-transparent wins).
+  layers: [{ name: 'Layer 1', visible: true, opacity: 1 }],
+  activeLayer: 0,
   playing: false,
   onionPrev: false,
   onionNext: false,
@@ -1019,14 +1098,71 @@ let state = {
   refOffsetX: 0,              // CSS px offset
   refOffsetY: 0,
 };
-// state.pixels is a virtual property that reads/writes the ACTIVE frame's
-// pixel map. Every existing line of code that touches state.pixels keeps
-// working — but now it operates on whatever frame the user is editing.
+// state.pixels is a virtual property that reads/writes the ACTIVE layer
+// of the ACTIVE frame. Every existing line of code that touches
+// state.pixels keeps working — it now writes into whichever layer is
+// currently selected.
 Object.defineProperty(state, 'pixels', {
-  get() { return this.frames[this.activeFrame].pixels; },
-  set(v) { this.frames[this.activeFrame].pixels = v; },
+  get() {
+    const f = this.frames[this.activeFrame];
+    // Defensive guard: if migration hasn't run on an old payload, treat
+    // frame.pixels as the single layer (covers code that runs early in
+    // boot before restoreAutosave finishes).
+    if (f.layerPixels) return f.layerPixels[this.activeLayer] || (f.layerPixels[this.activeLayer] = {});
+    if (!f.layerPixels && f.pixels) return f.pixels;
+    f.layerPixels = [{}];
+    return f.layerPixels[0];
+  },
+  set(v) {
+    const f = this.frames[this.activeFrame];
+    if (!f.layerPixels) f.layerPixels = [{}];
+    f.layerPixels[this.activeLayer] = v;
+  },
   configurable: true,
 });
+
+// ── Layer helpers ─────────────────────────────────────────────
+// Convert any legacy payload into the canonical { layerPixels, duration }
+// shape. Safe to run idempotently — if a frame is already migrated,
+// nothing changes.
+function migrateFrame(f) {
+  if (!f.layerPixels) f.layerPixels = f.pixels ? [f.pixels] : [{}];
+  // Pad/trim to current layer count so the parallel-array invariant
+  // (state.layers.length === frame.layerPixels.length per frame) holds.
+  while (f.layerPixels.length < state.layers.length) f.layerPixels.push({});
+  if (f.layerPixels.length > state.layers.length) f.layerPixels.length = state.layers.length;
+  // Drop the legacy `pixels` field so we don't accidentally write to it.
+  delete f.pixels;
+  // Back-compat getter for any straggling read of `f.pixels` — returns
+  // the FLATTENED pixel map (visible layers, top wins). This is what
+  // legacy thumbnail / code paths want.
+  if (!Object.prototype.hasOwnProperty.call(f, 'pixels')) {
+    Object.defineProperty(f, 'pixels', {
+      get() { return flattenFrame(f); },
+      configurable: true,
+    });
+  }
+  return f;
+}
+function migrateAllFrames() {
+  for (const f of state.frames) migrateFrame(f);
+}
+// Composite visible layers of a frame into a single pixel map. Top-most
+// non-transparent pixel wins. Used by code export, thumbnail rendering,
+// onion-skin overlay, and any flat-pixel-map consumer.
+function flattenFrame(frame) {
+  const out = {};
+  for (let i = 0; i < state.layers.length; i++) {
+    if (!state.layers[i].visible) continue;
+    const lp = frame.layerPixels && frame.layerPixels[i];
+    if (!lp) continue;
+    for (const k in lp) out[k] = lp[k];
+  }
+  return out;
+}
+// Run migration on the boot-time default state so the back-compat
+// `f.pixels` getter exists from the very first render call.
+migrateAllFrames();
 
 const RECENT_MAX = 16;
 const ZOOM_MIN = 2;
@@ -1490,14 +1626,16 @@ function resizeGrid(w, h) {
   state.width = Math.max(1, Math.min(512, w | 0));
   state.height = Math.max(1, Math.min(512, h | 0));
   resetHistory();  // resize is a wholesale change — don't try to undo across it
-  // Clip out-of-bounds pixels across ALL frames
+  // Clip out-of-bounds pixels across EVERY layer of EVERY frame.
   for (const f of state.frames) {
-    const fresh = {};
-    for (const [k, v] of Object.entries(f.pixels)) {
-      const [px, py] = k.split(',').map(Number);
-      if (px < state.width && py < state.height) fresh[k] = v;
+    for (let i = 0; i < f.layerPixels.length; i++) {
+      const fresh = {};
+      for (const k in f.layerPixels[i]) {
+        const [px, py] = k.split(',').map(Number);
+        if (px < state.width && py < state.height) fresh[k] = f.layerPixels[i][k];
+      }
+      f.layerPixels[i] = fresh;
     }
-    f.pixels = fresh;
   }
   widthInput.value = state.width;
   heightInput.value = state.height;
@@ -1581,12 +1719,27 @@ function renderGrid() {
       paintCtx.globalAlpha = 1.0;
     }
   }
-  // Painted pixels — current frame, full opacity
-  for (const [k, hex] of Object.entries(state.pixels)) {
-    const [px, py] = k.split(',').map(Number);
-    paintCtx.fillStyle = hex;
-    paintCtx.fillRect(px * Z, py * Z, Z, Z);
+  // Painted pixels — current frame, ALL VISIBLE LAYERS composited in
+  // bottom-to-top order with each layer's opacity applied via
+  // globalAlpha. Layers are painted independently; alpha-blending
+  // happens at the canvas level so an underlying layer's color shows
+  // through a translucent layer above it. The active layer gets
+  // forced to 1.0 opacity so the artist always sees what they're
+  // actually painting (instead of a faint version of it).
+  const frameLayers = state.frames[state.activeFrame].layerPixels;
+  for (let i = 0; i < state.layers.length; i++) {
+    if (!state.layers[i].visible) continue;
+    const lp = frameLayers[i];
+    if (!lp) continue;
+    const isActive = (i === state.activeLayer);
+    paintCtx.globalAlpha = isActive ? 1.0 : (state.layers[i].opacity ?? 1);
+    for (const k in lp) {
+      const [px, py] = k.split(',').map(Number);
+      paintCtx.fillStyle = lp[k];
+      paintCtx.fillRect(px * Z, py * Z, Z, Z);
+    }
   }
+  paintCtx.globalAlpha = 1.0;
   // Rect / Ellipse live-preview (in-progress drag). The same yellow
   // outline shows the bounding box; the fill preview is rect-shaped
   // for the rect tool, ellipse-shaped for the ellipse tool.
@@ -1776,9 +1929,11 @@ function renderPreview() {
   previewCanvas.height = state.height;
   previewCtx.imageSmoothingEnabled = false;
   previewCtx.clearRect(0, 0, state.width, state.height);
-  for (const [k, hex] of Object.entries(state.pixels)) {
+  // Preview shows the composited sprite, not just the active layer.
+  const flat = flattenFrame(state.frames[state.activeFrame]);
+  for (const k in flat) {
     const [px, py] = k.split(',').map(Number);
-    previewCtx.fillStyle = hex;
+    previewCtx.fillStyle = flat[k];
     previewCtx.fillRect(px, py, 1, 1);
   }
 }
@@ -2118,11 +2273,17 @@ function generateCode() {
 
 // Header builder shared by all formats. Lists custom (off-palette) colors
 // so the artist can wire them into the game's master palettes later.
+// Operates on the FLATTENED active frame so off-palette pixels on any
+// visible layer get caught.
 function codeHeader() {
-  const customUsed = collectCustomColors(state.pixels);
+  const flat = flattenFrame(state.frames[state.activeFrame]);
+  const customUsed = collectCustomColors(flat);
   let header = `// Generated by Wondrous Grid — sprite ${state.width}×${state.height}`;
   if (state.frames.length > 1) {
     header += `   (frame ${state.activeFrame + 1} of ${state.frames.length})`;
+  }
+  if (state.layers.length > 1) {
+    header += `   [flattened from ${state.layers.length} layers]`;
   }
   header += `\n`;
   if (customUsed.length) {
@@ -2137,10 +2298,11 @@ function codeHeader() {
 
 // 1) px() format — the editable default. Used by every existing tool.
 function genCodePx() {
+  const flat = flattenFrame(state.frames[state.activeFrame]);
   const lines = [];
   for (let y = 0; y < state.height; y++) {
     for (let x = 0; x < state.width; x++) {
-      const hex = state.pixels[`${x},${y}`];
+      const hex = flat[`${x},${y}`];
       if (hex) lines.push(`px(ctx, '${hex}', ${x}, ${y}, 1, 1);`);
     }
   }
@@ -2152,11 +2314,12 @@ function genCodePx() {
 //    of the same color so the output stays compact (one fillStyle per
 //    color run).
 function genCodeFillRect() {
+  const flat = flattenFrame(state.frames[state.activeFrame]);
   let prevHex = null;
   const lines = [];
   for (let y = 0; y < state.height; y++) {
     for (let x = 0; x < state.width; x++) {
-      const hex = state.pixels[`${x},${y}`];
+      const hex = flat[`${x},${y}`];
       if (!hex) continue;
       if (hex !== prevHex) {
         lines.push(`ctx.fillStyle = '${hex}';`);
@@ -2172,10 +2335,11 @@ function genCodeFillRect() {
 //    embedded as data and drawn from a single loop. Easiest format for
 //    procedural / data-driven rendering pipelines.
 function genCodeArray() {
+  const flat = flattenFrame(state.frames[state.activeFrame]);
   const lines = [];
   for (let y = 0; y < state.height; y++) {
     for (let x = 0; x < state.width; x++) {
-      const hex = state.pixels[`${x},${y}`];
+      const hex = flat[`${x},${y}`];
       if (hex) lines.push(`  ['${hex}', ${x}, ${y}],`);
     }
   }
@@ -2190,10 +2354,11 @@ function genCodeArray() {
 //    User picks the name via the input next to the format selector.
 function genCodeFunction() {
   const name = sanitizeFnName(state.fnName || 'pxMySprite');
+  const flat = flattenFrame(state.frames[state.activeFrame]);
   const lines = [];
   for (let y = 0; y < state.height; y++) {
     for (let x = 0; x < state.width; x++) {
-      const hex = state.pixels[`${x},${y}`];
+      const hex = flat[`${x},${y}`];
       if (hex) lines.push(`  px(ctx, '${hex}', ox + ${x}, oy + ${y}, 1, 1);`);
     }
   }
@@ -2234,10 +2399,14 @@ function generateCopyCode() {
   if (state.frames.length === 1) return generateCode();
 
   const frameLines = state.frames.map((f, i) => {
+    // Flatten once per frame so the per-pixel lookup is a fast Object
+    // read (instead of re-running flattenFrame for every cell via the
+    // back-compat getter on f.pixels).
+    const flat = flattenFrame(f);
     const ls = [];
     for (let y = 0; y < state.height; y++) {
       for (let x = 0; x < state.width; x++) {
-        const hex = f.pixels[`${x},${y}`];
+        const hex = flat[`${x},${y}`];
         if (hex) ls.push(`      px(ctx, '${hex}', ${x}, ${y}, 1, 1);`);
       }
     }
@@ -2255,7 +2424,7 @@ function generateCopyCode() {
   const totalFrames = state.frames.length;
   const allCustoms = new Map();
   for (const f of state.frames) {
-    for (const [hex, count] of collectCustomColors(f.pixels)) {
+    for (const [hex, count] of collectCustomColors(flattenFrame(f))) {
       allCustoms.set(hex, (allCustoms.get(hex) || 0) + count);
     }
   }
@@ -2725,6 +2894,8 @@ saveBtn.addEventListener('click', () => {
     refOpacity: state.refOpacity,
     refVisible: state.refVisible,
     tags: state.tags,
+    layers: state.layers,
+    activeLayer: state.activeLayer,
     savedAt: new Date().toISOString(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -2748,15 +2919,28 @@ loadInput.addEventListener('change', () => {
       state.height = payload.height;
       if (Array.isArray(payload.frames) && payload.frames.length > 0) {
         state.frames = payload.frames.map(f => ({
-          pixels: f.pixels || {},
+          layerPixels: Array.isArray(f.layerPixels) ? f.layerPixels.map(p => ({ ...p })) : null,
+          pixels: f.pixels || null,
           duration: (typeof f.duration === 'number') ? f.duration : 100,
         }));
         state.activeFrame = Math.max(0, Math.min(state.frames.length - 1, payload.activeFrame | 0));
       } else {
         // Back-compat for older single-frame payloads
-        state.frames = [{ pixels: payload.pixels || {}, duration: 100 }];
+        state.frames = [{ layerPixels: null, pixels: payload.pixels || {}, duration: 100 }];
         state.activeFrame = 0;
       }
+      if (Array.isArray(payload.layers) && payload.layers.length > 0) {
+        state.layers = payload.layers.map(l => ({
+          name: typeof l.name === 'string' ? l.name : 'Layer',
+          visible: l.visible !== false,
+          opacity: typeof l.opacity === 'number' ? l.opacity : 1,
+        }));
+        state.activeLayer = Math.max(0, Math.min(state.layers.length - 1, payload.activeLayer | 0));
+      } else {
+        state.layers = [{ name: 'Layer 1', visible: true, opacity: 1 }];
+        state.activeLayer = 0;
+      }
+      migrateAllFrames();
       state.onionPrev = !!payload.onionPrev;
       state.onionNext = !!payload.onionNext;
       state.activeColor = payload.activeColor || state.activeColor;
@@ -2790,6 +2974,7 @@ loadInput.addEventListener('change', () => {
       renderCode();
       applyReference();
       renderTimeline();
+      renderLayers();
       autosave();
     } catch (err) {
       alert('Invalid JSON file: ' + err.message);
@@ -2831,6 +3016,8 @@ function autosave() {
       codeFormat: state.codeFormat,
       fnName: state.fnName,
       tags: state.tags,
+      layers: state.layers,
+      activeLayer: state.activeLayer,
     }));
   } catch (e) {
     // localStorage quota exceeded — most likely the reference image is
@@ -2845,6 +3032,8 @@ function autosave() {
         customColors: state.customColors, recentColors: state.recentColors,
         zoom: state.zoom,
         tags: state.tags,
+        layers: state.layers,
+        activeLayer: state.activeLayer,
       }));
       console.warn('Reference image too big to autosave — it will be lost on refresh. Save the JSON to keep it.');
     } catch {}
@@ -2862,14 +3051,30 @@ function restoreAutosave() {
     // top level instead of a `frames` array.
     if (Array.isArray(data.frames) && data.frames.length > 0) {
       state.frames = data.frames.map(f => ({
-        pixels: f.pixels || {},
+        layerPixels: Array.isArray(f.layerPixels) ? f.layerPixels.map(p => ({ ...p })) : null,
+        pixels: f.pixels || null,   // consumed by migrateFrame
         duration: (typeof f.duration === 'number') ? f.duration : 100,
       }));
       state.activeFrame = Math.max(0, Math.min(state.frames.length - 1, data.activeFrame | 0));
     } else if (data.pixels) {
-      state.frames = [{ pixels: data.pixels, duration: 100 }];
+      state.frames = [{ layerPixels: null, pixels: data.pixels, duration: 100 }];
       state.activeFrame = 0;
     }
+    // Restore layers metadata BEFORE migrating frames so layer-count
+    // invariants line up. Legacy payloads have no layers entry — we
+    // create a single default layer.
+    if (Array.isArray(data.layers) && data.layers.length > 0) {
+      state.layers = data.layers.map(l => ({
+        name: typeof l.name === 'string' ? l.name : 'Layer',
+        visible: l.visible !== false,
+        opacity: typeof l.opacity === 'number' ? l.opacity : 1,
+      }));
+      state.activeLayer = Math.max(0, Math.min(state.layers.length - 1, data.activeLayer | 0));
+    } else {
+      state.layers = [{ name: 'Layer 1', visible: true, opacity: 1 }];
+      state.activeLayer = 0;
+    }
+    migrateAllFrames();
     state.onionPrev = !!data.onionPrev;
     state.onionNext = !!data.onionNext;
     if (typeof data.onionAlpha === 'number') state.onionAlpha = data.onionAlpha;
@@ -3023,11 +3228,14 @@ function loadPngIntoGrid(src, opts = {}) {
       state.width = oc.width;
       state.height = oc.height;
       // PNG import = start fresh single-frame sprite. Any existing
-      // animation frames would be at the wrong dimensions. Tags get
-      // wiped too — they reference no-longer-existing frames.
-      state.frames = [{ pixels, duration: 100 }];
+      // animation frames would be at the wrong dimensions. Tags +
+      // layers also reset — wholly new sprite, clean slate.
+      state.layers = [{ name: 'Layer 1', visible: true, opacity: 1 }];
+      state.activeLayer = 0;
+      state.frames = [{ layerPixels: [pixels], duration: 100 }];
       state.activeFrame = 0;
       state.tags = [];
+      migrateAllFrames();
       widthInput.value = state.width;
       heightInput.value = state.height;
       presetSelect.value = 'custom';
@@ -3038,6 +3246,7 @@ function loadPngIntoGrid(src, opts = {}) {
       renderPreview();
       renderCode();
       renderTimeline();
+      renderLayers();
       autosave();
       resolve({ w: oc.width, h: oc.height, pixelCount: Object.keys(pixels).length });
     };
@@ -3187,6 +3396,8 @@ async function saveCurrentAsNewAsset() {
     refOpacity: state.refOpacity,
     refVisible: state.refVisible,
     tags: state.tags,
+    layers: state.layers,
+    activeLayer: state.activeLayer,
     createdAt: now,
     updatedAt: now,
   };
@@ -3200,15 +3411,28 @@ function loadAssetIntoState(asset) {
   state.height = asset.height;
   if (Array.isArray(asset.frames) && asset.frames.length > 0) {
     state.frames = asset.frames.map(f => ({
-      pixels: f.pixels || {},
+      layerPixels: Array.isArray(f.layerPixels) ? f.layerPixels.map(p => ({ ...p })) : null,
+      pixels: f.pixels || null,
       duration: (typeof f.duration === 'number') ? f.duration : 100,
     }));
     state.activeFrame = Math.max(0, Math.min(state.frames.length - 1, asset.activeFrame | 0));
   } else {
     // Back-compat for older single-frame assets in IndexedDB
-    state.frames = [{ pixels: asset.pixels || {}, duration: 100 }];
+    state.frames = [{ layerPixels: null, pixels: asset.pixels || {}, duration: 100 }];
     state.activeFrame = 0;
   }
+  if (Array.isArray(asset.layers) && asset.layers.length > 0) {
+    state.layers = asset.layers.map(l => ({
+      name: typeof l.name === 'string' ? l.name : 'Layer',
+      visible: l.visible !== false,
+      opacity: typeof l.opacity === 'number' ? l.opacity : 1,
+    }));
+    state.activeLayer = Math.max(0, Math.min(state.layers.length - 1, asset.activeLayer | 0));
+  } else {
+    state.layers = [{ name: 'Layer 1', visible: true, opacity: 1 }];
+    state.activeLayer = 0;
+  }
+  migrateAllFrames();
   state.customColors = asset.customColors || [];
   state.refSrc = asset.refSrc || null;
   if (typeof asset.refOpacity === 'number') state.refOpacity = asset.refOpacity;
@@ -3234,6 +3458,7 @@ function loadAssetIntoState(asset) {
   applyReference();
   renderPalette();
   renderTimeline();
+  renderLayers();
   autosave();
 }
 
@@ -3978,9 +4203,204 @@ function setActiveFrame(idx) {
   autosave();
 }
 
+// ── Layers ──────────────────────────────────────────────────
+// Layer ops always go through these helpers so the layer-count / frame
+// invariant (every frame has `layerPixels.length === state.layers.length`)
+// stays intact. UI is rebuilt by renderLayers() after each change.
+const layerList         = document.getElementById('layerList');
+const layerAddBtn       = document.getElementById('layerAddBtn');
+const layerOpacityRow   = document.getElementById('layerOpacityRow');
+const layerOpacityInput = document.getElementById('layerOpacityInput');
+const layerOpacityVal   = document.getElementById('layerOpacityVal');
+
+function renderLayers() {
+  layerList.innerHTML = '';
+  // Render top-to-bottom (highest index = top of stack visually); but
+  // the underlying CSS uses flex-direction: column-reverse so we can
+  // append in ascending index order and get the right visual stack.
+  for (let i = 0; i < state.layers.length; i++) {
+    const layer = state.layers[i];
+    const row = document.createElement('div');
+    row.className = 'layer-row' +
+      (i === state.activeLayer ? ' active' : '') +
+      (!layer.visible ? ' hidden' : '');
+    row.dataset.layerIdx = String(i);
+    // Visibility toggle (eye icon)
+    const visBtn = document.createElement('button');
+    visBtn.className = 'layer-vis-btn';
+    visBtn.type = 'button';
+    visBtn.textContent = layer.visible ? '👁' : '⊘';
+    visBtn.title = layer.visible ? 'Hide layer' : 'Show layer';
+    visBtn.onclick = (e) => { e.stopPropagation(); toggleLayerVis(i); };
+    row.appendChild(visBtn);
+    // Layer name (double-click to rename)
+    const nameSpan = document.createElement('div');
+    nameSpan.className = 'layer-name';
+    nameSpan.textContent = layer.name;
+    nameSpan.title = `${layer.name} — click to make active · double-click to rename`;
+    nameSpan.ondblclick = (e) => { e.stopPropagation(); renameLayerInline(i, row, nameSpan); };
+    row.appendChild(nameSpan);
+    // Reorder + delete controls
+    const ctrls = document.createElement('div');
+    ctrls.className = 'layer-row-ctrls';
+    const upBtn = document.createElement('button');
+    upBtn.type = 'button';
+    upBtn.textContent = '↑';
+    upBtn.title = 'Move layer up (on top of the layer above)';
+    upBtn.disabled = i === state.layers.length - 1;
+    upBtn.onclick = (e) => { e.stopPropagation(); moveLayer(i, +1); };
+    ctrls.appendChild(upBtn);
+    const downBtn = document.createElement('button');
+    downBtn.type = 'button';
+    downBtn.textContent = '↓';
+    downBtn.title = 'Move layer down';
+    downBtn.disabled = i === 0;
+    downBtn.onclick = (e) => { e.stopPropagation(); moveLayer(i, -1); };
+    ctrls.appendChild(downBtn);
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.textContent = '×';
+    delBtn.title = 'Delete layer (with all pixels across every frame)';
+    delBtn.disabled = state.layers.length <= 1;
+    delBtn.onclick = (e) => { e.stopPropagation(); deleteLayer(i); };
+    ctrls.appendChild(delBtn);
+    row.appendChild(ctrls);
+    row.onclick = () => setActiveLayer(i);
+    layerList.appendChild(row);
+  }
+  // Active-layer opacity slider — hidden if there's only one layer
+  // (no point in changing opacity of a solo layer; everything is at 100%).
+  if (state.layers.length > 1) {
+    layerOpacityRow.style.display = 'flex';
+    const op = state.layers[state.activeLayer].opacity ?? 1;
+    layerOpacityInput.value = Math.round(op * 100);
+    layerOpacityVal.textContent = Math.round(op * 100) + '%';
+  } else {
+    layerOpacityRow.style.display = 'none';
+  }
+}
+
+function setActiveLayer(idx) {
+  if (idx < 0 || idx >= state.layers.length) return;
+  state.activeLayer = idx;
+  resetHistory();   // undo doesn't cross layers — same rationale as frames
+  renderLayers();
+  renderGrid();
+  renderPreview();
+  renderCode();
+  autosave();
+}
+
+function addLayer() {
+  // Insert new layer ON TOP of the stack (highest index). Empty pixel
+  // map per frame so the new layer starts blank. Made active so the
+  // very next paint stroke lands on it.
+  const idx = state.layers.length;
+  state.layers.push({
+    name: 'Layer ' + (idx + 1),
+    visible: true,
+    opacity: 1,
+  });
+  for (const f of state.frames) f.layerPixels.push({});
+  setActiveLayer(idx);
+  renderTimeline();   // tag bars + thumb composites may have changed
+}
+
+function deleteLayer(idx) {
+  if (state.layers.length <= 1) return;
+  if (!confirm(`Delete layer "${state.layers[idx].name}"? All its pixels (across every frame) will be removed.`)) return;
+  state.layers.splice(idx, 1);
+  for (const f of state.frames) f.layerPixels.splice(idx, 1);
+  if (state.activeLayer >= state.layers.length) state.activeLayer = state.layers.length - 1;
+  resetHistory();
+  renderLayers();
+  renderGrid();
+  renderPreview();
+  renderCode();
+  renderTimeline();
+  autosave();
+}
+
+function toggleLayerVis(idx) {
+  state.layers[idx].visible = !state.layers[idx].visible;
+  renderLayers();
+  renderGrid();
+  renderPreview();
+  renderCode();
+  renderTimeline();
+  autosave();
+}
+
+function moveLayer(idx, direction) {
+  // direction: +1 = up the stack (higher index), -1 = down.
+  const target = idx + direction;
+  if (target < 0 || target >= state.layers.length) return;
+  [state.layers[idx], state.layers[target]] = [state.layers[target], state.layers[idx]];
+  for (const f of state.frames) {
+    [f.layerPixels[idx], f.layerPixels[target]] = [f.layerPixels[target], f.layerPixels[idx]];
+  }
+  if (state.activeLayer === idx)      state.activeLayer = target;
+  else if (state.activeLayer === target) state.activeLayer = idx;
+  resetHistory();
+  renderLayers();
+  renderGrid();
+  renderPreview();
+  renderTimeline();
+  autosave();
+}
+
+function renameLayerInline(idx, row, nameSpan) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'layer-name-input';
+  input.value = state.layers[idx].name;
+  input.maxLength = 32;
+  row.replaceChild(input, nameSpan);
+  input.focus();
+  input.select();
+  const commit = () => {
+    const newName = input.value.trim() || state.layers[idx].name;
+    state.layers[idx].name = newName;
+    renderLayers();
+    autosave();
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    else if (e.key === 'Escape') { e.preventDefault(); renderLayers(); }
+  });
+}
+
+layerAddBtn.addEventListener('click', addLayer);
+layerOpacityInput.addEventListener('input', () => {
+  const op = (+layerOpacityInput.value) / 100;
+  state.layers[state.activeLayer].opacity = op;
+  layerOpacityVal.textContent = (+layerOpacityInput.value) + '%';
+  renderGrid();
+  autosave();
+});
+
+// Build a brand-new frame seeded with the right number of empty layer
+// maps for the current sprite. Use this anywhere a new frame is
+// inserted so the layerPixels invariant always holds.
+function makeBlankFrame(duration) {
+  const layerPixels = state.layers.map(() => ({}));
+  const f = { layerPixels, duration: duration || 100 };
+  migrateFrame(f);
+  return f;
+}
+// Clone the active frame's layer-pixels into a fresh frame object.
+function cloneActiveFrame() {
+  const cur = state.frames[state.activeFrame];
+  const layerPixels = cur.layerPixels.map(lp => ({ ...lp }));
+  const f = { layerPixels, duration: cur.duration };
+  migrateFrame(f);
+  return f;
+}
+
 function addBlankFrame() {
   const dur = state.frames[state.activeFrame].duration;  // inherit duration
-  state.frames.splice(state.activeFrame + 1, 0, { pixels: {}, duration: dur });
+  state.frames.splice(state.activeFrame + 1, 0, makeBlankFrame(dur));
   shiftTagsForInsert(state.activeFrame + 1);
   setActiveFrame(state.activeFrame + 1);
 }
@@ -3988,11 +4408,7 @@ function addBlankFrame() {
 function duplicateFrame() {
   // Duplicate immediately after the current frame. Used by the toolbar
   // "Duplicate" button and the Alt+D shortcut.
-  const cur = state.frames[state.activeFrame];
-  state.frames.splice(state.activeFrame + 1, 0, {
-    pixels: JSON.parse(JSON.stringify(cur.pixels)),
-    duration: cur.duration,
-  });
+  state.frames.splice(state.activeFrame + 1, 0, cloneActiveFrame());
   shiftTagsForInsert(state.activeFrame + 1);
   setActiveFrame(state.activeFrame + 1);
 }
@@ -4001,11 +4417,7 @@ function duplicateFrameToEnd() {
   // Duplicate the active frame and APPEND it to the end of the strip.
   // Used by the big "+" thumb at the right of the timeline so the new
   // frame always shows up where the user clicked.
-  const cur = state.frames[state.activeFrame];
-  state.frames.push({
-    pixels: JSON.parse(JSON.stringify(cur.pixels)),
-    duration: cur.duration,
-  });
+  state.frames.push(cloneActiveFrame());
   // Appended past every existing tag's range — no tag updates needed.
   setActiveFrame(state.frames.length - 1);
   // Scroll the new frame into view (useful when the strip overflows)
@@ -4182,6 +4594,7 @@ tlOnionNextCheck.checked = state.onionNext;
 tlOnionAlpha.value = Math.round(state.onionAlpha * 100);
 tlOnionAlphaVal.textContent = Math.round(state.onionAlpha * 100) + '%';
 renderTimeline();
+renderLayers();
 // Sync symmetry / lock-alpha button visuals to restored state
 {
   const labels = { off: 'off', v: '↔ V', h: '↕ H', both: 'both' };
@@ -4209,19 +4622,33 @@ document.getElementById('helpBtn').addEventListener('click', openHelp);
 // ── Canvas transforms (flip / rotate) ─────────────────────
 // Each one is one undo step — snapshot before, commit after.
 function transformPixels(remapFn, newWidth, newHeight) {
-  const before = snapshotPixels();
-  const next = {};
-  for (const [k, hex] of Object.entries(state.pixels)) {
-    const [x, y] = k.split(',').map(Number);
-    const { x: nx, y: ny } = remapFn(x, y);
-    next[`${nx},${ny}`] = hex;
+  // Flip / rotate apply to EVERY LAYER of the active frame so the
+  // visible sprite gets mirrored as a whole (an artist expects "flip H"
+  // to flip the entire image, not just the layer they're touching).
+  // Other frames are left alone — same convention as the pre-layers
+  // single-frame behavior.
+  //
+  // Note on undo: snapshotPixels only captures the active layer, but a
+  // transform touches every layer. Rather than push a half-snapshot
+  // that would re-flip incorrectly, we reset history — same approach
+  // we already use for resize. The user trades undo across transforms
+  // for correctness everywhere else.
+  const f = state.frames[state.activeFrame];
+  for (let i = 0; i < f.layerPixels.length; i++) {
+    const lp = f.layerPixels[i];
+    const next = {};
+    for (const k in lp) {
+      const [x, y] = k.split(',').map(Number);
+      const { x: nx, y: ny } = remapFn(x, y);
+      next[`${nx},${ny}`] = lp[k];
+    }
+    f.layerPixels[i] = next;
   }
-  state.pixels = next;
   if (newWidth !== undefined)  { state.width = newWidth;  widthInput.value = state.width; }
   if (newHeight !== undefined) { state.height = newHeight; heightInput.value = state.height; }
-  commitHistory(before);
+  resetHistory();
   fitZoomToScreen();
-  renderGrid(); renderPreview(); renderCode();
+  renderGrid(); renderPreview(); renderCode(); renderTimeline();
   autosave();
 }
 
