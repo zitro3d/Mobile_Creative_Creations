@@ -1717,6 +1717,7 @@
       <div class="pl-tabs">
         <button class="pl-tab active" data-tab="presets">Size presets</button>
         <button class="pl-tab" data-tab="assets">Assets</button>
+        <button class="pl-tab" data-tab="github">GitHub</button>
       </div>
       <div class="pl-tab-panel" id="plTabPresets" style="padding: 14px 18px;">
         <p style="margin: 0 0 12px; font-size: 12px; color: var(--text-dim);">Click any preset to resize the canvas. Add the current canvas size as a new preset to reuse it later.</p>
@@ -1754,6 +1755,29 @@
             </div>
           </div>
         </div>
+      </div>
+      <!-- GitHub repo browse tab — point a project at a public GitHub
+           repo, fetches the file tree, lists PNG / GIF / JPG files as
+           clickable thumbnails. Read-only Tier 1 — no auth needed for
+           public repos. Click a thumbnail to import directly into the
+           canvas. Write-back lands in a later tier. -->
+      <div class="pl-tab-panel" id="plTabGithub" style="display: none; padding: 14px 18px;">
+        <p style="margin: 0 0 12px; font-size: 12px; color: var(--text-dim);">Point this project at a public GitHub repo to browse its images directly. Each PNG / GIF / JPG shows as a thumbnail; click to import into your canvas. No login needed for public repos.</p>
+        <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 12px;">
+          <label style="display: flex; flex-direction: column; gap: 4px; flex: 1;">
+            <span style="font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Repo URL or owner/name</span>
+            <input id="plGhRepo" type="text" placeholder="github.com/owner/repo  or  owner/repo"
+                   style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-family: 'SF Mono', Consolas, monospace; font-size: 11px;">
+          </label>
+          <label style="display: flex; flex-direction: column; gap: 4px; width: 130px;">
+            <span style="font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Branch (optional)</span>
+            <input id="plGhBranch" type="text" placeholder="main"
+                   style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-family: 'SF Mono', Consolas, monospace; font-size: 11px;">
+          </label>
+          <button id="plGhRefreshBtn" class="primary" style="padding: 8px 14px;">⟳ Browse</button>
+        </div>
+        <div id="plGhStatus" style="font-size: 11px; color: var(--text-dim); margin-bottom: 10px;"></div>
+        <div id="plGhFileGrid"></div>
       </div>
     </div>
     <div class="modal-foot">
@@ -2687,6 +2711,11 @@ let state = {
   // The current category filter in the Project Library modal —
   // null means "All". Stored on state so it persists across opens.
   activeCategory: null,
+  // Per-project GitHub repo binding for read-only asset browsing.
+  // Repo string accepted as `owner/repo`, `github.com/owner/repo`,
+  // or full URL. Branch is optional (defaults to the repo's default).
+  githubRepo: null,
+  githubBranch: null,
   // Sprite slices — named rectangular regions for atlas export.
   // Each: { name, x, y, w, h, color } in canonical canvas coords.
   // Sprite-wide (not per-frame); included in PNG export sidecar
@@ -5871,6 +5900,8 @@ function autosave() {
       sizePresets: state.sizePresets,
       categories: state.categories,
       activeCategory: state.activeCategory,
+      githubRepo: state.githubRepo,
+      githubBranch: state.githubBranch,
       slices: state.slices,
       pressureAffects: state.pressureAffects,
       brushSmoothing: state.brushSmoothing,
@@ -5977,6 +6008,8 @@ function restoreAutosave() {
     if (typeof data.activeCategory === 'string' || data.activeCategory === null) {
       state.activeCategory = data.activeCategory;
     }
+    if (typeof data.githubRepo === 'string' || data.githubRepo === null) state.githubRepo = data.githubRepo;
+    if (typeof data.githubBranch === 'string' || data.githubBranch === null) state.githubBranch = data.githubBranch;
     if (Array.isArray(data.slices)) {
       state.slices = data.slices.filter(s => s && typeof s.name === 'string')
         .map(s => ({
@@ -8682,6 +8715,7 @@ function openProjectLibrary() {
   for (const tab of document.querySelectorAll('.pl-tab')) tab.classList.toggle('active', tab.dataset.tab === 'presets');
   document.getElementById('plTabPresets').style.display = '';
   document.getElementById('plTabAssets').style.display = 'none';
+  document.getElementById('plTabGithub').style.display = 'none';
   document.getElementById('plNewPresetW').value = state.width;
   document.getElementById('plNewPresetH').value = state.height;
   renderProjectPresets();
@@ -8701,7 +8735,9 @@ for (const tab of document.querySelectorAll('.pl-tab')) {
     for (const t of document.querySelectorAll('.pl-tab')) t.classList.toggle('active', t === tab);
     document.getElementById('plTabPresets').style.display = tab.dataset.tab === 'presets' ? '' : 'none';
     document.getElementById('plTabAssets').style.display  = tab.dataset.tab === 'assets'  ? '' : 'none';
+    document.getElementById('plTabGithub').style.display  = tab.dataset.tab === 'github'  ? '' : 'none';
     if (tab.dataset.tab === 'assets') renderProjectAssets();
+    if (tab.dataset.tab === 'github') renderGithubTab();
   });
 }
 
@@ -9087,6 +9123,143 @@ function saveAssetDialog() {
 document.getElementById('plImportPngBtn')  .addEventListener('click', () => { closeProjectLibrary(); document.getElementById('pngImportInput').click();   });
 document.getElementById('plImportGifBtn')  .addEventListener('click', () => { closeProjectLibrary(); document.getElementById('gifImportInput').click();   });
 document.getElementById('plImportSheetBtn').addEventListener('click', () => { closeProjectLibrary(); document.getElementById('sheetImportInput').click(); });
+
+// ── GitHub Tier 1: read-only repo browse ───────────────────────
+// Accepts owner/repo, github.com/owner/repo, or full URL. Uses the
+// public GitHub API (no auth — works for public repos, 60 req/hr
+// rate limit per IP, plenty for project browsing). Fetches the
+// repo tree, filters for image files, renders as a thumbnail grid.
+// Click a tile to import the image (PNG/JPG) or animated GIF into
+// the canvas via the existing import pipeline.
+function parseGithubUrl(url) {
+  if (!url) return null;
+  const s = String(url).trim();
+  let m = s.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^\/\s?#]+)\/([^\/\s?#]+)(?:\/tree\/([^\/\s?#]+))?/);
+  if (m) return { owner: m[1], repo: m[2].replace(/\.git$/, ''), branch: m[3] || null };
+  m = s.match(/^([^\/\s]+)\/([^\/\s]+)$/);
+  if (m) return { owner: m[1], repo: m[2].replace(/\.git$/, ''), branch: null };
+  return null;
+}
+async function fetchGithubImages({ owner, repo, branch }) {
+  let branchToUse = branch;
+  if (!branchToUse) {
+    // Look up the default branch from the repo metadata.
+    const info = await fetch(`https://api.github.com/repos/${owner}/${repo}`).then(r => r.json());
+    if (info.message) throw new Error('GitHub: ' + info.message);
+    branchToUse = info.default_branch || 'main';
+  }
+  const tree = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branchToUse)}?recursive=1`).then(r => r.json());
+  if (tree.message) throw new Error('GitHub: ' + tree.message);
+  if (tree.truncated) {
+    // Tree was too big to return whole. Still show what we got but
+    // surface it to the user as a status note.
+  }
+  const blobs = (tree.tree || []).filter(t => t.type === 'blob' && /\.(png|jpe?g|gif)$/i.test(t.path));
+  return {
+    owner, repo, branch: branchToUse,
+    files: blobs.map(b => ({
+      path: b.path,
+      name: b.path.split('/').pop(),
+      dir:  b.path.split('/').slice(0, -1).join('/') || '/',
+      raw:  `https://raw.githubusercontent.com/${owner}/${repo}/${branchToUse}/${b.path}`,
+      isGif: /\.gif$/i.test(b.path),
+    })),
+    truncated: !!tree.truncated,
+  };
+}
+let _ghTreeCache = null;   // last fetched repo's files
+async function renderGithubTab() {
+  const repoEl   = document.getElementById('plGhRepo');
+  const branchEl = document.getElementById('plGhBranch');
+  const statusEl = document.getElementById('plGhStatus');
+  const gridEl   = document.getElementById('plGhFileGrid');
+  repoEl.value   = state.githubRepo   || '';
+  branchEl.value = state.githubBranch || '';
+  if (!state.githubRepo) {
+    statusEl.textContent = '';
+    gridEl.className = '';
+    gridEl.innerHTML = '<div class="pl-empty">Enter a repo URL above and click Browse to see its images.</div>';
+    return;
+  }
+  const parsed = parseGithubUrl(state.githubRepo);
+  if (!parsed) {
+    statusEl.textContent = 'Could not parse that repo URL.';
+    gridEl.className = '';
+    gridEl.innerHTML = '';
+    return;
+  }
+  parsed.branch = state.githubBranch || parsed.branch;
+  statusEl.textContent = `Fetching ${parsed.owner}/${parsed.repo}…`;
+  gridEl.className = '';
+  gridEl.innerHTML = '<div class="pl-empty">Loading…</div>';
+  try {
+    const result = await fetchGithubImages(parsed);
+    _ghTreeCache = result;
+    statusEl.textContent = `${parsed.owner}/${parsed.repo} · branch ${result.branch} · ${result.files.length} image${result.files.length === 1 ? '' : 's'}` + (result.truncated ? ' · (truncated — large repo)' : '');
+    gridEl.innerHTML = '';
+    if (result.files.length === 0) {
+      gridEl.className = '';
+      gridEl.innerHTML = '<div class="pl-empty">No PNG / JPG / GIF files found in this repo.</div>';
+      return;
+    }
+    gridEl.className = 'pl-asset-grid';
+    for (const f of result.files) {
+      const tile = document.createElement('div');
+      tile.className = 'pl-asset-tile starter';
+      tile.title = `${f.path}\nClick to import as ${f.isGif ? 'animation' : 'image'}`;
+      const thumb = document.createElement('div');
+      thumb.className = 'pl-asset-thumb';
+      const img = document.createElement('img');
+      img.src = f.raw;
+      img.alt = f.name;
+      img.loading = 'lazy';
+      img.style.imageRendering = 'pixelated';
+      thumb.appendChild(img);
+      tile.appendChild(thumb);
+      const labels = document.createElement('div');
+      labels.className = 'pl-asset-labels';
+      labels.innerHTML =
+        `<div class="pl-asset-name"></div>` +
+        `<div class="pl-asset-meta">${f.dir === '/' ? '/' : '/' + f.dir + '/'}</div>`;
+      labels.querySelector('.pl-asset-name').textContent = f.name;
+      tile.appendChild(labels);
+      const badge = document.createElement('span');
+      badge.className = 'pl-asset-badge';
+      badge.textContent = f.isGif ? '🎞' : '🖼';
+      tile.appendChild(badge);
+      tile.addEventListener('click', async () => {
+        if (!maybeReplaceConfirm()) return;
+        statusEl.textContent = 'Importing ' + f.name + '…';
+        try {
+          if (f.isGif) {
+            const resp = await fetch(f.raw);
+            const blob = await resp.blob();
+            await importGifAnimation(new File([blob], f.name, { type: 'image/gif' }));
+          } else {
+            await loadPngIntoGrid(f.raw);
+          }
+          closeProjectLibrary();
+        } catch (err) {
+          showAlert({ title: 'Import failed', body: String(err && err.message || err) });
+          statusEl.textContent = `${parsed.owner}/${parsed.repo} · branch ${result.branch} · ${result.files.length} images`;
+        }
+      });
+      gridEl.appendChild(tile);
+    }
+  } catch (err) {
+    statusEl.textContent = '';
+    gridEl.className = '';
+    gridEl.innerHTML = `<div class="pl-empty">Failed: ${err.message || err}</div>`;
+  }
+}
+document.getElementById('plGhRefreshBtn').addEventListener('click', () => {
+  const repoEl   = document.getElementById('plGhRepo');
+  const branchEl = document.getElementById('plGhBranch');
+  state.githubRepo   = (repoEl.value || '').trim()   || null;
+  state.githubBranch = (branchEl.value || '').trim() || null;
+  autosave();
+  renderGithubTab();
+});
 function _menuSeparator() {
   const sep = document.createElement('div');
   sep.className = 'menu-separator';
