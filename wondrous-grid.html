@@ -42,6 +42,12 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100vh; background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, system-ui, sans-serif; font-size: 13px; overflow: hidden; }
+  /* Pulse the red recording dot in the header so the user always
+     remembers the time-lapse is running. */
+  @keyframes timelapse-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.4; transform: scale(0.7); }
+  }
   /* Brand-tint every checkbox + radio + native progress / meter so
      they read as part of the app instead of the OS-default blue.
      accent-color is the modern CSS way to recolor form controls;
@@ -957,6 +963,35 @@
       <option value="dots">· dots</option>
     </select>
   </div>
+  <!-- Apple Pencil pressure + stroke smoothing — the Procreate-tier
+       iPad feel. Pressure maps to brush size or opacity (drop-down
+       picks); smoothing low-pass-filters the cursor so a wobbly hand
+       still draws clean diagonals. Both default to off so mouse users
+       see no change in behavior. -->
+  <div class="group" title="Apple Pencil pressure — pick what pressure controls during a pen stroke. Mouse / finger ignore this.">
+    <span style="font-size: 11px; color: var(--text-dim);">pressure</span>
+    <select id="pressureSelect" style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font-family: inherit; font-size: 11px;">
+      <option value="none">off</option>
+      <option value="size">→ size</option>
+      <option value="opacity">→ opacity</option>
+      <option value="both">→ size + opacity</option>
+    </select>
+  </div>
+  <div class="group" title="Stroke smoothing — higher = the brush lags behind a wobbly cursor for cleaner freehand lines. 0% = no smoothing.">
+    <span style="font-size: 11px; color: var(--text-dim);">smooth</span>
+    <input id="smoothingSlider" type="range" min="0" max="80" step="5" value="0" style="width: 60px; accent-color: var(--accent);">
+    <span id="smoothingReadout" class="brush-size-readout">0%</span>
+  </div>
+  <!-- Time-lapse recorder — captures every paint stroke as a snapshot,
+       encodes the sequence as a GIF on Stop. Tiny pulsing dot during
+       recording so it's clear something is happening. -->
+  <div class="group" title="Time-lapse — record every paint stroke and export as a GIF when stopped. Great for sharing your process.">
+    <button id="timelapseBtn">⏺ Record</button>
+    <span id="timelapseIndicator" style="display: none; align-items: center; gap: 4px; font-size: 10px; color: #ff6e6e;">
+      <span style="width: 8px; height: 8px; border-radius: 50%; background: #ff6e6e; animation: timelapse-pulse 1s ease-in-out infinite;"></span>
+      <span id="timelapseFrameCount">0</span>
+    </span>
+  </div>
   <div class="spacer"></div>
   <!-- FILE / CODE (right of spacer): I/O + code output + help -->
   <div class="group">
@@ -1739,6 +1774,13 @@ let state = {
   // footprint actually get painted. See DITHER_PATTERNS for the
   // grid table. 'solid' = no dither (default fully-filled stroke).
   brushDither: 'solid',
+  // Apple Pencil pressure mapping — what pen.pressure (0..1)
+  // multiplies during a stroke. 'none' = ignore (mouse / finger).
+  pressureAffects: 'none',
+  // Stroke smoothing strength 0..1. Higher = the brush position
+  // lags further behind the cursor so a wobbly hand still draws
+  // clean lines. 0 = no smoothing (current behavior).
+  brushSmoothing: 0,
   // Active palette key — 'dlx' is the project default; the dropdown
   // lets the user swap to NES / PICO-8 / Game Boy / Endesga 32 /
   // Sweetie 16 for classic pixel-art palettes. 'imported' shows the
@@ -2987,10 +3029,30 @@ let lastCellKey = null;
 let strokePrevCell = null;   // (x, y) of n-2
 let strokeLastCell = null;   // (x, y) of n-1
 
-function cellFromEvent(e) {
+// Stroke smoothing — low-pass filter on the cursor position during a
+// freehand stroke. Higher state.brushSmoothing = brush position lags
+// further behind a wobbly hand. Reset at mousedown via resetSmoothing
+// so each stroke starts uncoupled. Smoothing only kicks in while
+// painting; idle hovers (XY readout) ignore it.
+let _smoothX = null, _smoothY = null;
+function resetSmoothing() { _smoothX = _smoothY = null; }
+function cellFromEvent(e, applySmoothing = false) {
   const rect = paintCanvas.getBoundingClientRect();
-  const x = Math.floor((e.clientX - rect.left) / state.zoom);
-  const y = Math.floor((e.clientY - rect.top)  / state.zoom);
+  let cx = (e.clientX - rect.left) / state.zoom;
+  let cy = (e.clientY - rect.top)  / state.zoom;
+  if (applySmoothing && state.brushSmoothing > 0) {
+    if (_smoothX === null) { _smoothX = cx; _smoothY = cy; }
+    else {
+      // Strength 0..0.8 maps to a damping factor: higher strength
+      // means we move toward the cursor more slowly.
+      const damp = 1 - state.brushSmoothing;
+      _smoothX += (cx - _smoothX) * damp;
+      _smoothY += (cy - _smoothY) * damp;
+    }
+    cx = _smoothX; cy = _smoothY;
+  }
+  const x = Math.floor(cx);
+  const y = Math.floor(cy);
   // Tile mode: clicks on any of the 9 tiles map back to the canonical
   // [0, W) × [0, H) range via modulo. Painting any tile updates them all.
   let nx = x, ny = y;
@@ -3000,6 +3062,30 @@ function cellFromEvent(e) {
   }
   if (nx < 0 || ny < 0 || nx >= state.width || ny >= state.height) return null;
   return { x: nx, y: ny };
+}
+
+// Apple Pencil pressure tracking. The paint flow uses synthesized
+// mouse events on iOS Safari, but pointer events run alongside and
+// expose .pressure / .tiltX / .tiltY. We capture the latest pen
+// pressure into a module var; paintAt / paintCellRaw consult it
+// when state.pressureAffects is on. _activePointerType lets us
+// ignore pressure for finger / mouse strokes (pressure is 1 for
+// mouse, 0.5 for finger contact — neither carries real signal).
+let _activePressure = 1;
+let _activePointerType = 'mouse';
+paintCanvas.addEventListener('pointerdown', (e) => {
+  _activePointerType = e.pointerType || 'mouse';
+  _activePressure = (e.pressure != null && e.pressure > 0) ? e.pressure : 1;
+});
+paintCanvas.addEventListener('pointermove', (e) => {
+  if (e.pressure != null && e.pressure > 0) _activePressure = e.pressure;
+});
+paintCanvas.addEventListener('pointerup', () => {
+  _activePressure = 1;
+});
+function pressureScale() {
+  if (state.pressureAffects === 'none' || _activePointerType !== 'pen') return 1;
+  return _activePressure;
 }
 
 // Low-level: paint or clear a single cell. Goes through lockAlpha gate
@@ -3021,7 +3107,13 @@ function paintCellRaw(x, y, hex) {
     if (state.pixels[k]) delete state.pixels[k];
     return;
   }
-  const op = (typeof state.brushOpacity === 'number') ? state.brushOpacity : 1;
+  // Apple Pencil pressure can also scale opacity (separately from
+  // or in addition to scaling size). pressureScale() returns 1 for
+  // non-pen events so mouse / finger strokes are unaffected.
+  let op = (typeof state.brushOpacity === 'number') ? state.brushOpacity : 1;
+  if (state.pressureAffects === 'opacity' || state.pressureAffects === 'both') {
+    op = Math.max(0.05, op * pressureScale());
+  }
   if (op < 1 && state.pixels[k]) {
     state.pixels[k] = blendHex(hex, state.pixels[k], op);
   } else {
@@ -3067,7 +3159,14 @@ function blendHex(over, under, opacity) {
 // stays in-bounds). Each cell goes through paintAtCellWithSymmetry
 // which handles mirror axes + lockAlpha.
 function paintAt(x, y, hex) {
-  const N = Math.max(1, state.brushSize | 0);
+  // Apple Pencil pressure can scale the effective brush size. We
+  // round to integer cells (pixel art is discrete); a light tap
+  // still paints at least 1×1. Opacity scaling happens in
+  // paintCellRaw via state.brushOpacity * pressureScale().
+  let N = Math.max(1, state.brushSize | 0);
+  if (state.pressureAffects === 'size' || state.pressureAffects === 'both') {
+    N = Math.max(1, Math.round(N * pressureScale()));
+  }
   const half = (N - 1) >> 1;        // odd → centered; even → 0
   const evenOffset = (N % 2 === 0); // even sizes extend down-right
   const x0 = evenOffset ? x : x - half;
@@ -3232,6 +3331,7 @@ paintCanvas.addEventListener('mousedown', (e) => {
   isPainting = true;
   lastCellKey = null;
   strokePrevCell = strokeLastCell = null;  // reset pixel-perfect stroke memory
+  resetSmoothing();                        // each stroke starts uncoupled from the last
   preStrokeSnapshot = (state.tool === 'pick') ? null : snapshotPixels();
   // Shift + click while in paint mode: Bresenham line from the last
   // painted cell to this one. Pixel-art line-tool convention.
@@ -3417,7 +3517,11 @@ paintCanvas.addEventListener('mousemove', (e) => {
     }
   }
   if (!isPainting) return;
-  const cell = cellFromEvent(e);
+  // Smoothing only kicks in for the freehand paint / erase tool —
+  // rect / ellipse / select / slice need raw cursor coords so their
+  // preview tracks accurately under the pointer.
+  const useSmooth = (state.tool === 'paint' || state.tool === 'erase');
+  const cell = cellFromEvent(e, useSmooth);
   // Rect / Ellipse / Slice drag — update preview endpoint
   if ((state.tool === 'rect' || state.tool === 'ellipse') && cell && rectStart) {
     state.rectPreview = { x0: rectStart.x, y0: rectStart.y, x1: cell.x, y1: cell.y };
@@ -3539,6 +3643,7 @@ window.addEventListener('mouseup', (e) => {
   // per stroke, not per cell). Re-renders the whole timeline strip.
   renderTimeline();
   autosave();
+  captureTimelapseFrame();  // no-op when not recording
 });
 paintCanvas.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -4854,6 +4959,8 @@ function autosave() {
       paletteKey: state.paletteKey,
       importedPalette: state.importedPalette,
       slices: state.slices,
+      pressureAffects: state.pressureAffects,
+      brushSmoothing: state.brushSmoothing,
     }));
   } catch (e) {
     // localStorage quota exceeded — most likely the reference image is
@@ -4946,6 +5053,8 @@ function restoreAutosave() {
       const opt = document.getElementById('paletteImportedOption');
       if (opt) { opt.style.display = ''; opt.textContent = `Imported (${data.importedPalette.length})`; }
     }
+    if (typeof data.pressureAffects === 'string') state.pressureAffects = data.pressureAffects;
+    if (typeof data.brushSmoothing === 'number') state.brushSmoothing = data.brushSmoothing;
     if (Array.isArray(data.slices)) {
       state.slices = data.slices.filter(s => s && typeof s.name === 'string')
         .map(s => ({
@@ -6822,6 +6931,9 @@ renderLayers();
   renderPalette();   // re-render in case paletteKey was restored to a preset
   syncHsvFromHex();
   renderSlices();
+  pressureSelect.value = state.pressureAffects || 'none';
+  setSmoothing(Math.round((state.brushSmoothing || 0) * 100));
+  updateTimelapseIndicator();
   setPixelPerfect(state.pixelPerfect);
   setLoopMode(state.loopMode);
   tlOnionRadius.value = state.onionRadius || 1;
@@ -7278,6 +7390,111 @@ const ditherSelect = document.getElementById('ditherSelect');
 ditherSelect.addEventListener('change', () => {
   state.brushDither = ditherSelect.value || 'solid';
   autosave();
+});
+
+// ── Apple Pencil pressure mapping ────────────────────────────
+const pressureSelect = document.getElementById('pressureSelect');
+pressureSelect.addEventListener('change', () => {
+  state.pressureAffects = pressureSelect.value || 'none';
+  autosave();
+});
+
+// ── Stroke smoothing slider ──────────────────────────────────
+// 0..0.8 storage range (above 0.8 the lag becomes unusable — the
+// brush stops moving entirely for a hand wobble). UI is shown as
+// percentage 0-80% for friendlier numbers.
+const smoothingSlider  = document.getElementById('smoothingSlider');
+const smoothingReadout = document.getElementById('smoothingReadout');
+function setSmoothing(pct) {
+  const clamped = Math.max(0, Math.min(80, pct | 0));
+  state.brushSmoothing = clamped / 100;
+  smoothingSlider.value = clamped;
+  smoothingReadout.textContent = clamped + '%';
+  autosave();
+}
+smoothingSlider.addEventListener('input', () => setSmoothing(+smoothingSlider.value));
+
+// ── Time-lapse recording ─────────────────────────────────────
+// Captures every stroke-end snapshot of the active frame's pixels.
+// On Stop, builds a GIF from the captured frames using the same
+// encoder as the regular export — each captured snapshot becomes
+// one GIF frame at a uniform 100ms duration, so a 30-stroke
+// session plays back in ~3 seconds.
+let _timelapseFrames = null;   // null = not recording; [] = recording
+let _timelapseStartedAt = 0;
+const timelapseBtn = document.getElementById('timelapseBtn');
+const timelapseIndicator = document.getElementById('timelapseIndicator');
+const timelapseFrameCount = document.getElementById('timelapseFrameCount');
+function updateTimelapseIndicator() {
+  if (_timelapseFrames) {
+    timelapseIndicator.style.display = 'inline-flex';
+    timelapseFrameCount.textContent = _timelapseFrames.length;
+    timelapseBtn.textContent = '⏹ Stop';
+    timelapseBtn.title = 'Stop recording — exports a GIF of every captured snapshot.';
+  } else {
+    timelapseIndicator.style.display = 'none';
+    timelapseBtn.textContent = '⏺ Record';
+    timelapseBtn.title = 'Start a time-lapse recording. Each completed paint stroke adds a frame; Stop exports the whole sequence as a GIF.';
+  }
+}
+function captureTimelapseFrame() {
+  if (!_timelapseFrames) return;
+  // Snapshot the active frame's FLATTENED pixel map so the resulting
+  // GIF shows what the artist actually sees (across all visible
+  // layers) — not just the active layer.
+  _timelapseFrames.push({
+    pixels: { ...flattenFrame(state.frames[state.activeFrame]) },
+  });
+  updateTimelapseIndicator();
+}
+timelapseBtn.addEventListener('click', () => {
+  if (_timelapseFrames) {
+    // Stop + export.
+    const captured = _timelapseFrames;
+    _timelapseFrames = null;
+    updateTimelapseIndicator();
+    if (captured.length < 2) {
+      showAlert({ title: 'Nothing to export', body: 'Need at least 2 snapshots to make a time-lapse. Try again — paint a few strokes before stopping.' });
+      return;
+    }
+    // Re-use the GIF encoder. Build a palette across every captured
+    // snapshot; each snapshot becomes a GIF frame at 100ms.
+    const W = state.width, H = state.height;
+    const palette = [[0, 0, 0]];   // index 0 = transparent placeholder
+    const colorMap = new Map();
+    for (const snap of captured) {
+      for (const hex of Object.values(snap.pixels)) {
+        if (!colorMap.has(hex) && palette.length < 256) {
+          colorMap.set(hex, palette.length);
+          const [r, g, b] = hexToRgb(hex);
+          palette.push([r, g, b]);
+        }
+      }
+    }
+    const gifFrames = captured.map(snap => {
+      const indices = new Uint8Array(W * H);
+      for (const k in snap.pixels) {
+        const idx = colorMap.get(snap.pixels[k]);
+        if (idx == null) continue;
+        const [x, y] = k.split(',').map(Number);
+        indices[y * W + x] = idx;
+      }
+      return { indices, duration: 100 };  // 100ms per snapshot = 10 FPS
+    });
+    const bytes = encodeGIF(W, H, palette, gifFrames, { loop: 0 });
+    const blob = new Blob([bytes], { type: 'image/gif' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `timelapse-${W}x${H}-${captured.length}f.gif`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } else {
+    // Start recording — seed with the current canvas state as frame 0.
+    _timelapseFrames = [];
+    _timelapseStartedAt = performance.now();
+    captureTimelapseFrame();
+  }
 });
 
 // Left-panel collapsible sections. Clicking any .section-head or
