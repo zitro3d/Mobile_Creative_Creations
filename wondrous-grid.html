@@ -302,6 +302,48 @@
   .timeline-toolbar .frame-counter { color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; font-size: 11px; }
   .timeline-toolbar .fps-readout { color: var(--accent); font-family: 'SF Mono', Consolas, monospace; font-size: 11px; padding: 0 4px; }
 
+  /* Animation tags row — chips between the toolbar and the frame strip.
+     Each chip = one named tag (a frame range). Click to play that
+     range; the tag color is also drawn as a thin underline below
+     every thumb in the tag's range so artists can see at a glance
+     which frames belong to which tag. */
+  .timeline-tags {
+    display: flex; gap: 6px; padding: 4px 12px; flex-wrap: wrap; align-items: center;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    min-height: 26px; font-size: 11px;
+  }
+  .timeline-tags .tags-label { color: var(--text-dim); letter-spacing: 0.5px; text-transform: uppercase; font-size: 10px; padding-right: 4px; }
+  .tag-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 12px; padding: 2px 4px 2px 8px;
+    cursor: pointer; user-select: none;
+    color: var(--text);
+  }
+  .tag-chip:hover { border-color: var(--accent); }
+  .tag-chip.playing { box-shadow: 0 0 0 2px var(--accent-dim), 0 0 6px rgba(255, 208, 96, 0.5); border-color: var(--accent); }
+  .tag-chip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .tag-chip-range { color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; font-size: 10px; }
+  .tag-chip-edit {
+    background: transparent; border: none; color: var(--text-dim);
+    padding: 0 2px; cursor: pointer; font-size: 11px; line-height: 1;
+  }
+  .tag-chip-edit:hover { color: var(--accent); }
+  .tag-chip-add {
+    background: transparent; border: 1px dashed var(--border); color: var(--text-dim);
+    border-radius: 12px; padding: 2px 8px; cursor: pointer; font-family: inherit; font-size: 11px;
+  }
+  .tag-chip-add:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Per-thumb colored under-bar showing which tag(s) the frame belongs to.
+     Positioned absolutely along the bottom of the thumb, stacked if a
+     frame is in multiple tags. */
+  .tag-bar-stack {
+    position: absolute; left: 2px; right: 2px; bottom: -1px;
+    display: flex; flex-direction: column; gap: 1px; pointer-events: none;
+  }
+  .tag-bar { height: 2px; border-radius: 1px; }
+
   .timeline-frames {
     flex: 1; overflow-x: auto; overflow-y: hidden;
     display: flex; gap: 4px;
@@ -619,6 +661,11 @@
     <span class="spacer"></span>
     <span class="frame-counter" id="tlCounter">Frame 1 / 1</span>
   </div>
+  <!-- Animation tags (Aseprite-style): named frame ranges with their
+       own loop / playback. Chips show name + range; click to play that
+       range only. The active tag is also drawn as a colored under-bar
+       under each thumb in its range for at-a-glance scanning. -->
+  <div class="timeline-tags" id="timelineTags"></div>
   <div class="timeline-frames" id="timelineFrames"></div>
 </div>
 
@@ -825,6 +872,50 @@
   </div>
 </div>
 
+<!-- Animation-tag editor modal — add or edit a single tag. -->
+<div id="tagModal" class="modal-backdrop" style="display:none;">
+  <div class="modal" style="width: 420px;">
+    <div class="modal-head">
+      <h2 id="tagModalTitle">Animation Tag</h2>
+      <button class="modal-close" id="tagModalClose">×</button>
+    </div>
+    <div class="modal-body" style="display: flex; flex-direction: column; gap: 10px;">
+      <label style="display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Name</span>
+        <input id="tagInputName" type="text" placeholder="walk" maxlength="32"
+               style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-family: 'SF Mono', Consolas, monospace;">
+      </label>
+      <div style="display: flex; gap: 10px;">
+        <label style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">From frame</span>
+          <input id="tagInputFrom" type="number" min="1" value="1"
+                 style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px;">
+        </label>
+        <label style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">To frame</span>
+          <input id="tagInputTo" type="number" min="1" value="1"
+                 style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px;">
+        </label>
+      </div>
+      <label style="display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Color</span>
+        <input id="tagInputColor" type="color" value="#ffd060"
+               style="width: 60px; height: 30px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 3px; cursor: pointer;">
+      </label>
+      <label style="display: flex; align-items: center; gap: 6px;">
+        <input id="tagInputLoop" type="checkbox" checked>
+        <span>Loop within range during playback</span>
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button id="tagModalDelete" style="color: #ff6e6e;">Delete</button>
+      <span style="flex: 1;"></span>
+      <button id="tagModalCancel">Cancel</button>
+      <button class="primary" id="tagModalSave">Save</button>
+    </div>
+  </div>
+</div>
+
 <footer>
   <div>Wondrous Grid v1 · paint and code in sync</div>
   <div class="brand">Everything Wondrous ™</div>
@@ -912,6 +1003,12 @@ let state = {
   //   'function' — function fnName(ctx, ox, oy) { px(...); ... }
   codeFormat: 'px',
   fnName: 'pxMySprite',         // only used by 'function' format
+  // Animation tags — Aseprite-style named frame ranges. Each tag has a
+  // name, an inclusive frame range (0-indexed internally; UI shows 1-
+  // based), a color shown as a chip + thumb under-bar, and a `loop`
+  // flag for whether playback should wrap at the end of the range.
+  tags: [],                    // [{ name, from, to, color, loop }]
+  playingTag: null,             // name of currently-playing tag, or null = full strip
   refSrc: null,               // data URL of reference image (or null)
   refOpacity: 0.4,            // 0..1
   refVisible: true,
@@ -2183,6 +2280,33 @@ function generateCopyCode() {
     body += `      break;\n`;
   }
   body += `  }\n}\n`;
+
+  // If tags are defined, emit one play* function per tag so the game
+  // code can play named animations independently (idiomatic Aseprite
+  // workflow). Each tag dispatches only to its own frame range.
+  if (state.tags.length) {
+    body += `\n// ── Animation tags ─────────────────────────────────\n`;
+    for (const t of state.tags) {
+      const tagFrames = frameLines.filter(fl => fl.idx >= t.from && fl.idx <= t.to);
+      const count = tagFrames.length;
+      const fnName = 'play' + t.name.replace(/[^A-Za-z0-9]+/g, '_').replace(/^./, c => c.toUpperCase());
+      body += `// "${t.name}" — frames ${t.from + 1}-${t.to + 1}${t.loop !== false ? ' (loops)' : ' (one-shot)'}\n`;
+      body += `function ${fnName}(ctx, gameFrame) {\n`;
+      if (t.loop !== false) {
+        body += `  const f = ((gameFrame / ${ticksPerFrame}) | 0) % ${count};\n`;
+      } else {
+        body += `  const f = Math.min(${count - 1}, (gameFrame / ${ticksPerFrame}) | 0);\n`;
+      }
+      body += `  switch (f) {\n`;
+      tagFrames.forEach((fl, localIdx) => {
+        body += `    case ${localIdx}:\n`;
+        body += fl.body + (fl.body ? '\n' : '');
+        body += `      break;\n`;
+      });
+      body += `  }\n}\n`;
+    }
+  }
+
   return header + body;
 }
 
@@ -2600,6 +2724,7 @@ saveBtn.addEventListener('click', () => {
     refSrc: state.refSrc,
     refOpacity: state.refOpacity,
     refVisible: state.refVisible,
+    tags: state.tags,
     savedAt: new Date().toISOString(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -2638,6 +2763,17 @@ loadInput.addEventListener('change', () => {
       state.customColors = payload.customColors || [];
       state.recentColors = payload.recentColors || [];
       state.refSrc = payload.refSrc || null;
+      // Load tags from payload (re-clamped to current frame count just
+      // in case the file is from a different-sized strip).
+      state.tags = Array.isArray(payload.tags) ? payload.tags
+        .filter(t => t && typeof t.name === 'string')
+        .map(t => ({
+          name: t.name,
+          from: Math.max(0, Math.min(state.frames.length - 1, t.from | 0)),
+          to:   Math.max(0, Math.min(state.frames.length - 1, t.to | 0)),
+          color: t.color || '#ffd060',
+          loop: t.loop !== false,
+        })) : [];
       if (typeof payload.refOpacity === 'number') state.refOpacity = payload.refOpacity;
       if (typeof payload.refVisible === 'boolean') state.refVisible = payload.refVisible;
       widthInput.value = state.width;
@@ -2694,6 +2830,7 @@ function autosave() {
       tileMode: state.tileMode,
       codeFormat: state.codeFormat,
       fnName: state.fnName,
+      tags: state.tags,
     }));
   } catch (e) {
     // localStorage quota exceeded — most likely the reference image is
@@ -2707,6 +2844,7 @@ function autosave() {
         activeColor: state.activeColor,
         customColors: state.customColors, recentColors: state.recentColors,
         zoom: state.zoom,
+        tags: state.tags,
       }));
       console.warn('Reference image too big to autosave — it will be lost on refresh. Save the JSON to keep it.');
     } catch {}
@@ -2752,6 +2890,20 @@ function restoreAutosave() {
     if (typeof data.tileMode === 'boolean') state.tileMode = data.tileMode;
     if (typeof data.codeFormat === 'string') state.codeFormat = data.codeFormat;
     if (typeof data.fnName === 'string') state.fnName = data.fnName;
+    if (Array.isArray(data.tags)) {
+      // Sanitize tags on restore — drop ones with bad ranges so a stale
+      // payload from a smaller frame count doesn't crash playback.
+      const N = state.frames.length;
+      state.tags = data.tags
+        .filter(t => t && typeof t.name === 'string')
+        .map(t => ({
+          name: t.name,
+          from: Math.max(0, Math.min(N - 1, t.from | 0)),
+          to:   Math.max(0, Math.min(N - 1, t.to | 0)),
+          color: t.color || '#ffd060',
+          loop: t.loop !== false,
+        }));
+    }
     widthInput.value = state.width;
     heightInput.value = state.height;
     return true;
@@ -2871,9 +3023,11 @@ function loadPngIntoGrid(src, opts = {}) {
       state.width = oc.width;
       state.height = oc.height;
       // PNG import = start fresh single-frame sprite. Any existing
-      // animation frames would be at the wrong dimensions.
+      // animation frames would be at the wrong dimensions. Tags get
+      // wiped too — they reference no-longer-existing frames.
       state.frames = [{ pixels, duration: 100 }];
       state.activeFrame = 0;
+      state.tags = [];
       widthInput.value = state.width;
       heightInput.value = state.height;
       presetSelect.value = 'custom';
@@ -3032,6 +3186,7 @@ async function saveCurrentAsNewAsset() {
     refSrc: state.refSrc,
     refOpacity: state.refOpacity,
     refVisible: state.refVisible,
+    tags: state.tags,
     createdAt: now,
     updatedAt: now,
   };
@@ -3058,6 +3213,15 @@ function loadAssetIntoState(asset) {
   state.refSrc = asset.refSrc || null;
   if (typeof asset.refOpacity === 'number') state.refOpacity = asset.refOpacity;
   if (typeof asset.refVisible === 'boolean') state.refVisible = asset.refVisible;
+  state.tags = Array.isArray(asset.tags) ? asset.tags
+    .filter(t => t && typeof t.name === 'string')
+    .map(t => ({
+      name: t.name,
+      from: Math.max(0, Math.min(state.frames.length - 1, t.from | 0)),
+      to:   Math.max(0, Math.min(state.frames.length - 1, t.to | 0)),
+      color: t.color || '#ffd060',
+      loop: t.loop !== false,
+    })) : [];
   widthInput.value = state.width;
   heightInput.value = state.height;
   presetSelect.value = 'custom';
@@ -3524,6 +3688,19 @@ function renderTimeline() {
     const dur = document.createElement('div');
     dur.className = 'frame-dur'; dur.textContent = f.duration + 'ms';
     thumb.appendChild(dur);
+    // Tag under-bars: one thin colored bar per tag this frame belongs to.
+    const tagsHere = state.tags.filter(t => i >= t.from && i <= t.to);
+    if (tagsHere.length) {
+      const stack = document.createElement('div');
+      stack.className = 'tag-bar-stack';
+      for (const t of tagsHere) {
+        const bar = document.createElement('div');
+        bar.className = 'tag-bar';
+        bar.style.background = t.color;
+        stack.appendChild(bar);
+      }
+      thumb.appendChild(stack);
+    }
     thumb.addEventListener('click', () => setActiveFrame(i));
     wireFrameDrag(thumb, i);
     timelineFrames.appendChild(thumb);
@@ -3554,7 +3731,159 @@ function renderTimeline() {
   tlDurInput.value = state.frames[state.activeFrame].duration;
   refreshFpsReadout();
   tlDelBtn.disabled = state.frames.length <= 1;
+  renderTags();
 }
+
+// ── Animation tags (Aseprite-style) ──────────────────────────
+// Tags are named frame ranges with their own playback. Click a chip
+// to play that range only; the chip glows while playing. Right-click
+// or the ✏ icon opens the edit modal. State.tags is the source of
+// truth — UI is rebuilt from it on every renderTimeline().
+const TAG_PALETTE = ['#ffd060', '#3aa8b8', '#c83828', '#7c4abe', '#5a9028', '#e87028', '#7ed4dc', '#a07ade'];
+const timelineTags = document.getElementById('timelineTags');
+
+function renderTags() {
+  timelineTags.innerHTML = '';
+  // "TAGS" label so the row reads correctly even when empty
+  const label = document.createElement('span');
+  label.className = 'tags-label';
+  label.textContent = state.tags.length ? 'Tags' : 'Tags · none yet';
+  timelineTags.appendChild(label);
+  for (const t of state.tags) {
+    const chip = document.createElement('div');
+    chip.className = 'tag-chip' + (state.playingTag === t.name ? ' playing' : '');
+    chip.title = `Click to play "${t.name}" (frames ${t.from + 1}–${t.to + 1})`;
+    const dot = document.createElement('span');
+    dot.className = 'tag-chip-dot';
+    dot.style.background = t.color;
+    chip.appendChild(dot);
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = t.name;
+    chip.appendChild(nameSpan);
+    const rangeSpan = document.createElement('span');
+    rangeSpan.className = 'tag-chip-range';
+    rangeSpan.textContent = (t.from + 1) + '–' + (t.to + 1);
+    chip.appendChild(rangeSpan);
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'tag-chip-edit';
+    editBtn.textContent = '✏';
+    editBtn.title = `Edit "${t.name}"`;
+    editBtn.onclick = (e) => { e.stopPropagation(); openTagModal(t.name); };
+    chip.appendChild(editBtn);
+    chip.onclick = () => playTag(t.name);
+    chip.oncontextmenu = (e) => { e.preventDefault(); openTagModal(t.name); };
+    timelineTags.appendChild(chip);
+  }
+  const addChip = document.createElement('button');
+  addChip.type = 'button';
+  addChip.className = 'tag-chip-add';
+  addChip.textContent = '+ tag';
+  addChip.title = 'Add a new animation tag — names a frame range so it can be played independently';
+  addChip.onclick = () => openTagModal(null);
+  timelineTags.appendChild(addChip);
+}
+
+function playTag(name) {
+  const tag = state.tags.find(t => t.name === name);
+  if (!tag) return;
+  stopPlayback();
+  state.playingTag = name;
+  state.activeFrame = tag.from;
+  resetHistory();
+  renderGrid(); renderPreview(); renderCode();
+  renderTimeline();
+  startPlayback();
+}
+
+// ── Tag-edit modal ───────────────────────────────────────────
+const tagModal       = document.getElementById('tagModal');
+const tagModalTitle  = document.getElementById('tagModalTitle');
+const tagInputName   = document.getElementById('tagInputName');
+const tagInputFrom   = document.getElementById('tagInputFrom');
+const tagInputTo     = document.getElementById('tagInputTo');
+const tagInputColor  = document.getElementById('tagInputColor');
+const tagInputLoop   = document.getElementById('tagInputLoop');
+const tagModalSave   = document.getElementById('tagModalSave');
+const tagModalCancel = document.getElementById('tagModalCancel');
+const tagModalClose  = document.getElementById('tagModalClose');
+const tagModalDelete = document.getElementById('tagModalDelete');
+let editingTagName = null;   // null = adding; string = editing this tag
+
+function openTagModal(existingName) {
+  editingTagName = existingName;
+  if (existingName) {
+    const t = state.tags.find(tt => tt.name === existingName);
+    if (!t) return;
+    tagModalTitle.textContent = `Edit Tag · ${t.name}`;
+    tagInputName.value = t.name;
+    tagInputFrom.value = t.from + 1;
+    tagInputTo.value   = t.to + 1;
+    tagInputColor.value = t.color;
+    tagInputLoop.checked = t.loop !== false;
+    tagModalDelete.style.display = '';
+  } else {
+    tagModalTitle.textContent = 'New Tag';
+    // Default name: walk → run → idle → tagN, picking the first unused.
+    const defaults = ['walk', 'run', 'idle', 'attack', 'jump', 'fall', 'hit', 'death'];
+    let suggested = defaults.find(n => !state.tags.some(t => t.name === n))
+                 || ('tag' + (state.tags.length + 1));
+    tagInputName.value = suggested;
+    tagInputFrom.value = state.activeFrame + 1;
+    tagInputTo.value   = state.activeFrame + 1;
+    tagInputColor.value = TAG_PALETTE[state.tags.length % TAG_PALETTE.length];
+    tagInputLoop.checked = true;
+    tagModalDelete.style.display = 'none';
+  }
+  tagInputFrom.max = String(state.frames.length);
+  tagInputTo.max   = String(state.frames.length);
+  tagModal.style.display = 'flex';
+  setTimeout(() => tagInputName.focus(), 0);
+}
+function closeTagModal() { tagModal.style.display = 'none'; }
+tagModalClose.addEventListener('click', closeTagModal);
+tagModalCancel.addEventListener('click', closeTagModal);
+tagModal.addEventListener('click', (e) => { if (e.target === tagModal) closeTagModal(); });
+tagModalSave.addEventListener('click', () => {
+  const name = (tagInputName.value || '').trim();
+  if (!name) { alert('Tag name is required.'); return; }
+  // Clamp range to actual frame count + ensure from ≤ to.
+  let from = Math.max(1, Math.min(state.frames.length, parseInt(tagInputFrom.value, 10) || 1)) - 1;
+  let to   = Math.max(1, Math.min(state.frames.length, parseInt(tagInputTo.value,   10) || 1)) - 1;
+  if (from > to) [from, to] = [to, from];
+  // Name collision check — disallowed unless we're editing this exact tag.
+  if (state.tags.some(t => t.name === name && t.name !== editingTagName)) {
+    alert(`A tag named "${name}" already exists.`);
+    return;
+  }
+  const next = {
+    name, from, to,
+    color: tagInputColor.value || '#ffd060',
+    loop: !!tagInputLoop.checked,
+  };
+  if (editingTagName) {
+    const idx = state.tags.findIndex(t => t.name === editingTagName);
+    if (idx >= 0) state.tags[idx] = next;
+    if (state.playingTag === editingTagName) state.playingTag = name;
+  } else {
+    state.tags.push(next);
+  }
+  closeTagModal();
+  renderTimeline();
+  autosave();
+});
+tagModalDelete.addEventListener('click', () => {
+  if (!editingTagName) return;
+  if (!confirm(`Delete tag "${editingTagName}"?`)) return;
+  state.tags = state.tags.filter(t => t.name !== editingTagName);
+  if (state.playingTag === editingTagName) {
+    state.playingTag = null;
+    stopPlayback();
+  }
+  closeTagModal();
+  renderTimeline();
+  autosave();
+});
 
 function refreshFpsReadout() {
   // FPS readout — shows the frame-rate equivalent of the active frame's
@@ -3652,6 +3981,7 @@ function setActiveFrame(idx) {
 function addBlankFrame() {
   const dur = state.frames[state.activeFrame].duration;  // inherit duration
   state.frames.splice(state.activeFrame + 1, 0, { pixels: {}, duration: dur });
+  shiftTagsForInsert(state.activeFrame + 1);
   setActiveFrame(state.activeFrame + 1);
 }
 
@@ -3663,6 +3993,7 @@ function duplicateFrame() {
     pixels: JSON.parse(JSON.stringify(cur.pixels)),
     duration: cur.duration,
   });
+  shiftTagsForInsert(state.activeFrame + 1);
   setActiveFrame(state.activeFrame + 1);
 }
 
@@ -3675,6 +4006,7 @@ function duplicateFrameToEnd() {
     pixels: JSON.parse(JSON.stringify(cur.pixels)),
     duration: cur.duration,
   });
+  // Appended past every existing tag's range — no tag updates needed.
   setActiveFrame(state.frames.length - 1);
   // Scroll the new frame into view (useful when the strip overflows)
   setTimeout(() => {
@@ -3685,9 +4017,35 @@ function duplicateFrameToEnd() {
 
 function deleteFrame() {
   if (state.frames.length <= 1) return;
-  state.frames.splice(state.activeFrame, 1);
+  const removed = state.activeFrame;
+  state.frames.splice(removed, 1);
+  shiftTagsForRemove(removed);
   if (state.activeFrame >= state.frames.length) state.activeFrame = state.frames.length - 1;
   setActiveFrame(state.activeFrame);
+}
+
+// Tag-index maintenance after frame add / remove. Tags pin to absolute
+// frame indices, so inserting before / inside a range shifts the range
+// right, and removing a frame inside / before a range may shrink or
+// move it. Tags that lose all their frames (a 1-frame tag whose frame
+// was deleted) are dropped — preserve the simpler invariant "every
+// tag has at least one frame".
+function shiftTagsForInsert(at) {
+  for (const t of state.tags) {
+    if (at <= t.from) { t.from++; t.to++; }
+    else if (at <= t.to) { t.to++; }
+  }
+}
+function shiftTagsForRemove(at) {
+  const next = [];
+  for (const t of state.tags) {
+    let { from, to } = t;
+    if (at < from) { from--; to--; }
+    else if (at <= to) { to--; }
+    if (to < from) continue;     // tag emptied — drop it
+    next.push({ ...t, from, to });
+  }
+  state.tags = next;
 }
 
 function prevFrame() { setActiveFrame((state.activeFrame - 1 + state.frames.length) % state.frames.length); }
@@ -3713,10 +4071,11 @@ function startPlayback() {
 
 function stopPlayback() {
   state.playing = false;
+  state.playingTag = null;
   if (playRafId) { cancelAnimationFrame(playRafId); playRafId = null; }
   tlPlayBtn.textContent = '▶ Play';
   tlPlayBtn.title = 'Play (Space)';
-  renderTimeline();  // remove "playing" highlight
+  renderTimeline();  // remove "playing" highlight + tag-chip "playing" state
 }
 
 function playLoop() {
@@ -3725,7 +4084,21 @@ function playLoop() {
   const curDur = state.frames[state.activeFrame].duration;
   if (now - playFrameStartTime >= curDur) {
     playFrameStartTime = now;
-    const next = (state.activeFrame + 1) % state.frames.length;
+    // Tag-aware advance: if a tag is active, advance within [from..to]
+    // and loop back to from at the end (or stop if loop=false). Without
+    // a tag, behave exactly as before — full-strip loop.
+    let next;
+    const tag = state.playingTag ? state.tags.find(t => t.name === state.playingTag) : null;
+    if (tag) {
+      if (state.activeFrame >= tag.to) {
+        if (tag.loop !== false) next = tag.from;
+        else { stopPlayback(); return; }
+      } else {
+        next = state.activeFrame + 1;
+      }
+    } else {
+      next = (state.activeFrame + 1) % state.frames.length;
+    }
     state.activeFrame = next;
     resetHistory();
     renderGrid(); renderPreview(); renderCode();
@@ -3888,6 +4261,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (helpModal.style.display === 'flex') { closeHelp(); e.preventDefault(); return; }
     if (assetsModal.style.display === 'flex') { closeAssetsModal(); e.preventDefault(); return; }
+    if (tagModal.style.display === 'flex')    { closeTagModal();   e.preventDefault(); return; }
     // Esc with no modal open clears any active selection
     if (state.selection) { e.preventDefault(); clearSelection(); return; }
   }
