@@ -2,7 +2,7 @@
 
 **Last updated: May 18, 2026**
 
-Welcome to **Wondrous Grid**, a browser-based pixel-art studio provided by **Everything Wondrous Inc.** ("Everything Wondrous", "we", "us", "our"). By accessing or using Wondrous Grid (the "Service"), you agree to these Terms of Service ("Terms"). If you do not agree, do not use the Service.
+Welcome to **Wondrous Grid**, a browser-based pixel-art studio provided by **Everything Wondrous Inc.** ("Everything Wondrous", "we", "us", "our") at **wondrousgrid.com** (the "Service"). By accessing or using Wondrous Grid, you agree to these Terms of Service ("Terms"). If you do not agree, do not use the Service.
 
 ## 1. The Service
 
@@ -80,6 +80,8 @@ If any provision of these Terms is held invalid or unenforceable, the remaining 
 
 Everything Wondrous Inc.
 [Mailing address]
-[Contact email]
+legal@wondrousgrid.com — legal and licensing
+support@wondrousgrid.com — product and account support
+https://wondrousgrid.com
 
-> **Note for the operator:** Fields in brackets above should be filled in once your registered agent's address and contact email are finalized. Have a lawyer in your state review before publishing.
+> **Note for the operator:** Fill in the registered-agent mailing address and have a lawyer in your state of incorporation review before publishing. Email forwarders for `legal@`, `support@`, and `privacy@wondrousgrid.com` will be set up via Cloudflare Email Routing.
