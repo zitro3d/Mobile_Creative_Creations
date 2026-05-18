@@ -30,23 +30,74 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <style>
   :root {
-    --bg:        #1a1a1c;
-    --bg-panel:  #232328;
-    --bg-input:  #15151a;
-    --border:    #3a3a40;
-    --text:      #e8e8ec;
-    --text-dim:  #8a8a92;
-    --accent:    #ffd060;
-    --accent-dim:#a06820;
-    --paint-bg:  #15151a;
+    /* Multi-tone dark palette — each surface gets its own shade so
+       the UI reads with depth (deepest = farthest, surface = raised).
+       Replaces the single-tone --bg / --bg-panel pair that flattened
+       everything to two grays. Premium-tool look. */
+    --bg-deepest: #0f1012;   /* outermost frame */
+    --bg:         #17181b;   /* main app background */
+    --bg-panel:   #1d1e23;   /* panel surfaces */
+    --bg-surface: #25262d;   /* raised elements (hovers, picked items) */
+    --bg-input:   #111216;   /* recessed (inputs, code area) */
+    --paint-bg:   #111216;
+    --border:        #2c2d33;
+    --border-strong: #3d3e46;
+    --border-soft:   #232429;
+    --text:        #ecedef;
+    --text-muted:  #a8aab0;
+    --text-dim:    #75767d;
+    --accent:      #ffd060;
+    --accent-hi:   #ffe28a;   /* lighter — for callouts / glows */
+    --accent-dim:  #4a3a14;   /* dim background tint for active states */
+    --accent-glow: rgba(255, 208, 96, 0.18);
+    --success:     #4ade80;
+    --danger:      #ff6e6e;
+    --shadow-sm: 0 1px 0 rgba(255,255,255,0.04), 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 1px 0 rgba(255,255,255,0.04), 0 4px 12px rgba(0,0,0,0.35);
+    --shadow-lg: 0 1px 0 rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.5);
+    --ease: cubic-bezier(0.4, 0, 0.2, 1);
+    --tdur: 160ms;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100vh; background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, system-ui, sans-serif; font-size: 13px; overflow: hidden; }
+  *:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  html, body { margin: 0; padding: 0; height: 100vh; background: var(--bg-deepest); color: var(--text); font-family: 'Inter', -apple-system, system-ui, sans-serif; font-size: 13px; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(circle at top left, rgba(255,208,96,0.025), transparent 50%),
+      var(--bg-deepest);
+  }
+  /* Numeric readouts get tabular figures so digits don't shift width
+     as values change. Keeps FPS / opacity / pixel counts steady. */
+  .stat-val, .frame-counter, .fps-readout, .brush-size-readout,
+  .layer-opacity-val, .gutter-num, .xy-readout, .active-hex,
+  .hsv-num, code, kbd {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Themed custom scrollbars — gold accent on the thumb, near-invisible
+     track. Modern engines use ::-webkit-*; Firefox uses
+     scrollbar-color. Both supplied. */
+  * { scrollbar-color: var(--border-strong) transparent; scrollbar-width: thin; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); background-clip: content-box; }
   /* Pulse the red recording dot in the header so the user always
      remembers the time-lapse is running. */
   @keyframes timelapse-pulse {
     0%, 100% { opacity: 1; transform: scale(1); }
     50%      { opacity: 0.4; transform: scale(0.7); }
+  }
+  /* Modal entrance — subtle scale-in + fade for polish. */
+  @keyframes modal-in {
+    from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
+  }
+  @keyframes backdrop-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
   }
   /* Brand-tint every checkbox + radio + native progress / meter so
      they read as part of the app instead of the OS-default blue.
@@ -78,28 +129,38 @@
   body.resizing-row * { cursor: row-resize !important; user-select: none; pointer-events: none; }
   body.resizing-row .vsplitter { pointer-events: auto; }
 
-  /* Top bar */
+  /* Top bar — gradient + subtle bottom-glow accent. Premium-tool feel. */
   header {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 14px;
-    background: var(--bg-panel); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px;
+    background:
+      linear-gradient(180deg, #22232a 0%, #1a1b1f 100%);
+    border-bottom: 1px solid var(--border);
+    box-shadow:
+      inset 0 -1px 0 rgba(255, 255, 255, 0.02),
+      0 1px 0 rgba(0, 0, 0, 0.3);
     flex-shrink: 0;
-    /* The toolbar has grown a lot. Allow horizontal scroll instead of
-       wrapping (which would push content under the main panel) on narrow
-       screens. The header keeps its single row, the user scrolls left /
-       right to reach overflowed groups. Ship 2 collapses these into File
-       / Edit / View / Image / Animation menus. */
     overflow-x: auto;
     overflow-y: hidden;
     white-space: nowrap;
+    position: relative;
+  }
+  /* Thin accent glow line at the bottom of the header. */
+  header::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+    pointer-events: none;
   }
   header::-webkit-scrollbar { height: 6px; }
   header::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
   header h1 {
     margin: 0; font-size: 16px; font-weight: 700;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.8px;
     color: var(--accent);
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: 10px;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
   }
   header h1 img.brand-logo {
     width: 22px; height: 22px;
@@ -119,14 +180,19 @@
   .menu-trigger {
     background: transparent;
     border: 1px solid transparent;
-    color: var(--text);
-    padding: 4px 10px;
-    font-size: 13px; font-family: inherit;
-    border-radius: 3px;
+    color: var(--text-muted);
+    padding: 5px 12px;
+    font-size: 13px; font-family: inherit; font-weight: 500;
+    border-radius: 4px;
     cursor: pointer;
+    transition: all var(--tdur) var(--ease);
   }
-  .menu-trigger:hover { background: var(--bg-input); }
-  .menu-trigger.open { background: var(--bg-input); border-color: var(--border); }
+  .menu-trigger:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+  .menu-trigger.open {
+    color: var(--accent);
+    background: var(--accent-dim);
+    border-color: rgba(255, 208, 96, 0.25);
+  }
   .menu-popover {
     position: absolute;
     top: 0; left: 0;
@@ -234,17 +300,44 @@
   header label { color: var(--text-dim); font-size: 12px; }
   header input[type=number], header select {
     background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
-    padding: 4px 6px; font-family: inherit; font-size: 12px; border-radius: 3px;
+    padding: 5px 8px; font-family: inherit; font-size: 12px; border-radius: 4px;
+    transition: border-color var(--tdur) var(--ease), box-shadow var(--tdur) var(--ease);
+  }
+  header input[type=number]:hover, header select:hover { border-color: var(--border-strong); }
+  header input[type=number]:focus, header select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
   }
   header input[type=number] { width: 56px; }
   header select { min-width: 140px; }
   header select.wide { min-width: 220px; }
+  /* Premium button treatment — subtle vertical gradient + 1px inner
+     highlight on top + soft bottom shadow. Reads as a real raised
+     surface instead of a flat rectangle. */
   header button {
-    background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
-    padding: 5px 10px; font-family: inherit; font-size: 12px; border-radius: 3px;
+    background: linear-gradient(180deg, #2a2b32 0%, #1f2025 100%);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    font-family: inherit; font-size: 12px; font-weight: 500;
+    border-radius: 4px;
     cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: all var(--tdur) var(--ease);
   }
-  header button:hover { background: #2a2a30; border-color: var(--accent); }
+  header button:hover {
+    background: linear-gradient(180deg, #32333b 0%, #25262c 100%);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  header button:active {
+    transform: translateY(1px);
+    box-shadow: none;
+  }
+  header button:disabled {
+    opacity: 0.35; cursor: not-allowed;
+    background: var(--bg-input);
+  }
   header .spacer { flex: 1; }
 
   /* Main layout — fills whatever vertical space the body grid gives it */
@@ -254,14 +347,21 @@
     min-height: 0;
     background: var(--bg);
   }
-  .panel { background: var(--bg); padding: 12px; overflow-y: auto; min-width: 0; }
+  .panel {
+    background: linear-gradient(180deg, var(--bg-panel) 0%, var(--bg) 100%);
+    padding: 14px; overflow-y: auto; min-width: 0;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  }
+  .panel-grid {
+    background: var(--bg-deepest);
+  }
 
-  /* Drag splitters between panels */
+  /* Drag splitters between panels — fade through accent on hover. */
   .splitter {
     background: var(--border);
     cursor: col-resize;
     position: relative;
-    transition: background-color 0.12s ease;
+    transition: background-color var(--tdur) var(--ease);
   }
   .splitter:hover, .splitter.dragging { background: var(--accent); }
   .splitter::before {
@@ -288,10 +388,34 @@
   .active-swatch { width: 32px; height: 32px; border: 2px solid var(--border); border-radius: 3px; flex-shrink: 0; }
   .active-hex { font-family: 'SF Mono', Consolas, monospace; font-size: 12px; cursor: pointer; padding: 4px 6px; background: var(--bg-input); border-radius: 3px; }
   .active-hex:hover { color: var(--accent); }
-  .tool-row { display: flex; gap: 6px; margin-bottom: 12px; }
-  .tool-btn { flex: 1; padding: 5px 4px; font-size: 11px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; text-align: center; }
-  .tool-btn.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
-  .tool-btn:hover { border-color: var(--accent); }
+  .tool-row { display: flex; gap: 6px; margin-bottom: 8px; }
+  .tool-btn {
+    flex: 1;
+    padding: 6px 4px;
+    font-size: 11px; font-weight: 500;
+    background: linear-gradient(180deg, #25262c 0%, #1c1d22 100%);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    cursor: pointer; text-align: center;
+    box-shadow: var(--shadow-sm);
+    transition: all var(--tdur) var(--ease);
+  }
+  .tool-btn.active {
+    background: linear-gradient(180deg, #5a4218 0%, #3a2c10 100%);
+    color: var(--accent);
+    border-color: var(--accent);
+    box-shadow:
+      var(--shadow-sm),
+      inset 0 0 0 1px rgba(255, 208, 96, 0.2),
+      0 0 12px var(--accent-glow);
+  }
+  .tool-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .tool-btn:active { transform: translateY(1px); }
+  .tool-btn:disabled { opacity: 0.35; cursor: not-allowed; }
   /* Brush-size mini buttons: square, fixed-width chips. flex:0 keeps
      them from stretching when there are only four in the row.
      (Legacy class — current brush UI uses the header-bar slider; this
@@ -327,22 +451,34 @@
   /* Left-panel section headers — distinguishes the top-level groups
      (Tools / Color / Layers / Navigator) from secondary sub-headers
      inside a section (Pick Any Color, DLX Palette, Recent). */
+  /* Section headers with an accent-tinted underline glow that fades
+     at the edges — premium-tool feel without yelling. The flat
+     border-bottom from before read as "blog post," this reads as
+     a real product. */
   h2.section-head {
-    margin: 4px 0 8px;
-    padding: 4px 0 6px;
-    font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase;
-    color: var(--accent); font-weight: 700;
-    border-bottom: 1px solid var(--border);
+    margin: 4px 0 10px;
+    padding: 6px 0 8px;
+    font-size: 10px;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+    border-bottom: 1px solid transparent;
+    background-image: linear-gradient(90deg, var(--accent-glow), transparent 70%);
+    background-repeat: no-repeat;
+    background-position: bottom left;
+    background-size: 100% 1px;
+    position: relative;
   }
   h2.section-head-divider {
-    margin-top: 16px;
-    padding-top: 12px;
-    border-top: 2px solid var(--border);
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
   }
   h2.sub-head {
     margin: 14px 0 6px;
     font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
-    color: var(--text-dim); font-weight: 600;
+    color: var(--text-muted); font-weight: 600;
   }
   /* Photoshop-style foreground / previous swatch pair. The big square
      is the active color; the small offset square behind it is the
@@ -481,11 +617,28 @@
      without scrolling. */
   .swatch-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
   .swatch {
-    aspect-ratio: 1; border: 1px solid #000; cursor: pointer; border-radius: 2px;
+    aspect-ratio: 1;
+    border: 1px solid rgba(0,0,0,0.6);
+    cursor: pointer; border-radius: 3px;
     position: relative;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+    transition: transform var(--tdur) var(--ease), box-shadow var(--tdur) var(--ease);
   }
-  .swatch:hover { transform: scale(1.2); border-color: var(--accent); z-index: 2; }
-  .swatch.active { border: 2px solid var(--accent); transform: scale(1.15); }
+  .swatch:hover {
+    transform: scale(1.25);
+    z-index: 2;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 0 0 2px var(--accent),
+      0 4px 12px rgba(0, 0, 0, 0.5);
+  }
+  .swatch.active {
+    transform: scale(1.18);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 0 0 2px var(--accent),
+      0 0 12px var(--accent-glow);
+  }
   .swatch[title] {}
 
   /* Collapsible section header: caret on the right that flips when
@@ -534,29 +687,33 @@
      adequate. */
   .canvas-action-bar {
     position: absolute;
-    top: 14px; right: 14px;
+    top: 16px; right: 16px;
     display: none;
     flex-direction: column;
     gap: 4px;
     z-index: 80;
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 4px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+    background: linear-gradient(180deg, var(--bg-panel) 0%, #181a1f 100%);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 5px;
+    box-shadow: var(--shadow-lg);
   }
   .canvas-action-btn {
     width: 36px; height: 36px;
     display: flex; align-items: center; justify-content: center;
-    background: var(--bg-input);
+    background: linear-gradient(180deg, #2a2b32 0%, #1f2025 100%);
     border: 1px solid var(--border);
     color: var(--text);
-    border-radius: 3px;
+    border-radius: 4px;
     cursor: pointer;
     font-size: 16px;
     padding: 0;
+    transition: all var(--tdur) var(--ease);
   }
-  .canvas-action-btn:hover { border-color: var(--accent); }
+  .canvas-action-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
   .canvas-action-btn.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
   .canvas-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
   /* Touch / pen device tweaks — bigger tap targets per iOS HIG
@@ -707,18 +864,45 @@
   /* Live stats line: pixel count, distinct colors, code-line count.
      Updated on every renderCode() + after every Apply Edits. */
   .code-stats {
-    padding: 6px 12px; font-size: 10px; color: var(--text-dim);
+    padding: 8px 14px;
+    font-size: 10px; color: var(--text-dim);
     border-top: 1px solid var(--border);
-    background: var(--bg-panel);
+    background: rgba(0, 0, 0, 0.25);
     font-family: 'SF Mono', Consolas, monospace;
-    display: flex; gap: 12px; flex-wrap: wrap;
+    display: flex; gap: 14px; flex-wrap: wrap;
+    letter-spacing: 0.3px;
   }
-  .code-stats .stat-key { color: var(--text-dim); }
-  .code-stats .stat-val { color: var(--accent); }
-  .code-actions { padding: 10px 12px; display: flex; gap: 6px; align-items: center; }
-  .code-actions button { flex: 1; padding: 6px 8px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; font-size: 12px; }
-  .code-actions button:hover { border-color: var(--accent); }
-  .code-actions button.primary { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .code-stats .stat-key { color: var(--text-dim); text-transform: uppercase; font-size: 9px; letter-spacing: 0.6px; }
+  .code-stats .stat-val { color: var(--accent); font-weight: 600; }
+  .code-actions {
+    padding: 12px 14px;
+    display: flex; gap: 8px; align-items: center;
+    background: rgba(0, 0, 0, 0.15);
+  }
+  .code-actions button {
+    flex: 1;
+    padding: 8px 12px;
+    background: linear-gradient(180deg, #2a2b32 0%, #1f2025 100%);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;
+    box-shadow: var(--shadow-sm);
+    transition: all var(--tdur) var(--ease);
+  }
+  .code-actions button:hover { border-color: var(--accent); color: var(--accent); }
+  .code-actions button:active { transform: translateY(1px); }
+  .code-actions button.primary {
+    background: linear-gradient(180deg, #5a4218 0%, #3a2c10 100%);
+    color: var(--accent);
+    border-color: var(--accent);
+    box-shadow:
+      var(--shadow-sm),
+      inset 0 0 0 1px rgba(255, 208, 96, 0.18),
+      0 0 16px var(--accent-glow);
+  }
+  .code-actions button.primary:hover {
+    background: linear-gradient(180deg, #6a4e1e 0%, #463415 100%);
+  }
   .auto-apply-toggle {
     display: flex; align-items: center; gap: 4px;
     font-size: 11px; color: var(--text-dim);
@@ -727,25 +911,46 @@
     user-select: none;
   }
 
-  footer { padding: 5px 14px; background: var(--bg-panel); border-top: 1px solid var(--border); color: var(--text-dim); font-size: 10px; display: flex; justify-content: space-between; align-items: center; }
-  footer .brand { color: var(--accent); font-weight: 600; }
+  footer {
+    padding: 7px 16px;
+    background: linear-gradient(180deg, #1a1b1f 0%, #14151a 100%);
+    border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 10px;
+    display: flex; justify-content: space-between; align-items: center;
+    letter-spacing: 0.4px;
+  }
+  footer .brand {
+    color: var(--accent); font-weight: 600;
+    letter-spacing: 0.8px;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.3);
+  }
 
   /* Timeline */
   .timeline {
-    background: var(--bg-panel); border-top: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--bg-panel) 0%, #16171c 100%);
+    border-top: 1px solid var(--border);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
     display: flex; flex-direction: column;
     overflow: hidden;
     min-height: 0;
   }
   .timeline-toolbar {
     display: flex; align-items: center; gap: 8px;
-    padding: 6px 12px; border-bottom: 1px solid var(--border);
-    background: var(--bg);
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.18);
   }
   .timeline-toolbar button {
-    background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
-    padding: 4px 10px; font-size: 12px; border-radius: 3px; cursor: pointer;
+    background: linear-gradient(180deg, #2a2b32 0%, #1f2025 100%);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 12px; font-size: 12px; font-weight: 500;
+    border-radius: 4px; cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: all var(--tdur) var(--ease);
   }
+  .timeline-toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+  .timeline-toolbar button:active { transform: translateY(1px); }
   .timeline-toolbar button:hover { border-color: var(--accent); }
   .timeline-toolbar button.primary { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
   .timeline-toolbar button:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -938,19 +1143,31 @@
   .timeline-frames::-webkit-scrollbar-thumb:hover { background: var(--accent); }
   .frame-thumb {
     flex-shrink: 0; width: 70px; height: 70px;
-    background: var(--bg); border: 2px solid var(--border); border-radius: 3px;
+    background: linear-gradient(180deg, #1c1d22 0%, #131418 100%);
+    border: 2px solid var(--border);
+    border-radius: 4px;
     cursor: pointer; position: relative;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
+    box-shadow: var(--shadow-sm);
+    transition: all var(--tdur) var(--ease);
   }
   /* Child elements inside the thumb don't intercept mouse / drag events,
-     so dragstart + click always reach the draggable thumb parent. Critical
-     for the drag-to-reorder gesture to work in Chromium-based browsers. */
+     so dragstart + click always reach the draggable thumb parent. */
   .frame-thumb canvas { image-rendering: pixelated; max-width: 56px; max-height: 50px; pointer-events: none; }
   .frame-thumb .frame-num { position: absolute; top: 2px; left: 4px; font-size: 9px; color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; pointer-events: none; }
   .frame-thumb .frame-dur { position: absolute; bottom: 2px; right: 4px; font-size: 9px; color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; pointer-events: none; }
-  .frame-thumb:hover { border-color: var(--text-dim); }
-  .frame-thumb.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim) inset, 0 0 6px rgba(255, 208, 96, 0.4); }
-  .frame-thumb.playing { border-color: #4ade80; box-shadow: 0 0 8px rgba(74, 222, 128, 0.5); }
+  .frame-thumb:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .frame-thumb.active {
+    border-color: var(--accent);
+    box-shadow:
+      0 0 0 2px var(--accent-dim) inset,
+      0 0 14px var(--accent-glow),
+      var(--shadow-sm);
+  }
+  .frame-thumb.playing {
+    border-color: var(--success);
+    box-shadow: 0 0 14px rgba(74, 222, 128, 0.5);
+  }
   .frame-thumb.drag-target { border-color: var(--accent); border-style: dashed; }
   .frame-thumb-add {
     flex-shrink: 0; width: 30px; height: 70px;
@@ -968,24 +1185,76 @@
 
   /* Modal */
   .modal-backdrop {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    position: fixed; inset: 0;
+    background: rgba(8, 9, 11, 0.78);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     z-index: 100; display: flex; align-items: center; justify-content: center;
+    animation: backdrop-in 160ms var(--ease);
   }
   .modal {
-    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px;
-    width: 640px; max-width: 90vw; max-height: 80vh; display: flex; flex-direction: column;
+    background: linear-gradient(180deg, var(--bg-panel) 0%, #181a1f 100%);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    width: 640px; max-width: 90vw; max-height: 80vh;
+    display: flex; flex-direction: column;
+    box-shadow: var(--shadow-lg);
+    animation: modal-in 200ms var(--ease);
   }
   .modal-head {
-    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
     display: flex; justify-content: space-between; align-items: center;
+    background: linear-gradient(180deg, rgba(255,255,255,0.025) 0%, transparent 100%);
   }
-  .modal-head h2 { margin: 0; font-size: 14px; color: var(--accent); }
-  .modal-close { background: none; border: none; color: var(--text-dim); font-size: 18px; cursor: pointer; padding: 0 6px; }
-  .modal-close:hover { color: var(--text); }
-  .modal-body { flex: 1; overflow-y: auto; padding: 8px 16px; }
-  .modal-foot { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
-  .modal-foot button { padding: 6px 14px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; font-size: 12px; }
-  .modal-foot button.primary { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .modal-head h2 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .modal-close {
+    background: none; border: none; color: var(--text-dim);
+    font-size: 20px; cursor: pointer; padding: 0 6px;
+    line-height: 1;
+    transition: color var(--tdur) var(--ease);
+  }
+  .modal-close:hover { color: var(--accent); }
+  .modal-body { flex: 1; overflow-y: auto; padding: 14px 18px; }
+  .modal-foot {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    display: flex; gap: 8px; justify-content: flex-end;
+    background: rgba(0, 0, 0, 0.2);
+  }
+  .modal-foot button {
+    padding: 8px 16px;
+    background: linear-gradient(180deg, #2a2b32 0%, #1f2025 100%);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 500;
+    box-shadow: var(--shadow-sm);
+    transition: all var(--tdur) var(--ease);
+  }
+  .modal-foot button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .modal-foot button.primary {
+    background: linear-gradient(180deg, #5a4218 0%, #3a2c10 100%);
+    color: var(--accent);
+    border-color: var(--accent);
+    box-shadow:
+      var(--shadow-sm),
+      inset 0 0 0 1px rgba(255, 208, 96, 0.18),
+      0 0 16px var(--accent-glow);
+  }
+  .modal-foot button.primary:hover {
+    background: linear-gradient(180deg, #6a4e1e 0%, #463415 100%);
+  }
 
   .asset-row {
     display: grid; grid-template-columns: 60px 1fr auto; gap: 12px;
@@ -1884,7 +2153,7 @@
      See its DOM up in the panel-grid block above. -->
 
 <footer>
-  <div>Wondrous Grid v1 · paint and code in sync</div>
+  <div>WONDROUS GRID · pixel + code + animation studio</div>
   <div class="brand">Everything Wondrous ™</div>
 </footer>
 
