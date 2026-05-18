@@ -272,11 +272,59 @@
     margin: 8px;
   }
 
-  .picker-row { margin-bottom: 12px; }
+  .picker-row { margin-bottom: 8px; }
   .picker-row input[type=color] { width: 100%; height: 28px; border: 1px solid var(--border); background: var(--bg-input); cursor: pointer; padding: 2px; border-radius: 3px; }
   .hex-input-row { display: flex; gap: 4px; margin-top: 6px; }
   .hex-input-row input { flex: 1; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 4px 6px; font-family: 'SF Mono', Consolas, monospace; font-size: 11px; border-radius: 3px; }
   .hex-input-row button { padding: 4px 8px; font-size: 11px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; }
+
+  /* HSV slider trio — Photoshop-style fine-tune below the picker.
+     Each slider has its OWN colored gradient track so the artist sees
+     what they're adjusting (rainbow for hue, gray→color for sat,
+     black→color for value). Track gradients are set dynamically as
+     the active color changes. Numeric input next to each slider for
+     keyboard-friendly precision. */
+  .hsv-block { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .hsv-row {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10px; color: var(--text-dim);
+  }
+  .hsv-label {
+    width: 12px; text-align: right;
+    font-family: 'SF Mono', Consolas, monospace; font-weight: 600;
+  }
+  .hsv-slider {
+    flex: 1;
+    -webkit-appearance: none; appearance: none;
+    height: 12px; border-radius: 2px; border: 1px solid var(--border);
+    cursor: pointer; padding: 0;
+    background: linear-gradient(to right, #000, #fff);
+  }
+  .hsv-slider.hsv-hue {
+    background: linear-gradient(to right,
+      hsl(  0,100%,50%), hsl( 60,100%,50%), hsl(120,100%,50%),
+      hsl(180,100%,50%), hsl(240,100%,50%), hsl(300,100%,50%), hsl(360,100%,50%));
+  }
+  .hsv-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 8px; height: 18px;
+    background: var(--text); border: 1px solid #000;
+    border-radius: 2px; cursor: pointer;
+    margin-top: -4px;
+  }
+  .hsv-slider::-moz-range-thumb {
+    width: 8px; height: 18px;
+    background: var(--text); border: 1px solid #000;
+    border-radius: 2px; cursor: pointer;
+  }
+  .hsv-num {
+    width: 40px;
+    background: var(--bg-input); color: var(--text);
+    border: 1px solid var(--border); border-radius: 2px;
+    padding: 2px 4px;
+    font-family: 'SF Mono', Consolas, monospace; font-size: 10px;
+    text-align: right;
+  }
   .ref-row { display: flex; gap: 6px; }
   .ref-row .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   /* Navigator / minimap — sits in the left panel. Yellow viewport rect
@@ -854,6 +902,22 @@
     <input id="brushOpacitySlider" type="range" min="10" max="100" step="5" value="100" style="width: 80px; accent-color: var(--accent);">
     <span id="brushOpacityReadout" class="brush-size-readout">100%</span>
   </div>
+  <!-- Dither brush patterns — when active, the paint tool ONLY fills
+       cells whose (x % w, y % h) hits the pattern's 1-bits. Classic
+       pixel-art shading shortcut: 50% creates a checker, 25% a
+       sparser scatter, horizontal/vertical for line-pattern fills. -->
+  <div class="group dither-group" title="Dither pattern for the paint tool. Off = solid fill.">
+    <span style="font-size: 11px; color: var(--text-dim);">dither</span>
+    <select id="ditherSelect" style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font-family: inherit; font-size: 11px;">
+      <option value="solid">solid</option>
+      <option value="50">50% checker</option>
+      <option value="25">25% scatter</option>
+      <option value="75">75% scatter</option>
+      <option value="linesH">— lines H</option>
+      <option value="linesV">| lines V</option>
+      <option value="dots">· dots</option>
+    </select>
+  </div>
   <div class="spacer"></div>
   <!-- FILE / CODE (right of spacer): I/O + code output + help -->
   <div class="group">
@@ -916,6 +980,26 @@
             <button id="addCustomBtn" title="Save current color to custom palette">+ Add</button>
           </div>
         </div>
+        <!-- HSV sliders for fine color tuning — pros expect these for
+             shading workflows (shift hue while keeping value, etc.).
+             All three sync bidirectionally with the active color. -->
+        <div class="hsv-block">
+          <div class="hsv-row">
+            <span class="hsv-label">H</span>
+            <input id="hueSlider" class="hsv-slider hsv-hue" type="range" min="0" max="360" value="0">
+            <input id="hueInput" class="hsv-num" type="number" min="0" max="360" value="0">
+          </div>
+          <div class="hsv-row">
+            <span class="hsv-label">S</span>
+            <input id="satSlider" class="hsv-slider" type="range" min="0" max="100" value="0">
+            <input id="satInput" class="hsv-num" type="number" min="0" max="100" value="0">
+          </div>
+          <div class="hsv-row">
+            <span class="hsv-label">V</span>
+            <input id="valSlider" class="hsv-slider" type="range" min="0" max="100" value="0">
+            <input id="valInput" class="hsv-num" type="number" min="0" max="100" value="0">
+          </div>
+        </div>
       </div>
       <h2 class="sub-head">Recent</h2>
       <div class="sub-body">
@@ -923,16 +1007,26 @@
       </div>
     </div>
 
-    <!-- DLX Palette promoted to its own top-level section so it can be
-         collapsed independently. Useful when a sprite project uses a
-         different palette and the DLX swatches are just taking up
-         vertical space. -->
+    <!-- Palette section — promoted to its own top-level collapsible.
+         Now with a preset dropdown so artists can swap in classic
+         pixel-art palettes (NES / Game Boy / PICO-8 / Endesga 32 /
+         Sweetie 16) in addition to the project-default DLX set. -->
     <h2 class="section-head section-head-divider" style="display: flex; align-items: center; justify-content: space-between;">
-      <span>DLX Palette</span>
+      <span>Palette</span>
       <button id="quantizeBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px; flex: 0 0 auto;"
-              title="Snap every painted pixel to the nearest color in the DLX palette. Useful after importing a PNG.">Snap</button>
+              title="Snap every painted pixel to the nearest color in the active palette. Useful after importing a PNG or after switching palettes.">Snap</button>
     </h2>
     <div class="section-body">
+      <div style="margin-bottom: 8px;">
+        <select id="paletteSelect" style="width: 100%; background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 4px 6px; font-family: inherit; font-size: 11px;">
+          <option value="dlx">DLX (project default)</option>
+          <option value="pico8">PICO-8 (16)</option>
+          <option value="sweetie16">Sweetie 16</option>
+          <option value="endesga32">Endesga 32</option>
+          <option value="gameboy">Game Boy (4)</option>
+          <option value="nes">NES (54)</option>
+        </select>
+      </div>
       <div id="paletteContainer"></div>
     </div>
 
@@ -1578,6 +1672,14 @@ let state = {
   // Empty cells are painted at full color since there's nothing to
   // blend with. Eraser ignores opacity (binary on/off).
   brushOpacity: 1.0,
+  // Dither brush pattern — gates which cells inside the brush
+  // footprint actually get painted. See DITHER_PATTERNS for the
+  // grid table. 'solid' = no dither (default fully-filled stroke).
+  brushDither: 'solid',
+  // Active palette key — 'dlx' is the project default; the dropdown
+  // lets the user swap to NES / PICO-8 / Game Boy / Endesga 32 /
+  // Sweetie 16 for classic pixel-art palettes.
+  paletteKey: 'dlx',
   // Pixel-perfect mode: while painting a freehand stroke, auto-remove
   // any pixel that would form a 3-in-a-row L-joint (the "stairstep
   // double" that diagonal freehand strokes produce). Standard pro
@@ -1780,36 +1882,106 @@ previewCtx.imageSmoothingEnabled = false;
 // ────────────────────────────────────────────────────────────
 // PALETTE PANEL RENDERING
 // ────────────────────────────────────────────────────────────
+// Curated classic pixel-art palettes (per Lospec / community
+// standards). Each is just a flat array of hex strings — rendered
+// as a single ungrouped swatch grid. The DLX project palette stays
+// in TSC_GROUPS + PXC_GROUPS form since it carries semantic group
+// labels (Hull / Cargo / etc.) that matter for the game pipeline.
+const PALETTE_PRESETS = {
+  // PICO-8: the iconic 16-color fantasy-console palette.
+  pico8: ['#000000','#1d2b53','#7e2553','#008751','#ab5236','#5f574f','#c2c3c7','#fff1e8',
+          '#ff004d','#ffa300','#ffec27','#00e436','#29adff','#83769c','#ff77a8','#ffccaa'],
+  // Sweetie 16 by GrafxKid — vibrant 16-color all-purpose.
+  sweetie16: ['#1a1c2c','#5d275d','#b13e53','#ef7d57','#ffcd75','#a7f070','#38b764','#257179',
+              '#29366f','#3b5dc9','#41a6f6','#73eff7','#f4f4f4','#94b0c2','#566c86','#333c57'],
+  // Endesga 32 — one of the most-used "general purpose" pixel palettes.
+  endesga32: ['#be4a2f','#d77643','#ead4aa','#e4a672','#b86f50','#733e39','#3e2731','#a22633',
+              '#e43b44','#f77622','#feae34','#fee761','#63c74d','#3e8948','#265c42','#193c3e',
+              '#124e89','#0099db','#2ce8f5','#ffffff','#c0cbdc','#8b9bb4','#5a6988','#3a4466',
+              '#262b44','#181425','#ff0044','#68386c','#b55088','#f6757a','#e8b796','#c28569'],
+  // Game Boy DMG — the original 4-shade green LCD.
+  gameboy: ['#0f380f','#306230','#8bac0f','#9bbc0f'],
+  // NES master palette (subset of the most-used 54).
+  nes: ['#7c7c7c','#0000fc','#0000bc','#4428bc','#940084','#a80020','#a81000','#881400',
+        '#503000','#007800','#006800','#005800','#004058','#000000','#bcbcbc','#0078f8',
+        '#0058f8','#6844fc','#d800cc','#e40058','#f83800','#e45c10','#ac7c00','#00b800',
+        '#00a800','#00a844','#008888','#000000','#f8f8f8','#3cbcfc','#6888fc','#9878f8',
+        '#f878f8','#f85898','#f87858','#fca044','#f8b800','#b8f818','#58d854','#58f898',
+        '#00e8d8','#787878','#fcfcfc','#a4e4fc','#b8b8f8','#d8b8f8','#f8b8f8','#f8a4c0',
+        '#f0d0b0','#fce0a8','#f8d878','#d8f878','#b8f8b8','#b8f8d8','#00fcfc'],
+};
 function renderPalette() {
   paletteContainer.innerHTML = '';
-  const sections = [
-    ['TSC — Truck-stop scenery', TSC_GROUPS],
-    ['PXC — Rig + cargo', PXC_GROUPS],
-  ];
-  if (state.customColors.length) {
-    sections.push(['Custom (this session)', [['Custom', state.customColors.map((hex, i) => [`custom${i+1}`, hex])]]]);
-  }
-  for (const [label, groups] of sections) {
-    const section = document.createElement('div');
-    section.innerHTML = `<div class="swatch-group-label" style="margin-top:6px;color:var(--accent);">${label}</div>`;
-    paletteContainer.appendChild(section);
-    for (const [groupName, swatches] of groups) {
-      const groupDiv = document.createElement('div');
-      groupDiv.className = 'swatch-group';
-      groupDiv.innerHTML = `<div class="swatch-group-label">${groupName}</div>`;
-      const grid = document.createElement('div');
-      grid.className = 'swatch-grid';
-      for (const [name, hex] of swatches) {
+  const key = state.paletteKey || 'dlx';
+  if (key === 'dlx') {
+    // Project palette stays grouped (semantic labels matter for DLX).
+    const sections = [
+      ['TSC — Truck-stop scenery', TSC_GROUPS],
+      ['PXC — Rig + cargo', PXC_GROUPS],
+    ];
+    if (state.customColors.length) {
+      sections.push(['Custom (this session)', [['Custom', state.customColors.map((hex, i) => [`custom${i+1}`, hex])]]]);
+    }
+    for (const [label, groups] of sections) {
+      const section = document.createElement('div');
+      section.innerHTML = `<div class="swatch-group-label" style="margin-top:6px;color:var(--accent);">${label}</div>`;
+      paletteContainer.appendChild(section);
+      for (const [groupName, swatches] of groups) {
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'swatch-group';
+        groupDiv.innerHTML = `<div class="swatch-group-label">${groupName}</div>`;
+        const grid = document.createElement('div');
+        grid.className = 'swatch-grid';
+        for (const [name, hex] of swatches) {
+          const sw = document.createElement('div');
+          sw.className = 'swatch';
+          sw.style.background = hex;
+          sw.title = `${name} · ${hex}`;
+          if (hex.toLowerCase() === state.activeColor.toLowerCase()) sw.classList.add('active');
+          sw.addEventListener('click', () => setActiveColor(hex));
+          grid.appendChild(sw);
+        }
+        groupDiv.appendChild(grid);
+        section.appendChild(groupDiv);
+      }
+    }
+  } else {
+    // Preset palettes render as a flat grid.
+    const preset = PALETTE_PRESETS[key];
+    if (!preset) return;
+    const grid = document.createElement('div');
+    grid.className = 'swatch-grid';
+    for (const hex of preset) {
+      const sw = document.createElement('div');
+      sw.className = 'swatch';
+      sw.style.background = hex;
+      sw.title = hex;
+      if (hex.toLowerCase() === state.activeColor.toLowerCase()) sw.classList.add('active');
+      sw.addEventListener('click', () => setActiveColor(hex));
+      grid.appendChild(sw);
+    }
+    paletteContainer.appendChild(grid);
+    // Custom swatches still show beneath any preset, so the user
+    // doesn't lose their session additions when switching palettes.
+    if (state.customColors.length) {
+      const label = document.createElement('div');
+      label.className = 'swatch-group-label';
+      label.style.marginTop = '8px';
+      label.style.color = 'var(--accent)';
+      label.textContent = 'Custom (this session)';
+      paletteContainer.appendChild(label);
+      const cgrid = document.createElement('div');
+      cgrid.className = 'swatch-grid';
+      for (const hex of state.customColors) {
         const sw = document.createElement('div');
         sw.className = 'swatch';
         sw.style.background = hex;
-        sw.title = `${name} · ${hex}`;
+        sw.title = hex;
         if (hex.toLowerCase() === state.activeColor.toLowerCase()) sw.classList.add('active');
         sw.addEventListener('click', () => setActiveColor(hex));
-        grid.appendChild(sw);
+        cgrid.appendChild(sw);
       }
-      groupDiv.appendChild(grid);
-      section.appendChild(groupDiv);
+      paletteContainer.appendChild(cgrid);
     }
   }
 }
@@ -1993,8 +2165,13 @@ pixelPerfectBtn.addEventListener('click', () => setPixelPerfect(!state.pixelPerf
 // anti-aliased edges introduced off-palette pixels.
 function buildKnownPaletteList() {
   const out = [];
-  for (const [, gs] of TSC_GROUPS) for (const [, h] of gs) out.push(h.toLowerCase());
-  for (const [, gs] of PXC_GROUPS) for (const [, h] of gs) out.push(h.toLowerCase());
+  const key = state.paletteKey || 'dlx';
+  if (key === 'dlx') {
+    for (const [, gs] of TSC_GROUPS) for (const [, h] of gs) out.push(h.toLowerCase());
+    for (const [, gs] of PXC_GROUPS) for (const [, h] of gs) out.push(h.toLowerCase());
+  } else if (PALETTE_PRESETS[key]) {
+    for (const h of PALETTE_PRESETS[key]) out.push(h.toLowerCase());
+  }
   for (const h of state.customColors) out.push(h.toLowerCase());
   return [...new Set(out)];
 }
@@ -2555,6 +2732,12 @@ function paintCellRaw(x, y, hex) {
   if (x < 0 || y < 0 || x >= state.width || y >= state.height) return;
   const k = `${x},${y}`;
   if (state.lockAlpha && hex != null && !state.pixels[k]) return;  // skip transparent cells in paint mode
+  // Dither gate — paint-only mode skips cells whose grid position
+  // doesn't match the active dither pattern. Erase (hex == null)
+  // ignores dither and always works on the full footprint.
+  if (hex != null && state.brushDither && state.brushDither !== 'solid') {
+    if (!ditherAllows(x, y, state.brushDither)) return;
+  }
   if (hex == null) {
     if (state.pixels[k]) delete state.pixels[k];
     return;
@@ -2565,6 +2748,24 @@ function paintCellRaw(x, y, hex) {
   } else {
     state.pixels[k] = hex;
   }
+}
+// Dither pattern table — 1 = paint, 0 = skip. Each pattern is a small
+// tileable grid; lookups use (x % w, y % h) so the pattern stays
+// consistent across the canvas regardless of where the brush lands.
+const DITHER_PATTERNS = {
+  '50':     { w: 2, h: 2, bits: [1,0, 0,1] },                  // classic checker
+  '25':     { w: 2, h: 2, bits: [1,0, 0,0] },                  // sparse
+  '75':     { w: 2, h: 2, bits: [1,1, 0,1] },                  // dense
+  'linesH': { w: 1, h: 2, bits: [1, 0] },                       // every other row
+  'linesV': { w: 2, h: 1, bits: [1, 0] },                       // every other column
+  'dots':   { w: 4, h: 4, bits: [1,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0] },
+};
+function ditherAllows(x, y, name) {
+  const p = DITHER_PATTERNS[name];
+  if (!p) return true;
+  const px = ((x % p.w) + p.w) % p.w;
+  const py = ((y % p.h) + p.h) % p.h;
+  return p.bits[py * p.w + px] === 1;
 }
 // Linear-RGB blend of two #rrggbb hex colors at a given opacity.
 // Result is a fresh #rrggbb string (no alpha — we store flat hex).
@@ -4120,9 +4321,11 @@ function autosave() {
       activeLayer: state.activeLayer,
       brushSize: state.brushSize,
       brushOpacity: state.brushOpacity,
+      brushDither: state.brushDither,
       pixelPerfect: state.pixelPerfect,
       onionRadius: state.onionRadius,
       loopMode: state.loopMode,
+      paletteKey: state.paletteKey,
     }));
   } catch (e) {
     // localStorage quota exceeded — most likely the reference image is
@@ -4203,9 +4406,11 @@ function restoreAutosave() {
     if (typeof data.autoApply === 'boolean') state.autoApply = data.autoApply;
     if (typeof data.brushSize === 'number') state.brushSize = data.brushSize;
     if (typeof data.brushOpacity === 'number') state.brushOpacity = data.brushOpacity;
+    if (typeof data.brushDither === 'string') state.brushDither = data.brushDither;
     if (typeof data.pixelPerfect === 'boolean') state.pixelPerfect = data.pixelPerfect;
     if (typeof data.onionRadius === 'number') state.onionRadius = data.onionRadius;
     if (typeof data.loopMode === 'string') state.loopMode = data.loopMode;
+    if (typeof data.paletteKey === 'string') state.paletteKey = data.paletteKey;
     if (Array.isArray(data.tags)) {
       // Sanitize tags on restore — drop ones with bad ranges so a stale
       // payload from a smaller frame count doesn't crash playback.
@@ -6055,6 +6260,10 @@ renderLayers();
   autoApplyCheck.checked = !!state.autoApply;
   setBrushSize(state.brushSize);
   setBrushOpacity(Math.round((state.brushOpacity ?? 1) * 100));
+  ditherSelect.value = state.brushDither || 'solid';
+  paletteSelect.value = state.paletteKey || 'dlx';
+  renderPalette();   // re-render in case paletteKey was restored to a preset
+  syncHsvFromHex();
   setPixelPerfect(state.pixelPerfect);
   setLoopMode(state.loopMode);
   tlOnionRadius.value = state.onionRadius || 1;
@@ -6403,6 +6612,7 @@ setActiveColor = function(hex) {
     lastActiveColor = before;
   }
   syncPrevSwatch();
+  if (typeof syncHsvFromHex === 'function') syncHsvFromHex();
 };
 // Click the small previous-color swatch (Photoshop fg/bg style) to swap
 // it into the active slot. Mirrors the X keyboard shortcut behavior.
@@ -6413,6 +6623,104 @@ document.getElementById('prevSwatch').addEventListener('click', () => {
 });
 // Initial paint of the previous swatch on boot.
 syncPrevSwatch();
+
+// ── HSV color sliders ────────────────────────────────────────
+// Three sliders for hue / saturation / value plus a numeric input
+// each. Sync bidirectionally with the active color: dragging a
+// slider applies a new hex via setActiveColor; changing the active
+// color updates the slider positions + the saturation/value track
+// gradients (so the user always sees the operational range for
+// their current hue). Standard Photoshop fine-tune workflow.
+const hueSlider = document.getElementById('hueSlider');
+const satSlider = document.getElementById('satSlider');
+const valSlider = document.getElementById('valSlider');
+const hueInput  = document.getElementById('hueInput');
+const satInput  = document.getElementById('satInput');
+const valInput  = document.getElementById('valInput');
+
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  const d = mx - mn;
+  let h = 0;
+  if (d) {
+    if      (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else               h = (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  return [Math.round(h), Math.round((mx === 0 ? 0 : d / mx) * 100), Math.round(mx * 100)];
+}
+function hsvToHex(h, s, v) {
+  s /= 100; v /= 100;
+  const c = v * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = v - c;
+  let rp = 0, gp = 0, bp = 0;
+  if (h <  60) { rp = c; gp = x; bp = 0; }
+  else if (h < 120) { rp = x; gp = c; bp = 0; }
+  else if (h < 180) { rp = 0; gp = c; bp = x; }
+  else if (h < 240) { rp = 0; gp = x; bp = c; }
+  else if (h < 300) { rp = x; gp = 0; bp = c; }
+  else              { rp = c; gp = 0; bp = x; }
+  const r = Math.round((rp + m) * 255);
+  const g = Math.round((gp + m) * 255);
+  const b = Math.round((bp + m) * 255);
+  return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+}
+let _hsvUpdating = false;   // re-entrancy guard
+function syncHsvFromHex() {
+  if (_hsvUpdating) return;
+  const [r, g, b] = hexToRgb(state.activeColor);
+  const [h, s, v] = rgbToHsv(r, g, b);
+  _hsvUpdating = true;
+  hueSlider.value = h; hueInput.value = h;
+  satSlider.value = s; satInput.value = s;
+  valSlider.value = v; valInput.value = v;
+  // Saturation track: gray → full hue at current value.
+  satSlider.style.background =
+    `linear-gradient(to right, ${hsvToHex(h, 0, v)} 0%, ${hsvToHex(h, 100, v)} 100%)`;
+  // Value track: black → fully-bright current hue+sat.
+  valSlider.style.background =
+    `linear-gradient(to right, #000 0%, ${hsvToHex(h, s, 100)} 100%)`;
+  _hsvUpdating = false;
+}
+function pushHsvToActive() {
+  if (_hsvUpdating) return;
+  _hsvUpdating = true;
+  const h = +hueSlider.value, s = +satSlider.value, v = +valSlider.value;
+  hueInput.value = h; satInput.value = s; valInput.value = v;
+  _hsvUpdating = false;
+  setActiveColor(hsvToHex(h, s, v));
+}
+for (const sl of [hueSlider, satSlider, valSlider]) sl.addEventListener('input', pushHsvToActive);
+for (const [num, sl] of [[hueInput, hueSlider], [satInput, satSlider], [valInput, valSlider]]) {
+  num.addEventListener('input', () => { sl.value = num.value; pushHsvToActive(); });
+}
+syncHsvFromHex();
+
+// ── Palette preset dropdown ──────────────────────────────────
+// Swaps the displayed swatches between the project DLX palette and
+// curated classic pixel-art palettes (PICO-8 / Sweetie 16 /
+// Endesga 32 / Game Boy / NES). The active color picker is
+// independent — switching palettes doesn't recolor existing pixels.
+// Snap-to-palette now respects whichever palette is active so the
+// "make every pixel fit this palette" workflow works across all of
+// them.
+const paletteSelect = document.getElementById('paletteSelect');
+paletteSelect.addEventListener('change', () => {
+  state.paletteKey = paletteSelect.value || 'dlx';
+  renderPalette();
+  autosave();
+});
+
+// ── Dither dropdown ──────────────────────────────────────────
+// Gates which cells inside a brush footprint actually paint, by
+// pattern. paintCellRaw checks state.brushDither + the DITHER_PATTERNS
+// table; this dropdown is the only place it changes.
+const ditherSelect = document.getElementById('ditherSelect');
+ditherSelect.addEventListener('change', () => {
+  state.brushDither = ditherSelect.value || 'solid';
+  autosave();
+});
 
 // Left-panel collapsible sections. Clicking any .section-head or
 // .sub-head toggles the .collapsed class, which (via the CSS
