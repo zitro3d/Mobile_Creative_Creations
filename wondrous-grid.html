@@ -333,8 +333,30 @@
   #refImage.visible { display: block; }
   #paintCanvas { display: block; image-rendering: pixelated; cursor: crosshair; position: relative; z-index: 1; }
   #paintCanvas.ref-active { /* paint canvas keeps its painted pixels but the checker gets thinned out — see renderGrid() */ }
-  .preview-row { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 11px; }
+  .preview-row { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 11px; flex-wrap: wrap; }
   .preview-row .preview-wrap { background: var(--paint-bg); border: 1px solid var(--border); padding: 4px; }
+  /* Live X,Y + color readout next to the zoom controls. The little
+     swatch echoes the hex under the cursor so the artist can sample
+     visually without switching to the eyedropper. */
+  .xy-readout {
+    margin-left: 12px;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 11px;
+    color: var(--accent);
+    min-width: 110px;
+  }
+  .xy-swatch {
+    width: 12px; height: 12px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    background: transparent;
+    flex-shrink: 0;
+  }
   #previewCanvas { display: block; image-rendering: pixelated; }
   .zoom-controls { display: flex; gap: 4px; align-items: center; }
   .zoom-controls button { padding: 3px 8px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; font-size: 11px; }
@@ -920,6 +942,14 @@
         <label style="margin-left: 8px; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Preview the canvas tiled in a 3×3 layout — useful for seam-checking tileable patterns">
           <input id="tileModeCheck" type="checkbox"> tile 3×3
         </label>
+        <!-- Live X,Y readout. Updates on every paint-canvas mousemove
+             and clears when the cursor leaves. Shows the hovered pixel
+             color underneath so the artist can sample at a glance
+             without switching to the eyedropper. -->
+        <span class="xy-readout" id="xyReadout" title="Pixel coordinates under the cursor">
+          <span class="xy-swatch" id="xySwatch"></span>
+          <span id="xyText">—</span>
+        </span>
       </div>
     </div>
   </div>
@@ -2759,6 +2789,11 @@ function drawLineBresenham(x0, y0, x1, y1, color) {
   }
 }
 paintCanvas.addEventListener('mousemove', (e) => {
+  // Update the live X,Y readout — runs on every mousemove regardless
+  // of paint state so the artist can scrub the cursor and see what
+  // they're hovering. Also surfaces the underlying flattened pixel
+  // color in a small swatch so the eyedropper isn't always needed.
+  updateXYReadout(e);
   // While NOT mid-drag, hover-detect inside-selection so we can swap
   // the cursor to "move" — gives the user a visual cue that they can
   // drag the marquee contents.
@@ -2864,6 +2899,28 @@ window.addEventListener('mouseup', (e) => {
   autosave();
 });
 paintCanvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// Live X,Y + color readout — driven by mousemove on the paint canvas.
+// Clears when the cursor leaves so the readout doesn't show stale
+// coords when the user moves to other panels.
+const xyReadoutEl = document.getElementById('xyReadout');
+const xyText      = document.getElementById('xyText');
+const xySwatch    = document.getElementById('xySwatch');
+function updateXYReadout(e) {
+  const cell = cellFromEvent(e);
+  if (!cell) { xyText.textContent = '—'; xySwatch.style.background = 'transparent'; return; }
+  xyText.textContent = `x ${cell.x}  y ${cell.y}`;
+  // Sample the FLATTENED frame so the swatch reflects what the user
+  // sees on screen (composited across visible layers) — not just the
+  // active layer's pixel.
+  const flat = flattenFrame(state.frames[state.activeFrame]);
+  const hex = flat[`${cell.x},${cell.y}`];
+  xySwatch.style.background = hex || 'transparent';
+}
+paintCanvas.addEventListener('mouseleave', () => {
+  xyText.textContent = '—';
+  xySwatch.style.background = 'transparent';
+});
 
 // ────────────────────────────────────────────────────────────
 // CODE GENERATION + PARSING
