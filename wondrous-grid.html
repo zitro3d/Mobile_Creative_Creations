@@ -756,7 +756,6 @@
     <input id="loadInput" type="file" accept=".json" style="display: none;">
     <button id="exportPngBtn" title="Export the sprite as a PNG. Animated sprites become a horizontal sprite-sheet (one frame per cell). Tags emit a sidecar JSON with frame ranges + durations.">🖼 Export PNG</button>
     <button id="copyBtn">⎘ Copy Code</button>
-    <button id="togglePreviewBtn" title="Show or hide the floating animation preview window">👁 Preview</button>
     <button id="helpBtn" title="Keyboard shortcuts + how to use">? Help</button>
   </div>
 </header>
@@ -979,6 +978,7 @@
     <button id="tlAddBtn" title="Add new BLANK frame (Alt+N)">+ Blank</button>
     <button id="tlDelBtn" title="Delete current frame (Alt+Del)">× Delete</button>
     <button id="tlReverseBtn" title="Reverse the order of all frames (also re-aims tag ranges)">⇄ Reverse</button>
+    <button id="togglePreviewBtn" title="Show or hide the floating animation preview window">👁 Preview</button>
     <label title="Per-frame duration in milliseconds (active frame only)">Duration <input id="tlDurInput" type="number" min="10" max="2000" step="10" value="100"></label>
     <!-- FPS readout removed per user feedback — duration is sufficient. -->
     <span class="fps-readout" id="tlFpsReadout" style="display: none;"></span>
@@ -1320,9 +1320,10 @@
 <div id="previewWindow" class="preview-window" style="display: none;">
   <div class="preview-window-head">
     <span class="preview-window-title">Preview</span>
+    <button id="previewPlayBtn" class="preview-window-btn" title="Pause preview animation">⏸</button>
     <button id="previewZoomDown" class="preview-window-btn" title="Smaller">−</button>
     <button id="previewZoomUp" class="preview-window-btn" title="Larger">+</button>
-    <button id="previewWindowClose" class="preview-window-btn" title="Hide preview window (re-show via View menu)">×</button>
+    <button id="previewWindowClose" class="preview-window-btn" title="Hide preview (re-open from the timeline toolbar)">×</button>
   </div>
   <canvas id="previewWindowCanvas"></canvas>
 </div>
@@ -5228,6 +5229,18 @@ previewWindowCloseBtn.addEventListener('click', () => {
   previewWindowDismissed = true;
   syncPreviewWindowVisibility();
 });
+// Play / pause directly on the preview window header. Independent of
+// the timeline's big-canvas play button — the preview keeps animating
+// while the user edits unless they explicitly pause it here.
+const previewPlayBtn = document.getElementById('previewPlayBtn');
+function syncPreviewPlayBtn() {
+  previewPlayBtn.textContent = previewWindowPaused ? '▶' : '⏸';
+  previewPlayBtn.title = previewWindowPaused ? 'Resume preview animation' : 'Pause preview animation';
+}
+previewPlayBtn.addEventListener('click', () => {
+  previewWindowPaused = !previewWindowPaused;
+  syncPreviewPlayBtn();
+});
 // Header-bar toggle — user-discoverable way to bring the preview
 // window back after dismissing it (otherwise the × button was a
 // one-way door). Reflects current visibility in the button's active
@@ -5393,17 +5406,12 @@ let playRafId = null;
 let playFrameStartTime = 0;
 
 function togglePlay() {
-  // User-initiated toggle is the ONLY place the floating preview
-  // window's pause flag flips. Other stopPlayback callers (frame
-  // navigation, asset load, etc.) leave the preview running so the
-  // artist still sees motion while they make incidental changes.
-  if (state.playing) {
-    previewWindowPaused = true;
-    stopPlayback();
-  } else {
-    previewWindowPaused = false;
-    startPlayback();
-  }
+  // Big-canvas play/pause only. The floating preview runs on its own
+  // loop (with its own ▶/⏸ button) so the user can keep watching the
+  // animation while editing — they are no longer linked. Reverted
+  // per user feedback that the coupling felt redundant.
+  if (state.playing) stopPlayback();
+  else startPlayback();
 }
 
 function startPlayback() {
