@@ -232,7 +232,10 @@
      dedicated canvas so the artist sees motion while editing without
      having to click Play in the main timeline. */
   .preview-window {
-    position: fixed;
+    /* Docked into the canvas panel (.panel-grid is position:relative),
+       not the viewport. Floats in the bottom-right corner of the
+       canvas area by default and stays inside that pane when dragged. */
+    position: absolute;
     right: 18px;
     bottom: 18px;
     z-index: 90;
@@ -326,7 +329,7 @@
   h2.sub-head.collapsed + .sub-body { display: none; }
 
   /* Center column — paint grid */
-  .panel-grid { display: flex; flex-direction: column; align-items: center; padding: 14px; gap: 10px; }
+  .panel-grid { display: flex; flex-direction: column; align-items: center; padding: 14px; gap: 10px; position: relative; }
   .grid-wrap { position: relative; background: var(--paint-bg); border: 1px solid var(--border); padding: 0; max-width: 100%; max-height: 100%; overflow: auto; }
   #refImage {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -381,7 +384,7 @@
   }
   .code-gutter {
     margin: 0;
-    padding: 10px 6px 10px 8px;
+    padding: 10px 4px 10px 4px;
     background: var(--bg);
     color: var(--text-dim);
     font-family: 'SF Mono', Consolas, monospace;
@@ -389,12 +392,37 @@
     line-height: 1.5;
     text-align: right;
     user-select: none;
-    pointer-events: none;
+    /* Clickable stripes inside need pointer events; per-line numbers
+       below explicitly opt out so clicks pass through to the stripe. */
+    pointer-events: auto;
     border-right: 1px solid var(--border);
     overflow: hidden;
     white-space: pre;
-    min-width: 30px;
+    min-width: 42px;
     /* The gutter's vertical scroll is driven by JS, mirroring the textarea. */
+  }
+  /* Each gutter row is line-height-aligned to its textarea row. The
+     stripe is the color that line paints (when applicable); clicking
+     it opens the color picker keyed to that pixel's hex. */
+  .gutter-line {
+    display: flex; align-items: center; gap: 4px;
+    height: 16.5px;  /* 11px font × 1.5 line-height — keep in lock-step */
+  }
+  .gutter-stripe {
+    flex-shrink: 0;
+    width: 4px; height: 12px;
+    border-radius: 1px;
+    background: transparent;
+    cursor: default;
+  }
+  .gutter-stripe.filled { cursor: pointer; }
+  .gutter-stripe.filled:hover {
+    outline: 1px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .gutter-num {
+    flex: 1; text-align: right;
+    pointer-events: none;
   }
   /* Editor stack: a syntax-highlight <pre> overlay BEHIND a transparent
      textarea. Both share font + padding + line-height so the rendered
@@ -457,10 +485,17 @@
   }
   .code-stats .stat-key { color: var(--text-dim); }
   .code-stats .stat-val { color: var(--accent); }
-  .code-actions { padding: 10px 12px; display: flex; gap: 6px; }
+  .code-actions { padding: 10px 12px; display: flex; gap: 6px; align-items: center; }
   .code-actions button { flex: 1; padding: 6px 8px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 3px; cursor: pointer; font-size: 12px; }
   .code-actions button:hover { border-color: var(--accent); }
   .code-actions button.primary { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .auto-apply-toggle {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 11px; color: var(--text-dim);
+    flex: 0 0 auto;
+    cursor: pointer;
+    user-select: none;
+  }
 
   footer { padding: 5px 14px; background: var(--bg-panel); border-top: 1px solid var(--border); color: var(--text-dim); font-size: 10px; display: flex; justify-content: space-between; align-items: center; }
   footer .brand { color: var(--accent); font-weight: 600; }
@@ -930,6 +965,20 @@
 
   <!-- CENTER — Paint grid -->
   <div class="panel panel-grid">
+    <!-- Floating animation-preview window docks into THIS panel (not
+         the viewport) so it sits in a corner of the canvas pane and
+         stays inside it when the user drags it. position:relative on
+         .panel-grid above is the anchor. -->
+    <div id="previewWindow" class="preview-window" style="display: none;">
+      <div class="preview-window-head">
+        <span class="preview-window-title">Preview</span>
+        <button id="previewPlayBtn" class="preview-window-btn" title="Pause preview animation">⏸</button>
+        <button id="previewZoomDown" class="preview-window-btn" title="Smaller">−</button>
+        <button id="previewZoomUp" class="preview-window-btn" title="Larger">+</button>
+        <button id="previewWindowClose" class="preview-window-btn" title="Hide preview (re-open from the timeline toolbar)">×</button>
+      </div>
+      <canvas id="previewWindowCanvas"></canvas>
+    </div>
     <div class="grid-wrap">
       <img id="refImage" alt="">
       <canvas id="paintCanvas"></canvas>
@@ -997,6 +1046,9 @@
       <span><span class="stat-key">fill</span> <span class="stat-val" id="statFill">0%</span></span>
     </div>
     <div class="code-actions">
+      <label class="auto-apply-toggle" title="When on, code edits render to the canvas live (debounced 200ms) — no need to click Apply Edits">
+        <input id="autoApplyCheck" type="checkbox"> auto-apply
+      </label>
       <button id="applyCodeBtn" class="primary">Apply Edits → Grid</button>
     </div>
   </div>
@@ -1352,19 +1404,9 @@
   </div>
 </div>
 
-<!-- Persistent preview window — always plays the current sprite's
-     animation in a small floating canvas so the artist sees motion
-     while editing. Auto-hides for single-frame sprites. -->
-<div id="previewWindow" class="preview-window" style="display: none;">
-  <div class="preview-window-head">
-    <span class="preview-window-title">Preview</span>
-    <button id="previewPlayBtn" class="preview-window-btn" title="Pause preview animation">⏸</button>
-    <button id="previewZoomDown" class="preview-window-btn" title="Smaller">−</button>
-    <button id="previewZoomUp" class="preview-window-btn" title="Larger">+</button>
-    <button id="previewWindowClose" class="preview-window-btn" title="Hide preview (re-open from the timeline toolbar)">×</button>
-  </div>
-  <canvas id="previewWindowCanvas"></canvas>
-</div>
+<!-- Preview window now lives docked inside .panel-grid (the canvas
+     pane) so it stays anchored to the artwork instead of the viewport.
+     See its DOM up in the panel-grid block above. -->
 
 <footer>
   <div>Wondrous Grid v1 · paint and code in sync</div>
@@ -1464,6 +1506,11 @@ let state = {
   //   'function' — function fnName(ctx, ox, oy) { px(...); ... }
   codeFormat: 'px',
   fnName: 'pxMySprite',         // only used by 'function' format
+  // Auto-apply: when on, code-panel edits flush to the canvas live
+  // (200ms-debounced) so changes appear without clicking Apply Edits.
+  // Off by default — big sprites can be expensive to re-parse on
+  // every keystroke.
+  autoApply: false,
   // Brush size — number of pixels per side of a square brush nib.
   // 1 = single cell (current default). 2–8 = nxn block centered on the
   // click (odd) or offset down-right (even). Applies to paint + erase;
@@ -3175,24 +3222,105 @@ function renderCode() {
 // textarea's content. We rebuild it on every renderCode(), on every
 // user keystroke inside the textarea, and keep its scrollTop synced
 // to the textarea so the numbers stay aligned during scroll.
+// Regex that captures a hex from any px() / fillStyle / array form so
+// the gutter can stripe-color rows that paint a known pixel color.
+const GUTTER_HEX_RE = /['"`](#[0-9a-fA-F]{3,8})['"`]/;
 function refreshCodeGutter() {
-  const lineCount = codeText.value.split('\n').length;
-  // Build the gutter as one big string of "1\n2\n3\n..." — much cheaper
-  // than one element per line for sprites with hundreds of px() calls.
-  let g = '';
-  for (let i = 1; i <= lineCount; i++) g += i + (i < lineCount ? '\n' : '');
-  codeGutter.textContent = g;
+  // Per-line <div> rows now so we can stripe each row with the color
+  // that line paints. Each row is rendered at the same 16.5px height
+  // as a textarea line (font-size 11 × line-height 1.5), and the
+  // colored stripe is CLICKABLE — click any stripe to recolor that
+  // pixel via the native color picker. The stripe doubles as an
+  // at-a-glance "which line draws which color" map.
+  const lines = codeText.value.split('\n');
+  const N = lines.length;
+  const html = [];
+  for (let i = 0; i < N; i++) {
+    const m = GUTTER_HEX_RE.exec(lines[i]);
+    const hex = m ? m[1] : null;
+    const stripeStyle = hex ? `background:${hex}` : '';
+    const stripeClick = hex ? `data-hex="${hex}" data-line="${i}" title="Click to recolor — replaces ${hex} on this line"` : '';
+    const stripeClass = hex ? 'gutter-stripe filled' : 'gutter-stripe';
+    html.push(
+      `<div class="gutter-line">` +
+        `<span class="${stripeClass}" ${stripeClick} style="${stripeStyle}"></span>` +
+        `<span class="gutter-num">${i + 1}</span>` +
+      `</div>`
+    );
+  }
+  codeGutter.innerHTML = html.join('');
   codeGutter.scrollTop = codeText.scrollTop;
 }
+// Delegated click on the gutter — opens a hidden color input over the
+// stripe. Selecting a new color rewrites every occurrence of the
+// stripe's original hex within that line and (if auto-apply is on)
+// re-renders. Manual Apply Edits still required when auto-apply off.
+const _hiddenColorInput = document.createElement('input');
+_hiddenColorInput.type = 'color';
+_hiddenColorInput.style.position = 'fixed';
+_hiddenColorInput.style.left = '-999px';
+document.body.appendChild(_hiddenColorInput);
+let _gutterEditCtx = null;
+codeGutter.addEventListener('click', (e) => {
+  const t = e.target.closest('.gutter-stripe.filled');
+  if (!t) return;
+  const oldHex = t.dataset.hex;
+  const line = +t.dataset.line;
+  if (!oldHex || isNaN(line)) return;
+  _gutterEditCtx = { oldHex, line };
+  _hiddenColorInput.value = oldHex.length === 4
+    ? '#' + oldHex.slice(1).split('').map(c => c+c).join('')   // expand #abc → #aabbcc
+    : oldHex;
+  _hiddenColorInput.click();
+});
+_hiddenColorInput.addEventListener('input', () => {
+  if (!_gutterEditCtx) return;
+  const { oldHex, line } = _gutterEditCtx;
+  const newHex = _hiddenColorInput.value;
+  const lines = codeText.value.split('\n');
+  if (line >= lines.length) return;
+  // Replace ONLY this line so we don't accidentally swap colors on
+  // other lines that share the hex.
+  lines[line] = lines[line].split(oldHex).join(newHex);
+  codeText.value = lines.join('\n');
+  refreshCodeGutter();
+  refreshCodeStats();
+  refreshCodeHighlight();
+  // Always apply for a color edit — feels weird to require Apply Edits
+  // after using the picker.
+  applyCodeNow();
+});
+_hiddenColorInput.addEventListener('change', () => { _gutterEditCtx = null; });
 codeText.addEventListener('scroll', () => {
   codeGutter.scrollTop = codeText.scrollTop;
   codeHighlight.scrollTop = codeText.scrollTop;
   codeHighlight.scrollLeft = codeText.scrollLeft;
 });
+// Debounced auto-apply — when state.autoApply is on, code edits
+// render to the canvas after a 200ms quiet period so the artist
+// doesn't have to click Apply Edits. Debouncing matters because
+// parseCodeIntoState walks every line + repaints — too expensive
+// to run on every keystroke for a big sprite.
+let _autoApplyTimer = null;
+function _scheduleAutoApply() {
+  if (!state.autoApply) return;
+  if (_autoApplyTimer) clearTimeout(_autoApplyTimer);
+  _autoApplyTimer = setTimeout(() => {
+    _autoApplyTimer = null;
+    applyCodeNow();
+  }, 200);
+}
 codeText.addEventListener('input',  () => {
   refreshCodeGutter();
   refreshCodeStats();
   refreshCodeHighlight();
+  _scheduleAutoApply();
+});
+
+const autoApplyCheck = document.getElementById('autoApplyCheck');
+autoApplyCheck.addEventListener('change', () => {
+  state.autoApply = autoApplyCheck.checked;
+  autosave();
 });
 
 // ── Syntax highlighter ─────────────────────────────────────────
@@ -3412,8 +3540,49 @@ codeText.addEventListener('keydown', (e) => {
     // Subtle visual feedback so the user knows it fired
     applyCodeBtn.textContent = '✓ Applied!';
     setTimeout(() => { applyCodeBtn.textContent = 'Apply Edits → Grid'; }, 1200);
+    return;
+  }
+  // Cmd/Ctrl + / — toggle line comments on the current line (or
+  // selection). Adds "// " if no leading //, strips one if there.
+  // Standard editor convention. Works across one OR many selected
+  // lines so the user can mute/unmute a batch of pixels at once.
+  if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+    e.preventDefault();
+    toggleLineComments();
   }
 });
+function toggleLineComments() {
+  const v  = codeText.value;
+  const s0 = codeText.selectionStart;
+  const s1 = codeText.selectionEnd;
+  // Expand selection to the FULL lines it touches.
+  const lineStart = v.lastIndexOf('\n', s0 - 1) + 1;
+  let lineEnd = v.indexOf('\n', s1);
+  if (lineEnd === -1) lineEnd = v.length;
+  const block = v.slice(lineStart, lineEnd);
+  const lines = block.split('\n');
+  // If EVERY non-empty line already starts with //, strip one.
+  // Otherwise add // to every line (including currently-commented
+  // ones so blocks can be deepened — but mixed → uncomment-then-
+  // re-add gives consistent behavior).
+  const allCommented = lines.every(l => l.trim() === '' || /^\s*\/\/\s?/.test(l));
+  const next = lines.map(l => {
+    if (l.trim() === '') return l;
+    if (allCommented) return l.replace(/^(\s*)\/\/\s?/, '$1');
+    return l.replace(/^(\s*)/, '$1// ');
+  }).join('\n');
+  codeText.value = v.slice(0, lineStart) + next + v.slice(lineEnd);
+  // Restore selection over the same logical range so the user can
+  // hit Cmd/Ctrl+/ again to invert.
+  const delta = next.length - block.length;
+  codeText.selectionStart = s0;
+  codeText.selectionEnd   = s1 + delta;
+  // Re-run the dependents so the gutter / highlight / stats follow.
+  refreshCodeGutter();
+  refreshCodeStats();
+  refreshCodeHighlight();
+  _scheduleAutoApply();
+}
 
 // Output format selector — px / fillRect / array / game-ready fn. The
 // fn-name input is only visible in 'function' mode (other formats don't
@@ -3790,6 +3959,7 @@ function autosave() {
       tileMode: state.tileMode,
       codeFormat: state.codeFormat,
       fnName: state.fnName,
+      autoApply: state.autoApply,
       tags: state.tags,
       layers: state.layers,
       activeLayer: state.activeLayer,
@@ -3875,6 +4045,7 @@ function restoreAutosave() {
     if (typeof data.tileMode === 'boolean') state.tileMode = data.tileMode;
     if (typeof data.codeFormat === 'string') state.codeFormat = data.codeFormat;
     if (typeof data.fnName === 'string') state.fnName = data.fnName;
+    if (typeof data.autoApply === 'boolean') state.autoApply = data.autoApply;
     if (typeof data.brushSize === 'number') state.brushSize = data.brushSize;
     if (typeof data.brushOpacity === 'number') state.brushOpacity = data.brushOpacity;
     if (typeof data.pixelPerfect === 'boolean') state.pixelPerfect = data.pixelPerfect;
@@ -5345,13 +5516,15 @@ togglePreviewBtn.addEventListener('click', () => {
   syncTogglePreviewActive();
 });
 
-// Drag-to-move on the header. Switches the window from
-// `right/bottom` anchoring to absolute `left/top` so it stays
-// wherever the user drops it. Position persists in localStorage
-// across sessions.
+// Drag-to-move on the header. Preview window is docked inside the
+// .panel-grid pane (position:absolute), so all coords are measured
+// relative to that container. Clamps keep it inside the canvas pane
+// so it can't fly into the timeline / code panel / off-screen.
+// Position persists in localStorage across sessions.
 (function wirePreviewWindowDrag() {
   const head = previewWindow.querySelector('.preview-window-head');
-  // Restore last position (if any).
+  const dockParent = previewWindow.parentElement;   // .panel-grid
+  // Restore last position (if any) — saved relative to the dock parent.
   try {
     const saved = JSON.parse(localStorage.getItem('wondrous-grid-preview-pos') || 'null');
     if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
@@ -5370,20 +5543,24 @@ togglePreviewBtn.addEventListener('click', () => {
     dragging = true;
     previewWindow.classList.add('dragging');
     const r = previewWindow.getBoundingClientRect();
+    const pr = dockParent.getBoundingClientRect();
     dragOffsetX = e.clientX - r.left;
     dragOffsetY = e.clientY - r.top;
-    // Switch from right/bottom anchor to left/top so we can move freely.
-    previewWindow.style.left = r.left + 'px';
-    previewWindow.style.top  = r.top  + 'px';
+    // Switch from right/bottom anchor to left/top so we can move freely,
+    // using coords relative to the dock parent.
+    previewWindow.style.left = (r.left - pr.left) + 'px';
+    previewWindow.style.top  = (r.top  - pr.top)  + 'px';
     previewWindow.style.right  = 'auto';
     previewWindow.style.bottom = 'auto';
   });
   window.addEventListener('mousemove', (e) => {
     if (!dragging) return;
-    // Clamp to viewport so it can't fly off-screen.
+    // Clamp to the dock parent's bounds so the preview can't escape
+    // the canvas pane onto the toolbar / timeline / other panels.
     const w = previewWindow.offsetWidth, h = previewWindow.offsetHeight;
-    const left = Math.max(0, Math.min(window.innerWidth - w,  e.clientX - dragOffsetX));
-    const top  = Math.max(0, Math.min(window.innerHeight - h, e.clientY - dragOffsetY));
+    const pr = dockParent.getBoundingClientRect();
+    const left = Math.max(0, Math.min(pr.width  - w, e.clientX - pr.left - dragOffsetX));
+    const top  = Math.max(0, Math.min(pr.height - h, e.clientY - pr.top  - dragOffsetY));
     previewWindow.style.left = left + 'px';
     previewWindow.style.top  = top  + 'px';
   });
@@ -5720,6 +5897,7 @@ renderLayers();
   formatSelect.value = state.codeFormat;
   fnNameInput.value  = state.fnName;
   syncFnNameVisibility();
+  autoApplyCheck.checked = !!state.autoApply;
   setBrushSize(state.brushSize);
   setBrushOpacity(Math.round((state.brushOpacity ?? 1) * 100));
   setPixelPerfect(state.pixelPerfect);
