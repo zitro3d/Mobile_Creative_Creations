@@ -933,9 +933,12 @@
       <span>Native 1× preview:</span>
       <div class="preview-wrap"><canvas id="previewCanvas"></canvas></div>
       <div class="zoom-controls">
-        <button id="zoomOutBtn">−</button>
-        <span id="zoomLabel">Zoom: 12×</span>
-        <button id="zoomInBtn">+</button>
+        <button id="zoomOutBtn" title="Zoom out (−)">−</button>
+        <input id="zoomSlider" type="range" min="2" max="32" step="1" value="12"
+               style="width: 100px; accent-color: var(--accent); vertical-align: middle;"
+               title="Drag to set zoom level (2× to 32×)">
+        <button id="zoomInBtn" title="Zoom in (+)">+</button>
+        <span id="zoomLabel" style="font-family: 'SF Mono', Consolas, monospace; min-width: 36px;">12×</span>
         <label style="margin-left: 10px; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Toggle grid lines (Shift+G)">
           <input id="gridLinesToggle" type="checkbox" checked> grid
         </label>
@@ -1968,7 +1971,9 @@ function setZoom(newZoom, cursorXInWrap, cursorYInWrap) {
     wrap.scrollLeft = cellX * state.zoom - screenX;
     wrap.scrollTop  = cellY * state.zoom - screenY;
   }
-  zoomLabel.textContent = `Zoom: ${state.zoom}×`;
+  zoomLabel.textContent = `${state.zoom}×`;
+  const zs = document.getElementById('zoomSlider');
+  if (zs) zs.value = state.zoom;
   autosave();
 }
 function wrapCursorCoords(e) {
@@ -2097,14 +2102,18 @@ function fitZoomToScreen() {
     Math.floor(maxH / state.height)
   );
   state.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
-  zoomLabel.textContent = `Zoom: ${state.zoom}×`;
+  zoomLabel.textContent = `${state.zoom}×`;
+  const zs = document.getElementById('zoomSlider');
+  if (zs) zs.value = state.zoom;
 }
 // On first open (no saved zoom in localStorage, no other state), use a
 // nice middle-of-the-road default rather than auto-fitting to whatever
 // pane size the browser happens to give us. F still fits-to-pane.
 function defaultZoom() {
   state.zoom = 12;
-  zoomLabel.textContent = `Zoom: ${state.zoom}×`;
+  zoomLabel.textContent = `${state.zoom}×`;
+  const zs = document.getElementById('zoomSlider');
+  if (zs) zs.value = state.zoom;
 }
 
 function renderGrid() {
@@ -2320,7 +2329,9 @@ function renderGrid() {
     }
     paintCtx.stroke();
   }
-  zoomLabel.textContent = `Zoom: ${state.zoom}×`;
+  zoomLabel.textContent = `${state.zoom}×`;
+  const zs = document.getElementById('zoomSlider');
+  if (zs) zs.value = state.zoom;
   renderMinimap();
 }
 
@@ -3510,10 +3521,23 @@ presetSelect.addEventListener('change', () => {
 
 zoomInBtn.addEventListener('click', () => {
   state.zoom = Math.min(ZOOM_MAX, state.zoom + 2);
+  zoomLabel.textContent = `${state.zoom}×`;
+  document.getElementById('zoomSlider').value = state.zoom;
   renderGrid();
 });
 zoomOutBtn.addEventListener('click', () => {
   state.zoom = Math.max(ZOOM_MIN, state.zoom - 2);
+  zoomLabel.textContent = `${state.zoom}×`;
+  document.getElementById('zoomSlider').value = state.zoom;
+  renderGrid();
+});
+// Zoom slider — direct continuous control from 2× to 32×. Buttons
+// stay for keyboard / quick-bump use; slider is for fast jumps to
+// a specific zoom level.
+document.getElementById('zoomSlider').addEventListener('input', (e) => {
+  const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, parseInt(e.target.value, 10) || 12));
+  state.zoom = z;
+  zoomLabel.textContent = `${state.zoom}×`;
   renderGrid();
 });
 
