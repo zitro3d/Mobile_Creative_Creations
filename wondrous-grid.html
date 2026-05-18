@@ -135,6 +135,43 @@
      them from stretching when there are only four in the row. */
   .brush-btn { flex: 0 0 32px; font-family: 'SF Mono', Consolas, monospace; font-weight: 600; }
 
+  /* Left-panel section headers — distinguishes the top-level groups
+     (Tools / Color / Layers / Navigator) from secondary sub-headers
+     inside a section (Pick Any Color, DLX Palette, Recent). */
+  h2.section-head {
+    margin: 4px 0 8px;
+    padding: 4px 0 6px;
+    font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700;
+    border-bottom: 1px solid var(--border);
+  }
+  h2.section-head-divider {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 2px solid var(--border);
+  }
+  h2.sub-head {
+    margin: 14px 0 6px;
+    font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-dim); font-weight: 600;
+  }
+  /* Photoshop-style foreground / previous swatch pair. The big square
+     is the active color; the small offset square behind it is the
+     previously-used color (X to swap). */
+  .active-row { position: relative; }
+  .prev-swatch {
+    position: absolute;
+    top: 14px; left: 26px;
+    width: 28px; height: 28px;
+    border: 2px solid var(--border);
+    border-radius: 2px;
+    cursor: pointer;
+    background: #1a1a1c;
+    z-index: 0;
+  }
+  .prev-swatch:hover { border-color: var(--accent); }
+  .active-swatch { position: relative; z-index: 1; }
+
   /* Floating animation preview window. Independent RAF loop drives a
      dedicated canvas so the artist sees motion while editing without
      having to click Play in the main timeline. */
@@ -157,9 +194,13 @@
     border-bottom: 1px solid var(--border);
     border-radius: 4px 4px 0 0;
     font-size: 10px;
+    cursor: grab;   /* drag-handle affordance */
   }
+  .preview-window-head:active { cursor: grabbing; }
+  .preview-window.dragging { box-shadow: 0 8px 24px rgba(0,0,0,0.6); }
   .preview-window-title {
     flex: 1; color: var(--text-dim); letter-spacing: 0.5px; text-transform: uppercase;
+    pointer-events: none;  /* clicks on the title bubble up to the head's drag handler */
   }
   .preview-window-btn {
     background: transparent; border: none; color: var(--text-dim);
@@ -585,20 +626,20 @@
 
 <main>
 
-  <!-- LEFT — Color panel -->
+  <!-- LEFT — TOOLS + COLORS + LAYERS + NAVIGATOR. Re-ordered per user
+       feedback so tools all live above color stuff (instead of the
+       active-color swatch + drawing tools being interleaved with the
+       palette + picker). Section headers + a horizontal divider above
+       each major group make the boundaries visible at a glance. -->
   <div class="panel panel-color">
-    <h2>Active Color</h2>
-    <div class="active-row">
-      <div id="activeSwatch" class="active-swatch" style="background: #3aa8b8;"></div>
-      <div id="activeHex" class="active-hex" title="Click to copy hex">#3aa8b8</div>
-    </div>
+    <h2 class="section-head">Tools</h2>
     <div class="tool-row">
-      <button id="paintTool" class="tool-btn active" title="Paint (P or B)">✏️ Paint</button>
-      <button id="eyedropperTool" class="tool-btn" title="Pick color from canvas (I)">💧 Pick</button>
+      <button id="paintTool" class="tool-btn active" title="Paint (P or B)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-45 12 12)"><polygon points="4,12 7,10 7,14" fill="#3a2818" stroke="#1a1a1c" stroke-width="1"/><rect x="7" y="10" width="9" height="4" fill="#ffd060" stroke="#1a1a1c" stroke-width="1"/><rect x="16" y="10" width="2" height="4" fill="#aab" stroke="#1a1a1c" stroke-width="1"/><rect x="18" y="10" width="2" height="4" fill="#ff9eb5" stroke="#1a1a1c" stroke-width="1"/></g></svg> Paint</button>
+      <button id="eyedropperTool" class="tool-btn" title="Pick color from canvas (I)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-40 12 12)"><rect x="14" y="3" width="6" height="4" rx="1" fill="#aab" stroke="#1a1a1c" stroke-width="1"/><rect x="6" y="10" width="11" height="3" fill="#bcd" stroke="#1a1a1c" stroke-width="1"/><polygon points="6,10 6,13 3,11.5" fill="#3aa8b8" stroke="#1a1a1c" stroke-width="0.8"/></g></svg> Pick</button>
       <button id="eraserTool" class="tool-btn" title="Erase (X or E, or right-click)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-40 12 12)"><rect x="3" y="9" width="18" height="6" rx="1.5" fill="#ff9eb5" stroke="#1a1a1c" stroke-width="1"/><rect x="3" y="9" width="5" height="6" fill="#3a7ce8" stroke="#1a1a1c" stroke-width="1"/></g></svg> Erase</button>
     </div>
     <div class="tool-row">
-      <button id="fillTool" class="tool-btn" title="Fill bucket (G)">🪣 Fill</button>
+      <button id="fillTool" class="tool-btn" title="Fill bucket (G)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-25 12 12)"><path d="M 6 6 L 14 6 L 13 16 L 7 16 Z" fill="#aab" stroke="#1a1a1c" stroke-width="1"/><path d="M 6 7 Q 10 2 14 7" fill="none" stroke="#1a1a1c" stroke-width="1.2"/><path d="M 7 14 Q 4 18 3 22" fill="none" stroke="#ffd060" stroke-width="2.5" stroke-linecap="round"/><ellipse cx="3" cy="22" rx="2.5" ry="1" fill="#ffd060" stroke="#1a1a1c" stroke-width="0.6"/></g></svg> Fill</button>
       <button id="rectTool" class="tool-btn" title="Rectangle (R) — drag to draw a filled rectangle. Shift = square.">▭ Rect</button>
       <button id="ellipseTool" class="tool-btn" title="Ellipse (O) — drag to draw a filled ellipse. Shift = circle.">○ Ellipse</button>
     </div>
@@ -621,7 +662,16 @@
       <button id="pixelPerfectBtn" class="tool-btn" title="Pixel-perfect mode: auto-remove the L-joints that freehand diagonal strokes leave behind. Aseprite's classic 'clean lines' toggle.">◢ Pixel-perfect</button>
     </div>
 
-    <h2>Pick Any Color</h2>
+    <h2 class="section-head section-head-divider">Color</h2>
+    <!-- Foreground / previous swatch pair, Photoshop-style. The small
+         offset square behind the big one is the LAST color used; click
+         it (or press X) to swap. -->
+    <div class="active-row">
+      <div id="prevSwatch" class="prev-swatch" title="Previous color — click (or press X) to swap"></div>
+      <div id="activeSwatch" class="active-swatch" style="background: #3aa8b8;"></div>
+      <div id="activeHex" class="active-hex" title="Click to copy hex">#3aa8b8</div>
+    </div>
+    <h2 class="sub-head">Pick Any Color</h2>
     <div class="picker-row">
       <input id="colorPicker" type="color" value="#3aa8b8">
       <div class="hex-input-row">
@@ -1040,6 +1090,42 @@
   </div>
 </div>
 
+<!-- First-time welcome modal — appears once per browser. Quick
+     orientation for new users + dismiss-forever via the checkbox. -->
+<div id="welcomeModal" class="modal-backdrop" style="display:none;">
+  <div class="modal" style="width: 560px;">
+    <div class="modal-head">
+      <h2>Welcome to Wondrous Grid</h2>
+      <button class="modal-close" id="welcomeModalClose">×</button>
+    </div>
+    <div class="modal-body" style="font-size: 13px; line-height: 1.55;">
+      <p style="margin: 0 0 12px 0;"><b>You're inside a pro pixel-art editor.</b> If you know Photoshop or Aseprite, you'll feel at home. Quick orientation:</p>
+      <ul style="margin: 0 0 12px 18px; padding: 0;">
+        <li><b>Center canvas</b> — paint here. Scroll to zoom toward the cursor. Hold Space to pan.</li>
+        <li><b>Left panel</b> — drawing tools (B/E/I/G/R/O/M), then the active color, palette, layers, and a mini-map.</li>
+        <li><b>Right panel</b> — the generated code, live. Edit and click Apply Edits to re-render.</li>
+        <li><b>Bottom strip</b> — animation frames. Click a thumb to switch, drag to reorder, "+" to duplicate to the end.</li>
+        <li><b>Tags</b> — name a frame range (walk / idle / etc.) and play it independently.</li>
+        <li><b>Layers</b> — stack with visibility + opacity. Active layer receives all paint strokes.</li>
+      </ul>
+      <p style="margin: 0 0 10px 0; color: var(--text-dim);">Key shortcuts:</p>
+      <table style="font-size: 12px; width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 2px 8px; color: var(--text-dim);"><kbd>B</kbd> / <kbd>E</kbd> / <kbd>I</kbd></td><td>Brush / Eraser / Eyedropper</td><td style="padding: 2px 8px; color: var(--text-dim);"><kbd>[</kbd> / <kbd>]</kbd></td><td>Brush size − / +</td></tr>
+        <tr><td style="padding: 2px 8px; color: var(--text-dim);"><kbd>G</kbd></td><td>Fill bucket</td><td style="padding: 2px 8px; color: var(--text-dim);"><kbd>M</kbd></td><td>Selection / move</td></tr>
+        <tr><td style="padding: 2px 8px; color: var(--text-dim);"><kbd>X</kbd></td><td>Swap to previous color</td><td style="padding: 2px 8px; color: var(--text-dim);"><kbd>Space</kbd></td><td>Pan / Play-Pause</td></tr>
+        <tr><td style="padding: 2px 8px; color: var(--text-dim);"><kbd>Cmd/Ctrl+Z</kbd></td><td>Undo</td><td style="padding: 2px 8px; color: var(--text-dim);"><kbd>?</kbd></td><td>Open Help anytime</td></tr>
+      </table>
+      <p style="margin: 14px 0 0 0; color: var(--text-dim); font-size: 11px;">Hit <kbd>?</kbd> or click <b>? Help</b> in the top-right toolbar to see the full reference.</p>
+    </div>
+    <div class="modal-foot">
+      <label style="flex: 1; display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 11px;">
+        <input id="welcomeDontShowAgain" type="checkbox" checked> Don't show this again
+      </label>
+      <button class="primary" id="welcomeModalDone">Let's go</button>
+    </div>
+  </div>
+</div>
+
 <!-- Persistent preview window — always plays the current sprite's
      animation in a small floating canvas so the artist sees motion
      while editing. Auto-hides for single-frame sprites. -->
@@ -1427,6 +1513,14 @@ function setActiveColor(hex) {
   renderRecent();
   autosave();
 }
+// Keep the Photoshop-style previous-color swatch in sync with the
+// X-swap companion. Called by the setActiveColor WRAPPER below
+// (after lastActiveColor has been updated) so the small offset
+// square always shows the just-replaced color.
+function syncPrevSwatch() {
+  const ps = document.getElementById('prevSwatch');
+  if (ps) ps.style.background = lastActiveColor;
+}
 
 function addToRecent(hex) {
   const n = normalizeHex(hex);
@@ -1788,10 +1882,14 @@ function renderGrid() {
   const refOn = state.refSrc && state.refVisible;
   const onionOn = (state.onionPrev || state.onionNext) && state.frames.length > 1;
   if (!refOn && !onionOn) {
+    // Mid-gray checker — bumped from the original near-black (#1a1a1c
+    // / #222226) per user feedback so black-painted pixels stay visible.
+    // Mid-gray contrasts both extremes (true black and true white)
+    // without overwhelming the painted art.
     for (let y = 0; y < state.height; y++) {
       for (let x = 0; x < state.width; x++) {
         const isAlt = ((x + y) & 1) === 0;
-        paintCtx.fillStyle = isAlt ? '#1a1a1c' : '#222226';
+        paintCtx.fillStyle = isAlt ? '#404048' : '#56565e';
         paintCtx.fillRect(x * Z, y * Z, Z, Z);
       }
     }
@@ -2509,7 +2607,15 @@ window.addEventListener('mouseup', (e) => {
     return;
   }
 
-  if (isPainting && preStrokeSnapshot) {
+  // Bail if no paint stroke was actually in progress. The window-
+  // level mouseup fires on EVERY mouse release anywhere on the page
+  // (clicking the timeline + button, toolbar buttons, etc.), and
+  // unconditionally rebuilding the timeline here was destroying the
+  // + thumb mid-click — the user-reported "+ button does nothing"
+  // bug. Guarding on isPainting means we only do post-stroke
+  // bookkeeping when an actual paint stroke ended.
+  if (!isPainting) return;
+  if (preStrokeSnapshot) {
     commitHistory(preStrokeSnapshot);
     preStrokeSnapshot = null;
   }
@@ -3177,10 +3283,11 @@ saveBtn.addEventListener('click', () => {
 
 // ── PNG sprite-sheet export ──────────────────────────────────
 // Single-frame sprites → a flat PNG. Multi-frame sprites → a
-// horizontal sprite-sheet (one frame per cell, left-to-right). If
-// any animation tags exist, we ALSO download a sidecar JSON listing
-// each frame's duration + each tag's range + color — drop-in
-// metadata for any game engine that wants to play named animations.
+// horizontal sprite-sheet (one frame per cell, left-to-right).
+// If the sprite has TAGS, we ask afterwards whether to also save a
+// sidecar JSON describing the sheet layout + tag ranges (a single
+// implicit second save dialog felt confusing per user feedback —
+// explicit confirm > surprise download).
 document.getElementById('exportPngBtn').addEventListener('click', () => {
   const N = state.frames.length;
   const oc = document.createElement('canvas');
@@ -3207,35 +3314,42 @@ document.getElementById('exportPngBtn').addEventListener('click', () => {
     a.download = baseName + '.png';
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
+    // Tag metadata sidecar is OPT-IN — only offered if there are
+    // actual tags to ship. Deferred behind a setTimeout so the PNG
+    // download dialog has a chance to render before we prompt.
+    if (state.tags.length > 0) {
+      setTimeout(() => {
+        const wantsMeta = confirm(
+          `PNG saved. Also download a JSON file with the ${state.tags.length} animation tag${state.tags.length === 1 ? '' : 's'} + per-frame timing? ` +
+          `(Useful for game engines that need to play named animations from the sheet — skip if you just need the image.)`
+        );
+        if (!wantsMeta) return;
+        const meta = {
+          tool: 'Wondrous Grid',
+          width: state.width,
+          height: state.height,
+          frameCount: N,
+          frameWidth: state.width,
+          frameHeight: state.height,
+          frames: state.frames.map((f, i) => ({ index: i, x: i * state.width, y: 0, duration: f.duration })),
+          tags: state.tags.map(t => ({
+            name: t.name,
+            from: t.from,
+            to: t.to,
+            loop: t.loop !== false,
+            color: t.color,
+          })),
+        };
+        const metaBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
+        const metaUrl = URL.createObjectURL(metaBlob);
+        const metaA = document.createElement('a');
+        metaA.href = metaUrl;
+        metaA.download = baseName + '.json';
+        metaA.click();
+        setTimeout(() => URL.revokeObjectURL(metaUrl), 5000);
+      }, 250);
+    }
   }, 'image/png');
-  // Sidecar JSON — only emitted when there's metadata worth shipping
-  // (tags or > 1 frame). Mirrors common engine conventions: frames
-  // are uniform-width cells indexed left-to-right; tags name ranges.
-  if (N > 1 || state.tags.length > 0) {
-    const meta = {
-      tool: 'Wondrous Grid',
-      width: state.width,
-      height: state.height,
-      frameCount: N,
-      frameWidth: state.width,
-      frameHeight: state.height,
-      frames: state.frames.map((f, i) => ({ index: i, x: i * state.width, y: 0, duration: f.duration })),
-      tags: state.tags.map(t => ({
-        name: t.name,
-        from: t.from,
-        to: t.to,
-        loop: t.loop !== false,
-        color: t.color,
-      })),
-    };
-    const metaBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
-    const metaUrl = URL.createObjectURL(metaBlob);
-    const metaA = document.createElement('a');
-    metaA.href = metaUrl;
-    metaA.download = baseName + '.json';
-    metaA.click();
-    setTimeout(() => URL.revokeObjectURL(metaUrl), 5000);
-  }
 });
 
 loadBtn.addEventListener('click', () => loadInput.click());
@@ -4284,10 +4398,18 @@ function renderTimeline() {
   addBtn.textContent = '+';
   addBtn.title = 'Duplicate the current frame to the end of the strip';
   addBtn.setAttribute('aria-label', 'Duplicate current frame to end of strip');
-  addBtn.onclick = () => {
+  // pointerdown (left button only) fires INSTANTLY at mousedown — no
+  // waiting for the click event. Earlier reports of "the + button does
+  // nothing" were caused by the renderTimeline rebuild on every
+  // window mouseup destroying the button before its click event
+  // dispatched. Firing on pointerdown sidesteps that entirely, and
+  // also makes the button respond to touch on iPad.
+  addBtn.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;  // left-click / primary touch only
+    e.preventDefault();
     stopPlayback();
     duplicateFrameToEnd();
-  };
+  });
   timelineFrames.appendChild(addBtn);
   // Counter + duration input + FPS readout
   tlCounter.textContent = `Frame ${state.activeFrame + 1} / ${state.frames.length}`;
@@ -4797,6 +4919,61 @@ previewWindowCloseBtn.addEventListener('click', () => {
   syncPreviewWindowVisibility();
 });
 
+// Drag-to-move on the header. Switches the window from
+// `right/bottom` anchoring to absolute `left/top` so it stays
+// wherever the user drops it. Position persists in localStorage
+// across sessions.
+(function wirePreviewWindowDrag() {
+  const head = previewWindow.querySelector('.preview-window-head');
+  // Restore last position (if any).
+  try {
+    const saved = JSON.parse(localStorage.getItem('wondrous-grid-preview-pos') || 'null');
+    if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
+      previewWindow.style.left = saved.left + 'px';
+      previewWindow.style.top  = saved.top  + 'px';
+      previewWindow.style.right  = 'auto';
+      previewWindow.style.bottom = 'auto';
+    }
+  } catch {}
+  let dragging = false;
+  let dragOffsetX = 0, dragOffsetY = 0;
+  head.addEventListener('mousedown', (e) => {
+    // Ignore mousedowns on header buttons (− + ×) so those still click.
+    if (e.target !== head && !e.target.classList.contains('preview-window-title')) return;
+    e.preventDefault();
+    dragging = true;
+    previewWindow.classList.add('dragging');
+    const r = previewWindow.getBoundingClientRect();
+    dragOffsetX = e.clientX - r.left;
+    dragOffsetY = e.clientY - r.top;
+    // Switch from right/bottom anchor to left/top so we can move freely.
+    previewWindow.style.left = r.left + 'px';
+    previewWindow.style.top  = r.top  + 'px';
+    previewWindow.style.right  = 'auto';
+    previewWindow.style.bottom = 'auto';
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    // Clamp to viewport so it can't fly off-screen.
+    const w = previewWindow.offsetWidth, h = previewWindow.offsetHeight;
+    const left = Math.max(0, Math.min(window.innerWidth - w,  e.clientX - dragOffsetX));
+    const top  = Math.max(0, Math.min(window.innerHeight - h, e.clientY - dragOffsetY));
+    previewWindow.style.left = left + 'px';
+    previewWindow.style.top  = top  + 'px';
+  });
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    previewWindow.classList.remove('dragging');
+    try {
+      localStorage.setItem('wondrous-grid-preview-pos', JSON.stringify({
+        left: parseInt(previewWindow.style.left, 10),
+        top:  parseInt(previewWindow.style.top,  10),
+      }));
+    } catch {}
+  });
+})();
+
 // Build a brand-new frame seeded with the right number of empty layer
 // maps for the current sprite. Use this anywhere a new frame is
 // inserted so the layerPixels invariant always holds.
@@ -5110,6 +5287,7 @@ helpModal.addEventListener('click', (e) => { if (e.target === helpModal) closeHe
 window.addEventListener('keydown', (e) => {
   // Modal-level: Esc closes any open modal regardless of focus.
   if (e.key === 'Escape') {
+    if (welcomeModal.style.display === 'flex') { closeWelcome(); e.preventDefault(); return; }
     if (helpModal.style.display === 'flex') { closeHelp(); e.preventDefault(); return; }
     if (assetsModal.style.display === 'flex') { closeAssetsModal(); e.preventDefault(); return; }
     if (tagModal.style.display === 'flex')    { closeTagModal();   e.preventDefault(); return; }
@@ -5291,6 +5469,30 @@ window.addEventListener('keyup', (e) => {
   }
 });
 
+// ── Welcome modal (first-time visitors) ─────────────────────
+// Shown ONCE per browser unless explicitly re-opened from Help. Tiny
+// orientation for newcomers — pointers to the panels + key shortcuts.
+// Suppressed afterwards via localStorage flag (or the in-modal
+// "Don't show again" checkbox, which is checked by default).
+const welcomeModal = document.getElementById('welcomeModal');
+const welcomeModalClose = document.getElementById('welcomeModalClose');
+const welcomeModalDone = document.getElementById('welcomeModalDone');
+const welcomeDontShow = document.getElementById('welcomeDontShowAgain');
+function closeWelcome() {
+  if (welcomeDontShow.checked) {
+    try { localStorage.setItem('wondrous-grid-welcome-seen', '1'); } catch {}
+  }
+  welcomeModal.style.display = 'none';
+}
+welcomeModalClose.addEventListener('click', closeWelcome);
+welcomeModalDone.addEventListener('click', closeWelcome);
+welcomeModal.addEventListener('click', (e) => { if (e.target === welcomeModal) closeWelcome(); });
+(function showWelcomeIfFirstVisit() {
+  let seen = false;
+  try { seen = localStorage.getItem('wondrous-grid-welcome-seen') === '1'; } catch {}
+  if (!seen) welcomeModal.style.display = 'flex';
+})();
+
 // Track last-used color for the X-swap shortcut. Whenever the user
 // SWITCHES to a new color, the previous one becomes "lastActiveColor".
 const _origSetActiveColor = setActiveColor;
@@ -5300,7 +5502,17 @@ setActiveColor = function(hex) {
   if (before && before.toLowerCase() !== state.activeColor.toLowerCase()) {
     lastActiveColor = before;
   }
+  syncPrevSwatch();
 };
+// Click the small previous-color swatch (Photoshop fg/bg style) to swap
+// it into the active slot. Mirrors the X keyboard shortcut behavior.
+document.getElementById('prevSwatch').addEventListener('click', () => {
+  const prev = lastActiveColor;
+  lastActiveColor = state.activeColor;
+  setActiveColor(prev);
+});
+// Initial paint of the previous swatch on boot.
+syncPrevSwatch();
 </script>
 
 </body>
