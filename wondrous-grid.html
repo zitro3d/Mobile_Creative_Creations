@@ -132,8 +132,36 @@
   .tool-btn.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
   .tool-btn:hover { border-color: var(--accent); }
   /* Brush-size mini buttons: square, fixed-width chips. flex:0 keeps
-     them from stretching when there are only four in the row. */
+     them from stretching when there are only four in the row.
+     (Legacy class — current brush UI uses the header-bar slider; this
+     stays here in case anywhere still hosts the chip variant.) */
   .brush-btn { flex: 0 0 32px; font-family: 'SF Mono', Consolas, monospace; font-weight: 600; }
+
+  /* Header brush-size group: slider + live preview ring + readout.
+     The ring is a fixed-size centered container; the dot inside grows
+     with the brush size so the artist sees the actual footprint as
+     they drag the slider. Pixel-art uses square brushes (not round),
+     so the "dot" is actually a square — matches the real stroke. */
+  .brush-size-group { gap: 8px !important; align-items: center; }
+  .brush-preview-ring {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .brush-preview-dot {
+    width: 1px; height: 1px;
+    background: var(--accent);
+    transition: width 80ms ease, height 80ms ease;
+  }
+  .brush-size-readout {
+    font-family: 'SF Mono', Consolas, monospace;
+    color: var(--accent);
+    font-size: 11px;
+    min-width: 32px;
+  }
 
   /* Left-panel section headers — distinguishes the top-level groups
      (Tools / Color / Layers / Navigator) from secondary sub-headers
@@ -612,6 +640,30 @@
     <button id="rotate90Btn" title="Rotate 90° clockwise (Shift+R)">↻ 90°</button>
     <button id="clearBtn">🗑 Clear</button>
   </div>
+  <!-- Brush size + opacity — Photoshop-style options bar widgets.
+       Size: brush icon + slider + live ring preview that grows with
+       size. Opacity: % slider that blends each paint stroke with the
+       underlying pixel color. Both persist via autosave. -->
+  <div class="group brush-size-group" title="Brush size — [ / ] to step">
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+      <g transform="rotate(-45 12 12)">
+        <polygon points="4,12 7,10 7,14" fill="#3a2818" stroke="#1a1a1c" stroke-width="1"/>
+        <rect x="7"  y="10" width="9" height="4" fill="#ffd060" stroke="#1a1a1c" stroke-width="1"/>
+        <rect x="16" y="10" width="2" height="4" fill="#aab"    stroke="#1a1a1c" stroke-width="1"/>
+        <rect x="18" y="10" width="2" height="4" fill="#ff9eb5" stroke="#1a1a1c" stroke-width="1"/>
+      </g>
+    </svg>
+    <input id="brushSizeSlider" type="range" min="1" max="8" step="1" value="1" style="width: 80px; accent-color: var(--accent);">
+    <div id="brushPreviewRing" class="brush-preview-ring" title="Live brush footprint">
+      <div id="brushPreviewDot" class="brush-preview-dot"></div>
+    </div>
+    <span id="brushSizeReadout" class="brush-size-readout">1 px</span>
+  </div>
+  <div class="group brush-opacity-group" title="Brush opacity — blends each stroke with the underlying pixel">
+    <span style="font-size: 11px; color: var(--text-dim);">opacity</span>
+    <input id="brushOpacitySlider" type="range" min="10" max="100" step="5" value="100" style="width: 80px; accent-color: var(--accent);">
+    <span id="brushOpacityReadout" class="brush-size-readout">100%</span>
+  </div>
   <div class="spacer"></div>
   <!-- FILE / CODE (right of spacer): I/O + code output + help -->
   <div class="group">
@@ -648,16 +700,9 @@
       <button id="symBtn" class="tool-btn" title="Toggle symmetry. Click again to cycle: off → vertical mirror → horizontal → both.">⫯ Sym: off</button>
       <button id="lockAlphaBtn" class="tool-btn" title="Lock transparent pixels — paint only affects already-painted cells.">🔒 Lock α</button>
     </div>
-    <!-- Brush size + pixel-perfect mode. Brush sizes 1-4 (square nibs);
-         pixel-perfect mode auto-cleans the diagonal "L-joints" that
-         freehand strokes leave behind. -->
-    <div class="tool-row" style="align-items: center; gap: 6px;">
-      <span style="font-size: 11px; color: var(--text-dim); flex-shrink: 0;">brush</span>
-      <button id="brush1" class="tool-btn brush-btn active" title="1-pixel brush ( [ to shrink, ] to grow )" data-size="1">1</button>
-      <button id="brush2" class="tool-btn brush-btn" title="2×2 brush" data-size="2">2</button>
-      <button id="brush3" class="tool-btn brush-btn" title="3×3 brush" data-size="3">3</button>
-      <button id="brush4" class="tool-btn brush-btn" title="4×4 brush" data-size="4">4</button>
-    </div>
+    <!-- Brush size now lives in the header toolbar (Photoshop-style
+         slider + ring preview). The pixel-perfect toggle stays here
+         since it's a pencil-tool option. -->
     <div class="tool-row">
       <button id="pixelPerfectBtn" class="tool-btn" title="Pixel-perfect mode: auto-remove the L-joints that freehand diagonal strokes leave behind. Aseprite's classic 'clean lines' toggle.">◢ Pixel-perfect</button>
     </div>
@@ -814,19 +859,24 @@
 <div class="timeline" id="timelinePanel">
   <div class="timeline-toolbar">
     <button id="tlPlayBtn" class="primary" title="Play / Pause (Space)">▶ Play</button>
+    <button id="tlLoopModeBtn" title="Cycle playback mode: loop → once → ping-pong">🔁 Loop</button>
     <button id="tlPrevBtn" title="Previous frame (←)">⏮</button>
     <button id="tlNextBtn" title="Next frame (→)">⏭</button>
     <button id="tlDupBtn" title="Duplicate current frame (Alt+D, or click the + thumbnail at the end of the strip)">⎘ Duplicate</button>
     <button id="tlAddBtn" title="Add new BLANK frame (Alt+N)">+ Blank</button>
     <button id="tlDelBtn" title="Delete current frame (Alt+Del)">× Delete</button>
+    <button id="tlReverseBtn" title="Reverse the order of all frames (also re-aims tag ranges)">⇄ Reverse</button>
     <label>Duration <input id="tlDurInput" type="number" min="10" max="2000" step="10" value="100"> ms</label>
     <span class="fps-readout" id="tlFpsReadout" title="Frame rate equivalent of the active frame's duration">≈ 10 FPS</span>
     <label style="margin-left: 12px; color: var(--text-dim);">Onion skin:</label>
-    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Show previous frame faintly under the current one">
+    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Show previous frame(s) faintly under the current one">
       <input id="tlOnionPrevCheck" type="checkbox"> ◀ prev
     </label>
-    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Show next frame faintly under the current one">
+    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Show next frame(s) faintly under the current one">
       <input id="tlOnionNextCheck" type="checkbox"> next ▶
+    </label>
+    <label style="display: flex; align-items: center; gap: 4px; color: var(--text-dim);" title="How many frames before/after to overlay (1 = just N±1; higher values use opacity falloff)">
+      r <input id="tlOnionRadius" type="number" min="1" max="6" value="1" step="1" style="width: 36px;">
     </label>
     <label style="display: flex; align-items: center; gap: 4px; color: var(--text-dim);" title="Opacity of the onion-skin overlays (0-100%)">
       α <input id="tlOnionAlpha" type="range" min="5" max="95" value="30" step="5" style="width: 70px; accent-color: var(--accent);">
@@ -1201,6 +1251,8 @@ let state = {
   onionPrev: false,
   onionNext: false,
   onionAlpha: 0.30,           // 0..1 — opacity of prev/next overlays
+  onionRadius: 1,             // how many frames before/after to overlay (1-6)
+  loopMode: 'loop',           // 'loop' | 'once' | 'pingpong' — playback behavior
   activeColor: '#3aa8b8',
   tool: 'paint',              // 'paint' | 'pick' | 'erase' | 'fill'
   recentColors: [],           // last N colors used
@@ -1236,10 +1288,15 @@ let state = {
   codeFormat: 'px',
   fnName: 'pxMySprite',         // only used by 'function' format
   // Brush size — number of pixels per side of a square brush nib.
-  // 1 = single cell (current default). 2–4 = nxn block centered on the
+  // 1 = single cell (current default). 2–8 = nxn block centered on the
   // click (odd) or offset down-right (even). Applies to paint + erase;
   // fill / rect / ellipse / line ignore it.
   brushSize: 1,
+  // Brush opacity (0..1). When < 1, each paint stroke blends the
+  // active color with whatever's already in the cell at this ratio.
+  // Empty cells are painted at full color since there's nothing to
+  // blend with. Eraser ignores opacity (binary on/off).
+  brushOpacity: 1.0,
   // Pixel-perfect mode: while painting a freehand stroke, auto-remove
   // any pixel that would form a 3-in-a-row L-joint (the "stairstep
   // double" that diagonal freehand strokes produce). Standard pro
@@ -1613,17 +1670,33 @@ function toggleLockAlpha() {
 }
 lockAlphaBtn.addEventListener('click', toggleLockAlpha);
 
-// Brush-size buttons + pixel-perfect toggle.
+// Brush size — driven by the toolbar slider + live ring preview. The
+// dot inside the ring scales with size so the artist sees the actual
+// footprint as they drag. [ / ] keyboard shortcuts step by 1.
+const brushSizeSlider   = document.getElementById('brushSizeSlider');
+const brushPreviewDot   = document.getElementById('brushPreviewDot');
+const brushSizeReadout  = document.getElementById('brushSizeReadout');
+const brushOpacitySlider  = document.getElementById('brushOpacitySlider');
+const brushOpacityReadout = document.getElementById('brushOpacityReadout');
 function setBrushSize(n) {
-  state.brushSize = Math.max(1, Math.min(4, n | 0));
-  for (const el of document.querySelectorAll('.brush-btn')) {
-    el.classList.toggle('active', (+el.dataset.size) === state.brushSize);
-  }
+  state.brushSize = Math.max(1, Math.min(8, n | 0));
+  brushSizeSlider.value = state.brushSize;
+  brushSizeReadout.textContent = state.brushSize + ' px';
+  // Dot scales with size — 3px per brush-size unit gives a visible
+  // range across 1-8 inside the 32px ring.
+  const dotPx = Math.min(28, state.brushSize * 3);
+  brushPreviewDot.style.width  = dotPx + 'px';
+  brushPreviewDot.style.height = dotPx + 'px';
   autosave();
 }
-for (const el of document.querySelectorAll('.brush-btn')) {
-  el.addEventListener('click', () => setBrushSize(+el.dataset.size));
+brushSizeSlider.addEventListener('input', () => setBrushSize(+brushSizeSlider.value));
+function setBrushOpacity(pct) {
+  state.brushOpacity = Math.max(0.1, Math.min(1, pct / 100));
+  brushOpacitySlider.value = Math.round(state.brushOpacity * 100);
+  brushOpacityReadout.textContent = Math.round(state.brushOpacity * 100) + '%';
+  autosave();
 }
+brushOpacitySlider.addEventListener('input', () => setBrushOpacity(+brushOpacitySlider.value));
 const pixelPerfectBtn = document.getElementById('pixelPerfectBtn');
 function setPixelPerfect(v) {
   state.pixelPerfect = !!v;
@@ -1894,29 +1967,36 @@ function renderGrid() {
       }
     }
   }
-  // Onion skin — previous frame at 30% alpha (blue tint), next frame at
-  // 30% alpha (red tint). Each is drawn under the current frame.
+  // Onion skin — overlay up to `onionRadius` frames before and after
+  // the active one, with a linear opacity falloff so closer frames
+  // show stronger. Each frame is flattened (visible layers only).
+  // Furthest frames go first so closer frames paint on top of them.
   if (onionOn) {
-    if (state.onionPrev && state.activeFrame > 0) {
-      paintCtx.globalAlpha = state.onionAlpha;
-      const prev = state.frames[state.activeFrame - 1].pixels;
-      for (const [k, hex] of Object.entries(prev)) {
-        const [px, py] = k.split(',').map(Number);
-        paintCtx.fillStyle = hex;
-        paintCtx.fillRect(px * Z, py * Z, Z, Z);
+    const radius = Math.max(1, Math.min(6, state.onionRadius | 0 || 1));
+    for (let off = radius; off >= 1; off--) {
+      // Opacity falls off as you move further from the active frame:
+      // ±1 ⇒ full state.onionAlpha; ±radius ⇒ 1/radius of that.
+      const a = state.onionAlpha * (1 - (off - 1) / (radius + 0.5));
+      if (state.onionPrev && state.activeFrame - off >= 0) {
+        paintCtx.globalAlpha = a;
+        const prev = state.frames[state.activeFrame - off].pixels;
+        for (const k in prev) {
+          const [px, py] = k.split(',').map(Number);
+          paintCtx.fillStyle = prev[k];
+          paintCtx.fillRect(px * Z, py * Z, Z, Z);
+        }
       }
-      paintCtx.globalAlpha = 1.0;
-    }
-    if (state.onionNext && state.activeFrame < state.frames.length - 1) {
-      paintCtx.globalAlpha = state.onionAlpha;
-      const next = state.frames[state.activeFrame + 1].pixels;
-      for (const [k, hex] of Object.entries(next)) {
-        const [px, py] = k.split(',').map(Number);
-        paintCtx.fillStyle = hex;
-        paintCtx.fillRect(px * Z, py * Z, Z, Z);
+      if (state.onionNext && state.activeFrame + off < state.frames.length) {
+        paintCtx.globalAlpha = a;
+        const next = state.frames[state.activeFrame + off].pixels;
+        for (const k in next) {
+          const [px, py] = k.split(',').map(Number);
+          paintCtx.fillStyle = next[k];
+          paintCtx.fillRect(px * Z, py * Z, Z, Z);
+        }
       }
-      paintCtx.globalAlpha = 1.0;
     }
+    paintCtx.globalAlpha = 1.0;
   }
   // Painted pixels — current frame, ALL VISIBLE LAYERS composited in
   // bottom-to-top order with each layer's opacity applied via
@@ -2178,16 +2258,34 @@ function cellFromEvent(e) {
 }
 
 // Low-level: paint or clear a single cell. Goes through lockAlpha gate
-// (when on, only changes cells that already have a pixel).
+// (when on, only changes cells that already have a pixel) and through
+// the brush-opacity blender (when opacity < 1 AND there's an
+// underlying pixel to blend with). Eraser (hex == null) ignores
+// opacity — erase is always binary.
 function paintCellRaw(x, y, hex) {
   if (x < 0 || y < 0 || x >= state.width || y >= state.height) return;
   const k = `${x},${y}`;
   if (state.lockAlpha && hex != null && !state.pixels[k]) return;  // skip transparent cells in paint mode
   if (hex == null) {
     if (state.pixels[k]) delete state.pixels[k];
+    return;
+  }
+  const op = (typeof state.brushOpacity === 'number') ? state.brushOpacity : 1;
+  if (op < 1 && state.pixels[k]) {
+    state.pixels[k] = blendHex(hex, state.pixels[k], op);
   } else {
     state.pixels[k] = hex;
   }
+}
+// Linear-RGB blend of two #rrggbb hex colors at a given opacity.
+// Result is a fresh #rrggbb string (no alpha — we store flat hex).
+function blendHex(over, under, opacity) {
+  const o = parseInt(over.slice(1), 16);
+  const u = parseInt(under.slice(1), 16);
+  const r = Math.round(((o >> 16) & 0xff) * opacity + ((u >> 16) & 0xff) * (1 - opacity));
+  const g = Math.round(((o >>  8) & 0xff) * opacity + ((u >>  8) & 0xff) * (1 - opacity));
+  const b = Math.round(((o      ) & 0xff) * opacity + ((u      ) & 0xff) * (1 - opacity));
+  return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
 }
 // Public paint — applies brush size + symmetry + lockAlpha. Used by
 // the freehand paint / erase / shift-line tools. Rectangle, ellipse,
@@ -3465,7 +3563,10 @@ function autosave() {
       layers: state.layers,
       activeLayer: state.activeLayer,
       brushSize: state.brushSize,
+      brushOpacity: state.brushOpacity,
       pixelPerfect: state.pixelPerfect,
+      onionRadius: state.onionRadius,
+      loopMode: state.loopMode,
     }));
   } catch (e) {
     // localStorage quota exceeded — most likely the reference image is
@@ -3544,7 +3645,10 @@ function restoreAutosave() {
     if (typeof data.codeFormat === 'string') state.codeFormat = data.codeFormat;
     if (typeof data.fnName === 'string') state.fnName = data.fnName;
     if (typeof data.brushSize === 'number') state.brushSize = data.brushSize;
+    if (typeof data.brushOpacity === 'number') state.brushOpacity = data.brushOpacity;
     if (typeof data.pixelPerfect === 'boolean') state.pixelPerfect = data.pixelPerfect;
+    if (typeof data.onionRadius === 'number') state.onionRadius = data.onionRadius;
+    if (typeof data.loopMode === 'string') state.loopMode = data.loopMode;
     if (Array.isArray(data.tags)) {
       // Sanitize tags on restore — drop ones with bad ranges so a stale
       // payload from a smaller frame count doesn't crash playback.
@@ -5088,15 +5192,15 @@ function stopPlayback() {
   renderTimeline();  // remove "playing" highlight + tag-chip "playing" state
 }
 
+let playPingPongDir = +1;  // for ping-pong mode: +1 forward, -1 reverse
 function playLoop() {
   if (!state.playing) return;
   const now = performance.now();
   const curDur = state.frames[state.activeFrame].duration;
   if (now - playFrameStartTime >= curDur) {
     playFrameStartTime = now;
-    // Tag-aware advance: if a tag is active, advance within [from..to]
-    // and loop back to from at the end (or stop if loop=false). Without
-    // a tag, behave exactly as before — full-strip loop.
+    // Advance respects (in priority order): active tag's range +
+    // tag.loop, or otherwise the global loopMode (loop/once/pingpong).
     let next;
     const tag = state.playingTag ? state.tags.find(t => t.name === state.playingTag) : null;
     if (tag) {
@@ -5107,7 +5211,19 @@ function playLoop() {
         next = state.activeFrame + 1;
       }
     } else {
-      next = (state.activeFrame + 1) % state.frames.length;
+      const N = state.frames.length;
+      const mode = state.loopMode || 'loop';
+      if (mode === 'once') {
+        if (state.activeFrame >= N - 1) { stopPlayback(); return; }
+        next = state.activeFrame + 1;
+      } else if (mode === 'pingpong') {
+        next = state.activeFrame + playPingPongDir;
+        if (next >= N) { playPingPongDir = -1; next = N - 2; }
+        if (next < 0)  { playPingPongDir = +1; next = 1; }
+        if (next < 0 || next >= N) next = 0;  // safety for N=1
+      } else {
+        next = (state.activeFrame + 1) % N;   // loop (default)
+      }
     }
     state.activeFrame = next;
     resetHistory();
@@ -5169,6 +5285,57 @@ tlOnionNextCheck.addEventListener('change', () => {
   renderGrid();
   autosave();
 });
+// Onion radius — how many frames before/after to overlay. 1 = N±1
+// (legacy behavior); higher values show a fading trail of past /
+// future frames with linear opacity falloff.
+const tlOnionRadius = document.getElementById('tlOnionRadius');
+tlOnionRadius.addEventListener('input', () => {
+  const v = Math.max(1, Math.min(6, parseInt(tlOnionRadius.value, 10) || 1));
+  state.onionRadius = v;
+  tlOnionRadius.value = v;
+  if (state.onionPrev || state.onionNext) renderGrid();
+  autosave();
+});
+
+// Loop-mode cycle button (loop → once → ping-pong → loop). Also drives
+// the floating preview window's loop behavior so both follow the same
+// rule. Setting is persisted via autosave.
+const tlLoopModeBtn = document.getElementById('tlLoopModeBtn');
+const LOOP_MODE_LABELS = { loop: '🔁 Loop', once: '➡ Once', pingpong: '⇄ Ping-pong' };
+function setLoopMode(mode) {
+  state.loopMode = ['loop', 'once', 'pingpong'].includes(mode) ? mode : 'loop';
+  tlLoopModeBtn.textContent = LOOP_MODE_LABELS[state.loopMode];
+  tlLoopModeBtn.title = `Playback mode: ${state.loopMode} — click to cycle (loop → once → ping-pong)`;
+  playPingPongDir = +1;   // reset ping-pong direction on mode change
+  autosave();
+}
+tlLoopModeBtn.addEventListener('click', () => {
+  const order = ['loop', 'once', 'pingpong'];
+  const idx = order.indexOf(state.loopMode || 'loop');
+  setLoopMode(order[(idx + 1) % order.length]);
+});
+
+// Reverse — flip the whole frame strip back-to-front. Tags get
+// re-aimed to point at the same content in its new position. The
+// active frame tracks to its mirrored slot so the user keeps editing
+// the same frame visually.
+const tlReverseBtn = document.getElementById('tlReverseBtn');
+tlReverseBtn.addEventListener('click', () => {
+  if (state.frames.length < 2) return;
+  if (!confirm('Reverse the order of all ' + state.frames.length + ' frames? Tag ranges will be re-aimed automatically.')) return;
+  stopPlayback();
+  state.frames.reverse();
+  const N = state.frames.length;
+  for (const t of state.tags) {
+    const newFrom = N - 1 - t.to;
+    const newTo   = N - 1 - t.from;
+    t.from = newFrom; t.to = newTo;
+  }
+  state.activeFrame = N - 1 - state.activeFrame;
+  resetHistory();
+  renderGrid(); renderPreview(); renderCode(); renderTimeline();
+  autosave();
+});
 
 // ────────────────────────────────────────────────────────────
 // INIT
@@ -5205,7 +5372,10 @@ renderLayers();
   fnNameInput.value  = state.fnName;
   syncFnNameVisibility();
   setBrushSize(state.brushSize);
+  setBrushOpacity(Math.round((state.brushOpacity ?? 1) * 100));
   setPixelPerfect(state.pixelPerfect);
+  setLoopMode(state.loopMode);
+  tlOnionRadius.value = state.onionRadius || 1;
   syncPreviewWindowVisibility();
   renderCode();  // re-run with the just-restored format
 }
