@@ -377,6 +377,68 @@
     border-radius: 4px;
   }
 
+  /* Assets tab — two-column layout: category sidebar + asset grid.
+     Like a desktop file browser (Finder / Maya project window). */
+  .pl-assets-layout {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 14px;
+    min-height: 320px;
+  }
+  .pl-categories {
+    display: flex; flex-direction: column;
+    gap: 2px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px;
+    align-self: start;
+  }
+  .pl-cat-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    color: var(--text);
+    font-size: 12px;
+    transition: all var(--tdur) var(--ease);
+  }
+  .pl-cat-row:hover { background: var(--bg-surface); }
+  .pl-cat-row.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+  .pl-cat-row.dim { color: var(--text-dim); }
+  .pl-cat-icon { font-size: 12px; flex-shrink: 0; }
+  .pl-cat-name { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .pl-cat-count {
+    color: var(--text-dim);
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 10px;
+  }
+  .pl-cat-row.active .pl-cat-count { color: var(--accent); }
+  .pl-cat-del {
+    background: transparent; border: none;
+    color: var(--text-dim); cursor: pointer;
+    padding: 0 4px; font-size: 12px; line-height: 1;
+    opacity: 0; transition: opacity var(--tdur) var(--ease);
+  }
+  .pl-cat-row:hover .pl-cat-del { opacity: 1; }
+  .pl-cat-del:hover { color: var(--danger); }
+  .pl-cat-add {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 11px;
+    border: 1px dashed var(--border);
+    margin-top: 4px;
+    transition: all var(--tdur) var(--ease);
+  }
+  .pl-cat-add:hover { color: var(--accent); border-color: var(--accent); }
+  .pl-assets-main { min-width: 0; }
+
   /* Asset grid + tile — visual library for the project. Each tile
      shows a thumbnail (img for built-in PNG starters, canvas for
      user-saved sprites), name, dimensions / frame count, type
@@ -1679,13 +1741,18 @@
         </div>
       </div>
       <div class="pl-tab-panel" id="plTabAssets" style="display: none; padding: 14px 18px;">
-        <p style="margin: 0 0 12px; font-size: 12px; color: var(--text-dim);">Click an asset to load it onto the canvas. 🖼 = single image, 🎞 = animation. Save the current sprite (with all its frames, layers, tags) as a reusable asset, or import an image / GIF / sprite sheet as one.</p>
-        <div id="plAssetList" style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; max-height: 240px; overflow-y: auto;"></div>
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button id="plSaveCurrentBtn" class="primary" style="padding: 8px 14px;">💾 Save current as asset</button>
-          <button id="plImportPngBtn"   style="padding: 8px 14px;">🖼 Import PNG…</button>
-          <button id="plImportGifBtn"   style="padding: 8px 14px;">🎞 Import GIF…</button>
-          <button id="plImportSheetBtn" style="padding: 8px 14px;">▦ Import sheet…</button>
+        <p style="margin: 0 0 12px; font-size: 12px; color: var(--text-dim);">Categories sit on the left — click one to filter the grid. Click any asset to load it. 🖼 = single image, 🎞 = animation. Save the current sprite (frames + layers + tags) into a category, or import an image / GIF / sprite sheet straight in.</p>
+        <div class="pl-assets-layout">
+          <div class="pl-categories" id="plCategoryList"></div>
+          <div class="pl-assets-main">
+            <div id="plAssetList"></div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
+              <button id="plSaveCurrentBtn" class="primary" style="padding: 8px 14px;">💾 Save current as asset</button>
+              <button id="plImportPngBtn"   style="padding: 8px 14px;">🖼 Import PNG…</button>
+              <button id="plImportGifBtn"   style="padding: 8px 14px;">🎞 Import GIF…</button>
+              <button id="plImportSheetBtn" style="padding: 8px 14px;">▦ Import sheet…</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2613,6 +2680,13 @@ let state = {
   // and grow as the user saves common canvas sizes. Editable via
   // Project Library modal. Each entry: [name, width, height].
   sizePresets: undefined,   // initialized at restore time
+  // Per-project asset categories — folder-like labels in the asset
+  // library (e.g. Characters / Enemies / Environment for game-sprites
+  // projects). Seeded from a project template at create time.
+  categories: undefined,
+  // The current category filter in the Project Library modal —
+  // null means "All". Stored on state so it persists across opens.
+  activeCategory: null,
   // Sprite slices — named rectangular regions for atlas export.
   // Each: { name, x, y, w, h, color } in canonical canvas coords.
   // Sprite-wide (not per-frame); included in PNG export sidecar
@@ -5795,6 +5869,8 @@ function autosave() {
       paletteKey: state.paletteKey,
       importedPalette: state.importedPalette,
       sizePresets: state.sizePresets,
+      categories: state.categories,
+      activeCategory: state.activeCategory,
       slices: state.slices,
       pressureAffects: state.pressureAffects,
       brushSmoothing: state.brushSmoothing,
@@ -5894,6 +5970,12 @@ function restoreAutosave() {
     if (typeof data.brushSmoothing === 'number') state.brushSmoothing = data.brushSmoothing;
     if (Array.isArray(data.sizePresets)) {
       state.sizePresets = data.sizePresets.filter(p => Array.isArray(p) && p.length === 3);
+    }
+    if (Array.isArray(data.categories)) {
+      state.categories = data.categories.filter(c => typeof c === 'string');
+    }
+    if (typeof data.activeCategory === 'string' || data.activeCategory === null) {
+      state.activeCategory = data.activeCategory;
     }
     if (Array.isArray(data.slices)) {
       state.slices = data.slices.filter(s => s && typeof s.name === 'string')
@@ -8530,17 +8612,70 @@ const DLX_DEFAULT_PRESETS = [
   ['Tile (32)',      32, 32],
   ['Tile (16)',      16, 16],
 ];
-function ensureSizePresets() {
-  // Initialize presets ONCE per project. Empty list afterwards is a
-  // user-chosen state (cleared) — don't auto-repopulate.
+// Project templates — Maya-style starting structures. Each defines a
+// set of categories (folder labels for the asset library) + initial
+// size presets. The user picks one when creating a new project; DLX
+// is seeded with the Game Sprites template on first run.
+const PROJECT_TEMPLATES = {
+  gameSprites: {
+    label: 'Game Sprites (default)',
+    description: 'Standard pixel-art game pipeline. Characters, enemies, environment art, UI, and FX.',
+    categories: ['Characters', 'Enemies', 'Environment', 'UI', 'FX'],
+    presets: [
+      ['Character (32)', 32, 32],
+      ['Enemy (48)',     48, 48],
+      ['Tile (32)',      32, 32],
+      ['Tile (16)',      16, 16],
+    ],
+  },
+  tileset: {
+    label: 'Tileset',
+    description: 'World-building tilesets. Terrain, walls, props, and edge transitions.',
+    categories: ['Terrain', 'Walls', 'Props', 'Transitions'],
+    presets: [
+      ['Tile (16)', 16, 16],
+      ['Tile (24)', 24, 24],
+      ['Tile (32)', 32, 32],
+      ['Tile (64)', 64, 64],
+    ],
+  },
+  uiKit: {
+    label: 'UI Kit',
+    description: 'Game UI components. Buttons, panels, icons, cursors.',
+    categories: ['Buttons', 'Panels', 'Icons', 'Cursors'],
+    presets: [
+      ['Icon (16)',  16, 16],
+      ['Icon (24)',  24, 24],
+      ['Button',     80, 24],
+      ['Panel',     200, 120],
+    ],
+  },
+  custom: {
+    label: 'Custom (blank)',
+    description: 'Start empty. Add your own categories + presets as you go.',
+    categories: [],
+    presets: [],
+  },
+};
+function ensureProjectDefaults() {
+  // Initialize presets + categories ONCE per project. The DLX
+  // project is treated as "Game Sprites" template (with its
+  // specific real-world preset list overriding the generic
+  // template defaults). User-cleared state stays cleared.
   if (state.sizePresets === undefined) {
     state.sizePresets = (_activeProjectName === 'DLX')
       ? DLX_DEFAULT_PRESETS.map(p => [...p])
       : [];
   }
+  if (state.categories === undefined) {
+    state.categories = (_activeProjectName === 'DLX')
+      ? PROJECT_TEMPLATES.gameSprites.categories.slice()
+      : [];
+  }
 }
+function ensureSizePresets() { ensureProjectDefaults(); }   // legacy alias
 function openProjectLibrary() {
-  ensureSizePresets();
+  ensureProjectDefaults();
   document.getElementById('plProjectName').textContent = _activeProjectName;
   document.getElementById('projectLibraryModal').style.display = 'flex';
   // Default to the Size Presets tab on each open.
@@ -8636,11 +8771,11 @@ document.getElementById('plAddPresetBtn').addEventListener('click', () => {
 // it into an animation by adding frames + saving back as a new
 // project asset.
 const BUILT_IN_DLX_ASSETS = [
-  { builtin: true, name: 'Hero Rig — Roadkill',         w: 58,  h: 52,  url: 'art/vehicles/hero/roadkill/reference.png' },
-  { builtin: true, name: 'Hero Rig — Smashed',          w: 58,  h: 52,  url: 'art/vehicles/hero/roadkill/reference_smashed.png' },
-  { builtin: true, name: 'Aerial Thief — Gunship',      w: 100, h: 44,  url: 'art/vehicles/enemy/gunship/reference.png' },
-  { builtin: true, name: 'Aerial Thief — Gunship Alt',  w: 132, h: 56,  url: 'art/vehicles/enemy/gunship_alt/reference.png' },
-  { builtin: true, name: 'Aerial Thief — Harpooner',    w: 110, h: 60,  url: 'art/vehicles/enemy/harpooner/reference.png' },
+  { builtin: true, name: 'Hero Rig — Roadkill',         category: 'Characters', w: 58,  h: 52,  url: 'art/vehicles/hero/roadkill/reference.png' },
+  { builtin: true, name: 'Hero Rig — Smashed',          category: 'Characters', w: 58,  h: 52,  url: 'art/vehicles/hero/roadkill/reference_smashed.png' },
+  { builtin: true, name: 'Aerial Thief — Gunship',      category: 'Enemies',    w: 100, h: 44,  url: 'art/vehicles/enemy/gunship/reference.png' },
+  { builtin: true, name: 'Aerial Thief — Gunship Alt',  category: 'Enemies',    w: 132, h: 56,  url: 'art/vehicles/enemy/gunship_alt/reference.png' },
+  { builtin: true, name: 'Aerial Thief — Harpooner',    category: 'Enemies',    w: 110, h: 60,  url: 'art/vehicles/enemy/harpooner/reference.png' },
 ];
 async function listProjectAssets() {
   // Built-in starter assets get prepended for the DLX project so
@@ -8654,15 +8789,113 @@ async function listProjectAssets() {
     return [...builtins, ...saved];
   } catch { return builtins; }
 }
+function renderProjectCategories(assets) {
+  ensureProjectDefaults();
+  const sidebarEl = document.getElementById('plCategoryList');
+  if (!sidebarEl) return;
+  sidebarEl.innerHTML = '';
+  // Build counts: how many assets per category + total.
+  const counts = { __all__: assets.length };
+  for (const cat of state.categories) counts[cat] = 0;
+  for (const a of assets) {
+    const c = a.category;
+    if (c && counts[c] !== undefined) counts[c]++;
+  }
+  // Find any assets whose category isn't in state.categories (orphan)
+  // — they go under a synthetic "Uncategorized" row.
+  let uncategorized = 0;
+  for (const a of assets) {
+    if (!a.category || !state.categories.includes(a.category)) uncategorized++;
+  }
+  function rowOf(label, key, icon, count, isActive) {
+    const row = document.createElement('div');
+    row.className = 'pl-cat-row' + (isActive ? ' active' : '') + (count === 0 ? ' dim' : '');
+    row.innerHTML =
+      `<span class="pl-cat-icon">${icon}</span>` +
+      `<span class="pl-cat-name"></span>` +
+      `<span class="pl-cat-count">${count}</span>`;
+    row.querySelector('.pl-cat-name').textContent = label;
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.pl-cat-del')) return;
+      state.activeCategory = (key === '__all__') ? null : key;
+      renderProjectAssets();   // re-renders sidebar + grid
+    });
+    return row;
+  }
+  // "All" pseudo-row first.
+  sidebarEl.appendChild(rowOf('All assets', '__all__', '📚', counts.__all__, state.activeCategory == null));
+  // User-defined categories.
+  for (const cat of state.categories) {
+    const row = rowOf(cat, cat, '📁', counts[cat] || 0, state.activeCategory === cat);
+    // Add a × delete handler that removes the category. Assets in
+    // it survive (become uncategorized) so the user doesn't lose work.
+    const del = document.createElement('button');
+    del.className = 'pl-cat-del';
+    del.textContent = '×';
+    del.title = `Remove the "${cat}" category (assets stay)`;
+    del.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const okay = await showConfirm({
+        title: 'Remove category',
+        body: `Remove the "${cat}" folder from this project's library? Assets currently in it become uncategorized; nothing is deleted.`,
+        ok: 'Remove',
+      });
+      if (!okay) return;
+      state.categories = state.categories.filter(c => c !== cat);
+      if (state.activeCategory === cat) state.activeCategory = null;
+      autosave();
+      renderProjectAssets();
+    });
+    row.appendChild(del);
+    sidebarEl.appendChild(row);
+  }
+  // Uncategorized bucket — only if there are any.
+  if (uncategorized > 0) {
+    sidebarEl.appendChild(rowOf('(Uncategorized)', '__uncategorized__', '·', uncategorized, state.activeCategory === '__uncategorized__'));
+  }
+  // + New category — inline prompt.
+  const addRow = document.createElement('div');
+  addRow.className = 'pl-cat-add';
+  addRow.innerHTML = `<span>+ New category</span>`;
+  addRow.addEventListener('click', async () => {
+    const name = (prompt('Category name?') || '').trim().slice(0, 32);
+    if (!name) return;
+    if (state.categories.includes(name)) {
+      showAlert({ title: 'Already exists', body: `"${name}" is already a category in this project.` });
+      return;
+    }
+    state.categories.push(name);
+    autosave();
+    renderProjectAssets();
+  });
+  sidebarEl.appendChild(addRow);
+}
 async function renderProjectAssets() {
+  ensureProjectDefaults();
   const listEl = document.getElementById('plAssetList');
   listEl.innerHTML = '<div class="pl-empty">Loading…</div>';
   const assets = await listProjectAssets();
+  // Render sidebar (counts depend on full asset list).
+  renderProjectCategories(assets);
+  // Filter by active category.
+  const filtered = (() => {
+    if (state.activeCategory == null) return assets;
+    if (state.activeCategory === '__uncategorized__') {
+      return assets.filter(a => !a.category || !state.categories.includes(a.category));
+    }
+    return assets.filter(a => a.category === state.activeCategory);
+  })();
   listEl.innerHTML = '';
-  if (assets.length === 0) {
+  if (filtered.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'pl-empty';
-    empty.textContent = `No assets in "${_activeProjectName}" yet. Save the current sprite below, or import a PNG / GIF / sprite sheet to populate this project.`;
+    if (state.activeCategory == null) {
+      empty.textContent = `No assets in "${_activeProjectName}" yet. Save the current sprite below, or import a PNG / GIF / sprite sheet to populate this project.`;
+    } else if (state.activeCategory === '__uncategorized__') {
+      empty.textContent = 'No uncategorized assets — every asset has a category folder.';
+    } else {
+      empty.textContent = `Nothing in "${state.activeCategory}" yet. Save the current sprite below and pick this category to fill it in.`;
+    }
     listEl.appendChild(empty);
     return;
   }
@@ -8670,7 +8903,7 @@ async function renderProjectAssets() {
   // tiny canvas rendered from the first frame's flattened pixels;
   // built-in assets get an <img> pointing at the reference PNG.
   listEl.className = 'pl-asset-grid';
-  for (const a of assets) {
+  for (const a of filtered) {
     const isAnim = !a.builtin && Array.isArray(a.frames) && a.frames.length > 1;
     const tile = document.createElement('div');
     tile.className = 'pl-asset-tile' + (a.builtin ? ' starter' : '');
@@ -8770,13 +9003,16 @@ document.getElementById('plSaveCurrentBtn').addEventListener('click', async () =
     showAlert({ title: 'Nothing to save', body: 'Paint some pixels first, then save the current sprite as a reusable asset.' });
     return;
   }
-  const name = prompt('Save as asset — name?', 'untitled');
-  if (!name) return;
+  // Branded modal with name + category picker so the asset lands
+  // in the right folder of the project library.
+  const result = await saveAssetDialog();
+  if (!result) return;
   try {
     const now = Date.now();
     const asset = {
       id: 'a_' + now + '_' + Math.random().toString(36).slice(2, 8),
-      name: name.trim().slice(0, 64),
+      name: result.name,
+      category: result.category || null,
       projectName: _activeProjectName,
       width: state.width, height: state.height,
       frames: state.frames, activeFrame: state.activeFrame,
@@ -8787,11 +9023,67 @@ document.getElementById('plSaveCurrentBtn').addEventListener('click', async () =
       createdAt: now, updatedAt: now,
     };
     await idbPut(asset);
+    // If the user picked the currently-filtered category, stay there;
+    // otherwise jump to whichever category they saved into so they
+    // see the new asset immediately.
+    if (result.category && state.activeCategory !== result.category) {
+      state.activeCategory = result.category;
+    }
     renderProjectAssets();
   } catch (err) {
     showAlert({ title: 'Save failed', body: String(err && err.message || err) });
   }
 });
+function saveAssetDialog() {
+  ensureProjectDefaults();
+  return new Promise((resolve) => {
+    const m = document.getElementById('confirmModal');
+    const titleEl = document.getElementById('confirmModalTitle');
+    const bodyEl  = document.getElementById('confirmModalBody');
+    const okBtn   = document.getElementById('confirmModalOk');
+    const cancelBtn = document.getElementById('confirmModalCancel');
+    titleEl.lastChild.textContent = ' Save asset';
+    const catsOpts = ['<option value="">— (Uncategorized) —</option>']
+      .concat(state.categories.map(c => `<option value="${c}">${c}</option>`))
+      .join('');
+    bodyEl.innerHTML = `
+      <p style="margin: 0 0 10px;">Save the current sprite as a reusable asset in <b>${_activeProjectName}</b>. Includes every frame, layer, tag, and slice.</p>
+      <label style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px;">
+        <span style="font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Asset name</span>
+        <input id="_saName" type="text" maxlength="64" placeholder="untitled"
+               style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-family: 'SF Mono', Consolas, monospace;">
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Category</span>
+        <select id="_saCat" style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px;">
+          ${catsOpts}
+        </select>
+      </label>`;
+    okBtn.textContent = 'Save'; okBtn.style.color = '';
+    cancelBtn.textContent = 'Cancel'; cancelBtn.style.display = '';
+    m.style.display = 'flex';
+    const nameEl = document.getElementById('_saName');
+    const catEl  = document.getElementById('_saCat');
+    // Default category: if a filter is active, pre-select it.
+    if (state.activeCategory && state.activeCategory !== '__uncategorized__' && state.categories.includes(state.activeCategory)) {
+      catEl.value = state.activeCategory;
+    }
+    setTimeout(() => nameEl.focus(), 0);
+    const done = (apply) => {
+      m.style.display = 'none';
+      okBtn.onclick = null; cancelBtn.onclick = null;
+      if (!apply) return resolve(null);
+      const name = (nameEl.value || '').trim().slice(0, 64) || 'untitled';
+      resolve({ name, category: catEl.value || null });
+    };
+    okBtn.onclick = () => done(true);
+    cancelBtn.onclick = () => done(false);
+    nameEl.onkeydown = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); done(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+    };
+  });
+}
 document.getElementById('plImportPngBtn')  .addEventListener('click', () => { closeProjectLibrary(); document.getElementById('pngImportInput').click();   });
 document.getElementById('plImportGifBtn')  .addEventListener('click', () => { closeProjectLibrary(); document.getElementById('gifImportInput').click();   });
 document.getElementById('plImportSheetBtn').addEventListener('click', () => { closeProjectLibrary(); document.getElementById('sheetImportInput').click(); });
@@ -8884,17 +9176,39 @@ function newProjectDialog() {
   const okBtn   = document.getElementById('confirmModalOk');
   const cancelBtn = document.getElementById('confirmModalCancel');
   titleEl.lastChild.textContent = ' New project';
+  // Build template options + a live "what gets seeded" preview.
+  const tplOpts = Object.entries(PROJECT_TEMPLATES).map(([k, t]) =>
+    `<option value="${k}">${t.label}</option>`).join('');
   bodyEl.innerHTML = `
-    <p style="margin: 0 0 10px;">Each project has its own canvas, layers, frames, palette, recent colors, and settings — independent localStorage slot. Switch back to it any time from the project menu.</p>
-    <label style="display: flex; flex-direction: column; gap: 4px;">
+    <p style="margin: 0 0 10px;">Each project has its own canvas, layers, frames, palette, recent colors, settings, and asset library — independent localStorage slot.</p>
+    <label style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px;">
       <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Project name</span>
       <input id="_npName" type="text" maxlength="32" placeholder="Untitled"
              style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-family: 'SF Mono', Consolas, monospace;">
-    </label>`;
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 4px;">
+      <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Template</span>
+      <select id="_npTpl" style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px;">
+        ${tplOpts}
+      </select>
+    </label>
+    <div id="_npTplPreview" style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; color: var(--text-dim);"></div>`;
   okBtn.textContent = 'Create'; okBtn.style.color = '';
   cancelBtn.textContent = 'Cancel'; cancelBtn.style.display = '';
   m.style.display = 'flex';
   const input = document.getElementById('_npName');
+  const tplEl = document.getElementById('_npTpl');
+  const preview = document.getElementById('_npTplPreview');
+  function updatePreview() {
+    const t = PROJECT_TEMPLATES[tplEl.value];
+    if (!t) { preview.innerHTML = ''; return; }
+    preview.innerHTML =
+      `<div style="margin-bottom: 6px;">${t.description}</div>` +
+      (t.categories.length ? `<div><b style="color: var(--accent);">Categories:</b> ${t.categories.join(' · ')}</div>` : '<div style="color: var(--text-dim);"><i>No categories — you add them as you go.</i></div>') +
+      (t.presets.length ? `<div style="margin-top: 4px;"><b style="color: var(--accent);">Size presets:</b> ${t.presets.map(p => p[0] + ' (' + p[1] + '×' + p[2] + ')').join(' · ')}</div>` : '');
+  }
+  tplEl.addEventListener('change', updatePreview);
+  updatePreview();
   setTimeout(() => input.focus(), 0);
   const done = (apply) => {
     m.style.display = 'none';
@@ -8909,6 +9223,15 @@ function newProjectDialog() {
     }
     list.push(name); setProjectList(list);
     switchProject(name);
+    // Seed the freshly-switched project with the template's
+    // categories + presets. The template selection is consumed
+    // here; further edits are user-driven.
+    const tpl = PROJECT_TEMPLATES[tplEl.value];
+    if (tpl) {
+      state.categories = tpl.categories.slice();
+      state.sizePresets = tpl.presets.map(p => p.slice());
+      autosave();
+    }
   };
   okBtn.onclick = () => done(true);
   cancelBtn.onclick = () => done(false);
