@@ -78,6 +78,13 @@
     margin: 0; font-size: 16px; font-weight: 700;
     letter-spacing: 0.5px;
     color: var(--accent);
+    display: flex; align-items: center; gap: 8px;
+  }
+  header h1 img.brand-logo {
+    width: 22px; height: 22px;
+    image-rendering: pixelated;
+    display: block;
+    border-radius: 3px;
   }
   header h1 .sub { color: var(--text-dim); font-size: 11px; font-weight: 400; margin-left: 6px; letter-spacing: 0; }
   header .group { display: flex; align-items: center; gap: 6px; }
@@ -198,10 +205,15 @@
      is the active color; the small offset square behind it is the
      previously-used color (X to swap). */
   .active-row { position: relative; }
+  /* Previous-color swatch tucks BEHIND the active one with just its
+     bottom-right corner peeking out — Photoshop fg/bg style. Smaller
+     than the active swatch + a tighter offset so it doesn't bleed into
+     the hex readout to the right (the bug reported in the screenshot
+     where the cyan square overlapped "b63a9f"). */
   .prev-swatch {
     position: absolute;
-    top: 14px; left: 26px;
-    width: 28px; height: 28px;
+    top: 14px; left: 14px;
+    width: 22px; height: 22px;
     border: 2px solid var(--border);
     border-radius: 2px;
     cursor: pointer;
@@ -268,16 +280,45 @@
   }
   #minimapCanvas { image-rendering: pixelated; display: block; max-width: 100%; }
 
-  .swatch-group { margin-bottom: 10px; }
-  .swatch-group-label { font-size: 10px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .swatch-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+  .swatch-group { margin-bottom: 6px; }
+  .swatch-group-label { font-size: 9px; color: var(--text-dim); margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.4px; }
+  /* 10-per-row (was 8) + smaller gap so the DLX palette eats less
+     vertical space and the Layers panel further down stays in view
+     without scrolling. */
+  .swatch-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
   .swatch {
     aspect-ratio: 1; border: 1px solid #000; cursor: pointer; border-radius: 2px;
     position: relative;
   }
-  .swatch:hover { transform: scale(1.15); border-color: var(--accent); z-index: 2; }
-  .swatch.active { border: 2px solid var(--accent); transform: scale(1.1); }
+  .swatch:hover { transform: scale(1.2); border-color: var(--accent); z-index: 2; }
+  .swatch.active { border: 2px solid var(--accent); transform: scale(1.15); }
   .swatch[title] {}
+
+  /* Collapsible section header: caret on the right that flips when
+     the section is folded. Clicking the h2 toggles the .collapsed
+     class on it, which hides the next sibling (the section body).
+     Section bodies use a sibling-combinator rule below to follow. */
+  h2.section-head { cursor: pointer; display: flex; align-items: center; }
+  h2.section-head::after {
+    content: '▾';
+    margin-left: auto;
+    font-size: 9px;
+    color: var(--text-dim);
+    transition: transform 160ms ease;
+  }
+  h2.section-head.collapsed::after { transform: rotate(-90deg); }
+  h2.section-head.collapsed + .section-body { display: none; }
+  h2.sub-head { cursor: pointer; }
+  h2.sub-head::after {
+    content: '▾';
+    margin-left: 6px;
+    font-size: 9px;
+    color: var(--text-dim);
+    transition: transform 160ms ease;
+    display: inline-block;
+  }
+  h2.sub-head.collapsed::after { transform: rotate(-90deg); }
+  h2.sub-head.collapsed + .sub-body { display: none; }
 
   /* Center column — paint grid */
   .panel-grid { display: flex; flex-direction: column; align-items: center; padding: 14px; gap: 10px; }
@@ -612,7 +653,10 @@
 <body>
 
 <header>
-  <h1>WONDROUS GRID <span class="sub">pixel studio</span></h1>
+  <h1>
+    <img src="assets/wondrous-grid-icon.svg" alt="" class="brand-logo">
+    WONDROUS GRID <span class="sub">pixel studio</span>
+  </h1>
   <!-- ART (left of spacer): canvas / sprite operations -->
   <div class="group">
     <label>Size</label>
@@ -683,6 +727,7 @@
     <input id="loadInput" type="file" accept=".json" style="display: none;">
     <button id="exportPngBtn" title="Export the sprite as a PNG. Animated sprites become a horizontal sprite-sheet (one frame per cell). Tags emit a sidecar JSON with frame ranges + durations.">🖼 Export PNG</button>
     <button id="copyBtn">⎘ Copy Code</button>
+    <button id="togglePreviewBtn" title="Show or hide the floating animation preview window">👁 Preview</button>
     <button id="helpBtn" title="Keyboard shortcuts + how to use">? Help</button>
   </div>
 </header>
@@ -695,106 +740,124 @@
        palette + picker). Section headers + a horizontal divider above
        each major group make the boundaries visible at a glance. -->
   <div class="panel panel-color">
+    <!-- TOOLS section. Clickable header toggles collapse via the
+         section-body sibling selector in CSS. -->
     <h2 class="section-head">Tools</h2>
-    <div class="tool-row">
-      <button id="paintTool" class="tool-btn active" title="Paint (P or B)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-45 12 12)"><polygon points="4,12 7,10 7,14" fill="#3a2818" stroke="#1a1a1c" stroke-width="1"/><rect x="7" y="10" width="9" height="4" fill="#ffd060" stroke="#1a1a1c" stroke-width="1"/><rect x="16" y="10" width="2" height="4" fill="#aab" stroke="#1a1a1c" stroke-width="1"/><rect x="18" y="10" width="2" height="4" fill="#ff9eb5" stroke="#1a1a1c" stroke-width="1"/></g></svg> Paint</button>
-      <button id="eyedropperTool" class="tool-btn" title="Pick color from canvas (I)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-40 12 12)"><rect x="14" y="3" width="6" height="4" rx="1" fill="#aab" stroke="#1a1a1c" stroke-width="1"/><rect x="6" y="10" width="11" height="3" fill="#bcd" stroke="#1a1a1c" stroke-width="1"/><polygon points="6,10 6,13 3,11.5" fill="#3aa8b8" stroke="#1a1a1c" stroke-width="0.8"/></g></svg> Pick</button>
-      <button id="eraserTool" class="tool-btn" title="Erase (X or E, or right-click)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-40 12 12)"><rect x="3" y="9" width="18" height="6" rx="1.5" fill="#ff9eb5" stroke="#1a1a1c" stroke-width="1"/><rect x="3" y="9" width="5" height="6" fill="#3a7ce8" stroke="#1a1a1c" stroke-width="1"/></g></svg> Erase</button>
-    </div>
-    <div class="tool-row">
-      <button id="fillTool" class="tool-btn" title="Fill bucket (G)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-25 12 12)"><path d="M 6 6 L 14 6 L 13 16 L 7 16 Z" fill="#aab" stroke="#1a1a1c" stroke-width="1"/><path d="M 6 7 Q 10 2 14 7" fill="none" stroke="#1a1a1c" stroke-width="1.2"/><path d="M 7 14 Q 4 18 3 22" fill="none" stroke="#ffd060" stroke-width="2.5" stroke-linecap="round"/><ellipse cx="3" cy="22" rx="2.5" ry="1" fill="#ffd060" stroke="#1a1a1c" stroke-width="0.6"/></g></svg> Fill</button>
-      <button id="rectTool" class="tool-btn" title="Rectangle (R) — drag to draw a filled rectangle. Shift = square.">▭ Rect</button>
-      <button id="ellipseTool" class="tool-btn" title="Ellipse (O) — drag to draw a filled ellipse. Shift = circle.">○ Ellipse</button>
-    </div>
-    <div class="tool-row">
-      <button id="selectTool" class="tool-btn" title="Selection / marquee (M) — drag to select. Cmd/Ctrl + C/X/V/A, Esc to deselect. Drag inside the marquee to move it.">⬚ Select</button>
-      <button id="symBtn" class="tool-btn" title="Toggle symmetry. Click again to cycle: off → vertical mirror → horizontal → both.">⫯ Sym: off</button>
-      <button id="lockAlphaBtn" class="tool-btn" title="Lock transparent pixels — paint only affects already-painted cells.">🔒 Lock α</button>
-    </div>
-    <!-- Brush size now lives in the header toolbar (Photoshop-style
-         slider + ring preview). The pixel-perfect toggle stays here
-         since it's a pencil-tool option. -->
-    <div class="tool-row">
-      <button id="pixelPerfectBtn" class="tool-btn" title="Pixel-perfect mode: auto-remove the L-joints that freehand diagonal strokes leave behind. Aseprite's classic 'clean lines' toggle.">◢ Pixel-perfect</button>
+    <div class="section-body">
+      <div class="tool-row">
+        <button id="paintTool" class="tool-btn active" title="Paint (P or B)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-45 12 12)"><polygon points="4,12 7,10 7,14" fill="#3a2818" stroke="#1a1a1c" stroke-width="1"/><rect x="7" y="10" width="9" height="4" fill="#ffd060" stroke="#1a1a1c" stroke-width="1"/><rect x="16" y="10" width="2" height="4" fill="#aab" stroke="#1a1a1c" stroke-width="1"/><rect x="18" y="10" width="2" height="4" fill="#ff9eb5" stroke="#1a1a1c" stroke-width="1"/></g></svg> Paint</button>
+        <button id="eyedropperTool" class="tool-btn" title="Pick color from canvas (I)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-40 12 12)"><rect x="14" y="3" width="6" height="4" rx="1" fill="#aab" stroke="#1a1a1c" stroke-width="1"/><rect x="6" y="10" width="11" height="3" fill="#bcd" stroke="#1a1a1c" stroke-width="1"/><polygon points="6,10 6,13 3,11.5" fill="#3aa8b8" stroke="#1a1a1c" stroke-width="0.8"/></g></svg> Pick</button>
+        <button id="eraserTool" class="tool-btn" title="Erase (X or E, or right-click)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-40 12 12)"><rect x="3" y="9" width="18" height="6" rx="1.5" fill="#ff9eb5" stroke="#1a1a1c" stroke-width="1"/><rect x="3" y="9" width="5" height="6" fill="#3a7ce8" stroke="#1a1a1c" stroke-width="1"/></g></svg> Erase</button>
+      </div>
+      <div class="tool-row">
+        <button id="fillTool" class="tool-btn" title="Fill bucket (G)"><svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align: -2px;" aria-hidden="true"><g transform="rotate(-25 12 12)"><path d="M 6 6 L 14 6 L 13 16 L 7 16 Z" fill="#aab" stroke="#1a1a1c" stroke-width="1"/><path d="M 6 7 Q 10 2 14 7" fill="none" stroke="#1a1a1c" stroke-width="1.2"/><path d="M 7 14 Q 4 18 3 22" fill="none" stroke="#ffd060" stroke-width="2.5" stroke-linecap="round"/><ellipse cx="3" cy="22" rx="2.5" ry="1" fill="#ffd060" stroke="#1a1a1c" stroke-width="0.6"/></g></svg> Fill</button>
+        <button id="rectTool" class="tool-btn" title="Rectangle (R) — drag to draw a filled rectangle. Shift = square.">▭ Rect</button>
+        <button id="ellipseTool" class="tool-btn" title="Ellipse (O) — drag to draw a filled ellipse. Shift = circle.">○ Ellipse</button>
+      </div>
+      <div class="tool-row">
+        <button id="selectTool" class="tool-btn" title="Selection / marquee (M) — drag to select. Cmd/Ctrl + C/X/V/A, Esc to deselect. Drag inside the marquee to move it.">⬚ Select</button>
+        <button id="symBtn" class="tool-btn" title="Toggle symmetry. Click again to cycle: off → vertical mirror → horizontal → both.">⫯ Sym: off</button>
+        <button id="lockAlphaBtn" class="tool-btn" title="Lock transparent pixels — paint only affects already-painted cells.">🔒 Lock α</button>
+      </div>
+      <div class="tool-row">
+        <button id="pixelPerfectBtn" class="tool-btn" title="Pixel-perfect mode: auto-remove the L-joints that freehand diagonal strokes leave behind. Aseprite's classic 'clean lines' toggle.">◢ Pixel-perfect</button>
+      </div>
     </div>
 
+    <!-- COLOR section. Active swatch + foreground/previous pair, then a
+         collapsible sub-section for the custom color picker. -->
     <h2 class="section-head section-head-divider">Color</h2>
-    <!-- Foreground / previous swatch pair, Photoshop-style. The small
-         offset square behind the big one is the LAST color used; click
-         it (or press X) to swap. -->
-    <div class="active-row">
-      <div id="prevSwatch" class="prev-swatch" title="Previous color — click (or press X) to swap"></div>
-      <div id="activeSwatch" class="active-swatch" style="background: #3aa8b8;"></div>
-      <div id="activeHex" class="active-hex" title="Click to copy hex">#3aa8b8</div>
-    </div>
-    <h2 class="sub-head">Pick Any Color</h2>
-    <div class="picker-row">
-      <input id="colorPicker" type="color" value="#3aa8b8">
-      <div class="hex-input-row">
-        <input id="hexInput" type="text" maxlength="7" value="#3aa8b8" placeholder="#rrggbb">
-        <button id="addCustomBtn" title="Save current color to custom palette">+ Add</button>
+    <div class="section-body">
+      <div class="active-row">
+        <div id="prevSwatch" class="prev-swatch" title="Previous color — click (or press X) to swap"></div>
+        <div id="activeSwatch" class="active-swatch" style="background: #3aa8b8;"></div>
+        <div id="activeHex" class="active-hex" title="Click to copy hex">#3aa8b8</div>
+      </div>
+      <h2 class="sub-head">Pick Any Color</h2>
+      <div class="sub-body">
+        <div class="picker-row">
+          <input id="colorPicker" type="color" value="#3aa8b8">
+          <div class="hex-input-row">
+            <input id="hexInput" type="text" maxlength="7" value="#3aa8b8" placeholder="#rrggbb">
+            <button id="addCustomBtn" title="Save current color to custom palette">+ Add</button>
+          </div>
+        </div>
+      </div>
+      <h2 class="sub-head" style="display: flex; justify-content: space-between; align-items: center;">
+        <span>DLX Palette</span>
+        <button id="quantizeBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px; flex: 0 0 auto;"
+                title="Snap every painted pixel to the nearest color in the DLX palette. Useful after importing a PNG.">Snap</button>
+      </h2>
+      <div class="sub-body">
+        <div id="paletteContainer"></div>
+      </div>
+      <h2 class="sub-head">Recent</h2>
+      <div class="sub-body">
+        <div id="recentGrid" class="swatch-grid"></div>
       </div>
     </div>
 
-    <h2 style="display: flex; align-items: center; justify-content: space-between;">
-      <span>Reference Layer</span>
-      <span id="refStatusDot" style="font-size: 9px; color: var(--text-dim);"></span>
-    </h2>
-    <div class="ref-row">
-      <button id="refLoadBtn" class="tool-btn" style="flex: 1;">📷 Load Image</button>
-      <button id="refClearBtn" class="tool-btn" style="max-width: 60px;" disabled>Clear</button>
-      <input id="refLoadInput" type="file" accept="image/*" style="display: none;">
-    </div>
-    <div id="refControls" style="display: none; margin-top: 8px;">
-      <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
-        <input id="refVisibleCheck" type="checkbox" checked> Show reference
-      </label>
-      <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px;">
-        Opacity: <span id="refOpacityValue">40%</span>
-      </label>
-      <input id="refOpacitySlider" type="range" min="0" max="100" value="40"
-             style="width: 100%; background: var(--bg-input); accent-color: var(--accent);">
-      <!-- Transform controls — appear when a reference image is loaded -->
-      <div style="display: flex; gap: 3px; flex-wrap: wrap; margin-top: 6px;">
-        <button id="refFlipHBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Mirror reference horizontally">↔ H</button>
-        <button id="refFlipVBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Mirror reference vertically">↕ V</button>
-        <button id="refRotateBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Rotate reference 90° clockwise">↻ 90°</button>
-        <button id="refResetXformBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Reset all reference transforms">Reset</button>
-      </div>
-      <div style="display: flex; gap: 3px; align-items: center; margin-top: 4px; font-size: 10px; color: var(--text-dim);">
-        <span>Move:</span>
-        <button id="refMoveLeftBtn"  class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference left (1 px, Shift = 10 px)">←</button>
-        <button id="refMoveUpBtn"    class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference up (1 px, Shift = 10 px)">↑</button>
-        <button id="refMoveDownBtn"  class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference down (1 px, Shift = 10 px)">↓</button>
-        <button id="refMoveRightBtn" class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference right (1 px, Shift = 10 px)">→</button>
-      </div>
-    </div>
-
-    <h2 style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
-      <span>DLX Palette</span>
-      <button id="quantizeBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;"
-              title="Snap every painted pixel to the nearest color in the DLX palette. Useful after importing a PNG.">Snap to palette</button>
-    </h2>
-    <div id="paletteContainer"></div>
-
-    <h2 style="margin-top: 12px;">Recent</h2>
-    <div id="recentGrid" class="swatch-grid"></div>
-
-    <h2 style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+    <!-- LAYERS section — moved up so it's visible without scrolling
+         past the DLX palette. Layers are central for an animator
+         workflow, so they get top billing right after color. -->
+    <h2 class="section-head section-head-divider" style="display: flex; align-items: center; justify-content: space-between;">
       <span>Layers</span>
-      <button id="layerAddBtn" class="tool-btn" style="font-size: 11px; padding: 3px 8px;"
+      <button id="layerAddBtn" class="tool-btn" style="font-size: 11px; padding: 3px 8px; flex: 0 0 auto;"
               title="Add a new empty layer on top of the stack">+ Layer</button>
     </h2>
-    <div id="layerList" class="layer-list"></div>
-    <div class="layer-opacity-row" id="layerOpacityRow" style="display: none;">
-      <span class="layer-opacity-label">α</span>
-      <input id="layerOpacityInput" type="range" min="0" max="100" step="5" value="100" title="Opacity of the active layer">
-      <span id="layerOpacityVal" class="layer-opacity-val">100%</span>
+    <div class="section-body">
+      <div id="layerList" class="layer-list"></div>
+      <div class="layer-opacity-row" id="layerOpacityRow" style="display: none;">
+        <span class="layer-opacity-label">α</span>
+        <input id="layerOpacityInput" type="range" min="0" max="100" step="5" value="100" title="Opacity of the active layer">
+        <span id="layerOpacityVal" class="layer-opacity-val">100%</span>
+      </div>
     </div>
 
-    <h2 style="margin-top: 12px;">Navigator</h2>
-    <div class="minimap-wrap" title="Click to jump the paint canvas to that position. The yellow box shows the visible viewport when zoomed in.">
-      <canvas id="minimapCanvas"></canvas>
+    <!-- REFERENCE section — moved below Layers (was between Color and
+         DLX Palette). Less critical than Layers, collapsed by default. -->
+    <h2 class="section-head section-head-divider collapsed" style="display: flex; align-items: center; justify-content: space-between;">
+      <span>Reference Layer</span>
+      <span id="refStatusDot" style="font-size: 9px; color: var(--text-dim); flex: 0 0 auto;"></span>
+    </h2>
+    <div class="section-body">
+      <div class="ref-row">
+        <button id="refLoadBtn" class="tool-btn" style="flex: 1;">📷 Load Image</button>
+        <button id="refClearBtn" class="tool-btn" style="max-width: 60px;" disabled>Clear</button>
+        <input id="refLoadInput" type="file" accept="image/*" style="display: none;">
+      </div>
+      <div id="refControls" style="display: none; margin-top: 8px;">
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
+          <input id="refVisibleCheck" type="checkbox" checked> Show reference
+        </label>
+        <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px;">
+          Opacity: <span id="refOpacityValue">40%</span>
+        </label>
+        <input id="refOpacitySlider" type="range" min="0" max="100" value="40"
+               style="width: 100%; background: var(--bg-input); accent-color: var(--accent);">
+        <div style="display: flex; gap: 3px; flex-wrap: wrap; margin-top: 6px;">
+          <button id="refFlipHBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Mirror reference horizontally">↔ H</button>
+          <button id="refFlipVBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Mirror reference vertically">↕ V</button>
+          <button id="refRotateBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Rotate reference 90° clockwise">↻ 90°</button>
+          <button id="refResetXformBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Reset all reference transforms">Reset</button>
+        </div>
+        <div style="display: flex; gap: 3px; align-items: center; margin-top: 4px; font-size: 10px; color: var(--text-dim);">
+          <span>Move:</span>
+          <button id="refMoveLeftBtn"  class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference left (1 px, Shift = 10 px)">←</button>
+          <button id="refMoveUpBtn"    class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference up (1 px, Shift = 10 px)">↑</button>
+          <button id="refMoveDownBtn"  class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference down (1 px, Shift = 10 px)">↓</button>
+          <button id="refMoveRightBtn" class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference right (1 px, Shift = 10 px)">→</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- NAVIGATOR section — minimap. Collapsed by default to save space;
+         click the header to expand when needed. -->
+    <h2 class="section-head section-head-divider collapsed">Navigator</h2>
+    <div class="section-body">
+      <div class="minimap-wrap" title="Click to jump the paint canvas to that position. The yellow box shows the visible viewport when zoomed in.">
+        <canvas id="minimapCanvas"></canvas>
+      </div>
     </div>
   </div>
 
@@ -877,8 +940,9 @@
     <button id="tlAddBtn" title="Add new BLANK frame (Alt+N)">+ Blank</button>
     <button id="tlDelBtn" title="Delete current frame (Alt+Del)">× Delete</button>
     <button id="tlReverseBtn" title="Reverse the order of all frames (also re-aims tag ranges)">⇄ Reverse</button>
-    <label>Duration <input id="tlDurInput" type="number" min="10" max="2000" step="10" value="100"> ms</label>
-    <span class="fps-readout" id="tlFpsReadout" title="Frame rate equivalent of the active frame's duration">≈ 10 FPS</span>
+    <label title="Per-frame duration in milliseconds (active frame only)">Duration <input id="tlDurInput" type="number" min="10" max="2000" step="10" value="100"></label>
+    <!-- FPS readout removed per user feedback — duration is sufficient. -->
+    <span class="fps-readout" id="tlFpsReadout" style="display: none;"></span>
     <label style="margin-left: 12px; color: var(--text-dim);">Onion skin:</label>
     <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Show previous frame(s) faintly under the current one">
       <input id="tlOnionPrevCheck" type="checkbox"> ◀ prev
@@ -1151,12 +1215,36 @@
   </div>
 </div>
 
+<!-- Branded confirm modal — replaces native browser confirm() / alert()
+     calls so the destructive-action prompts (Clear, Delete frame,
+     Delete layer, Reverse, etc.) match the rest of the app instead of
+     looking like an OS pop-up. showConfirm() / showAlert() are
+     promise-flavored helpers (call .then or just use the callback). -->
+<div id="confirmModal" class="modal-backdrop" style="display:none;">
+  <div class="modal" style="width: 420px;">
+    <div class="modal-head">
+      <h2 id="confirmModalTitle" style="display: flex; align-items: center; gap: 8px;">
+        <img src="assets/wondrous-grid-icon.svg" alt="" style="width: 18px; height: 18px; image-rendering: pixelated; border-radius: 3px;">
+        Confirm
+      </h2>
+    </div>
+    <div class="modal-body" id="confirmModalBody" style="font-size: 13px; line-height: 1.55;"></div>
+    <div class="modal-foot">
+      <button id="confirmModalCancel">Cancel</button>
+      <button class="primary" id="confirmModalOk">OK</button>
+    </div>
+  </div>
+</div>
+
 <!-- First-time welcome modal — appears once per browser. Quick
      orientation for new users + dismiss-forever via the checkbox. -->
 <div id="welcomeModal" class="modal-backdrop" style="display:none;">
   <div class="modal" style="width: 560px;">
     <div class="modal-head">
-      <h2>Welcome to Wondrous Grid</h2>
+      <h2 style="display: flex; align-items: center; gap: 10px;">
+        <img src="assets/wondrous-grid-icon.svg" alt="" style="width: 28px; height: 28px; image-rendering: pixelated; border-radius: 4px;">
+        Welcome to Wondrous Grid
+      </h2>
       <button class="modal-close" id="welcomeModalClose">×</button>
     </div>
     <div class="modal-body" style="font-size: 13px; line-height: 1.55;">
@@ -3350,14 +3438,20 @@ copyBtn.addEventListener('click', async () => {
 
 clearBtn.addEventListener('click', () => {
   if (Object.keys(state.pixels).length === 0) return;
-  if (!confirm('Clear all painted pixels? (canvas size + palette stay — undoable)')) return;
-  const before = snapshotPixels();
-  state.pixels = {};
-  commitHistory(before);
-  renderGrid();
-  renderPreview();
-  renderCode();
-  autosave();
+  showConfirm({
+    title: 'Clear canvas',
+    body: 'Clear all painted pixels on the active layer? Canvas size + palette stay. Undoable.',
+    ok: 'Clear', danger: true,
+  }).then((okay) => {
+    if (!okay) return;
+    const before = snapshotPixels();
+    state.pixels = {};
+    commitHistory(before);
+    renderGrid();
+    renderPreview();
+    renderCode();
+    autosave();
+  });
 });
 
 saveBtn.addEventListener('click', () => {
@@ -4674,15 +4768,21 @@ tagModalSave.addEventListener('click', () => {
 });
 tagModalDelete.addEventListener('click', () => {
   if (!editingTagName) return;
-  if (!confirm(`Delete tag "${editingTagName}"?`)) return;
-  state.tags = state.tags.filter(t => t.name !== editingTagName);
-  if (state.playingTag === editingTagName) {
-    state.playingTag = null;
-    stopPlayback();
-  }
-  closeTagModal();
-  renderTimeline();
-  autosave();
+  showConfirm({
+    title: 'Delete tag',
+    body: `Remove the "${editingTagName}" tag? Frames keep their pixels — only the named range goes away.`,
+    ok: 'Delete', danger: true,
+  }).then((okay) => {
+    if (!okay) return;
+    state.tags = state.tags.filter(t => t.name !== editingTagName);
+    if (state.playingTag === editingTagName) {
+      state.playingTag = null;
+      stopPlayback();
+    }
+    closeTagModal();
+    renderTimeline();
+    autosave();
+  });
 });
 
 function refreshFpsReadout() {
@@ -4883,17 +4983,23 @@ function addLayer() {
 
 function deleteLayer(idx) {
   if (state.layers.length <= 1) return;
-  if (!confirm(`Delete layer "${state.layers[idx].name}"? All its pixels (across every frame) will be removed.`)) return;
-  state.layers.splice(idx, 1);
-  for (const f of state.frames) f.layerPixels.splice(idx, 1);
-  if (state.activeLayer >= state.layers.length) state.activeLayer = state.layers.length - 1;
-  resetHistory();
-  renderLayers();
-  renderGrid();
-  renderPreview();
-  renderCode();
-  renderTimeline();
-  autosave();
+  showConfirm({
+    title: 'Delete layer',
+    body: `Remove layer "${state.layers[idx].name}"? Every pixel painted on this layer (across every frame) will be erased.`,
+    ok: 'Delete', danger: true,
+  }).then((okay) => {
+    if (!okay) return;
+    state.layers.splice(idx, 1);
+    for (const f of state.frames) f.layerPixels.splice(idx, 1);
+    if (state.activeLayer >= state.layers.length) state.activeLayer = state.layers.length - 1;
+    resetHistory();
+    renderLayers();
+    renderGrid();
+    renderPreview();
+    renderCode();
+    renderTimeline();
+    autosave();
+  });
 }
 
 function toggleLayerVis(idx) {
@@ -4971,6 +5077,12 @@ let previewWindowFrame = 0;
 let previewWindowFrameStart = 0;
 let previewWindowDismissed = false;
 let previewWindowRaf = null;
+// Preview window honors a manual-pause flag that the timeline Play /
+// Pause button toggles. Defaults to playing so the artist sees motion
+// the moment they have multi-frame content, without having to click
+// Play first. Toolbar Pause flips this off → preview stops on the
+// current frame until Play is clicked again.
+let previewWindowPaused = false;
 
 function syncPreviewWindowVisibility() {
   // Show whenever the sprite has motion (>1 frame) AND the user hasn't
@@ -4986,6 +5098,10 @@ function syncPreviewWindowVisibility() {
     cancelAnimationFrame(previewWindowRaf);
     previewWindowRaf = null;
   }
+  // Keep the header toggle button in sync (may not exist on the very
+  // first call during boot — guard).
+  const tpb = document.getElementById('togglePreviewBtn');
+  if (tpb) syncTogglePreviewActive();
 }
 
 function previewWindowLoop() {
@@ -4995,6 +5111,17 @@ function previewWindowLoop() {
   }
   const N = state.frames.length;
   if (N < 1) { previewWindowRaf = null; return; }
+  // When manually paused by the timeline Pause button, still re-draw
+  // the current frame each tick so live pixel edits show through, but
+  // DON'T advance the frame index. previewWindowFrameStart is held at
+  // the current `now()` so the moment Play is hit, the frame timer
+  // restarts cleanly instead of jumping ahead.
+  if (previewWindowPaused) {
+    previewWindowFrameStart = performance.now();
+    drawPreviewWindowFrame();
+    previewWindowRaf = requestAnimationFrame(previewWindowLoop);
+    return;
+  }
   const cur = previewWindowFrame % N;
   const dur = state.frames[cur].duration;
   if (performance.now() - previewWindowFrameStart >= dur) {
@@ -5032,6 +5159,23 @@ previewZoomUpBtn.addEventListener('click', () => {
 previewWindowCloseBtn.addEventListener('click', () => {
   previewWindowDismissed = true;
   syncPreviewWindowVisibility();
+});
+// Header-bar toggle — user-discoverable way to bring the preview
+// window back after dismissing it (otherwise the × button was a
+// one-way door). Reflects current visibility in the button's active
+// state so the user can tell at a glance whether it's open.
+const togglePreviewBtn = document.getElementById('togglePreviewBtn');
+function syncTogglePreviewActive() {
+  const shown = state.frames.length > 1 && !previewWindowDismissed;
+  togglePreviewBtn.classList.toggle('active', shown);
+  togglePreviewBtn.title = shown
+    ? 'Preview window is open — click to hide'
+    : 'Preview window is hidden — click to show';
+}
+togglePreviewBtn.addEventListener('click', () => {
+  previewWindowDismissed = !previewWindowDismissed;
+  syncPreviewWindowVisibility();
+  syncTogglePreviewActive();
 });
 
 // Drag-to-move on the header. Switches the window from
@@ -5181,12 +5325,32 @@ let playRafId = null;
 let playFrameStartTime = 0;
 
 function togglePlay() {
-  if (state.playing) stopPlayback();
-  else startPlayback();
+  // User-initiated toggle is the ONLY place the floating preview
+  // window's pause flag flips. Other stopPlayback callers (frame
+  // navigation, asset load, etc.) leave the preview running so the
+  // artist still sees motion while they make incidental changes.
+  if (state.playing) {
+    previewWindowPaused = true;
+    stopPlayback();
+  } else {
+    previewWindowPaused = false;
+    startPlayback();
+  }
 }
 
 function startPlayback() {
-  if (state.frames.length < 2) return;
+  if (state.frames.length < 2) {
+    // Single-frame sprite — nothing to play. Show a brief hint on the
+    // button so the user understands why nothing happened (previous
+    // silent return was the reported "stuck on Play" bug).
+    tlPlayBtn.textContent = '▶ Add a 2nd frame';
+    tlPlayBtn.title = 'Need 2+ frames to play. Use + Blank or ⎘ Duplicate.';
+    setTimeout(() => {
+      tlPlayBtn.textContent = '▶ Play';
+      tlPlayBtn.title = 'Play / Pause (Space)';
+    }, 1600);
+    return;
+  }
   state.playing = true;
   playFrameStartTime = performance.now();
   tlPlayBtn.textContent = '⏸ Pause';
@@ -5259,9 +5423,15 @@ tlAddBtn.addEventListener('click',  () => { stopPlayback(); addBlankFrame(); });
 tlDupBtn.addEventListener('click',  () => { stopPlayback(); duplicateFrame(); });
 tlDelBtn.addEventListener('click',  () => {
   if (state.frames.length <= 1) return;
-  if (!confirm(`Delete frame ${state.activeFrame + 1}?`)) return;
-  stopPlayback();
-  deleteFrame();
+  showConfirm({
+    title: 'Delete frame',
+    body: `Remove frame ${state.activeFrame + 1} of ${state.frames.length}? This step isn't undoable across frame ops.`,
+    ok: 'Delete', danger: true,
+  }).then((okay) => {
+    if (!okay) return;
+    stopPlayback();
+    deleteFrame();
+  });
 });
 tlDurInput.addEventListener('change', () => {
   const v = Math.max(10, Math.min(2000, parseInt(tlDurInput.value, 10) || 100));
@@ -5333,19 +5503,25 @@ tlLoopModeBtn.addEventListener('click', () => {
 const tlReverseBtn = document.getElementById('tlReverseBtn');
 tlReverseBtn.addEventListener('click', () => {
   if (state.frames.length < 2) return;
-  if (!confirm('Reverse the order of all ' + state.frames.length + ' frames? Tag ranges will be re-aimed automatically.')) return;
-  stopPlayback();
-  state.frames.reverse();
-  const N = state.frames.length;
-  for (const t of state.tags) {
-    const newFrom = N - 1 - t.to;
-    const newTo   = N - 1 - t.from;
-    t.from = newFrom; t.to = newTo;
-  }
-  state.activeFrame = N - 1 - state.activeFrame;
-  resetHistory();
-  renderGrid(); renderPreview(); renderCode(); renderTimeline();
-  autosave();
+  showConfirm({
+    title: 'Reverse frames',
+    body: `Reverse the order of all ${state.frames.length} frames? Tag ranges will be re-aimed to point at the same content in its new position.`,
+    ok: 'Reverse',
+  }).then((okay) => {
+    if (!okay) return;
+    stopPlayback();
+    state.frames.reverse();
+    const N = state.frames.length;
+    for (const t of state.tags) {
+      const newFrom = N - 1 - t.to;
+      const newTo   = N - 1 - t.from;
+      t.from = newFrom; t.to = newTo;
+    }
+    state.activeFrame = N - 1 - state.activeFrame;
+    resetHistory();
+    renderGrid(); renderPreview(); renderCode(); renderTimeline();
+    autosave();
+  });
 });
 
 // ────────────────────────────────────────────────────────────
@@ -5468,6 +5644,7 @@ helpModal.addEventListener('click', (e) => { if (e.target === helpModal) closeHe
 window.addEventListener('keydown', (e) => {
   // Modal-level: Esc closes any open modal regardless of focus.
   if (e.key === 'Escape') {
+    if (confirmModal.style.display === 'flex') { closeConfirm(false); e.preventDefault(); return; }
     if (welcomeModal.style.display === 'flex') { closeWelcome(); e.preventDefault(); return; }
     if (helpModal.style.display === 'flex') { closeHelp(); e.preventDefault(); return; }
     if (assetsModal.style.display === 'flex') { closeAssetsModal(); e.preventDefault(); return; }
@@ -5650,6 +5827,53 @@ window.addEventListener('keyup', (e) => {
   }
 });
 
+// ── Branded confirm / alert ──────────────────────────────────
+// Drop-in replacements for the browser's native confirm() / alert()
+// dialogs that match the rest of the editor's look. Both are
+// promise-flavored so call sites stay close to the original ergonomics:
+//   if (await showConfirm({ body: '…' })) { … }
+//   await showAlert({ body: '…' });
+// The OK + Cancel labels are customizable so destructive actions
+// can read more clearly (e.g., "Delete" instead of "OK").
+const confirmModal       = document.getElementById('confirmModal');
+const confirmModalTitle  = document.getElementById('confirmModalTitle');
+const confirmModalBody   = document.getElementById('confirmModalBody');
+const confirmModalOk     = document.getElementById('confirmModalOk');
+const confirmModalCancel = document.getElementById('confirmModalCancel');
+let _confirmResolver = null;
+function showConfirm({ title = 'Confirm', body = '', ok = 'OK', cancel = 'Cancel', danger = false } = {}) {
+  return new Promise((resolve) => {
+    _confirmResolver = resolve;
+    confirmModalTitle.lastChild.textContent = ' ' + title;
+    confirmModalBody.textContent = body;
+    confirmModalOk.textContent = ok;
+    confirmModalOk.style.color = danger ? '#ff6e6e' : '';
+    confirmModalCancel.textContent = cancel;
+    confirmModalCancel.style.display = '';
+    confirmModal.style.display = 'flex';
+    setTimeout(() => confirmModalOk.focus(), 0);
+  });
+}
+function showAlert({ title = 'Notice', body = '', ok = 'OK' } = {}) {
+  return new Promise((resolve) => {
+    _confirmResolver = resolve;
+    confirmModalTitle.lastChild.textContent = ' ' + title;
+    confirmModalBody.textContent = body;
+    confirmModalOk.textContent = ok;
+    confirmModalOk.style.color = '';
+    confirmModalCancel.style.display = 'none';
+    confirmModal.style.display = 'flex';
+    setTimeout(() => confirmModalOk.focus(), 0);
+  });
+}
+function closeConfirm(result) {
+  confirmModal.style.display = 'none';
+  if (_confirmResolver) { _confirmResolver(result); _confirmResolver = null; }
+}
+confirmModalOk    .addEventListener('click', () => closeConfirm(true));
+confirmModalCancel.addEventListener('click', () => closeConfirm(false));
+confirmModal      .addEventListener('click', (e) => { if (e.target === confirmModal) closeConfirm(false); });
+
 // ── Welcome modal (first-time visitors) ─────────────────────
 // Shown ONCE per browser unless explicitly re-opened from Help. Tiny
 // orientation for newcomers — pointers to the panels + key shortcuts.
@@ -5694,6 +5918,35 @@ document.getElementById('prevSwatch').addEventListener('click', () => {
 });
 // Initial paint of the previous swatch on boot.
 syncPrevSwatch();
+
+// Left-panel collapsible sections. Clicking any .section-head or
+// .sub-head toggles the .collapsed class, which (via the CSS
+// adjacent-sibling rule) hides the following .section-body /
+// .sub-body. Section preferences persist in localStorage keyed by
+// the header's text content so they restore across reloads.
+(function wireSectionCollapse() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('wondrous-grid-collapsed') || '{}');
+    for (const h of document.querySelectorAll('.section-head, .sub-head')) {
+      const key = (h.textContent || '').trim();
+      if (saved[key]) h.classList.add('collapsed');
+    }
+  } catch {}
+  for (const h of document.querySelectorAll('.section-head, .sub-head')) {
+    h.addEventListener('click', (e) => {
+      // Don't toggle when the click was on a nested button (+ Layer,
+      // Snap, etc.) — those have their own click handlers.
+      if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+      h.classList.toggle('collapsed');
+      try {
+        const cur = JSON.parse(localStorage.getItem('wondrous-grid-collapsed') || '{}');
+        const key = (h.textContent || '').trim();
+        cur[key] = h.classList.contains('collapsed');
+        localStorage.setItem('wondrous-grid-collapsed', JSON.stringify(cur));
+      } catch {}
+    });
+  }
+})();
 </script>
 
 </body>
