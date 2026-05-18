@@ -8806,13 +8806,34 @@ document.getElementById('plAddPresetBtn').addEventListener('click', () => {
 // click into. Each is a single-image starter; the user can extend
 // it into an animation by adding frames + saving back as a new
 // project asset.
+// Each starter has a `url`. URL extension drives how the file is loaded:
+//   .png / .jpg / .jpeg  → loadPngIntoGrid (single frame)
+//   .gif                 → importGifAnimation (multi-frame from GIF)
+//   .js                  → loadAnimationCodeFromUrl (multi-frame from switch-case px() code)
+// Thumbnails follow the same rule — .js gets a code-animation placeholder.
 const BUILT_IN_DLX_ASSETS = [
   { builtin: true, name: 'Hero Rig — Roadkill',         category: 'Characters', w: 58,  h: 52,  url: 'projects/dlx/art/vehicles/hero/roadkill/reference.png' },
   { builtin: true, name: 'Hero Rig — Smashed',          category: 'Characters', w: 58,  h: 52,  url: 'projects/dlx/art/vehicles/hero/roadkill/reference_smashed.png' },
   { builtin: true, name: 'Aerial Thief — Gunship',      category: 'Enemies',    w: 100, h: 44,  url: 'projects/dlx/art/vehicles/enemy/gunship/reference.png' },
   { builtin: true, name: 'Aerial Thief — Gunship Alt',  category: 'Enemies',    w: 132, h: 56,  url: 'projects/dlx/art/vehicles/enemy/gunship_alt/reference.png' },
   { builtin: true, name: 'Aerial Thief — Harpooner',    category: 'Enemies',    w: 110, h: 60,  url: 'projects/dlx/art/vehicles/enemy/harpooner/reference.png' },
+  { builtin: true, name: 'Bouncing Ball — animation test', category: 'FX',      w: 8,   h: 8,   url: 'projects/dlx/animations/bouncing-ball.js', frames: 4 },
 ];
+// Fetch a .js animation file from a starter URL and load it as a
+// multi-frame sprite via the same parser the Paste Code modal uses.
+// This is the read-side of the code-as-animation handoff: collaborators
+// can ship animations as plain text, you tweak them in the canvas,
+// then File → Export → Copy Code to send your edits back.
+async function loadAnimationCodeFromUrl(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('HTTP ' + resp.status + ' fetching ' + url);
+  const text = await resp.text();
+  const frames = parsePastedCode(text);
+  if (!frames || frames.length === 0) {
+    throw new Error('No px() calls found in ' + url);
+  }
+  applyPastedFrames(frames, { durMs: 120 });
+}
 async function listProjectAssets() {
   // Built-in starter assets get prepended for the DLX project so
   // anyone opening the workspace has the rig + thieves to click into.
@@ -8948,11 +8969,19 @@ async function renderProjectAssets() {
     const thumb = document.createElement('div');
     thumb.className = 'pl-asset-thumb';
     if (a.builtin) {
-      const img = document.createElement('img');
-      img.src = a.url;
-      img.alt = a.name;
-      img.style.imageRendering = 'pixelated';
-      thumb.appendChild(img);
+      // Code-based animations (.js) — show a placeholder badge since
+      // we can't <img src> a JS file. Click loads the actual frames.
+      if (/\.js$/i.test(a.url)) {
+        thumb.style.cssText += 'display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px; background: linear-gradient(135deg, #2a2a35, #1a1a25); color: var(--accent);';
+        thumb.innerHTML = '<div style="font-size: 28px; line-height: 1;">🎞</div>' +
+          '<div style="font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; opacity: 0.85;">code · ' + (a.frames || '?') + ' frames</div>';
+      } else {
+        const img = document.createElement('img');
+        img.src = a.url;
+        img.alt = a.name;
+        img.style.imageRendering = 'pixelated';
+        thumb.appendChild(img);
+      }
     } else {
       // User-saved — render first frame from its pixel map.
       const cvs = document.createElement('canvas');
@@ -8995,7 +9024,9 @@ async function renderProjectAssets() {
     // Type badge (top-right corner of the thumb)
     const badge = document.createElement('span');
     badge.className = 'pl-asset-badge';
-    badge.textContent = a.builtin ? 'STARTER' : (isAnim ? '🎞' : '🖼');
+    badge.textContent = a.builtin
+      ? (/\.js$/i.test(a.url) ? '🎞 STARTER' : 'STARTER')
+      : (isAnim ? '🎞' : '🖼');
     tile.appendChild(badge);
     // Delete (only for user-saved — built-ins are read-only)
     if (!a.builtin) {
@@ -9020,9 +9051,14 @@ async function renderProjectAssets() {
       if (!maybeReplaceConfirm()) return;
       try {
         if (a.builtin) {
-          // Built-in starter — fetch the PNG via the existing
-          // loadPngIntoGrid pipeline (single-frame load + reset).
-          await loadPngIntoGrid(a.url);
+          // Built-in starter — branch on file type. .js code files
+          // route through the multi-frame paste-code parser; image
+          // files use the single-frame load pipeline.
+          if (/\.js$/i.test(a.url)) {
+            await loadAnimationCodeFromUrl(a.url);
+          } else {
+            await loadPngIntoGrid(a.url);
+          }
         } else {
           loadAssetIntoState(a);
         }
