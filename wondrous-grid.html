@@ -684,6 +684,45 @@
     padding-top: 8px;
     border-top: 1px dashed var(--border);
   }
+
+  /* Slices list — one row per named slice (matches layer-row look). */
+  .slice-list { display: flex; flex-direction: column; gap: 2px; }
+  .slice-empty {
+    font-size: 10px; color: var(--text-dim);
+    line-height: 1.4;
+    padding: 6px;
+    border: 1px dashed var(--border);
+    border-radius: 3px;
+    text-align: center;
+  }
+  .slice-row {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg-input); border: 1px solid transparent;
+    padding: 4px 6px; border-radius: 2px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .slice-row:hover { border-color: var(--text-dim); }
+  .slice-row.active { border-color: var(--accent); background: var(--accent-dim); }
+  .slice-row-dot {
+    width: 10px; height: 10px; border-radius: 2px;
+    flex-shrink: 0;
+    border: 1px solid rgba(0,0,0,0.5);
+  }
+  .slice-row-name {
+    flex: 1; color: var(--text);
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .slice-row-dims {
+    color: var(--text-dim); font-family: 'SF Mono', Consolas, monospace; font-size: 10px;
+  }
+  .slice-row-del {
+    background: transparent; border: 1px solid transparent;
+    color: var(--text-dim); cursor: pointer;
+    padding: 0 4px; font-size: 12px; line-height: 1;
+    border-radius: 2px;
+  }
+  .slice-row-del:hover { color: #ff6e6e; border-color: #ff6e6e; }
   .ref-layer-head {
     display: flex; align-items: center; gap: 4px;
     background: var(--bg-input); border: 1px solid transparent;
@@ -960,6 +999,8 @@
       </div>
       <div class="tool-row">
         <button id="pixelPerfectBtn" class="tool-btn" title="Pixel-perfect mode: auto-remove the L-joints that freehand diagonal strokes leave behind. Aseprite's classic 'clean lines' toggle.">◢ Pixel-perfect</button>
+        <button id="sliceTool" class="tool-btn" title="Slice tool — drag to name a rectangular region for sprite-atlas export (game pipelines need this)">▢ Slice</button>
+        <button id="autoOutlineBtn" class="tool-btn" title="Add a 1-px outline around every painted region on the active layer, using the active color">⬢ Outline</button>
       </div>
     </div>
 
@@ -1012,10 +1053,14 @@
          Now with a preset dropdown so artists can swap in classic
          pixel-art palettes (NES / Game Boy / PICO-8 / Endesga 32 /
          Sweetie 16) in addition to the project-default DLX set. -->
-    <h2 class="section-head section-head-divider" style="display: flex; align-items: center; justify-content: space-between;">
+    <h2 class="section-head section-head-divider" style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
       <span>Palette</span>
-      <button id="quantizeBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px; flex: 0 0 auto;"
-              title="Snap every painted pixel to the nearest color in the active palette. Useful after importing a PNG or after switching palettes.">Snap</button>
+      <span style="display: flex; gap: 4px; flex: 0 0 auto;">
+        <button id="loadPaletteBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;"
+                title="Import a palette file (.gpl / .hex / .txt) from Aseprite, Lospec, GIMP, etc.">Load</button>
+        <button id="quantizeBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;"
+                title="Snap every painted pixel to the nearest color in the active palette.">Snap</button>
+      </span>
     </h2>
     <div class="section-body">
       <div style="margin-bottom: 8px;">
@@ -1026,8 +1071,10 @@
           <option value="endesga32">Endesga 32</option>
           <option value="gameboy">Game Boy (4)</option>
           <option value="nes">NES (54)</option>
+          <option value="imported" id="paletteImportedOption" style="display: none;">Imported</option>
         </select>
       </div>
+      <input id="loadPaletteInput" type="file" accept=".gpl,.hex,.txt,.pal" style="display: none;">
       <div id="paletteContainer"></div>
     </div>
 
@@ -1088,6 +1135,21 @@
            had id="refStatusDot"; keep it around so any code that reads
            it doesn't blow up, but it lives nowhere visible now. -->
       <span id="refStatusDot" style="display: none;"></span>
+    </div>
+
+    <!-- SLICES section — named rectangular regions over the sprite.
+         Critical for game-atlas export: each slice ends up in the
+         sprite-sheet metadata JSON with {name, x, y, w, h}. Draw
+         them with the ▢ Slice tool. Default collapsed since most
+         users won't need this for casual sprites. -->
+    <h2 class="section-head section-head-divider collapsed" style="display: flex; align-items: center; justify-content: space-between;">
+      <span>Slices</span>
+      <span id="sliceCount" style="font-size: 9px; color: var(--text-dim); font-weight: 400;"></span>
+    </h2>
+    <div class="section-body">
+      <div id="sliceList" class="slice-list">
+        <div class="slice-empty" id="sliceEmpty">No slices yet — switch to the ▢ Slice tool and drag on the canvas to define one.</div>
+      </div>
     </div>
 
     <!-- NAVIGATOR section — minimap. Collapsed by default to save space;
@@ -1679,8 +1741,15 @@ let state = {
   brushDither: 'solid',
   // Active palette key — 'dlx' is the project default; the dropdown
   // lets the user swap to NES / PICO-8 / Game Boy / Endesga 32 /
-  // Sweetie 16 for classic pixel-art palettes.
+  // Sweetie 16 for classic pixel-art palettes. 'imported' shows the
+  // most recently loaded .gpl/.hex file (stored in importedPalette).
   paletteKey: 'dlx',
+  importedPalette: null,   // array of hex strings when user has loaded a file
+  // Sprite slices — named rectangular regions for atlas export.
+  // Each: { name, x, y, w, h, color } in canonical canvas coords.
+  // Sprite-wide (not per-frame); included in PNG export sidecar
+  // and JSON save/load.
+  slices: [],
   // Pixel-perfect mode: while painting a freehand stroke, auto-remove
   // any pixel that would form a 3-in-a-row L-joint (the "stairstep
   // double" that diagonal freehand strokes produce). Standard pro
@@ -2081,8 +2150,11 @@ function setTool(t) {
   rectTool.classList.toggle('active',       t === 'rect');
   ellipseTool.classList.toggle('active',    t === 'ellipse');
   selectTool.classList.toggle('active',     t === 'select');
+  const sliceTool = document.getElementById('sliceTool');
+  if (sliceTool) sliceTool.classList.toggle('active', t === 'slice');
   let cursor = 'crosshair';
   if (t === 'pick')    cursor = 'cell';
+  if (t === 'slice')   cursor = 'crosshair';
   // Custom eraser cursor — pink rubber with a blue ferrule, tilted so
   // the working end points at the cursor's "hotspot" (4, 20). Replaces
   // the default 'not-allowed' which read as a forbidden / no-symbol
@@ -2100,6 +2172,7 @@ fillTool.addEventListener('click',       () => setTool('fill'));
 rectTool.addEventListener('click',       () => setTool('rect'));
 ellipseTool.addEventListener('click',    () => setTool('ellipse'));
 selectTool.addEventListener('click',     () => setTool('select'));
+document.getElementById('sliceTool').addEventListener('click', () => setTool('slice'));
 
 // Symmetry — cycle through off / v / h / both
 function cycleSymmetry() {
@@ -2159,6 +2232,188 @@ function setPixelPerfect(v) {
   autosave();
 }
 pixelPerfectBtn.addEventListener('click', () => setPixelPerfect(!state.pixelPerfect));
+
+// ── Auto-outline ────────────────────────────────────────────
+// One-click: paint a 1-px outline around every painted region on
+// the active layer using the active color. Iterates every empty
+// cell, checks 4-neighbors, paints if any neighbor is filled.
+// Single-pass so the new outline cells don't trigger further
+// outlining on the same call. Commits one undo step.
+document.getElementById('autoOutlineBtn').addEventListener('click', () => {
+  const before = snapshotPixels();
+  const adds = {};
+  const px = state.pixels;
+  for (let y = 0; y < state.height; y++) {
+    for (let x = 0; x < state.width; x++) {
+      const k = `${x},${y}`;
+      if (px[k]) continue;
+      if (px[`${x-1},${y}`] || px[`${x+1},${y}`] ||
+          px[`${x},${y-1}`] || px[`${x},${y+1}`]) {
+        adds[k] = state.activeColor;
+      }
+    }
+  }
+  const n = Object.keys(adds).length;
+  if (n === 0) return;
+  for (const k in adds) state.pixels[k] = adds[k];
+  commitHistory(before);
+  renderGrid(); renderPreview(); renderCode(); renderTimeline();
+  autosave();
+});
+
+// ── Slice tool — list rendering, prompt, delete ─────────────
+// Each slice gets a color baked-in at creation time, cycling through
+// SLICE_COLORS so neighboring slices stay visually distinct on the
+// canvas overlay.
+const SLICE_COLORS = ['#ffd060', '#3aa8b8', '#c83828', '#7c4abe', '#5a9028', '#e87028', '#7ed4dc', '#a07ade'];
+const sliceList   = document.getElementById('sliceList');
+const sliceCount  = document.getElementById('sliceCount');
+const sliceEmpty  = document.getElementById('sliceEmpty');
+function renderSlices() {
+  sliceList.innerHTML = '';
+  if (!state.slices || state.slices.length === 0) {
+    sliceCount.textContent = '';
+    sliceList.appendChild(sliceEmpty);
+    return;
+  }
+  sliceCount.textContent = state.slices.length + (state.slices.length === 1 ? ' slice' : ' slices');
+  state.slices.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.className = 'slice-row';
+    row.title = `${s.name} · ${s.x},${s.y} ${s.w}×${s.h}`;
+    const dot = document.createElement('span');
+    dot.className = 'slice-row-dot';
+    dot.style.background = s.color || '#ffd060';
+    row.appendChild(dot);
+    const name = document.createElement('span');
+    name.className = 'slice-row-name';
+    name.textContent = s.name;
+    name.ondblclick = (e) => {
+      e.stopPropagation();
+      showSlicePrompt(s.name, 'Rename slice').then((newName) => {
+        if (!newName) return;
+        s.name = newName.trim().slice(0, 32);
+        renderSlices();
+        renderGrid();
+        autosave();
+      });
+    };
+    row.appendChild(name);
+    const dims = document.createElement('span');
+    dims.className = 'slice-row-dims';
+    dims.textContent = `${s.w}×${s.h}`;
+    row.appendChild(dims);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'slice-row-del';
+    del.textContent = '×';
+    del.title = `Delete "${s.name}"`;
+    del.onclick = (e) => {
+      e.stopPropagation();
+      state.slices.splice(i, 1);
+      renderSlices(); renderGrid(); autosave();
+    };
+    row.appendChild(del);
+    sliceList.appendChild(row);
+  });
+}
+
+// Slice-name prompt — reuses the branded confirm modal mechanism but
+// with an inline <input>. Returns a Promise resolving to the name
+// string (or null if canceled).
+function showSlicePrompt(defaultName, title = 'Name this slice') {
+  return new Promise((resolve) => {
+    const m = document.getElementById('confirmModal');
+    const titleEl = document.getElementById('confirmModalTitle');
+    const bodyEl  = document.getElementById('confirmModalBody');
+    const okBtn   = document.getElementById('confirmModalOk');
+    const cancelBtn = document.getElementById('confirmModalCancel');
+    titleEl.lastChild.textContent = ' ' + title;
+    bodyEl.innerHTML = '';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = defaultName || '';
+    input.maxLength = 32;
+    input.style.cssText = 'width: 100%; background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-family: \"SF Mono\", Consolas, monospace; font-size: 13px;';
+    bodyEl.appendChild(input);
+    okBtn.textContent = 'Save';
+    okBtn.style.color = '';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.style.display = '';
+    m.style.display = 'flex';
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+    function done(ok) {
+      m.style.display = 'none';
+      okBtn.onclick = null; cancelBtn.onclick = null;
+      resolve(ok ? input.value : null);
+    }
+    okBtn.onclick = () => done(true);
+    cancelBtn.onclick = () => done(false);
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); done(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+    };
+  });
+}
+
+// ── Palette import ───────────────────────────────────────────
+// Parse a GIMP .gpl or Lospec .hex file into a list of hex colors.
+// .gpl rows look like "R  G  B   ColorName"; .hex rows are bare
+// 6-character hex strings (optionally #-prefixed). Comments (#) and
+// known headers (GIMP Palette / Name: / Columns:) get skipped.
+function parsePaletteFile(text) {
+  const colors = [];
+  const seen = new Set();
+  const isGpl = /^\s*GIMP Palette/i.test(text);
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (isGpl && /^(GIMP Palette|Name:|Columns:|#)/i.test(line)) continue;
+    // GPL: "R G B Name"
+    const gpl = line.match(/^\s*(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})/);
+    if (gpl) {
+      const r = +gpl[1] & 0xff, g = +gpl[2] & 0xff, b = +gpl[3] & 0xff;
+      const hex = '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+      if (!seen.has(hex)) { seen.add(hex); colors.push(hex); }
+      continue;
+    }
+    // Hex format
+    const hx = line.match(/^#?([0-9a-fA-F]{6})\b/) || line.match(/^#?([0-9a-fA-F]{3})\b/);
+    if (hx) {
+      let h = hx[1].toLowerCase();
+      if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+      const hex = '#' + h;
+      if (!seen.has(hex)) { seen.add(hex); colors.push(hex); }
+    }
+  }
+  return colors;
+}
+const loadPaletteBtn   = document.getElementById('loadPaletteBtn');
+const loadPaletteInput = document.getElementById('loadPaletteInput');
+const paletteImportedOption = document.getElementById('paletteImportedOption');
+loadPaletteBtn.addEventListener('click', () => loadPaletteInput.click());
+loadPaletteInput.addEventListener('change', () => {
+  const f = loadPaletteInput.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const colors = parsePaletteFile(e.target.result || '');
+    if (!colors.length) {
+      showAlert({ title: 'No colors found', body: 'That file didn\'t look like a recognizable palette. Supported formats: GIMP .gpl, Lospec .hex, and bare-hex .txt with one #rrggbb per line.' });
+      return;
+    }
+    state.importedPalette = colors;
+    state.paletteKey = 'imported';
+    PALETTE_PRESETS.imported = colors;
+    paletteImportedOption.style.display = '';
+    paletteImportedOption.textContent = `Imported (${colors.length})`;
+    document.getElementById('paletteSelect').value = 'imported';
+    renderPalette();
+    autosave();
+  };
+  reader.readAsText(f);
+  loadPaletteInput.value = '';
+});
 
 // Color quantize / snap-to-palette — for every painted cell, replace
 // its hex with the closest TSC ∪ PXC swatch color. Closest is the
@@ -2498,32 +2753,55 @@ function renderGrid() {
       paintCtx.fillRect((ox + dx) * Z, (oy + dy) * Z, Z, Z);
     }
   }
-  // Rect / Ellipse live-preview (in-progress drag). The same yellow
-  // outline shows the bounding box; the fill preview is rect-shaped
-  // for the rect tool, ellipse-shaped for the ellipse tool.
+  // Rect / Ellipse / Slice live-preview (in-progress drag). The same
+  // yellow outline shows the bounding box; the fill preview is
+  // rect-shaped for the rect tool, ellipse-shaped for the ellipse,
+  // and outline-only for slices (no pixel change ever).
   if (state.rectPreview) {
     const p = state.rectPreview;
     const xa = Math.min(p.x0, p.x1), xb = Math.max(p.x0, p.x1);
     const ya = Math.min(p.y0, p.y1), yb = Math.max(p.y0, p.y1);
-    paintCtx.globalAlpha = 0.55;
-    paintCtx.fillStyle = state.activeColor;
-    if (state.tool === 'ellipse') {
-      const w = xb - xa + 1, h = yb - ya + 1;
-      const cx = (xa + xb) / 2, cy = (ya + yb) / 2;
-      const rx = w / 2, ry = h / 2;
-      for (let y = ya; y <= yb; y++) {
-        for (let x = xa; x <= xb; x++) {
-          const nx = (x + 0.5 - cx) / rx, ny = (y + 0.5 - cy) / ry;
-          if (nx*nx + ny*ny <= 1) paintCtx.fillRect(x * Z, y * Z, Z, Z);
+    if (!p.isSlice) {
+      paintCtx.globalAlpha = 0.55;
+      paintCtx.fillStyle = state.activeColor;
+      if (state.tool === 'ellipse') {
+        const w = xb - xa + 1, h = yb - ya + 1;
+        const cx = (xa + xb) / 2, cy = (ya + yb) / 2;
+        const rx = w / 2, ry = h / 2;
+        for (let y = ya; y <= yb; y++) {
+          for (let x = xa; x <= xb; x++) {
+            const nx = (x + 0.5 - cx) / rx, ny = (y + 0.5 - cy) / ry;
+            if (nx*nx + ny*ny <= 1) paintCtx.fillRect(x * Z, y * Z, Z, Z);
+          }
         }
+      } else {
+        paintCtx.fillRect(xa * Z, ya * Z, (xb - xa + 1) * Z, (yb - ya + 1) * Z);
       }
-    } else {
-      paintCtx.fillRect(xa * Z, ya * Z, (xb - xa + 1) * Z, (yb - ya + 1) * Z);
     }
     paintCtx.globalAlpha = 1.0;
     paintCtx.strokeStyle = '#ffd060';
     paintCtx.lineWidth = 1;
     paintCtx.strokeRect(xa * Z + 0.5, ya * Z + 0.5, (xb - xa + 1) * Z - 1, (yb - ya + 1) * Z - 1);
+  }
+  // Committed slices — draw each named region as a thin colored
+  // outline with the name label in its top-left corner. Color is
+  // baked into the slice when created; same color is shown in the
+  // Slices list so the artist can correlate at a glance.
+  if (state.slices && state.slices.length) {
+    paintCtx.lineWidth = 1;
+    paintCtx.font = '10px Inter, -apple-system, system-ui, sans-serif';
+    paintCtx.textBaseline = 'top';
+    for (const s of state.slices) {
+      paintCtx.strokeStyle = s.color || '#ffd060';
+      paintCtx.strokeRect(s.x * Z + 0.5, s.y * Z + 0.5, s.w * Z - 1, s.h * Z - 1);
+      // Tiny label backdrop so the name reads against any pixels.
+      const text = s.name;
+      const tw = paintCtx.measureText(text).width;
+      paintCtx.fillStyle = 'rgba(0,0,0,0.7)';
+      paintCtx.fillRect(s.x * Z, s.y * Z, tw + 6, 14);
+      paintCtx.fillStyle = s.color || '#ffd060';
+      paintCtx.fillText(text, s.x * Z + 3, s.y * Z + 2);
+    }
   }
   // Symmetry axis guides — show where mirror axes are
   if (state.symmetry === 'v' || state.symmetry === 'both') {
@@ -2896,6 +3174,17 @@ paintCanvas.addEventListener('mousedown', (e) => {
     renderGrid();
     return;
   }
+  // Slice tool — same drag-rectangle interaction as rect, but the
+  // mouseup commits a NAMED slice (asks for name via prompt-modal)
+  // instead of painting pixels. No pixel changes ever.
+  if (state.tool === 'slice' && cell) {
+    isPainting = true;
+    rectStart = { x: cell.x, y: cell.y };
+    state.rectPreview = { x0: cell.x, y0: cell.y, x1: cell.x, y1: cell.y };
+    state.rectPreview.isSlice = true;
+    renderGrid();
+    return;
+  }
 
   // Selection tool — two modes depending on where the user clicked:
   //   1. If the click is INSIDE an existing selection rectangle, enter
@@ -3129,9 +3418,14 @@ paintCanvas.addEventListener('mousemove', (e) => {
   }
   if (!isPainting) return;
   const cell = cellFromEvent(e);
-  // Rect / Ellipse drag — update preview endpoint
+  // Rect / Ellipse / Slice drag — update preview endpoint
   if ((state.tool === 'rect' || state.tool === 'ellipse') && cell && rectStart) {
     state.rectPreview = { x0: rectStart.x, y0: rectStart.y, x1: cell.x, y1: cell.y };
+    renderGrid();
+    return;
+  }
+  if (state.tool === 'slice' && cell && rectStart) {
+    state.rectPreview = { x0: rectStart.x, y0: rectStart.y, x1: cell.x, y1: cell.y, isSlice: true };
     renderGrid();
     return;
   }
@@ -3157,6 +3451,32 @@ paintCanvas.addEventListener('mousemove', (e) => {
   if (cell && state.tool === 'paint') lastPaintedCell = cell;
 });
 window.addEventListener('mouseup', (e) => {
+  // Slice tool — commit a NEW named slice instead of painting pixels.
+  // Asks for a name via the branded prompt; a tiny rect (<2 px in
+  // either dimension) is discarded as an accidental click.
+  if (state.tool === 'slice' && state.rectPreview && rectStart) {
+    const p = state.rectPreview;
+    const xa = Math.min(p.x0, p.x1), ya = Math.min(p.y0, p.y1);
+    const xb = Math.max(p.x0, p.x1), yb = Math.max(p.y0, p.y1);
+    const w = xb - xa + 1, h = yb - ya + 1;
+    state.rectPreview = null;
+    rectStart = null;
+    isPainting = false;
+    if (w < 2 || h < 2) { renderGrid(); return; }
+    const defaultName = 'slice' + (state.slices.length + 1);
+    showSlicePrompt(defaultName).then((name) => {
+      if (!name) { renderGrid(); return; }
+      state.slices.push({
+        name: name.trim().slice(0, 32),
+        x: xa, y: ya, w, h,
+        color: SLICE_COLORS[state.slices.length % SLICE_COLORS.length],
+      });
+      renderSlices();
+      renderGrid();
+      autosave();
+    });
+    return;
+  }
   // Rectangle / Ellipse tool — commit the preview to pixels
   if ((state.tool === 'rect' || state.tool === 'ellipse') && state.rectPreview && preStrokeSnapshot) {
     const erasing = (e && e.button === 2);
@@ -4125,6 +4445,7 @@ saveBtn.addEventListener('click', () => {
     tags: state.tags,
     layers: state.layers,
     activeLayer: state.activeLayer,
+    slices: state.slices,
     savedAt: new Date().toISOString(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -4172,11 +4493,14 @@ document.getElementById('exportPngBtn').addEventListener('click', () => {
     // Tag metadata sidecar is OPT-IN — only offered if there are
     // actual tags to ship. Deferred behind a setTimeout so the PNG
     // download dialog has a chance to render before we prompt.
-    if (state.tags.length > 0) {
+    if (state.tags.length > 0 || state.slices.length > 0) {
       setTimeout(() => {
+        const parts = [];
+        if (state.tags.length)   parts.push(`${state.tags.length} animation tag${state.tags.length   === 1 ? '' : 's'}`);
+        if (state.slices.length) parts.push(`${state.slices.length} slice${state.slices.length === 1 ? '' : 's'}`);
         const wantsMeta = confirm(
-          `PNG saved. Also download a JSON file with the ${state.tags.length} animation tag${state.tags.length === 1 ? '' : 's'} + per-frame timing? ` +
-          `(Useful for game engines that need to play named animations from the sheet — skip if you just need the image.)`
+          `PNG saved. Also download a JSON file with ${parts.join(' + ')} + per-frame timing? ` +
+          `(Useful for game engines that need named animations or atlas slices from the sheet — skip if you just need the image.)`
         );
         if (!wantsMeta) return;
         const meta = {
@@ -4193,6 +4517,13 @@ document.getElementById('exportPngBtn').addEventListener('click', () => {
             to: t.to,
             loop: t.loop !== false,
             color: t.color,
+          })),
+          // Slices are sprite-wide, so they appear once at the top level.
+          // Each slice's (x, y, w, h) are in single-frame canvas coords
+          // — game engines that use the sheet repeat the slice across
+          // every frame at the slice's offset.
+          slices: state.slices.map(s => ({
+            name: s.name, x: s.x, y: s.y, w: s.w, h: s.h,
           })),
         };
         const metaBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
@@ -4441,6 +4772,16 @@ loadInput.addEventListener('change', () => {
           color: t.color || '#ffd060',
           loop: t.loop !== false,
         })) : [];
+      state.slices = Array.isArray(payload.slices) ? payload.slices
+        .filter(s => s && typeof s.name === 'string')
+        .map(s => ({
+          name: s.name,
+          x: Math.max(0, s.x | 0),
+          y: Math.max(0, s.y | 0),
+          w: Math.max(1, s.w | 0),
+          h: Math.max(1, s.h | 0),
+          color: s.color || '#ffd060',
+        })) : [];
       if (typeof payload.refOpacity === 'number') state.refOpacity = payload.refOpacity;
       if (typeof payload.refVisible === 'boolean') state.refVisible = payload.refVisible;
       widthInput.value = state.width;
@@ -4458,6 +4799,7 @@ loadInput.addEventListener('change', () => {
       applyReference();
       renderTimeline();
       renderLayers();
+      renderSlices();
       syncPreviewWindowVisibility();
       autosave();
     } catch (err) {
@@ -4510,6 +4852,8 @@ function autosave() {
       onionRadius: state.onionRadius,
       loopMode: state.loopMode,
       paletteKey: state.paletteKey,
+      importedPalette: state.importedPalette,
+      slices: state.slices,
     }));
   } catch (e) {
     // localStorage quota exceeded — most likely the reference image is
@@ -4526,6 +4870,7 @@ function autosave() {
         tags: state.tags,
         layers: state.layers,
         activeLayer: state.activeLayer,
+        slices: state.slices,
       }));
       console.warn('Reference image too big to autosave — it will be lost on refresh. Save the JSON to keep it.');
     } catch {}
@@ -4595,6 +4940,23 @@ function restoreAutosave() {
     if (typeof data.onionRadius === 'number') state.onionRadius = data.onionRadius;
     if (typeof data.loopMode === 'string') state.loopMode = data.loopMode;
     if (typeof data.paletteKey === 'string') state.paletteKey = data.paletteKey;
+    if (Array.isArray(data.importedPalette)) {
+      state.importedPalette = data.importedPalette;
+      PALETTE_PRESETS.imported = data.importedPalette;
+      const opt = document.getElementById('paletteImportedOption');
+      if (opt) { opt.style.display = ''; opt.textContent = `Imported (${data.importedPalette.length})`; }
+    }
+    if (Array.isArray(data.slices)) {
+      state.slices = data.slices.filter(s => s && typeof s.name === 'string')
+        .map(s => ({
+          name: s.name,
+          x: Math.max(0, s.x | 0),
+          y: Math.max(0, s.y | 0),
+          w: Math.max(1, s.w | 0),
+          h: Math.max(1, s.h | 0),
+          color: s.color || '#ffd060',
+        }));
+    }
     if (Array.isArray(data.tags)) {
       // Sanitize tags on restore — drop ones with bad ranges so a stale
       // payload from a smaller frame count doesn't crash playback.
@@ -4747,6 +5109,7 @@ function loadPngIntoGrid(src, opts = {}) {
       renderCode();
       renderTimeline();
       renderLayers();
+      renderSlices();
       syncPreviewWindowVisibility();
       autosave();
       resolve({ w: oc.width, h: oc.height, pixelCount: Object.keys(pixels).length });
@@ -4899,6 +5262,7 @@ async function saveCurrentAsNewAsset() {
     tags: state.tags,
     layers: state.layers,
     activeLayer: state.activeLayer,
+    slices: state.slices,
     createdAt: now,
     updatedAt: now,
   };
@@ -4947,6 +5311,14 @@ function loadAssetIntoState(asset) {
       color: t.color || '#ffd060',
       loop: t.loop !== false,
     })) : [];
+  state.slices = Array.isArray(asset.slices) ? asset.slices
+    .filter(s => s && typeof s.name === 'string')
+    .map(s => ({
+      name: s.name,
+      x: Math.max(0, s.x | 0), y: Math.max(0, s.y | 0),
+      w: Math.max(1, s.w | 0), h: Math.max(1, s.h | 0),
+      color: s.color || '#ffd060',
+    })) : [];
   widthInput.value = state.width;
   heightInput.value = state.height;
   presetSelect.value = 'custom';
@@ -4960,6 +5332,7 @@ function loadAssetIntoState(asset) {
   renderPalette();
   renderTimeline();
   renderLayers();
+  renderSlices();
   syncPreviewWindowVisibility();
   autosave();
 }
@@ -6448,6 +6821,7 @@ renderLayers();
   paletteSelect.value = state.paletteKey || 'dlx';
   renderPalette();   // re-render in case paletteKey was restored to a preset
   syncHsvFromHex();
+  renderSlices();
   setPixelPerfect(state.pixelPerfect);
   setLoopMode(state.loopMode);
   tlOnionRadius.value = state.onionRadius || 1;
