@@ -292,6 +292,37 @@
   }
   .recording-indicator .rec-label { font-family: 'SF Mono', Consolas, monospace; }
 
+  /* Project switcher chip — sits between the logo and the menubar.
+     Shows the current project name; click to open the projects
+     popover. Compact, neutral styling so it doesn't compete with
+     File / Edit / etc. */
+  .project-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    color: var(--text);
+    cursor: pointer;
+    font: inherit; font-size: 12px;
+    transition: all var(--tdur) var(--ease);
+  }
+  .project-chip:hover { border-color: var(--accent); }
+  .project-chip.open { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .project-chip .project-label {
+    color: var(--text-dim); font-size: 10px;
+    letter-spacing: 0.6px; text-transform: uppercase;
+    font-weight: 600;
+  }
+  .project-chip.open .project-label { color: var(--accent); }
+  .project-chip .project-name {
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.4px;
+  }
+  .project-chip .chip-caret { color: var(--text-dim); font-size: 9px; }
+  .project-chip.open .chip-caret { color: var(--accent); }
+
   .brush-popover {
     position: absolute;
     top: 0; left: 0;
@@ -1308,6 +1339,16 @@
     <img src="assets/wondrous-grid-icon.svg" alt="" class="brand-logo">
     WONDROUS GRID <span class="sub">pixel studio</span>
   </h1>
+  <!-- Project switcher — current project name + dropdown caret. Each
+       project keeps its own canvas, layers, frames, tags, slices,
+       palette, recent colors, and settings in its own localStorage
+       slot. Switch projects to jump between workspaces; create new
+       projects from the dropdown for parallel work. -->
+  <button id="projectChip" class="project-chip" title="Switch / create projects — each project keeps its own sprite state, palette, and settings">
+    <span class="project-label">Project</span>
+    <span class="project-name" id="projectChipName">DLX</span>
+    <span class="chip-caret">▾</span>
+  </button>
   <!-- Menubar — File / Edit / Image / View / Animation / Help.
        Each opens a dropdown built in JS from MENU_DEFS. The original
        buttons all still exist below in .legacy-toolbar (display:none)
@@ -1442,6 +1483,9 @@
     <button id="helpBtn" title="Keyboard shortcuts + how to use">? Help</button>
   </div>
 </div>
+
+<!-- Project switcher popover — built dynamically from the project list. -->
+<div class="menu-popover" id="menu-popover-projects"></div>
 
 <!-- Menubar dropdown popovers — content built in JS via MENU_DEFS. -->
 <div class="menu-popover" id="menu-popover-file"></div>
@@ -2219,7 +2263,54 @@ const PXC_GROUPS = [
 // ────────────────────────────────────────────────────────────
 // STATE
 // ────────────────────────────────────────────────────────────
-const STORAGE_KEY = 'wondrous-grid-autosave-v1';
+// Project profiles — each named project gets its own localStorage
+// slot so artists can keep separate workspaces (DLX rig sprites,
+// other game projects, sketch / prototype dump, etc.). Switching
+// projects saves the current to its slot and restores the target's
+// last-saved state. STORAGE_KEY is the per-project autosave key
+// (computed from PROJECT_STORAGE_PREFIX + slug of the active
+// project name); a new key tracks which project is currently active.
+//
+// Backward-compat: pre-projects installs have a single
+// 'wondrous-grid-autosave-v1' key. On first boot after this
+// feature ships, that key gets migrated to the DLX project slot
+// so the user doesn't lose their work.
+const LEGACY_STORAGE_KEY = 'wondrous-grid-autosave-v1';
+const PROJECT_STORAGE_PREFIX = 'wondrous-grid-project-';
+const PROJECT_LIST_KEY = 'wondrous-grid-projects';
+const PROJECT_ACTIVE_KEY = 'wondrous-grid-active-project';
+function _projectSlug(name) { return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project'; }
+function _projectStorageKey(name) { return PROJECT_STORAGE_PREFIX + _projectSlug(name); }
+function getProjectList() {
+  try { return JSON.parse(localStorage.getItem(PROJECT_LIST_KEY) || '["DLX"]'); }
+  catch { return ['DLX']; }
+}
+function setProjectList(list) {
+  try { localStorage.setItem(PROJECT_LIST_KEY, JSON.stringify(list)); } catch {}
+}
+function getActiveProject() {
+  return localStorage.getItem(PROJECT_ACTIVE_KEY) || 'DLX';
+}
+function setActiveProject(name) {
+  try { localStorage.setItem(PROJECT_ACTIVE_KEY, name); } catch {}
+}
+// First-boot migration: if no project-list exists yet AND there's a
+// legacy autosave, treat that as the DLX project's saved state.
+(function migrateLegacyAutosave() {
+  try {
+    if (localStorage.getItem(PROJECT_LIST_KEY)) return;   // already migrated
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy) {
+      localStorage.setItem(_projectStorageKey('DLX'), legacy);
+    }
+    setProjectList(['DLX']);
+    setActiveProject('DLX');
+  } catch {}
+})();
+// STORAGE_KEY is now a getter — autosave reads it fresh each time
+// so switching projects works without restarting.
+let _activeProjectName = getActiveProject();
+function STORAGE_KEY() { return _projectStorageKey(_activeProjectName); }
 let state = {
   width: 58,
   height: 52,
@@ -5452,7 +5543,7 @@ loadInput.addEventListener('change', () => {
 // ────────────────────────────────────────────────────────────
 function autosave() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    localStorage.setItem(STORAGE_KEY(), JSON.stringify({
       version: 2,
       width: state.width,
       height: state.height,
@@ -5498,7 +5589,7 @@ function autosave() {
     // localStorage quota exceeded — most likely the reference image is
     // too big. Save without the ref and warn the user.
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      localStorage.setItem(STORAGE_KEY(), JSON.stringify({
         version: 2,
         width: state.width, height: state.height,
         frames: state.frames, activeFrame: state.activeFrame,
@@ -5518,7 +5609,7 @@ function autosave() {
 
 function restoreAutosave() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY());
     if (!raw) return false;
     const data = JSON.parse(raw);
     state.width = data.width || 58;
@@ -8134,6 +8225,10 @@ let _openMenu = null;
 function closeAllMenus() {
   for (const t of document.querySelectorAll('.menu-trigger.open')) t.classList.remove('open');
   for (const p of document.querySelectorAll('.menu-popover.open')) p.classList.remove('open');
+  // Also clear the open-state on the project chip (it uses the same
+  // popover-popover-projects but is a separate trigger element).
+  const pc = document.getElementById('projectChip');
+  if (pc) pc.classList.remove('open');
   _openMenu = null;
 }
 function openMenu(name, trigger) {
@@ -8165,10 +8260,243 @@ document.getElementById('menubar').addEventListener('mouseover', (e) => {
   const name = t.dataset.menu;
   if (name !== _openMenu) openMenu(name, t);
 });
+// ── Project switcher dropdown ────────────────────────────────
+// The project-chip in the header opens a popover listing every
+// known project + create / rename / delete actions. Clicking a
+// project saves the current one to its slot, then loads the
+// selected project's saved state.
+const projectChip = document.getElementById('projectChip');
+const projectChipName = document.getElementById('projectChipName');
+function refreshProjectChip() {
+  projectChipName.textContent = _activeProjectName;
+}
+function buildProjectsMenu() {
+  const popover = document.getElementById('menu-popover-projects');
+  popover.innerHTML = '';
+  const list = getProjectList();
+  for (const name of list) {
+    const row = document.createElement('div');
+    row.className = 'menu-item';
+    if (name === _activeProjectName) row.classList.add('checked');
+    row.innerHTML =
+      `<span class="menu-item-check">✓</span>` +
+      `<span class="menu-item-label"></span>`;
+    row.querySelector('.menu-item-label').textContent = name;
+    row.addEventListener('click', () => {
+      closeAllMenus();
+      if (name !== _activeProjectName) switchProject(name);
+    });
+    popover.appendChild(row);
+  }
+  popover.appendChild(_menuSeparator());
+  popover.appendChild(_menuItem({ label: '+ New project…', click: () => { closeAllMenus(); newProjectDialog(); } }));
+  popover.appendChild(_menuItem({ label: 'Rename current project…', click: () => { closeAllMenus(); renameProjectDialog(); } }));
+  popover.appendChild(_menuItem({ label: 'Delete current project…', click: () => { closeAllMenus(); deleteProjectDialog(); }, danger: true }));
+}
+function _menuSeparator() {
+  const sep = document.createElement('div');
+  sep.className = 'menu-separator';
+  return sep;
+}
+function _menuItem({ label, click, danger }) {
+  const row = document.createElement('div');
+  row.className = 'menu-item';
+  row.innerHTML = `<span class="menu-item-check">✓</span><span class="menu-item-label"></span>`;
+  row.querySelector('.menu-item-label').textContent = label;
+  if (danger) row.querySelector('.menu-item-label').style.color = '#ff8a8a';
+  row.addEventListener('click', click);
+  return row;
+}
+projectChip.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const popover = document.getElementById('menu-popover-projects');
+  if (popover.classList.contains('open')) {
+    closeAllMenus();
+    return;
+  }
+  closeAllMenus();
+  buildProjectsMenu();
+  const r = projectChip.getBoundingClientRect();
+  popover.style.top  = (r.bottom + 4) + 'px';
+  popover.style.left = r.left + 'px';
+  popover.classList.add('open');
+  projectChip.classList.add('open');
+  _openMenu = 'projects';
+});
+function switchProject(name) {
+  // Save the current project first so we don't lose unsaved edits.
+  autosave();
+  _activeProjectName = name;
+  setActiveProject(name);
+  refreshProjectChip();
+  // Reset the in-memory state then restore from the target project's
+  // localStorage slot (or start fresh if the slot is empty / new
+  // project). The restoreAutosave function reads STORAGE_KEY() which
+  // is now project-aware.
+  resetStateToBlank();
+  const restored = restoreAutosave();
+  if (!restored) {
+    // Brand-new project: initialize a clean canvas.
+    initBlankSpriteState();
+  }
+  // Re-render everything based on the loaded state.
+  renderPalette();
+  renderRecent();
+  renderGrid();
+  renderPreview();
+  renderCode();
+  renderTimeline();
+  renderLayers();
+  renderSlices();
+  syncPreviewWindowVisibility();
+  resetHistory();
+  fitZoomToScreen();
+  setActiveColor(state.activeColor);
+}
+function resetStateToBlank() {
+  // Restore to default-ish values BEFORE restoreAutosave runs.
+  // Lets restoreAutosave override fields it has data for; unset
+  // fields default to these.
+  state.width = 58; state.height = 52;
+  state.layers = [{ name: 'Layer 1', visible: true, opacity: 1 }];
+  state.activeLayer = 0;
+  state.frames = [{ layerPixels: [{}], duration: 100 }];
+  state.activeFrame = 0;
+  state.tags = []; state.slices = [];
+  state.customColors = []; state.recentColors = [];
+  state.refSrc = null;
+  state.paletteKey = 'dlx'; state.importedPalette = null;
+  state.activeColor = '#3aa8b8';
+  state.zoom = 12;
+  migrateAllFrames();
+}
+function initBlankSpriteState() {
+  resetStateToBlank();
+  widthInput.value = state.width;
+  heightInput.value = state.height;
+}
+function newProjectDialog() {
+  const m = document.getElementById('confirmModal');
+  const titleEl = document.getElementById('confirmModalTitle');
+  const bodyEl  = document.getElementById('confirmModalBody');
+  const okBtn   = document.getElementById('confirmModalOk');
+  const cancelBtn = document.getElementById('confirmModalCancel');
+  titleEl.lastChild.textContent = ' New project';
+  bodyEl.innerHTML = `
+    <p style="margin: 0 0 10px;">Each project has its own canvas, layers, frames, palette, recent colors, and settings — independent localStorage slot. Switch back to it any time from the project menu.</p>
+    <label style="display: flex; flex-direction: column; gap: 4px;">
+      <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Project name</span>
+      <input id="_npName" type="text" maxlength="32" placeholder="Untitled"
+             style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-family: 'SF Mono', Consolas, monospace;">
+    </label>`;
+  okBtn.textContent = 'Create'; okBtn.style.color = '';
+  cancelBtn.textContent = 'Cancel'; cancelBtn.style.display = '';
+  m.style.display = 'flex';
+  const input = document.getElementById('_npName');
+  setTimeout(() => input.focus(), 0);
+  const done = (apply) => {
+    m.style.display = 'none';
+    okBtn.onclick = null; cancelBtn.onclick = null;
+    if (!apply) return;
+    const name = (input.value || '').trim().slice(0, 32);
+    if (!name) return;
+    const list = getProjectList();
+    if (list.includes(name)) {
+      showAlert({ title: 'Name in use', body: `A project named "${name}" already exists. Pick a different name.` });
+      return;
+    }
+    list.push(name); setProjectList(list);
+    switchProject(name);
+  };
+  okBtn.onclick = () => done(true);
+  cancelBtn.onclick = () => done(false);
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); done(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+  };
+}
+function renameProjectDialog() {
+  const cur = _activeProjectName;
+  const m = document.getElementById('confirmModal');
+  const titleEl = document.getElementById('confirmModalTitle');
+  const bodyEl  = document.getElementById('confirmModalBody');
+  const okBtn   = document.getElementById('confirmModalOk');
+  const cancelBtn = document.getElementById('confirmModalCancel');
+  titleEl.lastChild.textContent = ' Rename project';
+  bodyEl.innerHTML = `
+    <p style="margin: 0 0 10px;">Rename the current project. Its localStorage slot moves to the new name; the saved state stays intact.</p>
+    <label style="display: flex; flex-direction: column; gap: 4px;">
+      <span style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">New name</span>
+      <input id="_rnName" type="text" maxlength="32" value="${cur}"
+             style="background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-family: 'SF Mono', Consolas, monospace;">
+    </label>`;
+  okBtn.textContent = 'Rename'; okBtn.style.color = '';
+  cancelBtn.textContent = 'Cancel'; cancelBtn.style.display = '';
+  m.style.display = 'flex';
+  const input = document.getElementById('_rnName');
+  setTimeout(() => { input.focus(); input.select(); }, 0);
+  const done = (apply) => {
+    m.style.display = 'none';
+    okBtn.onclick = null; cancelBtn.onclick = null;
+    if (!apply) return;
+    const newName = (input.value || '').trim().slice(0, 32);
+    if (!newName || newName === cur) return;
+    const list = getProjectList();
+    if (list.includes(newName)) {
+      showAlert({ title: 'Name in use', body: `Already a project named "${newName}".` });
+      return;
+    }
+    // Persist current state under both old + new keys, then drop
+    // the old slot.
+    autosave();   // writes to old slot
+    try {
+      const raw = localStorage.getItem(_projectStorageKey(cur));
+      if (raw) {
+        localStorage.setItem(_projectStorageKey(newName), raw);
+        localStorage.removeItem(_projectStorageKey(cur));
+      }
+    } catch {}
+    const idx = list.indexOf(cur);
+    if (idx >= 0) list[idx] = newName;
+    setProjectList(list);
+    _activeProjectName = newName;
+    setActiveProject(newName);
+    refreshProjectChip();
+  };
+  okBtn.onclick = () => done(true);
+  cancelBtn.onclick = () => done(false);
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); done(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+  };
+}
+function deleteProjectDialog() {
+  const cur = _activeProjectName;
+  const list = getProjectList();
+  if (list.length <= 1) {
+    showAlert({ title: 'Can\'t delete the only project', body: 'Create another project first, or use File → New to wipe this one.' });
+    return;
+  }
+  showConfirm({
+    title: 'Delete project',
+    body: `Permanently delete the "${cur}" project? All its frames, layers, tags, slices, palette, and settings will be lost. This can't be undone.`,
+    ok: 'Delete', danger: true,
+  }).then((okay) => {
+    if (!okay) return;
+    try { localStorage.removeItem(_projectStorageKey(cur)); } catch {}
+    const newList = list.filter(n => n !== cur);
+    setProjectList(newList);
+    switchProject(newList[0]);
+  });
+}
+// Sync chip name from initial state.
+refreshProjectChip();
+
 // Click outside any menu closes it. Esc closes any menu.
 document.addEventListener('click', (e) => {
   if (e.target.closest('.menu-popover') || e.target.closest('.menubar') ||
-      e.target.closest('.brush-popover') || e.target.closest('.brush-chip')) return;
+      e.target.closest('.brush-popover') || e.target.closest('.brush-chip') ||
+      e.target.closest('.project-chip')) return;
   closeAllMenus();
   closeBrushPopover();
 });
