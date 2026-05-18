@@ -521,6 +521,35 @@
   .layer-opacity-label { font-family: 'SF Mono', Consolas, monospace; }
   .layer-opacity-val { font-family: 'SF Mono', Consolas, monospace; min-width: 30px; text-align: right; }
 
+  /* Reference row inside the Layers panel — styled like a layer row
+     but with a 📷 badge instead of a name input, and inline Load /
+     Clear / ⋯ controls. The transform body underneath collapses by
+     default; the ⋯ button toggles it. */
+  .ref-layer-row {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+  }
+  .ref-layer-head {
+    display: flex; align-items: center; gap: 4px;
+    background: var(--bg-input); border: 1px solid transparent;
+    padding: 4px 6px; border-radius: 2px;
+    font-size: 11px;
+  }
+  .ref-layer-row.has-image .ref-layer-head { border-color: var(--border); }
+  .ref-layer-icon { font-size: 12px; flex-shrink: 0; }
+  .ref-layer-name { flex: 1; color: var(--text-dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .ref-layer-row.has-image .ref-layer-name { color: var(--text); }
+  .ref-inline-btn {
+    flex: 0 0 auto !important;
+    font-size: 10px !important;
+    padding: 2px 6px !important;
+    min-width: 0;
+  }
+  .ref-layer-body {
+    padding: 4px 6px 0;
+  }
+
   /* Animation tags row — chips between the toolbar and the frame strip.
      Each chip = one named tag (a frame range). Click to play that
      range; the tag color is also drawn as a thin underline below
@@ -783,18 +812,23 @@
           </div>
         </div>
       </div>
-      <h2 class="sub-head" style="display: flex; justify-content: space-between; align-items: center;">
-        <span>DLX Palette</span>
-        <button id="quantizeBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px; flex: 0 0 auto;"
-                title="Snap every painted pixel to the nearest color in the DLX palette. Useful after importing a PNG.">Snap</button>
-      </h2>
-      <div class="sub-body">
-        <div id="paletteContainer"></div>
-      </div>
       <h2 class="sub-head">Recent</h2>
       <div class="sub-body">
         <div id="recentGrid" class="swatch-grid"></div>
       </div>
+    </div>
+
+    <!-- DLX Palette promoted to its own top-level section so it can be
+         collapsed independently. Useful when a sprite project uses a
+         different palette and the DLX swatches are just taking up
+         vertical space. -->
+    <h2 class="section-head section-head-divider" style="display: flex; align-items: center; justify-content: space-between;">
+      <span>DLX Palette</span>
+      <button id="quantizeBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px; flex: 0 0 auto;"
+              title="Snap every painted pixel to the nearest color in the DLX palette. Useful after importing a PNG.">Snap</button>
+    </h2>
+    <div class="section-body">
+      <div id="paletteContainer"></div>
     </div>
 
     <!-- LAYERS section — moved up so it's visible without scrolling
@@ -812,43 +846,48 @@
         <input id="layerOpacityInput" type="range" min="0" max="100" step="5" value="100" title="Opacity of the active layer">
         <span id="layerOpacityVal" class="layer-opacity-val">100%</span>
       </div>
-    </div>
-
-    <!-- REFERENCE section — moved below Layers (was between Color and
-         DLX Palette). Less critical than Layers, collapsed by default. -->
-    <h2 class="section-head section-head-divider collapsed" style="display: flex; align-items: center; justify-content: space-between;">
-      <span>Reference Layer</span>
-      <span id="refStatusDot" style="font-size: 9px; color: var(--text-dim); flex: 0 0 auto;"></span>
-    </h2>
-    <div class="section-body">
-      <div class="ref-row">
-        <button id="refLoadBtn" class="tool-btn" style="flex: 1;">📷 Load Image</button>
-        <button id="refClearBtn" class="tool-btn" style="max-width: 60px;" disabled>Clear</button>
-        <input id="refLoadInput" type="file" accept="image/*" style="display: none;">
-      </div>
-      <div id="refControls" style="display: none; margin-top: 8px;">
-        <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">
-          <input id="refVisibleCheck" type="checkbox" checked> Show reference
-        </label>
-        <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px;">
-          Opacity: <span id="refOpacityValue">40%</span>
-        </label>
-        <input id="refOpacitySlider" type="range" min="0" max="100" value="40"
-               style="width: 100%; background: var(--bg-input); accent-color: var(--accent);">
-        <div style="display: flex; gap: 3px; flex-wrap: wrap; margin-top: 6px;">
-          <button id="refFlipHBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Mirror reference horizontally">↔ H</button>
-          <button id="refFlipVBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Mirror reference vertically">↕ V</button>
-          <button id="refRotateBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Rotate reference 90° clockwise">↻ 90°</button>
-          <button id="refResetXformBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Reset all reference transforms">Reset</button>
+      <!-- Reference layer merged into the Layers panel. Conceptually
+           it's "just another layer" — a 📷 row at the bottom of the
+           stack that's read-only (you can't paint on it) and never
+           exported, but with the same visibility + opacity controls
+           as a pixel layer. Transforms hide in a collapsible row
+           below it so they don't clutter the panel by default. -->
+      <div class="ref-layer-row" id="refLayerRow">
+        <div class="ref-layer-head">
+          <button id="refVisBtn" class="layer-vis-btn" title="Show / hide reference">👁</button>
+          <span class="ref-layer-icon">📷</span>
+          <span class="ref-layer-name" id="refLayerName">Reference (none)</span>
+          <button id="refLoadBtn" class="tool-btn ref-inline-btn" title="Load a tracing image (PNG/JPG)">Load</button>
+          <button id="refClearBtn" class="tool-btn ref-inline-btn" disabled title="Remove the reference image">×</button>
+          <button id="refToggleXformBtn" class="tool-btn ref-inline-btn" title="Show / hide transform controls">⋯</button>
+          <input id="refLoadInput" type="file" accept="image/*" style="display: none;">
         </div>
-        <div style="display: flex; gap: 3px; align-items: center; margin-top: 4px; font-size: 10px; color: var(--text-dim);">
-          <span>Move:</span>
-          <button id="refMoveLeftBtn"  class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference left (1 px, Shift = 10 px)">←</button>
-          <button id="refMoveUpBtn"    class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference up (1 px, Shift = 10 px)">↑</button>
-          <button id="refMoveDownBtn"  class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference down (1 px, Shift = 10 px)">↓</button>
-          <button id="refMoveRightBtn" class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference right (1 px, Shift = 10 px)">→</button>
+        <div id="refControls" class="ref-layer-body" style="display: none;">
+          <label style="display: block; font-size: 10px; color: var(--text-dim); margin: 4px 0 2px;">
+            Opacity <span id="refOpacityValue">40%</span>
+          </label>
+          <input id="refOpacitySlider" type="range" min="0" max="100" value="40"
+                 style="width: 100%; background: var(--bg-input); accent-color: var(--accent);">
+          <input id="refVisibleCheck" type="checkbox" checked style="display: none;">
+          <div style="display: flex; gap: 3px; flex-wrap: wrap; margin-top: 6px;">
+            <button id="refFlipHBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Mirror reference horizontally">↔ H</button>
+            <button id="refFlipVBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Mirror reference vertically">↕ V</button>
+            <button id="refRotateBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Rotate reference 90° clockwise">↻ 90°</button>
+            <button id="refResetXformBtn" class="tool-btn" style="font-size: 10px; padding: 3px 6px;" title="Reset all reference transforms">Reset</button>
+          </div>
+          <div style="display: flex; gap: 3px; align-items: center; margin-top: 4px; font-size: 10px; color: var(--text-dim);">
+            <span>Move:</span>
+            <button id="refMoveLeftBtn"  class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference left (1 px, Shift = 10 px)">←</button>
+            <button id="refMoveUpBtn"    class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference up (1 px, Shift = 10 px)">↑</button>
+            <button id="refMoveDownBtn"  class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference down (1 px, Shift = 10 px)">↓</button>
+            <button id="refMoveRightBtn" class="tool-btn" style="font-size: 10px; padding: 2px 6px;" title="Move reference right (1 px, Shift = 10 px)">→</button>
+          </div>
         </div>
       </div>
+      <!-- Hidden compat element — the old standalone-section status dot
+           had id="refStatusDot"; keep it around so any code that reads
+           it doesn't blow up, but it lives nowhere visible now. -->
+      <span id="refStatusDot" style="display: none;"></span>
     </div>
 
     <!-- NAVIGATOR section — minimap. Collapsed by default to save space;
@@ -4274,9 +4313,18 @@ const pngImportInput = document.getElementById('pngImportInput');
 function applyReference() {
   const refOn = !!state.refSrc;
   refClearBtn.disabled = !refOn;
-  refControls.style.display = refOn ? 'block' : 'none';
   refStatusDot.textContent = refOn ? '● loaded' : '○ none';
   refStatusDot.style.color = refOn ? 'var(--accent)' : 'var(--text-dim)';
+  // Reflect state on the new in-Layers reference row.
+  const refRow  = document.getElementById('refLayerRow');
+  const refName = document.getElementById('refLayerName');
+  const refVisBtn = document.getElementById('refVisBtn');
+  if (refRow)  refRow.classList.toggle('has-image', refOn);
+  if (refName) refName.textContent = refOn ? 'Reference' : 'Reference (none)';
+  if (refVisBtn) {
+    refVisBtn.textContent = state.refVisible ? '👁' : '⊘';
+    refVisBtn.title = state.refVisible ? 'Hide reference' : 'Show reference';
+  }
   if (refOn) {
     refImage.src = state.refSrc;
     refImage.classList.toggle('visible', state.refVisible);
@@ -4382,6 +4430,26 @@ refVisibleCheck.addEventListener('change', () => {
   state.refVisible = refVisibleCheck.checked;
   applyReference();
   autosave();
+});
+
+// 👁 visibility button on the new in-Layers reference row. Mirrors the
+// (now-hidden) refVisibleCheck checkbox — clicking flips state.refVisible.
+// Disabled-feel when no image is loaded so it's clear there's nothing
+// to toggle yet.
+document.getElementById('refVisBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!state.refSrc) return;   // no image — nothing to show/hide
+  state.refVisible = !state.refVisible;
+  applyReference();
+  autosave();
+});
+// ⋯ expander on the reference row toggles the transform controls.
+// Hidden by default to keep the panel compact; user opens it when
+// they need to nudge / flip / rotate the reference.
+document.getElementById('refToggleXformBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const body = document.getElementById('refControls');
+  body.style.display = (body.style.display === 'block') ? 'none' : 'block';
 });
 
 refOpacitySlider.addEventListener('input', () => {
