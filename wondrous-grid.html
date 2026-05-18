@@ -925,6 +925,7 @@
     <button id="loadBtn">📂 Load JSON</button>
     <input id="loadInput" type="file" accept=".json" style="display: none;">
     <button id="exportPngBtn" title="Export the sprite as a PNG. Animated sprites become a horizontal sprite-sheet (one frame per cell). Tags emit a sidecar JSON with frame ranges + durations.">🖼 Export PNG</button>
+    <button id="exportGifBtn" title="Export the animated sprite as a GIF. Loops forever; uses each frame's duration for timing. Disabled for single-frame sprites.">🎞 Export GIF</button>
     <button id="copyBtn">⎘ Copy Code</button>
     <button id="helpBtn" title="Keyboard shortcuts + how to use">? Help</button>
   </div>
@@ -4204,6 +4205,189 @@ document.getElementById('exportPngBtn').addEventListener('click', () => {
       }, 250);
     }
   }, 'image/png');
+});
+
+// ── GIF export ───────────────────────────────────────────────
+// Animated sprite → looping GIF89a. Inline LZW encoder so no
+// library dependency. Builds a shared palette across all frames
+// (max 256 colors; pixel-art sprites almost never need more), uses
+// index 0 as a transparent placeholder so empty cells stay
+// transparent in the result, and respects per-frame durations.
+function encodeGIF(width, height, palette, frames, opts) {
+  // palette: array of [r, g, b] (index 0 should be the "transparent"
+  // placeholder color — any RGB works since we set the transparent
+  // flag in each frame's GCE).
+  // frames: [{ indices: Uint8Array(w*h), duration: ms }]
+  // opts: { loop }   loop=0 means infinite
+  const colorBits = Math.max(2, Math.ceil(Math.log2(Math.max(2, palette.length))));
+  const tableSize = 1 << colorBits;
+  const bytes = [];
+  const w8  = b => bytes.push(b & 0xff);
+  const w16 = n => { w8(n); w8(n >>> 8); };
+  const wstr = s => { for (let i = 0; i < s.length; i++) w8(s.charCodeAt(i)); };
+
+  wstr('GIF89a');
+  // Logical Screen Descriptor
+  w16(width); w16(height);
+  // packed: GCT flag (1) | color res (colorBits-1) | sort (0) | GCT size (colorBits-1)
+  w8(0x80 | ((colorBits - 1) << 4) | (colorBits - 1));
+  w8(0);  // background color index (we use transparent anyway)
+  w8(0);  // pixel aspect ratio
+
+  // Global Color Table — pad with black to power-of-two size.
+  for (let i = 0; i < tableSize; i++) {
+    const c = palette[i] || [0, 0, 0];
+    w8(c[0]); w8(c[1]); w8(c[2]);
+  }
+
+  // NETSCAPE2.0 application extension — sets loop count.
+  w8(0x21); w8(0xFF); w8(11);
+  wstr('NETSCAPE2.0');
+  w8(3); w8(1);
+  w16(opts && typeof opts.loop === 'number' ? opts.loop : 0);
+  w8(0);
+
+  for (const frame of frames) {
+    // Graphic Control Extension — delay + transparent index 0.
+    w8(0x21); w8(0xF9); w8(4);
+    // packed: disposal=2 (restore to bg) | user-input=0 | transparent flag=1
+    w8(0x09);
+    w16(Math.max(2, Math.round((frame.duration || 100) / 10)));  // delay in 1/100s
+    w8(0);    // transparent color index
+    w8(0);    // block terminator
+
+    // Image Descriptor
+    w8(0x2C);
+    w16(0); w16(0); w16(width); w16(height);
+    w8(0);    // packed (no LCT, no interlace)
+
+    // LZW image data
+    w8(colorBits);
+    const lzw = lzwEncodeGIF(frame.indices, colorBits);
+    let p = 0;
+    while (p < lzw.length) {
+      const sz = Math.min(255, lzw.length - p);
+      w8(sz);
+      for (let i = 0; i < sz; i++) w8(lzw[p + i]);
+      p += sz;
+    }
+    w8(0);    // block terminator
+  }
+
+  w8(0x3B);   // trailer
+  return new Uint8Array(bytes);
+}
+
+function lzwEncodeGIF(indices, colorBits) {
+  // Variable-length LZW per GIF89a spec. codeSize grows from
+  // colorBits+1 up to 12 as the dictionary fills. CLEAR resets the
+  // dictionary at 4096 entries. EOI marks the end of the stream.
+  const CLEAR = 1 << colorBits;
+  const EOI = CLEAR + 1;
+  let codeSize = colorBits + 1;
+  let nextCode = CLEAR + 2;
+  let dict = new Map();
+  let bitBuf = 0, bitCount = 0;
+  const out = [];
+  function emit(code) {
+    bitBuf |= (code << bitCount) >>> 0;
+    bitCount += codeSize;
+    while (bitCount >= 8) {
+      out.push(bitBuf & 0xff);
+      bitBuf >>>= 8;
+      bitCount -= 8;
+    }
+  }
+  function resetDict() {
+    dict.clear();
+    nextCode = CLEAR + 2;
+    codeSize = colorBits + 1;
+  }
+  emit(CLEAR);
+  if (indices.length === 0) { emit(EOI); if (bitCount > 0) out.push(bitBuf & 0xff); return out; }
+  // We use string keys for the dictionary. For our index range
+  // (0-255) that's cheap and avoids hash collisions. Literals
+  // (codes 0..CLEAR-1) are implicit — we don't add them to the
+  // dict; we emit them by their raw index value.
+  let w = String.fromCharCode(indices[0]);
+  for (let i = 1; i < indices.length; i++) {
+    const ch = String.fromCharCode(indices[i]);
+    const wch = w + ch;
+    if (dict.has(wch)) {
+      w = wch;
+    } else {
+      emit(w.length === 1 ? w.charCodeAt(0) : dict.get(w));
+      if (nextCode < 4096) {
+        dict.set(wch, nextCode);
+        nextCode++;
+        if (nextCode === (1 << codeSize) + 1 && codeSize < 12) codeSize++;
+      } else {
+        emit(CLEAR);
+        resetDict();
+      }
+      w = ch;
+    }
+  }
+  emit(w.length === 1 ? w.charCodeAt(0) : dict.get(w));
+  emit(EOI);
+  if (bitCount > 0) out.push(bitBuf & 0xff);
+  return out;
+}
+
+document.getElementById('exportGifBtn').addEventListener('click', () => {
+  if (state.frames.length < 2) {
+    showAlert({ title: 'Need more frames', body: 'GIF export needs at least 2 frames. Add a frame with + Blank or duplicate the current one.' });
+    return;
+  }
+  const W = state.width, H = state.height;
+  // Build a shared palette across all frames. Index 0 is the
+  // "transparent" placeholder — every cell with no painted pixel
+  // gets index 0, and the GCE flags index 0 as transparent so it
+  // renders as the page background (or the previous frame, via
+  // disposal=2 → restore-to-background).
+  const palette = [[0, 0, 0]];   // index 0 reserved for transparent
+  const colorMap = new Map();
+  let overflowed = false;
+  for (const f of state.frames) {
+    const flat = flattenFrame(f);
+    for (const hex of Object.values(flat)) {
+      if (!colorMap.has(hex)) {
+        if (palette.length >= 256) { overflowed = true; continue; }
+        colorMap.set(hex, palette.length);
+        const [r, g, b] = hexToRgb(hex);
+        palette.push([r, g, b]);
+      }
+    }
+  }
+  // Build per-frame index buffers.
+  const frames = [];
+  for (const f of state.frames) {
+    const indices = new Uint8Array(W * H);  // 0 everywhere = transparent
+    const flat = flattenFrame(f);
+    for (const k in flat) {
+      const idx = colorMap.get(flat[k]);
+      if (idx == null) continue;          // dropped due to 256 overflow
+      const [x, y] = k.split(',').map(Number);
+      indices[y * W + x] = idx;
+    }
+    frames.push({ indices, duration: f.duration });
+  }
+  const gifBytes = encodeGIF(W, H, palette, frames, { loop: 0 });
+  const blob = new Blob([gifBytes], { type: 'image/gif' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sprite-${W}x${H}-${state.frames.length}f.gif`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  if (overflowed) {
+    setTimeout(() => {
+      showAlert({
+        title: 'Palette overflow',
+        body: 'Your sprite uses more than 256 unique colors across all frames. GIFs are limited to 256, so some colors got dropped. Try Snap to Palette first to reduce the count.',
+      });
+    }, 350);
+  }
 });
 
 loadBtn.addEventListener('click', () => loadInput.click());
