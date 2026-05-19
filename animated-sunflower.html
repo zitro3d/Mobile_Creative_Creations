@@ -228,11 +228,16 @@ function drawLeaves() {
     { seam: C.leafVein });
 }
 
-function drawPetals(layer, splayY) {
+function drawPetals(layer, splayY, bottomExtra) {
   // splayY: extra vertical splay (px). Top petals get pushed up by ~splayY,
   // bottom petals down by ~splayY, side petals barely move. Signed-quadratic
   // in sin(angle) so the falloff is smooth and the side petals stay put.
+  // bottomExtra: additional downward offset applied ONLY to the bottommost
+  // petal (i = NUM_PETALS / 2). Used in keyframe 3 to drop it below the
+  // egg-shaped chin so the chin stays visible.
   splayY = splayY || 0;
+  bottomExtra = bottomExtra || 0;
+  const bottomIdx = NUM_PETALS >> 1;
   for (let i = 0; i < NUM_PETALS; i++) {
     const angle = (i / NUM_PETALS) * Math.PI * 2 - Math.PI / 2;
     const isFront = Math.sin(angle) > 0.05;
@@ -243,8 +248,9 @@ function drawPetals(layer, splayY) {
     const baseOffset = DISK_R - 1;
     const s = Math.sin(angle);
     const splay = splayY * s * Math.abs(s);
+    const extra = (i === bottomIdx) ? bottomExtra : 0;
     const baseX = CX + Math.cos(angle) * baseOffset;
-    const baseY = CY + s * baseOffset + splay;
+    const baseY = CY + s * baseOffset + splay + extra;
     const curve = 0.18;
     drawTeardrop(baseX, baseY, angle, length, width,
       { out: C.out, hi: C.petalHi, lit: C.petalLit, mid: C.petalMid, dark: C.petalDark, warmHi: C.petalWarmHi },
@@ -270,15 +276,20 @@ function drawHalo() {
   }
 }
 
-function drawCenter(cy, ry) {
-  // Defaults to the round disk (rx = ry = DISK_R, centered at CY).
-  // Pass cy and ry to draw a vertically-stretched ellipse — used by
-  // keyframe 3 so the disk itself elongates to follow the giant mouth.
-  cy = (cy === undefined) ? CY : cy;
-  ry = (ry === undefined) ? DISK_R : ry;
-  const rx = DISK_R;
+function drawCenter(cy, ry, taper) {
+  // Defaults to the round disk (rx = ry = DISK_R, centered at CY, no taper).
+  // Pass cy/ry to draw a vertically-stretched ellipse; pass taper > 0 to
+  // narrow the BOTTOM half into an egg shape (top stays full-round, bottom
+  // pinches in quadratically). Used by keyframe 3.
+  cy    = (cy    === undefined) ? CY       : cy;
+  ry    = (ry    === undefined) ? DISK_R   : ry;
+  taper = (taper === undefined) ? 0        : taper;
+  const rxBase = DISK_R;
   for (let dy = -ry - 1; dy <= ry + 1; dy++) {
-    for (let dx = -rx - 1; dx <= rx + 1; dx++) {
+    // Egg taper: rx is full above the equator and pinches in below.
+    const tNorm = Math.max(0, dy / ry);
+    const rx = rxBase * (1 - taper * tNorm * tNorm);
+    for (let dx = -rxBase - 1; dx <= rxBase + 1; dx++) {
       const n = (dx*dx)/((rx+0.4)*(rx+0.4)) + (dy*dy)/((ry+0.4)*(ry+0.4));
       if (n > 1) continue;
       let color;
@@ -299,7 +310,7 @@ function drawCenter(cy, ry) {
       px(color, CX + dx, cy + dy);
     }
   }
-  px(C.centerLit, CX - Math.round(rx * 0.55), cy - Math.round(ry * 0.55));
+  px(C.centerLit, CX - Math.round(rxBase * 0.55), cy - Math.round(ry * 0.55));
 }
 
 // ─────────────────────────────────────────────────────
@@ -515,20 +526,22 @@ function sceneRoar() {
 }
 
 function sceneFullRoar() {
-  const PETAL_SPLAY = 8;          // top petals lift ~8 px, bottom drop ~8 px
-  const DISK_CY     = 53;         // disk center pushed down 8 px
-  const DISK_RY     = 24;         // ellipse: rx 16 × ry 24 — top stays at y 29,
-                                  // chin reaches y 77 (4 rows past mouth bottom)
+  const PETAL_SPLAY  = 8;         // top petals lift ~8 px, bottom drop ~8 px
+  const BOTTOM_EXTRA = 10;        // drop the centermost petal an extra 10 px
+                                  // so the egg-shaped chin reads in front of it
+  const DISK_CY      = 53;        // disk center pushed down 8 px
+  const DISK_RY      = 24;        // ellipse: rxBase 16 × ry 24, top stays y 29
+  const DISK_TAPER   = 0.5;       // bottom half pinches in to ~rx 8 → egg chin
   drawBackground();
   drawStem();
   drawLeaves();
   drawHalo();
   drawPetals('back', PETAL_SPLAY);
-  drawCenter(DISK_CY, DISK_RY);   // stretched disk so the face follows the mouth
-  drawFaceFullRoar_TopHalf();     // brows + eyes only
-  drawPetals('front', PETAL_SPLAY);
+  drawCenter(DISK_CY, DISK_RY, DISK_TAPER);   // egg-shaped disk
+  drawFaceFullRoar_TopHalf();                  // brows + eyes only
+  drawPetals('front', PETAL_SPLAY, BOTTOM_EXTRA);
   drawGapingMaw(CX, 58, 30);      // 22 × 30 mouth — outline y 42..73, leaving
-                                   // ~3 rows of orange chin (y 73..75) below.
+                                   // the chin (y 74..77, ~10→0 px wide) below.
 }
 
 paintKeyframe(ctx1, sceneIdle);
