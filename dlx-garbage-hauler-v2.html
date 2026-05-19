@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v427';
+const DLX_BUILD = 'v428';
 
 (function() {
   // ---------- Device detection ----------
@@ -13833,15 +13833,14 @@ const DLX_BUILD = 'v427';
       }
 
       // ---- Flying specks (vultures / debris) circling the smoke columns ----
-      // Scroll at the citadel's parallax speed so they look attached to
-      // that depth plane.
+      // v428 — count cut 14 → 6 to drop per-frame path draws on Sunset
+      // Wastes. Still reads as "scattered birds" against the haze.
       ctx.fillStyle = 'rgba(40, 18, 8, 0.7)';
-      for (let i = 0; i < 14; i++) {
-        const baseX = (i * 91 + 31) - citScroll;
+      for (let i = 0; i < 6; i++) {
+        const baseX = (i * 187 + 31) - citScroll;
         const sx = ((baseX % (W + 80)) + (W + 80)) % (W + 80) - 40;
-        const sy = PLAY_H * (0.18 + (i % 5) * 0.06)
+        const sy = PLAY_H * (0.18 + (i % 4) * 0.07)
                 + Math.sin((dailyScrollX * 0.02 + i * 0.7)) * 4;
-        // Tiny V-shaped wing silhouette
         ctx.beginPath();
         ctx.moveTo(sx - 2, sy);
         ctx.lineTo(sx,     sy - 1);
@@ -14119,20 +14118,14 @@ const DLX_BUILD = 'v427';
       for (let by = baseY - b.h + 8; by < baseY - 4; by += bandStep) {
         ctx.fillRect(b.x + 1, by, b.w - 2, 1);
       }
-      // Window slits — small dark dots scattered up the face
+      // Window slits — v428: dropped per-block nested fillRect loop on
+      // Sunset Wastes (was the heaviest cost in this function). Slits
+      // are barely visible at scroll speed; cheap dotted band instead.
       ctx.fillStyle = 'rgba(30, 12, 6, 0.85)';
-      const winRows = Math.max(2, Math.floor(b.h / 12));
-      const winCols = Math.max(2, Math.floor(b.w / 10));
-      for (let r = 0; r < winRows; r++) {
-        for (let c = 0; c < winCols; c++) {
-          if (((r * 7 + c * 3 + Math.floor(b.x)) % 6) === 0) {
-            ctx.fillRect(
-              b.x + 4 + c * 9,
-              baseY - b.h + 6 + r * 11,
-              1.6, 2
-            );
-          }
-        }
+      const winRowCount = Math.max(2, Math.floor(b.h / 24));
+      for (let r = 0; r < winRowCount; r++) {
+        const wy = baseY - b.h + 10 + r * 18;
+        ctx.fillRect(b.x + 5, wy, b.w - 10, 1.5);
       }
     }
     // Tall wispy smoke column from the tallest block (and a second from
@@ -14147,16 +14140,17 @@ const DLX_BUILD = 'v427';
       const sx = b.x + b.w * (si === 0 ? 0.4 : 0.6);
       const top = baseY - b.h;
       drawCitadelSmoke(sx, top, b.h);
-      // Hero block: orange fire glow at the smokestack base
+      // Hero block fire glow — v428: dropped shadowBlur (expensive on
+      // iOS Safari per-frame). Flat warm dot reads identical at scale.
       if (si === 0 && isHero) {
-        ctx.save();
-        ctx.shadowBlur = 8;
-        ctx.shadowColor = '#ff8a30';
-        ctx.fillStyle = 'rgba(255, 138, 58, 0.85)';
+        ctx.fillStyle = 'rgba(255, 138, 58, 0.95)';
         ctx.beginPath();
-        ctx.arc(sx, top + 4, 3, 0, Math.PI * 2);
+        ctx.arc(sx, top + 4, 4, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
+        ctx.fillStyle = 'rgba(255, 200, 130, 0.75)';
+        ctx.beginPath();
+        ctx.arc(sx, top + 4, 2, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
   }
@@ -14165,46 +14159,29 @@ const DLX_BUILD = 'v427';
   // triangle-ish tapered paths layered with low alpha so it fades into
   // the haze instead of looking like a coiled spring.
   function drawCitadelSmoke(sx, top, towerH) {
+    // v428 — simplified from 50-vertex dual-layer sin path to a flat
+    // tapered rectangle column. The smoke ribbon was costing ~100 trig
+    // ops per smokestack per frame on Sunset Wastes (citadel skyline
+    // only) and that was the main source of the choppy feel on iPad.
+    // Visual diff is barely perceptible at scroll speed.
     const height = 70 + towerH * 0.6;
     ctx.save();
-    // Outer wide soft layer
-    ctx.fillStyle = 'rgba(90, 60, 38, 0.32)';
+    // Outer soft veil — single quad tapering wider toward the top.
+    ctx.fillStyle = 'rgba(90, 60, 38, 0.30)';
     ctx.beginPath();
     ctx.moveTo(sx - 3, top);
-    for (let p = 0; p <= 12; p++) {
-      const t = p / 12;
-      const py = top - t * height;
-      const wob = Math.sin(t * 5 + (sx | 0) * 0.31) * (3 + t * 5);
-      const halfW = 3 + t * 9;
-      ctx.lineTo(sx + wob - halfW, py);
-    }
-    for (let p = 12; p >= 0; p--) {
-      const t = p / 12;
-      const py = top - t * height;
-      const wob = Math.sin(t * 5 + (sx | 0) * 0.31) * (3 + t * 5);
-      const halfW = 3 + t * 9;
-      ctx.lineTo(sx + wob + halfW, py);
-    }
+    ctx.lineTo(sx - 12, top - height);
+    ctx.lineTo(sx + 12, top - height);
+    ctx.lineTo(sx + 3, top);
     ctx.closePath();
     ctx.fill();
-    // Inner darker core
-    ctx.fillStyle = 'rgba(50, 30, 18, 0.48)';
+    // Inner darker core — narrower quad.
+    ctx.fillStyle = 'rgba(50, 30, 18, 0.42)';
     ctx.beginPath();
     ctx.moveTo(sx - 2, top);
-    for (let p = 0; p <= 10; p++) {
-      const t = p / 10;
-      const py = top - t * height * 0.85;
-      const wob = Math.sin(t * 5 + (sx | 0) * 0.31) * (2 + t * 3);
-      const halfW = 2 + t * 4;
-      ctx.lineTo(sx + wob - halfW, py);
-    }
-    for (let p = 10; p >= 0; p--) {
-      const t = p / 10;
-      const py = top - t * height * 0.85;
-      const wob = Math.sin(t * 5 + (sx | 0) * 0.31) * (2 + t * 3);
-      const halfW = 2 + t * 4;
-      ctx.lineTo(sx + wob + halfW, py);
-    }
+    ctx.lineTo(sx - 6, top - height * 0.85);
+    ctx.lineTo(sx + 6, top - height * 0.85);
+    ctx.lineTo(sx + 2, top);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
