@@ -244,18 +244,23 @@ function drawPetals(layer, eggCfg) {
   // the egg's actual perimeter — top petals stay snug against the forehead
   // arc, bottom petals ride the chin's taper like a beard. Default (no
   // eggCfg) keeps the original round-disk positioning for keyframes 1 & 2.
+  const bottomIdx = NUM_PETALS >> 1;
   for (let i = 0; i < NUM_PETALS; i++) {
     const angle = (i / NUM_PETALS) * Math.PI * 2 - Math.PI / 2;
     const isFront = Math.sin(angle) > 0.05;
     if (layer === 'back'  &&  isFront) continue;
     if (layer === 'front' && !isFront) continue;
-    const length = 21;
+    let length = 21;
     const width = 12;
     let baseX, baseY;
     if (eggCfg) {
-      const r = eggR(angle, eggCfg.rx, eggCfg.ry, eggCfg.taper) - 1;
+      // Chin petal is smaller and nestles INTO the chin (not hanging off
+      // the tip) so it reads as a beard hair, not a separate hanging petal.
+      const inset = (i === bottomIdx) ? 6 : 1;
+      const r = eggR(angle, eggCfg.rx, eggCfg.ry, eggCfg.taper) - inset;
       baseX = CX + Math.cos(angle) * r;
       baseY = eggCfg.cy + Math.sin(angle) * r;
+      if (i === bottomIdx) length = 9;
     } else {
       const baseOffset = DISK_R - 1;
       baseX = CX + Math.cos(angle) * baseOffset;
@@ -413,27 +418,27 @@ function drawBrowRaised(cx, cy, dir) {
   px(C.brow, cx + innerDx2, cy + 3);
 }
 
-// Squinted variant of drawWideEye — 9 wide × 5 tall. The roar tightens the
-// face: the eye whites get squashed vertically and the pupil shrinks into
-// a smaller slit. Same outer width so the eye still reads at scale.
+// Squinted variant of drawWideEye — 9 wide × 6 tall. The roar tightens the
+// face but the eye still reads as an eye (not a slit). 2 × 2 pupil keeps
+// the intense stare from keyframe 2.
 function drawSquintEye(cx, cy, dir) {
-  // 9 wide × 5 tall outlined oval — squashed.
-  px(C.out, cx - 2, cy - 2, 5, 1);
-  px(C.out, cx + 3, cy - 1);
+  // 9 wide × 6 tall outlined oval — moderate squint.
+  px(C.out, cx - 2, cy - 2, 5, 1);     // top row
+  px(C.out, cx + 3, cy - 1);            // upper corners
   px(C.out, cx - 3, cy - 1);
-  px(C.out, cx + 4, cy);
-  px(C.out, cx - 4, cy);
-  px(C.out, cx + 3, cy + 1);
-  px(C.out, cx - 3, cy + 1);
-  px(C.out, cx - 2, cy + 2, 5, 1);
+  px(C.out, cx + 4, cy, 1, 2);          // sides (rows 0 & +1)
+  px(C.out, cx - 4, cy, 1, 2);
+  px(C.out, cx + 3, cy + 2);            // lower corners
+  px(C.out, cx - 3, cy + 2);
+  px(C.out, cx - 2, cy + 3, 5, 1);      // bottom row
 
   px(C.eyeWhite, cx - 2, cy - 1, 5, 1);
-  px(C.eyeWhite, cx - 3, cy,     7, 1);
-  px(C.eyeWhite, cx - 2, cy + 1, 5, 1);
+  px(C.eyeWhite, cx - 3, cy,     7, 2);
+  px(C.eyeWhite, cx - 2, cy + 2, 5, 1);
 
-  // 2×1 pupil — small slit, pushed toward the bridge.
+  // 2 × 2 pupil — same intensity as keyframe 2, pushed toward the bridge.
   const offX = dir > 0 ? 1 : -2;
-  px(C.pupil, cx + offX, cy, 2, 1);
+  px(C.pupil, cx + offX, cy, 2, 2);
 }
 
 function drawWideEye(cx, cy, dir) {
@@ -500,6 +505,32 @@ function drawFaceFullRoar_TopHalf() {
   // Squinted + lifted 1 px vs keyframe 2 — the face "feels" the roar.
   drawSquintEye(CX - 6, 37, +1);
   drawSquintEye(CX + 6, 37, -1);
+}
+
+// Lolling tongue — wide pillar at the top, tapers to a rounded tip.
+// Drawn AFTER the mouth so it sits in front of the bottom fangs,
+// reading as a tongue rolling out past the teeth. Body uses the lit
+// petal purple (closest pinkish tone in the locked palette); right-edge
+// shadow uses the dark petal so the shape has the same 3-step shading
+// as everything else on the page.
+function drawTongue(cx, topY, length) {
+  for (let dy = 0; dy < length; dy++) {
+    const t = dy / Math.max(1, length - 1);
+    // Quadratic taper: 7 wide at the throat, narrowing to 1 at the tip.
+    const w = Math.max(1, Math.round(7 - 6 * t * t));
+    const halfW = w >> 1;
+    // Outline edges
+    px(C.out,      cx - halfW - 1, topY + dy);
+    px(C.out,      cx + halfW + 1, topY + dy);
+    // Body
+    px(C.petalLit, cx - halfW,     topY + dy, w, 1);
+    // Right-side shadow (only when there's room — keeps the tip readable)
+    if (w >= 4) px(C.petalDark, cx + halfW - 1, topY + dy);
+    // Center groove — a 1 px dark seam down the middle for tongue texture
+    if (w >= 5) px(C.petalDark, cx,             topY + dy);
+  }
+  // Bottom tip cap
+  px(C.out, cx, topY + length);
 }
 
 function drawGapingMaw(cx, cy, H) {
@@ -573,6 +604,9 @@ function sceneFullRoar() {
   drawFaceFullRoar_TopHalf();          // raised brows + squinted lifted eyes
   drawPetals('front', egg);
   drawGapingMaw(CX, 58, 30);           // 22 × 30 mouth — outline y 42..73
+  drawTongue(CX, 56, 22);              // tongue starts inside the throat at
+                                        // y 56, rolls out past the bottom
+                                        // fangs to y 77 (right at chin tip)
 }
 
 paintKeyframe(ctx1, sceneIdle);
