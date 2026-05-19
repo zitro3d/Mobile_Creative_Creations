@@ -115,26 +115,38 @@ const C = {
 const CX = 64;
 const CY = 45;       // flower disk center (raised so the bigger head still attaches at y=59)
 const DISK_R = 16;   // 25% larger head
-const NUM_PETALS = 14;
+const NUM_PETALS = 12;
 const STEM_TOP_Y = CY + DISK_R - 2;   // 59 (unchanged so the stem stays the same)
 const STEM_BOT_Y = 124;
 
 // ── TEARDROP STENCIL (rotated, oversampled to avoid gaps) ────────
+// Smooth bell silhouette: ramps up over the first 30% of length, holds a
+// rounded plateau through the middle, smoothly rounds off the tip.
 function teardropHalfWidth(u, maxWidth) {
-  if (u <= 0 || u >= 1) return 0;
-  const peak = 0.32;
-  if (u < peak) return (u / peak) * (maxWidth / 2);
-  return (1 - (u - peak) / (1 - peak)) * (maxWidth / 2);
+  if (u <= 0.02 || u >= 0.98) return 0;
+  const half = maxWidth / 2;
+  const t1 = Math.max(0, Math.min(1, (u - 0.05) / 0.27));
+  const ramp = t1 * t1 * (3 - 2 * t1);
+  const t2 = Math.max(0, Math.min(1, (u - 0.62) / 0.33));
+  const fall = t2 * t2 * (3 - 2 * t2);
+  return half * ramp * (1 - fall);
 }
 
 function drawTeardrop(cx, cy, angle, length, maxWidth, colors, options) {
   const cs = Math.cos(angle), sn = Math.sin(angle);
   const seam = options && options.seam;
+  // curve: parabolic lateral deflection along the petal axis (radians-ish).
+  // Positive curves the tip to one side of the base direction; negative the other.
+  const curve = (options && options.curve) || 0;
   for (let d = 0; d <= length; d += 0.5) {
     const u = d / length;
     const halfW = teardropHalfWidth(u, maxWidth);
+    // Lateral deflection grows with u² (zero at base, max at tip)
+    const deflect = curve * u * u * (length / 2);
     if (halfW <= 0) {
-      px(colors.out, Math.round(cx + d * cs), Math.round(cy + d * sn));
+      const sx = Math.round(cx + d * cs - deflect * sn);
+      const sy = Math.round(cy + d * sn + deflect * cs);
+      px(colors.out, sx, sy);
       continue;
     }
     for (let dy = -halfW; dy <= halfW; dy += 0.5) {
@@ -151,15 +163,18 @@ function drawTeardrop(cx, cy, angle, length, maxWidth, colors, options) {
         else if (tSigned > -0.45) color = colors.mid;
         else                       color = colors.dark;
       }
-      const sx = Math.round(cx + d * cs - dy * sn);
-      const sy = Math.round(cy + d * sn + dy * cs);
+      const totalDy = dy + deflect;
+      const sx = Math.round(cx + d * cs - totalDy * sn);
+      const sy = Math.round(cy + d * sn + totalDy * cs);
       px(color, sx, sy);
     }
   }
   if (seam) {
     for (let d = length * 0.22; d < length * 0.82; d += 0.5) {
-      const sx = Math.round(cx + d * cs);
-      const sy = Math.round(cy + d * sn);
+      const u = d / length;
+      const deflect = curve * u * u * (length / 2);
+      const sx = Math.round(cx + d * cs - deflect * sn);
+      const sy = Math.round(cy + d * sn + deflect * cs);
       px(seam, sx, sy);
     }
   }
@@ -208,16 +223,20 @@ function drawPetals(layer) {
     if (layer === 'back'  &&  isFront) continue;
     if (layer === 'front' && !isFront) continue;
 
-    const length = 18;
-    const width = 10;
+    const length = 21;
+    const width = 12;
 
     // Base sits just inside the disk rim so the petal appears to grow out of the edge.
     const baseOffset = DISK_R - 1;
     const baseX = CX + Math.cos(angle) * baseOffset;
     const baseY = CY + Math.sin(angle) * baseOffset;
 
+    // Subtle clockwise curve — tip bends a few pixels off the base axis so the petal isn't a straight dart.
+    const curve = 0.18;
+
     drawTeardrop(baseX, baseY, angle, length, width,
-      { out: C.out, hi: C.petalHi, lit: C.petalLit, mid: C.petalMid, dark: C.petalDark });
+      { out: C.out, hi: C.petalHi, lit: C.petalLit, mid: C.petalMid, dark: C.petalDark },
+      { curve });
   }
 }
 
