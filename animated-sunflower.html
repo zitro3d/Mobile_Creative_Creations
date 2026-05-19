@@ -270,16 +270,23 @@ function drawHalo() {
   }
 }
 
-function drawCenter() {
-  const r = DISK_R;
-  for (let dy = -r - 1; dy <= r + 1; dy++) {
-    for (let dx = -r - 1; dx <= r + 1; dx++) {
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      if (dist > r + 0.4) continue;
+function drawCenter(cy, ry) {
+  // Defaults to the round disk (rx = ry = DISK_R, centered at CY).
+  // Pass cy and ry to draw a vertically-stretched ellipse — used by
+  // keyframe 3 so the disk itself elongates to follow the giant mouth.
+  cy = (cy === undefined) ? CY : cy;
+  ry = (ry === undefined) ? DISK_R : ry;
+  const rx = DISK_R;
+  for (let dy = -ry - 1; dy <= ry + 1; dy++) {
+    for (let dx = -rx - 1; dx <= rx + 1; dx++) {
+      const n = (dx*dx)/((rx+0.4)*(rx+0.4)) + (dy*dy)/((ry+0.4)*(ry+0.4));
+      if (n > 1) continue;
       let color;
-      if (dist > r - 0.55) {
+      const nShell = (dx*dx)/((rx-0.55)*(rx-0.55)) + (dy*dy)/((ry-0.55)*(ry-0.55));
+      const nInner = (dx*dx)/((rx-1.7)*(rx-1.7)) + (dy*dy)/((ry-1.7)*(ry-1.7));
+      if (nShell > 1) {
         color = C.centerOut;
-      } else if (dist > r - 1.7) {
+      } else if (nInner > 1) {
         color = C.centerDark;
       } else {
         const a = Math.atan2(dy, dx);
@@ -289,10 +296,10 @@ function drawCenter() {
         else if (lit > -0.45) color = C.centerMid;
         else                   color = C.centerDark;
       }
-      px(color, CX + dx, CY + dy);
+      px(color, CX + dx, cy + dy);
     }
   }
-  px(C.centerLit, CX - Math.round(r * 0.55), CY - Math.round(r * 0.55));
+  px(C.centerLit, CX - Math.round(rx * 0.55), cy - Math.round(ry * 0.55));
 }
 
 // ─────────────────────────────────────────────────────
@@ -508,18 +515,20 @@ function sceneRoar() {
 }
 
 function sceneFullRoar() {
-  const PETAL_SPLAY = 8;        // top petals lift ~8 px, bottom drop ~8 px
+  const PETAL_SPLAY = 8;          // top petals lift ~8 px, bottom drop ~8 px
+  const DISK_CY     = 53;         // disk center pushed down 8 px
+  const DISK_RY     = 24;         // ellipse: rx 16 × ry 24 — top stays at y 29,
+                                  // chin reaches y 77 (4 rows past mouth bottom)
   drawBackground();
   drawStem();
   drawLeaves();
   drawHalo();
   drawPetals('back', PETAL_SPLAY);
-  drawCenter();
-  drawFaceFullRoar_TopHalf();   // brows + eyes only
+  drawCenter(DISK_CY, DISK_RY);   // stretched disk so the face follows the mouth
+  drawFaceFullRoar_TopHalf();     // brows + eyes only
   drawPetals('front', PETAL_SPLAY);
-  drawGapingMaw(CX, 57, 30);    // 22 × 30 mouth painted LAST so it sits on
-                                 // top of the bottom front petal and bulges
-                                 // far past the disk into the stem area.
+  drawGapingMaw(CX, 58, 30);      // 22 × 30 mouth — outline y 42..73, leaving
+                                   // ~3 rows of orange chin (y 73..75) below.
 }
 
 paintKeyframe(ctx1, sceneIdle);
