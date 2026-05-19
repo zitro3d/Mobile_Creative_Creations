@@ -2376,7 +2376,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v426';
+const DLX_BUILD = 'v427';
 
 (function() {
   // ---------- Device detection ----------
@@ -4208,7 +4208,12 @@ const DLX_BUILD = 'v426';
     // doesn't get blistering once cogs start pouring in. Campaign
     // keeps its original aggressive curve.
     if (isDaily) {
-      return Math.min(3.4 * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.006) * blitzMul);
+      // v427 — slightly faster baseline + higher cap to make the daily
+      // run feel more "race". Ramp 0.006 → 0.009 (50% faster acceleration
+      // as you score), cap 3.4 → 3.9 (~15% higher ceiling). Still gentler
+      // than campaign's 0.02 ramp / 5.0 cap so it doesn't get punishing
+      // once cogs start pouring in.
+      return Math.min(3.9 * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.009) * blitzMul);
     }
     return Math.min(PIPE_SPEED_MAX * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.02) * d.speedMul * blitzMul);
   }
@@ -7465,9 +7470,11 @@ const DLX_BUILD = 'v426';
     // the launch reads as the rig spinning up its engines.
     if (state === STATE_PLAY && isDaily && dailyAwaitingLaunch) {
       dailyAwaitingLaunch = false;
-      dailyIntroFrames = 75;
+      dailyIntroFrames = 85;
       bird.vy = FLAP * 0.4;
       thrusterFrames = 30;
+      // Big initial exhaust burst — visual punch for the race-car launch.
+      emitExhaustBurst(14, true);
       playSound('launch');
       return;
     }
@@ -7834,17 +7841,23 @@ const DLX_BUILD = 'v426';
           cargo.vy = 0;
         }
       } else if (isDaily && dailyIntroFrames > 0) {
-        // ---- Launch animation — taxi forward on the runway, then lift off ----
+        // ---- Launch animation — race-car burst, then settle to cruise ----
+        // World scroll peaks ABOVE cruise speed during the burst then decays
+        // back to 1.0× so the takeoff reads as dramatic engine kick instead
+        // of a smooth ramp. Curve:
+        //   t 0.00 → 0.15  : hard accel  0   → 1.6× cruise   (the BURST)
+        //   t 0.15 → 0.50  : hold/decay  1.6 → 1.2×          (settling)
+        //   t 0.50 → 1.00  : ease to     1.2 → 1.0× cruise   (cruise lock)
         dailyIntroFrames--;
-        const t = 1 - (dailyIntroFrames / 75);
+        const t = 1 - (dailyIntroFrames / 85);
         const slideEase = 1 - Math.pow(1 - t, 3);
         // X always slides forward smoothly across the whole intro
         bird.x = dailyIntroStartX + (dailyIntroTargetX - dailyIntroStartX) * slideEase;
-        // Y holds at runway altitude for the TAXI portion (first 60%)
+        // Y holds at runway altitude for the TAXI portion (first 55%)
         // then climbs to flight altitude in the LIFTOFF portion. So
         // the rig + cargo roll along the floor until they clear the
         // hangar, then both lift off as a pair.
-        const taxiPortion = 0.60;
+        const taxiPortion = 0.55;
         if (t < taxiPortion) {
           bird.y = dailyIntroStartY;
           bird.vy = 0;
@@ -7862,11 +7875,30 @@ const DLX_BUILD = 'v426';
           cargo.y += (ty - cargo.y) * 0.30;
           cargo.vy = 0;
         }
-        // Ramp the world scroll up over the intro so the hangar slides
-        // left past the rig — sells the takeoff momentum
-        dailyScrollX += speed * slideEase;
-        // Continuous engine flare during the intro
-        if (dailyIntroFrames % 3 === 0) thrusterFrames = 4;
+        // Race-car boost curve — peaks at 1.6× cruise during the burst,
+        // decays through 1.2× hold, settles to 1.0× by the end.
+        let boostMul;
+        if (t < 0.15) {
+          // BURST — hard accel from 0 to peak. Quadratic ease-in for snap.
+          const burstT = t / 0.15;
+          boostMul = 1.6 * burstT * burstT;
+        } else if (t < 0.50) {
+          // HOLD — gentle decay from peak.
+          const holdT = (t - 0.15) / 0.35;
+          boostMul = 1.6 - 0.4 * holdT;          // 1.6 → 1.2
+        } else {
+          // SETTLE — ease to cruise.
+          const decayT = (t - 0.50) / 0.50;
+          const decayEase = 1 - Math.pow(1 - decayT, 2);
+          boostMul = 1.2 - 0.2 * decayEase;      // 1.2 → 1.0
+        }
+        dailyScrollX += speed * boostMul;
+        // Continuous engine flare during the intro, fatter during the burst.
+        if (dailyIntroFrames % 2 === 0) thrusterFrames = t < 0.20 ? 8 : 4;
+        // Extra exhaust on the burst tick so the takeoff reads visually
+        if (t > 0.02 && t < 0.18 && dailyIntroFrames % 4 === 0) {
+          emitExhaustBurst(6, true);
+        }
       } else if (isDaily && dailyDockingFrames > 0) {
         // ---- Landing animation — rig glides onto the truck stop dock ----
         // Mirror of the warehouse launch: world scroll halts and the rig
@@ -7903,7 +7935,12 @@ const DLX_BUILD = 'v426';
         }
       } else if (isDaily && dailyPostDockFrames > 0) {
         // ---- Post-landing dwell — rig parked, world frozen, player
-        // gets a clean view of the truck stop scene before victory
+        // gets a clean view of the truck stop scene before victory.
+        // v427 — VICTORY state from the rig spec: celebratory feedback
+        // while the rig sits at the truck stop. Rhythmic burst halo
+        // pulses + sparkle particles + occasional exhaust honks read as
+        // "headlights flashing / engine revving / made it" without
+        // needing new sprite frames from the artist.
         dailyPostDockFrames--;
         bird.vy = 0;
         bird.x = dailyDockingTargetX;
@@ -7913,6 +7950,22 @@ const DLX_BUILD = 'v426';
           cargo.x = bird.x - 32;
           cargo.y = bird.y;
           cargo.vy = 0;
+        }
+        // Cargo-arrived celebration — only fire when the cargo actually
+        // survived. Player who lost their cargo to a thief still gets
+        // the dwell, but no celebratory flash.
+        const cargoSurvived = !!(cargo && !cargo.lost && cargo.attached);
+        if (cargoSurvived) {
+          // Rhythmic burst halo every ~40 frames during dwell
+          const dwellElapsed = 240 - dailyPostDockFrames;
+          if (dwellElapsed > 0 && dwellElapsed % 40 === 0) {
+            burstFrames = Math.max(burstFrames, 18);
+            playSound('pickup');
+          }
+          // Light exhaust puffs every ~30 frames — "engine idling proud"
+          if (dwellElapsed > 0 && dwellElapsed % 30 === 0) {
+            emitExhaustBurst(4, false);
+          }
         }
         if (dailyPostDockFrames === 0 && !dailyDelivered) {
           dailyDelivered = true;
@@ -15960,8 +16013,8 @@ const DLX_BUILD = 'v426';
     // first ~20 frames of the launch intro; stays fully open after.
     let doorAngle = 0;
     if (!dailyAwaitingLaunch) {
-      if (dailyIntroFrames > 55) {
-        const t01 = (75 - dailyIntroFrames) / 20;
+      if (dailyIntroFrames > 65) {
+        const t01 = (85 - dailyIntroFrames) / 20;
         const ease = 1 - (1 - t01) * (1 - t01);
         doorAngle = ease * (Math.PI / 2);
       } else {
