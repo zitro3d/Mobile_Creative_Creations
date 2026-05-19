@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<title>Angry Sunflower — Keyframes 1 & 2</title>
+<title>Angry Sunflower — Keyframes 1, 2 & 3</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -43,10 +43,10 @@
 <div class="kicker">DLX · BOTANICAL HORROR · KEYFRAME REVIEW</div>
 <h1>ANGRY SUNFLOWER</h1>
 <p class="sub">
-  Static keyframes 1 & 2 for approval. Locked 9-color Void palette throughout.
-  Petals, halo, center disk, stem and leaves are identical between the two frames so
-  the head cuts cleanly when animated; only the face changes. 128 × 192 native at
-  4× nearest-neighbor scale.
+  Static keyframes 1, 2 & 3 for approval. Locked 9-color Void palette throughout.
+  Petals, halo, center disk, stem and leaves are identical between frames so the head
+  cuts cleanly when animated; only the face — and on keyframe 3, the draw order —
+  changes. 128 × 192 native at 4× nearest-neighbor scale.
 </p>
 
 <div class="canvasFrame">
@@ -58,6 +58,11 @@
   <canvas id="cv2" class="pixelCanvas" width="128" height="192" style="width: 512px; height: 768px;"></canvas>
 </div>
 <div class="stamp">KEYFRAME 2 — ROAR</div>
+
+<div class="canvasFrame">
+  <canvas id="cv3" class="pixelCanvas" width="128" height="192" style="width: 512px; height: 768px;"></canvas>
+</div>
+<div class="stamp">KEYFRAME 3 — FULL ROAR</div>
 
 <div class="meta">Approve to proceed with the in-between keyframes and the looping animation.</div>
 
@@ -73,6 +78,10 @@ ctx1.imageSmoothingEnabled = false;
 const cv2 = document.getElementById('cv2');
 const ctx2 = cv2.getContext('2d');
 ctx2.imageSmoothingEnabled = false;
+
+const cv3 = document.getElementById('cv3');
+const ctx3 = cv3.getContext('2d');
+ctx3.imageSmoothingEnabled = false;
 
 let ctx = ctx1;
 
@@ -418,21 +427,94 @@ function drawRoaringMouth(cx, cy) {
   }
 }
 
-// ── COMPOSITE — paint each keyframe to its own canvas ───
-function paintKeyframe(targetCtx, drawFaceFn) {
+// ─────────────────────────────────────────────────────
+// ── FACE C — KEYFRAME 3: FULL ROAR (mouth dominates the head) ──
+// Brows  y 30–35 (pushed up under the crown petals)
+// Eyes   y 37–43 (pushed up to make room)
+// Mouth  y 44–69 (22 × 26 — taller than the disk; drawn AFTER front petals
+//                 so the maw stays on top of the bottom petal)
+// ─────────────────────────────────────────────────────
+function drawFaceFullRoar_TopHalf() {
+  drawBrowRaised(CX - 7, 32, +1);
+  drawBrowRaised(CX + 7, 32, -1);
+
+  drawWideEye(CX - 6, 40, +1);
+  drawWideEye(CX + 6, 40, -1);
+}
+
+function drawGapingMaw(cx, cy) {
+  // 22 × 26 interior — same fang language as keyframe 2, just taller.
+  const W = 22, H = 26;
+  const left = cx - (W >> 1);
+  const top  = cy - (H >> 1);
+
+  // Black maw (extends 1 px outside on all sides — outline + interior in one paint).
+  px(C.mouthDark, left - 1, top - 1, W + 2, H + 2);
+
+  // Top fangs — 5 across, pointing DOWN.
+  const topFangX = [1, 5, 9, 13, 17];
+  for (let i = 0; i < topFangX.length; i++) {
+    const fx = left + topFangX[i];
+    px(C.tooth, fx, top + 0, 3, 1);
+    px(C.tooth, fx, top + 1, 2, 1);
+    px(C.tooth, fx, top + 2, 1, 1);
+  }
+
+  // Bottom fangs — 4 across, offset 2 cols so the tips land between the top fangs.
+  const botFangX = [3, 7, 11, 15];
+  for (let i = 0; i < botFangX.length; i++) {
+    const fx = left + botFangX[i];
+    px(C.tooth, fx + 2, top + H - 3, 1, 1);
+    px(C.tooth, fx + 1, top + H - 2, 2, 1);
+    px(C.tooth, fx,     top + H - 1, 3, 1);
+  }
+}
+
+// ── COMPOSITE — each keyframe owns its full scene order ────
+function paintKeyframe(targetCtx, sceneFn) {
   ctx = targetCtx;
+  sceneFn();
+}
+
+function sceneIdle() {
   drawBackground();
   drawStem();
   drawLeaves();
   drawHalo();
   drawPetals('back');
   drawCenter();
-  drawFaceFn();
+  drawFaceIdle();
   drawPetals('front');
 }
 
-paintKeyframe(ctx1, drawFaceIdle);
-paintKeyframe(ctx2, drawFaceRoar);
+function sceneRoar() {
+  drawBackground();
+  drawStem();
+  drawLeaves();
+  drawHalo();
+  drawPetals('back');
+  drawCenter();
+  drawFaceRoar();
+  drawPetals('front');
+}
+
+function sceneFullRoar() {
+  drawBackground();
+  drawStem();
+  drawLeaves();
+  drawHalo();
+  drawPetals('back');
+  drawCenter();
+  drawFaceFullRoar_TopHalf();   // brows + eyes only
+  drawPetals('front');
+  drawGapingMaw(CX, 57);        // mouth painted LAST so it sits on top of
+                                 // the bottom front petal and bulges past
+                                 // the disk into the stem area.
+}
+
+paintKeyframe(ctx1, sceneIdle);
+paintKeyframe(ctx2, sceneRoar);
+paintKeyframe(ctx3, sceneFullRoar);
 </script>
 </body>
 </html>
