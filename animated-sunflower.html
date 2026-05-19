@@ -228,16 +228,22 @@ function drawLeaves() {
     { seam: C.leafVein });
 }
 
-function drawPetals(layer, splayY, bottomExtra) {
-  // splayY: extra vertical splay (px). Top petals get pushed up by ~splayY,
-  // bottom petals down by ~splayY, side petals barely move. Signed-quadratic
-  // in sin(angle) so the falloff is smooth and the side petals stay put.
-  // bottomExtra: additional downward offset applied ONLY to the bottommost
-  // petal (i = NUM_PETALS / 2). Used in keyframe 3 to drop it below the
-  // egg-shaped chin so the chin stays visible.
-  splayY = splayY || 0;
-  bottomExtra = bottomExtra || 0;
-  const bottomIdx = NUM_PETALS >> 1;
+// Polar radius of the egg-shaped disk at the given angle (measured from the
+// egg's own center). Matches the math in drawCenter: above the equator the
+// shape is a regular ellipse (rx × ry); below the equator rx pinches in
+// quadratically by `taper`, producing the chin.
+function eggR(angle, rx, ry, taper) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const rxAt = (s > 0) ? rx * (1 - taper * s * s) : rx;
+  return rxAt * ry / Math.sqrt(ry*ry*c*c + rxAt*rxAt*s*s);
+}
+
+function drawPetals(layer, eggCfg) {
+  // When eggCfg = { cy, rx, ry, taper } is provided, each petal attaches to
+  // the egg's actual perimeter — top petals stay snug against the forehead
+  // arc, bottom petals ride the chin's taper like a beard. Default (no
+  // eggCfg) keeps the original round-disk positioning for keyframes 1 & 2.
   for (let i = 0; i < NUM_PETALS; i++) {
     const angle = (i / NUM_PETALS) * Math.PI * 2 - Math.PI / 2;
     const isFront = Math.sin(angle) > 0.05;
@@ -245,12 +251,16 @@ function drawPetals(layer, splayY, bottomExtra) {
     if (layer === 'front' && !isFront) continue;
     const length = 21;
     const width = 12;
-    const baseOffset = DISK_R - 1;
-    const s = Math.sin(angle);
-    const splay = splayY * s * Math.abs(s);
-    const extra = (i === bottomIdx) ? bottomExtra : 0;
-    const baseX = CX + Math.cos(angle) * baseOffset;
-    const baseY = CY + s * baseOffset + splay + extra;
+    let baseX, baseY;
+    if (eggCfg) {
+      const r = eggR(angle, eggCfg.rx, eggCfg.ry, eggCfg.taper) - 1;
+      baseX = CX + Math.cos(angle) * r;
+      baseY = eggCfg.cy + Math.sin(angle) * r;
+    } else {
+      const baseOffset = DISK_R - 1;
+      baseX = CX + Math.cos(angle) * baseOffset;
+      baseY = CY + Math.sin(angle) * baseOffset;
+    }
     const curve = 0.18;
     drawTeardrop(baseX, baseY, angle, length, width,
       { out: C.out, hi: C.petalHi, lit: C.petalLit, mid: C.petalMid, dark: C.petalDark, warmHi: C.petalWarmHi },
@@ -403,6 +413,29 @@ function drawBrowRaised(cx, cy, dir) {
   px(C.brow, cx + innerDx2, cy + 3);
 }
 
+// Squinted variant of drawWideEye — 9 wide × 5 tall. The roar tightens the
+// face: the eye whites get squashed vertically and the pupil shrinks into
+// a smaller slit. Same outer width so the eye still reads at scale.
+function drawSquintEye(cx, cy, dir) {
+  // 9 wide × 5 tall outlined oval — squashed.
+  px(C.out, cx - 2, cy - 2, 5, 1);
+  px(C.out, cx + 3, cy - 1);
+  px(C.out, cx - 3, cy - 1);
+  px(C.out, cx + 4, cy);
+  px(C.out, cx - 4, cy);
+  px(C.out, cx + 3, cy + 1);
+  px(C.out, cx - 3, cy + 1);
+  px(C.out, cx - 2, cy + 2, 5, 1);
+
+  px(C.eyeWhite, cx - 2, cy - 1, 5, 1);
+  px(C.eyeWhite, cx - 3, cy,     7, 1);
+  px(C.eyeWhite, cx - 2, cy + 1, 5, 1);
+
+  // 2×1 pupil — small slit, pushed toward the bridge.
+  const offX = dir > 0 ? 1 : -2;
+  px(C.pupil, cx + offX, cy, 2, 1);
+}
+
 function drawWideEye(cx, cy, dir) {
   // 9 wide × 7 tall outlined oval.
   px(C.out, cx - 2, cy - 3, 5, 1);
@@ -464,8 +497,9 @@ function drawFaceFullRoar_TopHalf() {
   drawBrowRaised(CX - 7, 30, +1);
   drawBrowRaised(CX + 7, 30, -1);
 
-  drawWideEye(CX - 6, 38, +1);
-  drawWideEye(CX + 6, 38, -1);
+  // Squinted + lifted 1 px vs keyframe 2 — the face "feels" the roar.
+  drawSquintEye(CX - 6, 37, +1);
+  drawSquintEye(CX + 6, 37, -1);
 }
 
 function drawGapingMaw(cx, cy, H) {
@@ -526,22 +560,19 @@ function sceneRoar() {
 }
 
 function sceneFullRoar() {
-  const PETAL_SPLAY  = 8;         // top petals lift ~8 px, bottom drop ~8 px
-  const BOTTOM_EXTRA = 10;        // drop the centermost petal an extra 10 px
-                                  // so the egg-shaped chin reads in front of it
-  const DISK_CY      = 53;        // disk center pushed down 8 px
-  const DISK_RY      = 24;        // ellipse: rxBase 16 × ry 24, top stays y 29
-  const DISK_TAPER   = 0.5;       // bottom half pinches in to ~rx 8 → egg chin
+  // Single egg config drives both the disk shape AND the petal attachment
+  // points — petals automatically hug the perimeter (snug at the forehead,
+  // riding the chin like a beard) instead of relying on hand-tuned splay.
+  const egg = { cy: 53, rx: DISK_R, ry: 24, taper: 0.5 };
   drawBackground();
   drawStem();
   drawLeaves();
   drawHalo();
-  drawPetals('back', PETAL_SPLAY);
-  drawCenter(DISK_CY, DISK_RY, DISK_TAPER);   // egg-shaped disk
-  drawFaceFullRoar_TopHalf();                  // brows + eyes only
-  drawPetals('front', PETAL_SPLAY, BOTTOM_EXTRA);
-  drawGapingMaw(CX, 58, 30);      // 22 × 30 mouth — outline y 42..73, leaving
-                                   // the chin (y 74..77, ~10→0 px wide) below.
+  drawPetals('back', egg);
+  drawCenter(egg.cy, egg.ry, egg.taper);
+  drawFaceFullRoar_TopHalf();          // raised brows + squinted lifted eyes
+  drawPetals('front', egg);
+  drawGapingMaw(CX, 58, 30);           // 22 × 30 mouth — outline y 42..73
 }
 
 paintKeyframe(ctx1, sceneIdle);
