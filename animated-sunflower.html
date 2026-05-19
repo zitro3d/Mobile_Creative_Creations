@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<title>Angry Sunflower — Keyframe 1</title>
+<title>Angry Sunflower — Keyframes 1 & 2</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -35,7 +35,7 @@
     background: #bcbcbc;
   }
   .meta { margin-top: 22px; font-size: 10px; color: #c8d0d8; letter-spacing: 1px; text-align: center; max-width: 700px; line-height: 1.6; }
-  .stamp { margin-top: 16px; font-family: Impact, 'Arial Black', sans-serif; font-size: 16px; letter-spacing: 4px; color: #fafafa; }
+  .stamp { margin-top: 16px; margin-bottom: 28px; font-family: Impact, 'Arial Black', sans-serif; font-size: 16px; letter-spacing: 4px; color: #fafafa; }
 </style>
 </head>
 <body>
@@ -43,23 +43,38 @@
 <div class="kicker">DLX · BOTANICAL HORROR · KEYFRAME REVIEW</div>
 <h1>ANGRY SUNFLOWER</h1>
 <p class="sub">
-  Static keyframe 1 for approval — idle / closed scowl. Cyan petals, orange center,
-  interlocked-teeth zigzag mouth, angry V-brows, big rounded leaves. 128 px native
-  at 4× nearest-neighbor scale.
+  Static keyframes 1 & 2 for approval. Locked 9-color Void palette throughout.
+  Petals, halo, center disk, stem and leaves are identical between the two frames so
+  the head cuts cleanly when animated; only the face changes. 128 × 192 native at
+  4× nearest-neighbor scale.
 </p>
 
 <div class="canvasFrame">
-  <canvas id="cv" class="pixelCanvas" width="128" height="192" style="width: 512px; height: 768px;"></canvas>
+  <canvas id="cv1" class="pixelCanvas" width="128" height="192" style="width: 512px; height: 768px;"></canvas>
 </div>
-
 <div class="stamp">KEYFRAME 1 — IDLE</div>
 
-<div class="meta">Approve to proceed with keyframes 2–5 and animation.</div>
+<div class="canvasFrame">
+  <canvas id="cv2" class="pixelCanvas" width="128" height="192" style="width: 512px; height: 768px;"></canvas>
+</div>
+<div class="stamp">KEYFRAME 2 — ROAR</div>
+
+<div class="meta">Approve to proceed with the in-between keyframes and the looping animation.</div>
 
 <script>
-const cv = document.getElementById('cv');
-const ctx = cv.getContext('2d');
-ctx.imageSmoothingEnabled = false;
+// ── TWO CONTEXTS, ONE DRAW PIPELINE ───────────────────
+// All draw functions paint to `ctx`, which is swapped between the two
+// canvases before each composite. Every sprite primitive (petals, disk,
+// stem, etc.) stays defined exactly once.
+const cv1 = document.getElementById('cv1');
+const ctx1 = cv1.getContext('2d');
+ctx1.imageSmoothingEnabled = false;
+
+const cv2 = document.getElementById('cv2');
+const ctx2 = cv2.getContext('2d');
+ctx2.imageSmoothingEnabled = false;
+
+let ctx = ctx1;
 
 function px(color, x, y, w, h) {
   ctx.fillStyle = color;
@@ -70,50 +85,43 @@ function px(color, x, y, w, h) {
 //   #0C0A10 outline
 //   #511C54 / #822D7D  petals
 //   #202135 / #353C51  face
-//   #D4FC74            eyes + teeth glow
+//   #D4FC74 eyes + teeth
 //   #243330 / #546B75  stem + leaves
-//   #BCBCBC            backdrop
+//   #BCBCBC backdrop
 const C = {
   out:        '#0c0a10',
   outSoft:    '#0c0a10',
 
-  // Petals — 2-tone purple
   petalDark:  '#511c54',
   petalMid:   '#511c54',
   petalLit:   '#822d7d',
   petalHi:    '#822d7d',
   petalWarmHi:'#822d7d',
 
-  // Halo — uniform deep purple behind the petals (shows through inter-petal gaps).
   haloA:      '#202135',
   haloB:      '#202135',
   haloC:      '#202135',
 
-  // Center — 2-tone face disk
   centerOut:  '#0c0a10',
   centerDark: '#202135',
   centerMid:  '#202135',
   centerLit:  '#353c51',
   centerHi:   '#353c51',
 
-  // Eyes — neon green
   eyeWhite:   '#d4fc74',
   eyeShadow:  '#d4fc74',
   pupil:      '#0c0a10',
   brow:       '#0c0a10',
 
-  // Mouth — dark interior with neon teeth
   mouthDark:  '#0c0a10',
   tooth:      '#d4fc74',
   toothSh:    '#d4fc74',
 
-  // Stem — 2-tone blue-gray
   stemDark:   '#243330',
   stemMid:    '#243330',
   stemLit:    '#546b75',
   stemHi:     '#546b75',
 
-  // Leaves — same two greens as the stem
   leafDark:   '#243330',
   leafMid:    '#243330',
   leafLit:    '#546b75',
@@ -125,15 +133,13 @@ const C = {
 
 // ── LAYOUT ────────────────────────────────────────────
 const CX = 64;
-const CY = 45;       // flower disk center (raised so the bigger head still attaches at y=59)
-const DISK_R = 16;   // 25% larger head
+const CY = 45;
+const DISK_R = 16;
 const NUM_PETALS = 12;
-const STEM_TOP_Y = CY + DISK_R - 2;   // 59 (unchanged so the stem stays the same)
+const STEM_TOP_Y = CY + DISK_R - 2;
 const STEM_BOT_Y = 188;
 
-// ── TEARDROP STENCIL (rotated, oversampled to avoid gaps) ────────
-// Smooth bell silhouette: ramps up over the first 30% of length, holds a
-// rounded plateau through the middle, smoothly rounds off the tip.
+// ── TEARDROP STENCIL ──────────────────────────────────
 function teardropHalfWidth(u, maxWidth) {
   if (u <= 0.02 || u >= 0.98) return 0;
   const half = maxWidth / 2;
@@ -147,13 +153,10 @@ function teardropHalfWidth(u, maxWidth) {
 function drawTeardrop(cx, cy, angle, length, maxWidth, colors, options) {
   const cs = Math.cos(angle), sn = Math.sin(angle);
   const seam = options && options.seam;
-  // curve: parabolic lateral deflection along the petal axis (radians-ish).
-  // Positive curves the tip to one side of the base direction; negative the other.
   const curve = (options && options.curve) || 0;
   for (let d = 0; d <= length; d += 0.5) {
     const u = d / length;
     const halfW = teardropHalfWidth(u, maxWidth);
-    // Lateral deflection grows with u² (zero at base, max at tip)
     const deflect = curve * u * u * (length / 2);
     if (halfW <= 0) {
       const sx = Math.round(cx + d * cs - deflect * sn);
@@ -167,11 +170,9 @@ function drawTeardrop(cx, cy, angle, length, maxWidth, colors, options) {
       if (distFromEdge < 0.55 || u < 0.04 || u > 0.96) {
         color = colors.out;
       } else {
-        const t = dy / Math.max(halfW, 0.5); // -1..+1
-        // Light comes from above-and-left of each petal: the "upper" half of the petal axis is lit.
+        const t = dy / Math.max(halfW, 0.5);
         const tSigned = -t;
         if (tSigned > 0.55) {
-          // Highlight stripe — warm-tinted near the base so the center's color bleeds outward.
           color = (u < 0.35 && colors.warmHi) ? colors.warmHi : colors.hi;
         }
         else if (tSigned >  0.10) color = colors.lit;
@@ -195,70 +196,50 @@ function drawTeardrop(cx, cy, angle, length, maxWidth, colors, options) {
   }
 }
 
-// ── BACKGROUND (light panel like the reference) ────────
-function drawBackground() {
-  px(C.bg, 0, 0, 128, 128);
-}
+function drawBackground() { px(C.bg, 0, 0, 128, 128); }
 
-// ── STEM ──────────────────────────────────────────────
 function drawStem() {
   for (let y = STEM_TOP_Y; y <= STEM_BOT_Y; y++) {
     const cx = CX;
-    // outline
     px(C.out, cx - 3, y);
     px(C.out, cx + 3, y);
-    // body
     px(C.stemMid, cx - 2, y, 5, 1);
-    // shadow on right
     px(C.stemDark, cx + 2, y);
-    // highlight on left
     px(C.stemLit, cx - 2, y);
-    // bright pip every several rows on the left edge
     if (((y - STEM_TOP_Y) % 6) === 2) px(C.stemHi, cx - 2, y);
   }
 }
 
-// ── LEAVES (big rounded teardrops, one on each side) ───
 function drawLeaves() {
-  // Left leaf — base on stem near the top, points down-left
   drawTeardrop(CX - 2, 95, Math.PI - 0.35, 24, 17,
     { out: C.out, hi: C.leafHi, lit: C.leafLit, mid: C.leafMid, dark: C.leafDark },
     { seam: C.leafVein });
-  // Right leaf — base further down the stem, points down-right
   drawTeardrop(CX + 2, 118, -0.35, 24, 17,
     { out: C.out, hi: C.leafHi, lit: C.leafLit, mid: C.leafMid, dark: C.leafDark },
     { seam: C.leafVein });
 }
 
-// ── PETALS (14 cyan teardrops radiating from disk) ─────
 function drawPetals(layer) {
   for (let i = 0; i < NUM_PETALS; i++) {
     const angle = (i / NUM_PETALS) * Math.PI * 2 - Math.PI / 2;
     const isFront = Math.sin(angle) > 0.05;
     if (layer === 'back'  &&  isFront) continue;
     if (layer === 'front' && !isFront) continue;
-
     const length = 21;
     const width = 12;
-
-    // Base sits just inside the disk rim so the petal appears to grow out of the edge.
     const baseOffset = DISK_R - 1;
     const baseX = CX + Math.cos(angle) * baseOffset;
     const baseY = CY + Math.sin(angle) * baseOffset;
-
-    // Subtle clockwise curve — tip bends a few pixels off the base axis so the petal isn't a straight dart.
     const curve = 0.18;
-
     drawTeardrop(baseX, baseY, angle, length, width,
       { out: C.out, hi: C.petalHi, lit: C.petalLit, mid: C.petalMid, dark: C.petalDark, warmHi: C.petalWarmHi },
       { curve });
   }
 }
 
-// ── HALO (deep-purple ring behind the petals; shows in the inner corners between petal bases) ───
 function drawHalo() {
   const innerR = DISK_R - 1;
-  const outerR = DISK_R + 6;    // small ring — only fills the V-wedges where adjacent petals meet
+  const outerR = DISK_R + 6;
   for (let dy = -outerR; dy <= outerR; dy++) {
     for (let dx = -outerR; dx <= outerR; dx++) {
       const dist = Math.sqrt(dx*dx + dy*dy);
@@ -274,7 +255,6 @@ function drawHalo() {
   }
 }
 
-// ── CENTER DISK (orange, 3-step shaded) ────────────────
 function drawCenter() {
   const r = DISK_R;
   for (let dy = -r - 1; dy <= r + 1; dy++) {
@@ -287,7 +267,6 @@ function drawCenter() {
       } else if (dist > r - 1.7) {
         color = C.centerDark;
       } else {
-        // Light from upper-left: brightest near angle -135°
         const a = Math.atan2(dy, dx);
         const lit = Math.cos(a - (-Math.PI * 0.75));
         if      (lit >  0.55) color = C.centerHi;
@@ -298,103 +277,162 @@ function drawCenter() {
       px(color, CX + dx, CY + dy);
     }
   }
-  // Specular pip at upper-left
   px(C.centerLit, CX - Math.round(r * 0.55), CY - Math.round(r * 0.55));
 }
 
-// ── FACE ───────────────────────────────────────────────
-// Layout on the disk (CY = 45, DISK_R = 16 → disk y 29–61):
-//   Brows  y 37–42
-//   Eyes   y 43–47
-//   Mouth  y 51–57
-function drawFace() {
-  drawBrow(CX - 6, 38, +1);
-  drawBrow(CX + 6, 38, -1);
+// ─────────────────────────────────────────────────────
+// ── FACE A — KEYFRAME 1: IDLE / CLENCHED ────────────
+// Brows  y 37–42 · Eyes y 43–47 · Mouth y 51–57
+// ─────────────────────────────────────────────────────
+function drawFaceIdle() {
+  drawBrowIdle(CX - 6, 38, +1);
+  drawBrowIdle(CX + 6, 38, -1);
 
-  drawEye(CX - 6, 45, +1);
-  drawEye(CX + 6, 45, -1);
+  drawEyeIdle(CX - 6, 45, +1);
+  drawEyeIdle(CX + 6, 45, -1);
 
   drawClenchedMouth(CX, 54);
 }
 
-// Angry V-brow. dir +1 = left brow (slopes down toward bridge on the right).
-function drawBrow(cx, cy, dir) {
-  // 8 px long, 2 px thick, slopes from outer-high to inner-low.
+function drawBrowIdle(cx, cy, dir) {
   for (let i = 0; i < 8; i++) {
     const dx = (-4 + i) * dir;
-    // y rises from -1 (outer) to +3 (inner)
     const yOff = Math.round(-1 + (i / 7) * 4);
     px(C.brow, cx + dx, cy + yOff, 1, 2);
   }
-  // Inner snarl bunch
   const innerDx = 3 * dir;
   px(C.brow, cx + innerDx, cy + 4);
 }
 
-// White eye with dark pupil. dir +1 = left eye (pupil shifted right, toward bridge).
-function drawEye(cx, cy, dir) {
-  // 7 wide × 5 tall outlined oval
-  // top + bottom outline rows
+function drawEyeIdle(cx, cy, dir) {
   px(C.out, cx - 2, cy - 2, 5, 1);
   px(C.out, cx - 2, cy + 2, 5, 1);
-  // left + right outline rows
   px(C.out, cx - 3, cy - 1, 1, 3);
   px(C.out, cx + 3, cy - 1, 1, 3);
-  // white fill (5 × 3)
   px(C.eyeWhite, cx - 2, cy - 1, 5, 3);
-  // tiny shadow under top lid
   px(C.eyeShadow, cx - 2, cy - 1, 5, 1);
-  // pupil — 2 × 2 dark, pushed toward the bridge (inner side)
   const offX = dir > 0 ? 1 : -2;
   px(C.pupil, cx + offX, cy - 1, 2, 2);
 }
 
-// Closed jagged mouth: top row of triangle teeth meshing with bottom row.
 function drawClenchedMouth(cx, cy) {
-  // Inner mouth area: 18 wide × 6 tall, centered on (cx, cy).
-  // Tooth pitch = 4 cols: top tooth (3 wide base) + 1 gap col where bottom tip rises.
   const W = 18, H = 6;
   const grid = [
-    //          0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
-    /*row 0*/ [ 1,1,1,0,1,1,1,0,1,1,1, 0, 1, 1, 1, 0, 1, 1 ], // top tooth bases (3-wide)
-    /*row 1*/ [ 1,1,0,0,1,1,0,0,1,1,0, 0, 1, 1, 0, 0, 1, 1 ], // narrowing
-    /*row 2*/ [ 1,0,0,0,1,0,0,0,1,0,0, 0, 1, 0, 0, 0, 1, 0 ], // top tips
-    /*row 3*/ [ 0,0,0,1,0,0,0,1,0,0,0, 1, 0, 0, 0, 1, 0, 0 ], // bottom tips emerging
-    /*row 4*/ [ 0,0,1,1,0,0,1,1,0,0,1, 1, 0, 0, 1, 1, 0, 0 ], // widening
-    /*row 5*/ [ 0,1,1,1,0,1,1,1,0,1,1, 1, 0, 1, 1, 1, 0, 1 ], // bottom tooth bases
+    [ 1,1,1,0,1,1,1,0,1,1,1, 0, 1, 1, 1, 0, 1, 1 ],
+    [ 1,1,0,0,1,1,0,0,1,1,0, 0, 1, 1, 0, 0, 1, 1 ],
+    [ 1,0,0,0,1,0,0,0,1,0,0, 0, 1, 0, 0, 0, 1, 0 ],
+    [ 0,0,0,1,0,0,0,1,0,0,0, 1, 0, 0, 0, 1, 0, 0 ],
+    [ 0,0,1,1,0,0,1,1,0,0,1, 1, 0, 0, 1, 1, 0, 0 ],
+    [ 0,1,1,1,0,1,1,1,0,1,1, 1, 0, 1, 1, 1, 0, 1 ],
   ];
-  const left = cx - (W >> 1);  // 9 cols left of center
-  // Outline rectangle around mouth
-  px(C.out, left - 1, cy - 3, W + 2, 1); // top
-  px(C.out, left - 1, cy + 3, W + 2, 1); // bottom
-  px(C.out, left - 1, cy - 2, 1, H);     // left
-  px(C.out, left + W, cy - 2, 1, H);     // right
-
+  const left = cx - (W >> 1);
+  px(C.out, left - 1, cy - 3, W + 2, 1);
+  px(C.out, left - 1, cy + 3, W + 2, 1);
+  px(C.out, left - 1, cy - 2, 1, H);
+  px(C.out, left + W, cy - 2, 1, H);
   for (let r = 0; r < H; r++) {
     for (let c = 0; c < W; c++) {
       const color = grid[r][c] ? C.tooth : C.mouthDark;
       px(color, left + c, cy - 2 + r);
     }
   }
-  // Subtle tooth shading along the lower edge of each top tooth (gives them dimension)
   for (let c = 0; c < W; c++) {
     if (grid[2][c] && !grid[3][c]) px(C.toothSh, left + c, cy);
   }
 }
 
-// ── COMPOSITE ─────────────────────────────────────────
-function drawFrame() {
+// ─────────────────────────────────────────────────────
+// ── FACE B — KEYFRAME 2: ROAR ───────────────────────
+// Brows  y 32–37 (raised, thick) · Eyes y 38–44 (wide)
+// Mouth  y 46–61 (gaping black maw, neon fangs top & bottom)
+// ─────────────────────────────────────────────────────
+function drawFaceRoar() {
+  drawBrowRaised(CX - 7, 35, +1);
+  drawBrowRaised(CX + 7, 35, -1);
+
+  drawWideEye(CX - 6, 41, +1);
+  drawWideEye(CX + 6, 41, -1);
+
+  drawRoaringMouth(CX, 54);
+}
+
+function drawBrowRaised(cx, cy, dir) {
+  // 10 px long, 3 px thick, slopes from outer-high (-2) to inner-low (+2).
+  for (let i = 0; i < 10; i++) {
+    const dx = (-5 + i) * dir;
+    const yOff = Math.round(-2 + (i / 9) * 4);
+    px(C.brow, cx + dx, cy + yOff, 1, 3);
+  }
+  // Inner snarl bunch — extra thickness near the bridge.
+  const innerDx = 4 * dir;
+  px(C.brow, cx + innerDx, cy + 3, 1, 2);
+  const innerDx2 = 3 * dir;
+  px(C.brow, cx + innerDx2, cy + 3);
+}
+
+function drawWideEye(cx, cy, dir) {
+  // 9 wide × 7 tall outlined oval.
+  px(C.out, cx - 2, cy - 3, 5, 1);
+  px(C.out, cx + 3, cy - 2);
+  px(C.out, cx - 3, cy - 2);
+  px(C.out, cx + 4, cy - 1, 1, 3);
+  px(C.out, cx - 4, cy - 1, 1, 3);
+  px(C.out, cx + 3, cy + 2);
+  px(C.out, cx - 3, cy + 2);
+  px(C.out, cx - 2, cy + 3, 5, 1);
+
+  px(C.eyeWhite, cx - 2, cy - 2, 5, 1);
+  px(C.eyeWhite, cx - 3, cy - 1, 7, 3);
+  px(C.eyeWhite, cx - 2, cy + 2, 5, 1);
+
+  // Tiny 2×2 pupil — pushed toward the bridge (inner side).
+  const offX = dir > 0 ? 1 : -2;
+  px(C.pupil, cx + offX, cy, 2, 2);
+}
+
+function drawRoaringMouth(cx, cy) {
+  // 22 × 16 interior, centered on (cx, cy).
+  const W = 22, H = 16;
+  const left = cx - (W >> 1);
+  const top  = cy - (H >> 1);
+
+  // Black maw (extends 1 px outside on all sides — outline + interior in one paint).
+  px(C.mouthDark, left - 1, top - 1, W + 2, H + 2);
+
+  // Top fangs — 5 across, pointing DOWN.
+  const topFangX = [1, 5, 9, 13, 17];
+  for (let i = 0; i < topFangX.length; i++) {
+    const fx = left + topFangX[i];
+    px(C.tooth, fx, top + 0, 3, 1);
+    px(C.tooth, fx, top + 1, 2, 1);
+    px(C.tooth, fx, top + 2, 1, 1);
+  }
+
+  // Bottom fangs — 4 across, offset 2 cols so the tips land between the top fangs.
+  const botFangX = [3, 7, 11, 15];
+  for (let i = 0; i < botFangX.length; i++) {
+    const fx = left + botFangX[i];
+    px(C.tooth, fx + 2, top + H - 3, 1, 1);
+    px(C.tooth, fx + 1, top + H - 2, 2, 1);
+    px(C.tooth, fx,     top + H - 1, 3, 1);
+  }
+}
+
+// ── COMPOSITE — paint each keyframe to its own canvas ───
+function paintKeyframe(targetCtx, drawFaceFn) {
+  ctx = targetCtx;
   drawBackground();
   drawStem();
   drawLeaves();
   drawHalo();
   drawPetals('back');
   drawCenter();
-  drawFace();
+  drawFaceFn();
   drawPetals('front');
 }
 
-drawFrame();
+paintKeyframe(ctx1, drawFaceIdle);
+paintKeyframe(ctx2, drawFaceRoar);
 </script>
 </body>
 </html>
