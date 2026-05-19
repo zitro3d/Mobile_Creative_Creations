@@ -228,7 +228,11 @@ function drawLeaves() {
     { seam: C.leafVein });
 }
 
-function drawPetals(layer) {
+function drawPetals(layer, splayY) {
+  // splayY: extra vertical splay (px). Top petals get pushed up by ~splayY,
+  // bottom petals down by ~splayY, side petals barely move. Signed-quadratic
+  // in sin(angle) so the falloff is smooth and the side petals stay put.
+  splayY = splayY || 0;
   for (let i = 0; i < NUM_PETALS; i++) {
     const angle = (i / NUM_PETALS) * Math.PI * 2 - Math.PI / 2;
     const isFront = Math.sin(angle) > 0.05;
@@ -237,8 +241,10 @@ function drawPetals(layer) {
     const length = 21;
     const width = 12;
     const baseOffset = DISK_R - 1;
+    const s = Math.sin(angle);
+    const splay = splayY * s * Math.abs(s);
     const baseX = CX + Math.cos(angle) * baseOffset;
-    const baseY = CY + Math.sin(angle) * baseOffset;
+    const baseY = CY + s * baseOffset + splay;
     const curve = 0.18;
     drawTeardrop(baseX, baseY, angle, length, width,
       { out: C.out, hi: C.petalHi, lit: C.petalLit, mid: C.petalMid, dark: C.petalDark, warmHi: C.petalWarmHi },
@@ -429,22 +435,25 @@ function drawRoaringMouth(cx, cy) {
 
 // ─────────────────────────────────────────────────────
 // ── FACE C — KEYFRAME 3: FULL ROAR (mouth dominates the head) ──
-// Brows  y 30–35 (pushed up under the crown petals)
-// Eyes   y 37–43 (pushed up to make room)
-// Mouth  y 44–69 (22 × 26 — taller than the disk; drawn AFTER front petals
+// Petals splayed vertically so the top crown lifts and the bottom petals
+// drop — the head looks torn open by the mouth bursting through.
+// Brows  y 28–34 (pushed up against the splayed top petals)
+// Eyes   y 35–41 (pushed up to make room)
+// Mouth  y 43–72 (22 × 30 — taller than the disk; drawn AFTER front petals
 //                 so the maw stays on top of the bottom petal)
 // ─────────────────────────────────────────────────────
 function drawFaceFullRoar_TopHalf() {
-  drawBrowRaised(CX - 7, 32, +1);
-  drawBrowRaised(CX + 7, 32, -1);
+  drawBrowRaised(CX - 7, 30, +1);
+  drawBrowRaised(CX + 7, 30, -1);
 
-  drawWideEye(CX - 6, 40, +1);
-  drawWideEye(CX + 6, 40, -1);
+  drawWideEye(CX - 6, 38, +1);
+  drawWideEye(CX + 6, 38, -1);
 }
 
-function drawGapingMaw(cx, cy) {
-  // 22 × 26 interior — same fang language as keyframe 2, just taller.
-  const W = 22, H = 26;
+function drawGapingMaw(cx, cy, H) {
+  // 22 × H interior — same fang language as keyframe 2, just taller.
+  const W = 22;
+  H = H || 26;
   const left = cx - (W >> 1);
   const top  = cy - (H >> 1);
 
@@ -499,17 +508,18 @@ function sceneRoar() {
 }
 
 function sceneFullRoar() {
+  const PETAL_SPLAY = 8;        // top petals lift ~8 px, bottom drop ~8 px
   drawBackground();
   drawStem();
   drawLeaves();
   drawHalo();
-  drawPetals('back');
+  drawPetals('back', PETAL_SPLAY);
   drawCenter();
   drawFaceFullRoar_TopHalf();   // brows + eyes only
-  drawPetals('front');
-  drawGapingMaw(CX, 57);        // mouth painted LAST so it sits on top of
-                                 // the bottom front petal and bulges past
-                                 // the disk into the stem area.
+  drawPetals('front', PETAL_SPLAY);
+  drawGapingMaw(CX, 57, 30);    // 22 × 30 mouth painted LAST so it sits on
+                                 // top of the bottom front petal and bulges
+                                 // far past the disk into the stem area.
 }
 
 paintKeyframe(ctx1, sceneIdle);
