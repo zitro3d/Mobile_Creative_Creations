@@ -49,7 +49,7 @@
 </p>
 
 <div class="canvasFrame">
-  <canvas id="cv" class="pixelCanvas" width="128" height="128" style="width: 512px; height: 512px;"></canvas>
+  <canvas id="cv" class="pixelCanvas" width="128" height="192" style="width: 512px; height: 768px;"></canvas>
 </div>
 
 <div class="stamp">KEYFRAME 1 — IDLE</div>
@@ -75,7 +75,13 @@ const C = {
   petalDark:  '#1a6090',
   petalMid:   '#48b8e0',
   petalLit:   '#a8e0f0',
-  petalHi:    '#f0fafe',
+  petalHi:    '#dcf2f6',
+  petalWarmHi:'#fae0b8',   // warm cream tint near the base — the orange center bleeding outward
+
+  // Halo (soft warm ring around the disk, fills the gaps between petals)
+  haloA:      '#f8d8a8',
+  haloB:      '#fbe6c4',
+  haloC:      '#fdf0dc',
 
   // Center (orange) — disk that holds the face
   centerOut:  '#5a1808',
@@ -117,7 +123,7 @@ const CY = 45;       // flower disk center (raised so the bigger head still atta
 const DISK_R = 16;   // 25% larger head
 const NUM_PETALS = 12;
 const STEM_TOP_Y = CY + DISK_R - 2;   // 59 (unchanged so the stem stays the same)
-const STEM_BOT_Y = 124;
+const STEM_BOT_Y = 188;
 
 // ── TEARDROP STENCIL (rotated, oversampled to avoid gaps) ────────
 // Smooth bell silhouette: ramps up over the first 30% of length, holds a
@@ -158,7 +164,10 @@ function drawTeardrop(cx, cy, angle, length, maxWidth, colors, options) {
         const t = dy / Math.max(halfW, 0.5); // -1..+1
         // Light comes from above-and-left of each petal: the "upper" half of the petal axis is lit.
         const tSigned = -t;
-        if      (tSigned >  0.55) color = colors.hi;
+        if (tSigned > 0.55) {
+          // Highlight stripe — warm-tinted near the base so the center's color bleeds outward.
+          color = (u < 0.35 && colors.warmHi) ? colors.warmHi : colors.hi;
+        }
         else if (tSigned >  0.10) color = colors.lit;
         else if (tSigned > -0.45) color = colors.mid;
         else                       color = colors.dark;
@@ -205,12 +214,12 @@ function drawStem() {
 
 // ── LEAVES (big rounded teardrops, one on each side) ───
 function drawLeaves() {
-  // Left leaf — base on stem at y ~92, points down-left
-  drawTeardrop(CX - 2, 92, Math.PI - 0.35, 20, 14,
+  // Left leaf — base on stem near the top, points down-left
+  drawTeardrop(CX - 2, 95, Math.PI - 0.35, 24, 17,
     { out: C.out, hi: C.leafHi, lit: C.leafLit, mid: C.leafMid, dark: C.leafDark },
     { seam: C.leafVein });
-  // Right leaf — base on stem at y ~104, points down-right
-  drawTeardrop(CX + 2, 104, -0.35, 20, 14,
+  // Right leaf — base further down the stem, points down-right
+  drawTeardrop(CX + 2, 118, -0.35, 24, 17,
     { out: C.out, hi: C.leafHi, lit: C.leafLit, mid: C.leafMid, dark: C.leafDark },
     { seam: C.leafVein });
 }
@@ -235,8 +244,27 @@ function drawPetals(layer) {
     const curve = 0.18;
 
     drawTeardrop(baseX, baseY, angle, length, width,
-      { out: C.out, hi: C.petalHi, lit: C.petalLit, mid: C.petalMid, dark: C.petalDark },
+      { out: C.out, hi: C.petalHi, lit: C.petalLit, mid: C.petalMid, dark: C.petalDark, warmHi: C.petalWarmHi },
       { curve });
+  }
+}
+
+// ── HALO (soft warm ring around the disk; shows between petal gaps) ───
+function drawHalo() {
+  const innerR = DISK_R - 1;
+  const outerR = DISK_R + 16;
+  for (let dy = -outerR; dy <= outerR; dy++) {
+    for (let dx = -outerR; dx <= outerR; dx++) {
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist <= innerR + 0.1) continue;
+      if (dist > outerR + 0.4) continue;
+      const t = (dist - innerR) / (outerR - innerR);
+      let color;
+      if      (t < 0.30) color = C.haloA;
+      else if (t < 0.60) color = C.haloB;
+      else               color = C.haloC;
+      px(color, CX + dx, CY + dy);
+    }
   }
 }
 
@@ -353,6 +381,7 @@ function drawFrame() {
   drawBackground();
   drawStem();
   drawLeaves();
+  drawHalo();
   drawPetals('back');
   drawCenter();
   drawFace();
