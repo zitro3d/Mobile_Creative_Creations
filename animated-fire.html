@@ -716,10 +716,19 @@ function drawPoofParticles(ctx, intensity, cx, cy, maxR) {
   }
 }
 
+// isExporting flips true only while the GIF recorder is iterating frames.
+// During export, paintAnimationFrame paints a magenta sentinel backdrop
+// instead of the white CSS backdrop; gif.js below maps the sentinel to
+// the GIF's transparent index, so the exported file has no background.
+let isExporting = false;
+const GIF_TRANSPARENT_HEX = '#ff00ff';
+const GIF_TRANSPARENT_INT = 0xff00ff;
+
 function paintAnimationFrame(ctx, frameNum) {
   const t = frameNum / FPS;
-  // White backdrop on every frame — wipes the previous tick's pixels.
-  ctx.fillStyle = '#ffffff';
+  // Backdrop wipes the previous tick's pixels. White for the live
+  // preview (matches the canvas CSS bg), magenta sentinel for export.
+  ctx.fillStyle = isExporting ? GIF_TRANSPARENT_HEX : '#ffffff';
   ctx.fillRect(0, 0, 64, 64);
 
   // Floating bob — fireball drifts up/down on a slow sin. Applied to
@@ -852,13 +861,22 @@ document.getElementById('recordBtn').addEventListener('click', function () {
   const dstCx = dstCv.getContext('2d');
   dstCx.imageSmoothingEnabled = false;
 
-  const gifOpts = { quality: 8, width: OUT, height: OUT, dither: false,
-                    transparent: null, background: '#ffffff' };
+  const gifOpts = {
+    quality: 8,
+    width: OUT,
+    height: OUT,
+    dither: false,
+    transparent: GIF_TRANSPARENT_INT,    // magenta sentinel → transparent
+  };
   if (gifWorkerBlob) { gifOpts.workers = 2; gifOpts.workerScript = gifWorkerBlob; }
   else                gifOpts.workers = 0;
   const gif = new GIF(gifOpts);
 
+  gif.on('progress', (p) => {
+    btn.textContent = 'ENCODING ' + Math.round(p * 100) + '%';
+  });
   gif.on('finished', (blob) => {
+    isExporting = false;
     const url = URL.createObjectURL(blob);
     const resultDiv = document.getElementById('gifResult');
     resultDiv.innerHTML = '';
@@ -879,15 +897,28 @@ document.getElementById('recordBtn').addEventListener('click', function () {
     btn.disabled = false;
     btn.textContent = origLabel;
   });
-  gif.on('abort', () => { btn.disabled = false; btn.textContent = 'ERROR — RETRY'; });
+  gif.on('abort', () => {
+    isExporting = false;
+    btn.disabled = false;
+    btn.textContent = 'ERROR — RETRY';
+  });
 
-  for (let f = 0; f < TOTAL_FRAMES; f++) {
-    paintAnimationFrame(srcCx, f);   // paints its own white backdrop
-    dstCx.clearRect(0, 0, OUT, OUT);
-    dstCx.drawImage(srcCv, 0, 0, OUT, OUT);
-    gif.addFrame(dstCv, { copy: true, delay: 1000 / FPS });
+  isExporting = true;   // paintAnimationFrame now paints the magenta sentinel
+  try {
+    for (let f = 0; f < TOTAL_FRAMES; f++) {
+      paintAnimationFrame(srcCx, f);
+      dstCx.clearRect(0, 0, OUT, OUT);
+      dstCx.drawImage(srcCv, 0, 0, OUT, OUT);
+      gif.addFrame(dstCv, { copy: true, delay: 1000 / FPS });
+    }
+    btn.textContent = 'ENCODING 0%';
+    gif.render();        // isExporting flipped back in finished/abort
+  } catch (err) {
+    isExporting = false;
+    btn.disabled = false;
+    btn.textContent = 'ERROR — RETRY';
+    alert('GIF capture failed: ' + (err && err.message ? err.message : err));
   }
-  gif.render();
 });
 </script>
 </body>
