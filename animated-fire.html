@@ -417,19 +417,32 @@ const SHOT_SPECS = [
   { spawn: 0.80, angle: -Math.PI/2 + 0.20 },
 ];
 function drawSpawnedFireballs(ctx, openLocalT, mouthX, mouthY) {
-  // openLocalT: seconds since the open-mouth phase started.
-  const SPEED    = 38;   // px per second
-  const LIFETIME = 1.6;  // seconds before despawn
+  // Each shot starts at the mouth and flies along its launch angle at
+  // a constant speed. Radius is full-size near the source and shrinks
+  // linearly across a fade band so the mini-fireballs dissipate into
+  // nothing well before reaching the canvas edge (instead of getting
+  // clipped at it).
+  const SPEED      = 38;
+  const FADE_START = 14;   // px from mouth — radius starts shrinking here
+  const FADE_END   = 26;   // px from mouth — fully dissipated
   for (let i = 0; i < SHOT_SPECS.length; i++) {
     const s = SHOT_SPECS[i];
     const age = openLocalT - s.spawn;
-    if (age < 0 || age > LIFETIME) continue;
+    if (age < 0) continue;
     const dist = age * SPEED;
+    if (dist >= FADE_END) continue;
     const x = Math.round(mouthX + Math.cos(s.angle) * dist);
     const y = Math.round(mouthY + Math.sin(s.angle) * dist);
-    if (x < -4 || x > 68 || y < -4 || y > 68) continue;
-    // Mini-fireball "pulses" radius 2 ↔ 3 on a fast sin per shot.
-    const r = 2 + (Math.sin(age * 14 + i) > 0 ? 1 : 0);
+    let r;
+    if (dist < FADE_START) {
+      // Full-size near the mouth, pulsing 2 ↔ 3 for crackle character.
+      r = 2 + (Math.sin(age * 14 + i) > 0 ? 1 : 0);
+    } else {
+      // Linear shrink 2 → 1 across the fade band, hard-floored at 1
+      // so the shot stays visible as a flickering ember until it pops.
+      const fadeT = (dist - FADE_START) / (FADE_END - FADE_START);
+      r = Math.max(1, Math.round(2 - fadeT * 2));
+    }
     drawMiniFireball(ctx, x, y, r);
   }
 }
