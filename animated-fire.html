@@ -951,42 +951,48 @@ const RING_ORBITERS = [
 ];
 const RING_ORBIT_SPEED = Math.PI;
 
-// One blob of the ring's "fire tube" — a small filled circle, slightly
-// dimmer on the outer edge for shading. No outline so neighboring
-// blobs overlap into a smooth ring instead of a string of beads.
-function drawRingBlob(ctx, cx, cy, r, layer) {
-  for (let dy = -r; dy <= r; dy++) {
-    for (let dx = -r; dx <= r; dx++) {
-      const d = Math.sqrt(dx*dx + dy*dy);
-      if (d > r + 0.4) continue;
-      let pixLayer = layer;
-      if (d > r - 0.5 && layer > 2) pixLayer = layer - 1;   // dimmer edge
-      ctx.fillStyle = LAYER_COLORS[pixLayer];
+// Single-pass tube drawing — for every pixel in the ring's bounding
+// box, compute the approximate perpendicular distance from the
+// ellipse centerline (first-order gradient method) and assign a
+// concentric color layer based on that distance. Same vocabulary as
+// drawSphere: outline → red → orange → yellow → cream toward the
+// tube's center. Heat-shift cycling is keyed to the parametric
+// angle so bright spots flow CCW around the ring.
+function drawFireRing(ctx, cx, cy, rx, ry, t) {
+  const TUBE_R   = 4;
+  const MARGIN   = TUBE_R + 1;
+  const rx2      = rx * rx;
+  const ry2      = ry * ry;
+  for (let dy = -ry - MARGIN; dy <= ry + MARGIN; dy++) {
+    for (let dx = -rx - MARGIN; dx <= rx + MARGIN; dx++) {
+      // Perpendicular distance from ellipse via |F|/|∇F| where
+      // F(x,y) = (x/rx)² + (y/ry)² − 1. Exact for circles, accurate
+      // for points near the ellipse.
+      const f = (dx*dx)/rx2 + (dy*dy)/ry2 - 1;
+      const gradX = (2 * dx) / rx2;
+      const gradY = (2 * dy) / ry2;
+      const gradMag = Math.sqrt(gradX*gradX + gradY*gradY);
+      if (gradMag < 1e-6) continue;
+      const distFromEllipse = Math.abs(f) / gradMag;
+      if (distFromEllipse > TUBE_R + 0.4) continue;
+      // Concentric layers — same step sizes drawSphere uses.
+      const distFromEdge = TUBE_R - distFromEllipse;
+      let layer;
+      if      (distFromEdge < 0.5) layer = 1;   // outline
+      else if (distFromEdge < 1.5) layer = 2;   // red
+      else if (distFromEdge < 2.4) layer = 3;   // orange
+      else if (distFromEdge < 3.2) layer = 4;   // yellow
+      else                          layer = 5;   // cream center
+      // Heat cycling — bright pulse rotates CCW around the ring.
+      if (layer >= 2 && layer <= 5) {
+        const angle = Math.atan2(dy / ry, dx / rx);
+        const heatPhase = angle * 3 - t * 4;
+        const heatShift = Math.round(Math.sin(heatPhase) * 0.9);
+        layer = Math.max(2, Math.min(5, layer + heatShift));
+      }
+      ctx.fillStyle = LAYER_COLORS[layer];
       ctx.fillRect(cx + dx, cy + dy, 1, 1);
     }
-  }
-}
-
-// Walk 60 sample points around the ellipse. Each becomes a fire blob
-// whose color cycles with sin(angle·3 - t·4), so three bright "hot
-// spots" flow CCW around the ring. Side filtering lets paintRingFrame
-// draw back-half blobs before front-half ones.
-function drawFireRing(ctx, cx, cy, rx, ry, t, side) {
-  const STEPS = 60;
-  for (let i = 0; i < STEPS; i++) {
-    const angle = (i / STEPS) * Math.PI * 2;
-    const s = Math.sin(angle);
-    if (side === 'back'  && s >  0.05) continue;
-    if (side === 'front' && s < -0.05) continue;
-    const ex = cx + rx * Math.cos(angle);
-    const ey = cy + ry * s;
-    const heatPhase = angle * 3 - t * 4;
-    const heat = (Math.sin(heatPhase) + 1) / 2;
-    const layer = Math.max(2, Math.min(5, 2 + Math.floor(heat * 4)));
-    // Back blobs slightly smaller so the back of the ring reads as
-    // further away.
-    const blobR = side === 'back' ? 1 : 2;
-    drawRingBlob(ctx, Math.round(ex), Math.round(ey), blobR, layer);
   }
 }
 
@@ -1010,9 +1016,12 @@ function paintRingFrame(ctx, frameNum) {
   const t = frameNum / FPS;
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, RING_NATIVE_W, RING_NATIVE_H);
+  // Z-order: back orbiters → ring (covers them where they overlap)
+  // → front orbiters (overlap the ring). The ring is one pass since
+  // its back and front halves are at different y values and don't
+  // overlap each other.
   drawRingOrbiters(ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'back');
-  drawFireRing   (ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'back');
-  drawFireRing   (ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'front');
+  drawFireRing    (ctx, RING_CX, RING_CY, RING_RX, RING_RY, t);
   drawRingOrbiters(ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'front');
 }
 
