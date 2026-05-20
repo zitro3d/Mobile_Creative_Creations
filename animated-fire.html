@@ -958,12 +958,24 @@ const RING_ORBIT_SPEED = Math.PI;
 // drawSphere: outline → red → orange → yellow → cream toward the
 // tube's center. Heat-shift cycling is keyed to the parametric
 // angle so bright spots flow CCW around the ring.
+//
+// Tube radius is FORESHORTENED based on the pixel's y — the back
+// (dy < 0) reads as further from the viewer, the front (dy > 0)
+// as closer. Two side-effects of this:
+//   1. The back of the ring is physically thinner in pixels.
+//   2. Fewer layers fit inside the thin back tube, so the back
+//      naturally stops showing the cream/yellow core and reads as
+//      mostly red/orange — atmospheric perspective for free.
 function drawFireRing(ctx, cx, cy, rx, ry, t) {
-  const TUBE_R   = 4;
-  const MARGIN   = TUBE_R + 1;
-  const rx2      = rx * rx;
-  const ry2      = ry * ry;
+  const TUBE_R_BACK  = 2;     // top of the ring — far from viewer
+  const TUBE_R_FRONT = 4;     // bottom of the ring — close to viewer
+  const MARGIN = Math.ceil(TUBE_R_FRONT + 1);
+  const rx2 = rx * rx;
+  const ry2 = ry * ry;
   for (let dy = -ry - MARGIN; dy <= ry + MARGIN; dy++) {
+    // yNorm: -1 at back (top), 0 at sides, +1 at front (bottom).
+    const yNorm = Math.max(-1, Math.min(1, dy / ry));
+    const tubeR = TUBE_R_BACK + (TUBE_R_FRONT - TUBE_R_BACK) * (yNorm * 0.5 + 0.5);
     for (let dx = -rx - MARGIN; dx <= rx + MARGIN; dx++) {
       // Perpendicular distance from ellipse via |F|/|∇F| where
       // F(x,y) = (x/rx)² + (y/ry)² − 1. Exact for circles, accurate
@@ -974,9 +986,9 @@ function drawFireRing(ctx, cx, cy, rx, ry, t) {
       const gradMag = Math.sqrt(gradX*gradX + gradY*gradY);
       if (gradMag < 1e-6) continue;
       const distFromEllipse = Math.abs(f) / gradMag;
-      if (distFromEllipse > TUBE_R + 0.4) continue;
+      if (distFromEllipse > tubeR + 0.4) continue;
       // Concentric layers — same step sizes drawSphere uses.
-      const distFromEdge = TUBE_R - distFromEllipse;
+      const distFromEdge = tubeR - distFromEllipse;
       let layer;
       if      (distFromEdge < 0.5) layer = 1;   // outline
       else if (distFromEdge < 1.5) layer = 2;   // red
