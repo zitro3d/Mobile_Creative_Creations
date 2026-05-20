@@ -141,6 +141,54 @@ function paintFlame(ctx, grid, anchorX, baseY) {
   }
 }
 
+// Layer-indexed palette so the animated painter can shift colors by ±1
+// step (boil up the heat scale 2→3→4→5 = red→orange→yellow→cream).
+const LAYER_COLORS = ['', '#a82010', '#e1351a', '#ff7e2e', '#ffcd3f', '#ffe8a8'];
+
+// Animated flame painter — the workhorse for the live preview & GIF.
+// Two motions stacked on the same silhouette grid:
+//
+//   1. COLOR CYCLING. For each interior pixel (layer 2-5), shift the
+//      heat layer by sin(t·8 + rowFromBase·0.5). The phase offset per row
+//      makes a hot/cool wave travel UP through the flame — classic
+//      convection-style fire animation.
+//
+//   2. TONGUE SWAY. Each row's silhouette shifts horizontally by
+//      sin(t·5 + y·0.4) px, scaled by tipness (1 at the top tongues,
+//      0 below the upper half). The base stays anchored; the tongues
+//      lean and wave.
+function paintFlameAnimated(ctx, grid, anchorX, baseY, t) {
+  ctx.imageSmoothingEnabled = false;
+  const H = grid.length;
+  const TIP_CUTOFF = Math.max(1, H * 0.55);   // sway only in the top ~55%
+  for (let y = 0; y < H; y++) {
+    const row = grid[y];
+    const W = row.length;
+    const halfW = W >> 1;
+
+    // Per-row horizontal sway — strong at the tongues, zero mid-flame
+    const tipness = Math.max(0, 1 - y / TIP_CUTOFF);
+    const sway = Math.round(Math.sin(t * 5 + y * 0.4) * 1.6 * tipness);
+
+    // Per-row heat shift travels upward as t increases
+    const rowFromBase = H - 1 - y;
+    const heatShift = Math.round(Math.sin(t * 8 + rowFromBase * 0.5) * 1.0);
+
+    for (let x = 0; x < W; x++) {
+      const srcX = x - sway;
+      if (srcX < 0 || srcX >= W) continue;
+      const c = row[srcX];
+      if (c === '.' || c === ' ') continue;
+      let layer = parseInt(c, 10);
+      if (layer >= 2 && layer <= 5) {
+        layer = Math.max(2, Math.min(5, layer + heatShift));
+      }
+      ctx.fillStyle = LAYER_COLORS[layer];
+      ctx.fillRect(anchorX - halfW + x, baseY - (H - 1) + y, 1, 1);
+    }
+  }
+}
+
 // ── FRAME 1 — EMBER (5 × 7) ─────────────────────────
 // Tiny pointed teardrop with a single yellow core pixel.
 const F1 = [
@@ -411,10 +459,11 @@ function paintAnimationFrame(ctx, frameNum) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, 64, 64);
 
-  // Bloom phase — step through frames 1-5
+  // Bloom phase — step through frames 1-5. paintFlameAnimated, not the
+  // static painter: every bloom frame already crackles internally.
   for (let i = 0; i < BLOOM_FRAMES.length; i++) {
     if (t < BLOOM_FRAMES[i].until) {
-      paintFlame(ctx, BLOOM_FRAMES[i].grid, 32, 60);
+      paintFlameAnimated(ctx, BLOOM_FRAMES[i].grid, 32, 60, t);
       return;
     }
   }
@@ -422,12 +471,13 @@ function paintAnimationFrame(ctx, frameNum) {
   // Burst phase (0.58–0.72 s) — inferno + cream halo flash
   if (t < 0.72) {
     paintDilation(ctx, F6, 32, 60, '#ffe8a8');
-    paintFlame(ctx, F6, 32, 60);
+    paintFlameAnimated(ctx, F6, 32, 60, t);
     return;
   }
 
-  // Crackle phase (0.72–4.0 s) — inferno + flickering hotspots + rising sparks
-  paintFlame(ctx, F6, 32, 60);
+  // Crackle phase (0.72–4.0 s) — animated inferno (color cycling + tongue
+  // sway baked in) + a few flickering hotspots + rising sparks on top.
+  paintFlameAnimated(ctx, F6, 32, 60, t);
   drawFlicker(ctx, t, 32, 60);
   drawSparks(ctx, t, 32, 60);
 }
