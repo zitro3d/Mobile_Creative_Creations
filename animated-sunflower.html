@@ -231,7 +231,16 @@ function drawTeardrop(cx, cy, angle, length, maxWidth, colors, options) {
   }
 }
 
-function drawBackground() { px(C.bg, 0, 0, 128, 128); }
+// isExporting is true only while the GIF recorder is iterating frames.
+// drawBackground checks it: backdrop paints magenta (a sentinel that
+// gif.js below maps to transparent) instead of the gray #BCBCBC.
+let isExporting = false;
+const GIF_TRANSPARENT_HEX = '#ff00ff';
+const GIF_TRANSPARENT_INT = 0xff00ff;
+
+function drawBackground() {
+  px(isExporting ? GIF_TRANSPARENT_HEX : C.bg, 0, 0, 128, 192);
+}
 
 // ── SECONDARY MOTION ─────────────────────────────────
 // animTime drives the stem-and-leaves sway. -1 = static (used by the four
@@ -972,9 +981,12 @@ document.getElementById('recordBtn').addEventListener('click', function () {
   btn.textContent = 'RECORDING…';
 
   const NATIVE_W = 128, NATIVE_H = 192;
-  const SCALE = 3;
-  const OUT_W = NATIVE_W * SCALE;
-  const OUT_H = NATIVE_H * SCALE;
+  // Output 800 × 1200 (preserves the 128:192 aspect ratio). 800 isn't a
+  // clean integer multiple of 128 — drawImage with imageSmoothingEnabled
+  // false will nearest-neighbor each native pixel into either 6 or 7
+  // dst pixels, slightly uneven but still pixelated.
+  const OUT_W = 800;
+  const OUT_H = Math.round(OUT_W * NATIVE_H / NATIVE_W);
 
   const srcCv = document.createElement('canvas');
   srcCv.width = NATIVE_W; srcCv.height = NATIVE_H;
@@ -985,7 +997,13 @@ document.getElementById('recordBtn').addEventListener('click', function () {
   const dstCx = dstCv.getContext('2d');
   dstCx.imageSmoothingEnabled = false;
 
-  const gifOpts = { quality: 8, width: OUT_W, height: OUT_H, dither: false };
+  const gifOpts = {
+    quality: 8,
+    width: OUT_W,
+    height: OUT_H,
+    dither: false,
+    transparent: GIF_TRANSPARENT_INT,  // magenta sentinel → transparent
+  };
   if (gifWorkerBlob) { gifOpts.workers = 2; gifOpts.workerScript = gifWorkerBlob; }
   else                gifOpts.workers = 0;
   const gif = new GIF(gifOpts);
@@ -1015,6 +1033,7 @@ document.getElementById('recordBtn').addEventListener('click', function () {
 
   const prevCtx = ctx;
   ctx = srcCx;
+  isExporting = true;                 // drawBackground paints magenta now
   for (let f = 0; f < TOTAL_FRAMES; f++) {
     srcCx.clearRect(0, 0, NATIVE_W, NATIVE_H);
     paintAnimationFrame(f);
@@ -1022,6 +1041,7 @@ document.getElementById('recordBtn').addEventListener('click', function () {
     dstCx.drawImage(srcCv, 0, 0, OUT_W, OUT_H);
     gif.addFrame(dstCv, { copy: true, delay: 1000 / FPS });
   }
+  isExporting = false;                // restore the gray bg for live preview
   ctx = prevCtx;
   gif.render();
 });
