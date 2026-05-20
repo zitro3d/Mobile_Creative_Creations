@@ -101,6 +101,11 @@
 
 <div id="gifResult" style="margin-bottom: 22px;"></div>
 
+<div class="canvasFrame">
+  <canvas id="cvRing" class="pixelCanvas" width="96" height="48" style="width: 384px; height: 192px;"></canvas>
+</div>
+<div class="stamp">HORIZONTAL FIRE RING — LIVE PREVIEW</div>
+
 <div class="meta">Approve to proceed with the in-between tweens and the looping animation.</div>
 
 <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
@@ -920,6 +925,111 @@ document.getElementById('recordBtn').addEventListener('click', function () {
     alert('GIF capture failed: ' + (err && err.message ? err.message : err));
   }
 });
+
+// ─────────────────────────────────────────────────────
+// ── HORIZONTAL FIRE RING (separate canvas) ──────────
+// Wide flat ellipse of fire — a torus seen from above-front. Five hot
+// mini-fireballs orbit its perimeter. Drawn in two z-passes so the
+// orbiters and ring layer correctly: back orbiters → back of ring →
+// front of ring (overlapping the back) → front orbiters.
+// ─────────────────────────────────────────────────────
+const RING_NATIVE_W = 96;
+const RING_NATIVE_H = 48;
+const RING_CX = 48;
+const RING_CY = 24;
+const RING_RX = 36;
+const RING_RY = 11;
+
+// Five orbiters evenly distributed (phases at 2π/5), all at the same
+// angular speed (π rad/s = one full revolution every 2 s).
+const RING_ORBITERS = [
+  { phase: 0.0 * Math.PI },
+  { phase: 0.4 * Math.PI },
+  { phase: 0.8 * Math.PI },
+  { phase: 1.2 * Math.PI },
+  { phase: 1.6 * Math.PI },
+];
+const RING_ORBIT_SPEED = Math.PI;
+
+// One blob of the ring's "fire tube" — a small filled circle, slightly
+// dimmer on the outer edge for shading. No outline so neighboring
+// blobs overlap into a smooth ring instead of a string of beads.
+function drawRingBlob(ctx, cx, cy, r, layer) {
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const d = Math.sqrt(dx*dx + dy*dy);
+      if (d > r + 0.4) continue;
+      let pixLayer = layer;
+      if (d > r - 0.5 && layer > 2) pixLayer = layer - 1;   // dimmer edge
+      ctx.fillStyle = LAYER_COLORS[pixLayer];
+      ctx.fillRect(cx + dx, cy + dy, 1, 1);
+    }
+  }
+}
+
+// Walk 60 sample points around the ellipse. Each becomes a fire blob
+// whose color cycles with sin(angle·3 - t·4), so three bright "hot
+// spots" flow CCW around the ring. Side filtering lets paintRingFrame
+// draw back-half blobs before front-half ones.
+function drawFireRing(ctx, cx, cy, rx, ry, t, side) {
+  const STEPS = 60;
+  for (let i = 0; i < STEPS; i++) {
+    const angle = (i / STEPS) * Math.PI * 2;
+    const s = Math.sin(angle);
+    if (side === 'back'  && s >  0.05) continue;
+    if (side === 'front' && s < -0.05) continue;
+    const ex = cx + rx * Math.cos(angle);
+    const ey = cy + ry * s;
+    const heatPhase = angle * 3 - t * 4;
+    const heat = (Math.sin(heatPhase) + 1) / 2;
+    const layer = Math.max(2, Math.min(5, 2 + Math.floor(heat * 4)));
+    // Back blobs slightly smaller so the back of the ring reads as
+    // further away.
+    const blobR = side === 'back' ? 1 : 2;
+    drawRingBlob(ctx, Math.round(ex), Math.round(ey), blobR, layer);
+  }
+}
+
+// Orbiters use drawMiniFireball (cream→yellow→orange→red→outline
+// shading, same vocabulary as the main fireball's shots). Front
+// orbiters get radius 2; back orbiters get radius 1 for depth.
+function drawRingOrbiters(ctx, cx, cy, rx, ry, t, side) {
+  for (let i = 0; i < RING_ORBITERS.length; i++) {
+    const o = RING_ORBITERS[i];
+    const angle = o.phase + t * RING_ORBIT_SPEED;
+    const s = Math.sin(angle);
+    if (side === 'back'  && s >  0) continue;
+    if (side === 'front' && s <= 0) continue;
+    const ex = Math.round(cx + rx * Math.cos(angle));
+    const ey = Math.round(cy + ry * s);
+    drawMiniFireball(ctx, ex, ey, side === 'front' ? 2 : 1);
+  }
+}
+
+function paintRingFrame(ctx, frameNum) {
+  const t = frameNum / FPS;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, RING_NATIVE_W, RING_NATIVE_H);
+  drawRingOrbiters(ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'back');
+  drawFireRing   (ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'back');
+  drawFireRing   (ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'front');
+  drawRingOrbiters(ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'front');
+}
+
+const cvRing = document.getElementById('cvRing');
+const ctxRing = cvRing.getContext('2d');
+ctxRing.imageSmoothingEnabled = false;
+let ringStartTime = performance.now();
+function ringLoop(now) {
+  const elapsed = (now - ringStartTime) / 1000;
+  // No modulo — let the ring spin continuously instead of looping a
+  // fixed cycle. Numbers grow indefinitely; the math is all sin/cos
+  // so there's no drift over time.
+  const frameNum = Math.floor(elapsed * FPS);
+  paintRingFrame(ctxRing, frameNum);
+  requestAnimationFrame(ringLoop);
+}
+requestAnimationFrame(ringLoop);
 </script>
 </body>
 </html>
