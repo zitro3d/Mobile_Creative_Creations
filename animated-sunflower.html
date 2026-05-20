@@ -244,13 +244,8 @@ function drawPetals(layer, eggCfg) {
   // the egg's actual perimeter — top petals stay snug against the forehead
   // arc, bottom petals ride the chin's taper like a beard. Default (no
   // eggCfg) keeps the original round-disk positioning for keyframes 1 & 2.
-  //
-  // In the egg layout, petals i=1 (upper-right) and i=11 (upper-left) are
-  // skipped: their bases land right on the eye corners and read as stray
-  // fragments next to the eyes.
   const bottomIdx = NUM_PETALS >> 1;
   for (let i = 0; i < NUM_PETALS; i++) {
-    if (eggCfg && (i === 1 || i === 11)) continue;
     const angle = (i / NUM_PETALS) * Math.PI * 2 - Math.PI / 2;
     const isFront = Math.sin(angle) > 0.05;
     if (layer === 'back'  &&  isFront) continue;
@@ -297,14 +292,17 @@ function drawHalo() {
   }
 }
 
-function drawCenter(cy, ry, taper) {
+function drawCenter(cy, ry, taper, flat) {
   // Defaults to the round disk (rx = ry = DISK_R, centered at CY, no taper).
   // Pass cy/ry to draw a vertically-stretched ellipse; pass taper > 0 to
   // narrow the BOTTOM half into an egg shape (top stays full-round, bottom
-  // pinches in quadratically). Used by keyframe 3.
+  // pinches in quadratically). Pass flat = true to skip the upper-left
+  // highlight gradient — used by keyframe 3 where the asymmetric egg made
+  // the centerLit pixels read as stray gray dots beside the eyes.
   cy    = (cy    === undefined) ? CY       : cy;
   ry    = (ry    === undefined) ? DISK_R   : ry;
   taper = (taper === undefined) ? 0        : taper;
+  flat  = (flat  === undefined) ? false    : flat;
   const rxBase = DISK_R;
   for (let dy = -ry - 1; dy <= ry + 1; dy++) {
     // Egg taper: rx is full above the equator and pinches in below.
@@ -318,7 +316,7 @@ function drawCenter(cy, ry, taper) {
       const nInner = (dx*dx)/((rx-1.7)*(rx-1.7)) + (dy*dy)/((ry-1.7)*(ry-1.7));
       if (nShell > 1) {
         color = C.centerOut;
-      } else if (nInner > 1) {
+      } else if (nInner > 1 || flat) {
         color = C.centerDark;
       } else {
         const a = Math.atan2(dy, dx);
@@ -519,21 +517,29 @@ function drawFaceFullRoar_TopHalf() {
 // purple petals; the locked palette has no pink, and face blue is the
 // next-best "fleshy mouth tissue" tone.
 function drawTongue(cx, topY, length) {
+  // Squiggly tongue rolling out to the LEFT. The centerline of each row is
+  // shifted by a sin bump + leftward drift, so the tongue starts straight
+  // out of the throat, bumps slightly right, then curls left to a tip
+  // pointed off-center to the left.
+  function rowOffset(t) {
+    return Math.round(Math.sin(t * Math.PI) * 3 - t * 4);
+  }
   for (let dy = 0; dy < length; dy++) {
     const t = dy / Math.max(1, length - 1);
     // Quadratic taper: 7 wide at the throat, narrowing to 1 at the tip.
     const w = Math.max(1, Math.round(7 - 6 * t * t));
     const halfW = w >> 1;
+    const rowCx = cx + rowOffset(t);
     // Outline edges
-    px(C.out,        cx - halfW - 1, topY + dy);
-    px(C.out,        cx + halfW + 1, topY + dy);
-    // Body — clean fill, no center groove (the groove read as text/lines)
-    px(C.centerLit,  cx - halfW,     topY + dy, w, 1);
+    px(C.out,        rowCx - halfW - 1, topY + dy);
+    px(C.out,        rowCx + halfW + 1, topY + dy);
+    // Body — clean fill, no center groove
+    px(C.centerLit,  rowCx - halfW,     topY + dy, w, 1);
     // Right-side shadow (only when there's room — keeps the tip readable)
-    if (w >= 4) px(C.centerDark, cx + halfW - 1, topY + dy);
+    if (w >= 4) px(C.centerDark, rowCx + halfW - 1, topY + dy);
   }
-  // Bottom tip cap
-  px(C.out, cx, topY + length);
+  // Bottom tip cap follows the squiggle
+  px(C.out, cx + rowOffset(1), topY + length);
 }
 
 function drawGapingMaw(cx, cy, H) {
@@ -603,7 +609,8 @@ function sceneFullRoar() {
   drawLeaves();
   drawHalo();
   drawPetals('back', egg);
-  drawCenter(egg.cy, egg.ry, egg.taper);
+  drawCenter(egg.cy, egg.ry, egg.taper, true);  // flat = no upper-left
+                                                 // gray highlights near eyes
   drawFaceFullRoar_TopHalf();          // raised brows + squinted lifted eyes
   drawPetals('front', egg);
   drawGapingMaw(CX, 58, 30);           // 22 × 30 mouth — outline y 42..73
