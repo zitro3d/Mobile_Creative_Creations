@@ -283,20 +283,44 @@ function drawPetals(layer, eggCfg) {
   }
 }
 
-function drawHalo() {
-  const innerR = DISK_R - 1;
-  const outerR = DISK_R + 6;
-  for (let dy = -outerR; dy <= outerR; dy++) {
-    for (let dx = -outerR; dx <= outerR; dx++) {
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      if (dist <= innerR + 0.1) continue;
-      if (dist > outerR + 0.4) continue;
-      const t = (dist - innerR) / (outerR - innerR);
-      let color;
-      if      (t < 0.30) color = C.haloA;
-      else if (t < 0.60) color = C.haloB;
-      else               color = C.haloC;
-      px(color, CX + dx, CY + dy);
+function drawHalo(cy, ry, taper) {
+  // Default (no args): annular ring around the round disk — paints the
+  // deep purple shadow between adjacent petal bases (keyframes 1 & 2).
+  if (cy === undefined) {
+    const innerR = DISK_R - 1;
+    const outerR = DISK_R + 6;
+    for (let dy = -outerR; dy <= outerR; dy++) {
+      for (let dx = -outerR; dx <= outerR; dx++) {
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist <= innerR + 0.1) continue;
+        if (dist > outerR + 0.4) continue;
+        const t = (dist - innerR) / (outerR - innerR);
+        let color;
+        if      (t < 0.30) color = C.haloA;
+        else if (t < 0.60) color = C.haloB;
+        else               color = C.haloC;
+        px(color, CX + dx, CY + dy);
+      }
+    }
+    return;
+  }
+  // Egg variant: paint a SOLID dark ellipse that's 6 px larger than the
+  // egg on every side. drawCenter is called right after and overpaints
+  // the interior, leaving the halo visible as a fitted ring behind the
+  // splayed petals (keyframes 3 & 4).
+  ry    = (ry    === undefined) ? DISK_R : ry;
+  taper = (taper === undefined) ? 0      : taper;
+  const rxBase  = DISK_R;
+  const ringExt = 6;
+  for (let dy = -(ry + ringExt); dy <= (ry + ringExt); dy++) {
+    const tNorm = Math.max(0, dy / (ry + ringExt));
+    const rxAt   = rxBase * (1 - taper * tNorm * tNorm);
+    const outerRx = rxAt + ringExt;
+    const outerRy = ry + ringExt;
+    for (let dx = -outerRx; dx <= outerRx; dx++) {
+      const n = (dx*dx)/(outerRx*outerRx) + (dy*dy)/(outerRy*outerRy);
+      if (n > 1) continue;
+      px(C.haloA, CX + dx, cy + dy);
     }
   }
 }
@@ -672,7 +696,9 @@ function sceneFullRoar() {
   drawBackground();
   drawStem();
   drawLeaves();
-  drawHalo();
+  drawHalo(egg.cy, egg.ry, egg.taper); // halo fitted to the egg so the
+                                        // splayed petals have dark fill
+                                        // behind them, no gray gaps
   drawPetals('back', egg);
   drawCenter(egg.cy, egg.ry, egg.taper);   // two-tone shading like keyframe 2
   drawFaceFullRoar_TopHalf();          // raised brows + squinted lifted eyes
@@ -691,7 +717,9 @@ function sceneClosing() {
   drawBackground();
   drawStem();
   drawLeaves();
-  drawHalo();
+  drawHalo(egg.cy, egg.ry, egg.taper); // halo fitted to the egg so the
+                                        // bottom petals have dark fill
+                                        // behind them, no gray gaps
   drawPetals('back', egg);
   drawCenter(egg.cy, egg.ry, egg.taper);
   drawFaceClosing();
