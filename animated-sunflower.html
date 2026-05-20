@@ -240,20 +240,21 @@ function drawBackground() { px(C.bg, 0, 0, 128, 128); }
 let animTime = -1;
 
 // Horizontal stem bend (px) at a given y-normalized position.
-//   yNorm = 1 → top of the stem (most movement, free end at the flower)
-//   yNorm = 0 → bottom of the stem (anchored, no movement)
+//   yNorm = 0 → top of the stem (anchored to the flower, no movement)
+//   yNorm = 1 → bottom of the stem (free, swings most)
+// Anchoring the TOP at the flower means there's no kink where the stem
+// meets the disk; the swing happens lower down where the leaves are.
 // Three regimes based on animTime:
-//   - idle (< 2.0 s or >= 4.7 s): gentle low-freq sway
-//   - roar (2.4–4.2 s):           fast jerky shake
+//   - idle: gentle low-freq sin (subtle breath)
+//   - roar: slightly faster, slightly bigger swing
 //   - blend bands on either side smooth the transitions
 function stemBendAt(t, yNorm) {
   // Idle sway — gentle breath
-  const sway = Math.sin(t * 1.6) * 1.5;
-  // Roar shake — fast, larger amplitude, with a small bias so the stem
-  // doesn't pass through dead-center on every cycle (looks more alive)
-  const shake = Math.sin(t * 12) * 3 + Math.sin(t * 7.3) * 1;
-  // Intensity of the roar shake — ramps in from frame 2 (2.0–2.4 s),
-  // holds during frame 3 (2.4–4.2 s), ramps out through frame 4 (4.2–4.7 s)
+  const sway = Math.sin(t * 1.6) * 0.8;
+  // Roar shake — a touch faster, modest amplitude (no compound wave)
+  const shake = Math.sin(t * 10) * 1.6;
+  // Intensity of the roar shake — ramps in across frame 2 (2.0–2.4 s),
+  // holds during frame 3 (2.4–4.2 s), ramps out across frame 4 (4.2–4.7 s)
   let intensity = 0;
   if      (t >= 2.0 && t < 2.4) intensity = (t - 2.0) / 0.4;
   else if (t >= 2.4 && t < 4.2) intensity = 1;
@@ -266,7 +267,11 @@ function drawStem() {
   for (let y = STEM_TOP_Y; y <= STEM_BOT_Y; y++) {
     let cx = CX;
     if (animTime >= 0) {
-      const yNorm = 1 - (y - STEM_TOP_Y) / (STEM_BOT_Y - STEM_TOP_Y);
+      // 0 at top of stem (at the flower), 1 at bottom (free) — reversed
+      // from the usual plant model because here the flower is fixed and
+      // the stem extends down; anchoring the top keeps the attachment
+      // point clean.
+      const yNorm = (y - STEM_TOP_Y) / (STEM_BOT_Y - STEM_TOP_Y);
       cx += stemBendAt(animTime, yNorm);
     }
     px(C.out, cx - 3, y);
@@ -283,24 +288,26 @@ function drawLeaves() {
   // own (small angle oscillation). Two leaves use offset phases so they
   // don't move in lockstep.
   const STEM_LEN = STEM_BOT_Y - STEM_TOP_Y;
-  const leftYNorm  = 1 - (95  - STEM_TOP_Y) / STEM_LEN;
-  const rightYNorm = 1 - (118 - STEM_TOP_Y) / STEM_LEN;
+  // yNorm matches drawStem (0 at top of stem, 1 at bottom). Leaves ride
+  // the stem at their attachment heights.
+  const leftYNorm  = (95  - STEM_TOP_Y) / STEM_LEN;   // ≈ 0.28
+  const rightYNorm = (118 - STEM_TOP_Y) / STEM_LEN;   // ≈ 0.46
 
   let leftDX = 0, rightDX = 0, leftDA = 0, rightDA = 0;
   if (animTime >= 0) {
     leftDX  = stemBendAt(animTime, leftYNorm);
     rightDX = stemBendAt(animTime, rightYNorm);
-    // Angle flutter — idle is gentle, roar shake adds a sharper oscillation
-    const baseFlutter = 0.05;
-    const roarFlutter = 0.10;
+    // Angle flutter — kept subtle so the leaves drift rather than wiggle
+    const baseFlutter = 0.025;
+    const roarFlutter = 0.06;
     let intensity = 0;
     if      (animTime >= 2.0 && animTime < 2.4) intensity = (animTime - 2.0) / 0.4;
     else if (animTime >= 2.4 && animTime < 4.2) intensity = 1;
     else if (animTime >= 4.2 && animTime < 4.7) intensity = 1 - (animTime - 4.2) / 0.5;
     const idleFL = Math.sin(animTime * 2.0)        * baseFlutter;
     const idleFR = Math.sin(animTime * 2.0 + 1.3)  * baseFlutter;
-    const roarFL = Math.sin(animTime * 14 + 0.7)   * roarFlutter;
-    const roarFR = Math.sin(animTime * 14 + 2.1)   * roarFlutter;
+    const roarFL = Math.sin(animTime * 12 + 0.7)   * roarFlutter;
+    const roarFR = Math.sin(animTime * 12 + 2.1)   * roarFlutter;
     leftDA  = idleFL * (1 - intensity) + roarFL * intensity;
     rightDA = idleFR * (1 - intensity) + roarFR * intensity;
   }
@@ -917,10 +924,13 @@ function sceneFullRoarAnimated(localT) {
 }
 
 // Master timeline router — pick the scene based on time. Sets animTime
-// before painting so the stem/leaves know to apply secondary motion.
+// before painting so the stem/leaves know to apply secondary motion,
+// and clears the canvas first so sway trails from the previous frame
+// don't accumulate as dark outline pixels.
 function paintAnimationFrame(frameNum) {
   const t = frameNum / FPS;
   animTime = t;
+  ctx.clearRect(0, 0, 128, 192);
   if (t < 2.0)        sceneIdleAnimated(t);
   else if (t < 2.4)   sceneRoar();
   else if (t < 4.2)   sceneFullRoarAnimated((t - 2.4) / 1.8);
