@@ -90,6 +90,14 @@
 </div>
 <div class="stamp">KEYFRAME 6 — DISPERSE</div>
 
+<div style="text-align: center; font-family: Impact, 'Arial Black', sans-serif; font-size: 18px; letter-spacing: 4px; color: #fafafa; margin: 24px 0 18px;">
+  FIREBALL — CONTACT SHEET
+</div>
+<div id="fireContactSheet" style="display: flex; flex-wrap: wrap; gap: 24px; justify-content: center; align-items: flex-end; margin-bottom: 16px;"></div>
+<div style="display: flex; gap: 12px; justify-content: center; margin: 0 0 32px;">
+  <button id="downloadFireContactBtn" style="font-family: Impact, 'Arial Black', sans-serif; font-size: 14px; letter-spacing: 3px; padding: 10px 22px; background: #ff7e2e; color: #14060a; border: 2px solid #14060a; cursor: pointer;">DOWNLOAD PNG (TRANSPARENT)</button>
+</div>
+
 <div class="canvasFrame">
   <canvas id="cvAnim" class="pixelCanvas" width="64" height="64" style="width: 384px; height: 384px;"></canvas>
 </div>
@@ -560,6 +568,136 @@ renderProc('cv5', (ctx) => {
   drawSpawnedFireballs(ctx, 0.5, 32, FIREBALL_CY + 4);
 });
 render('cv6', F6);
+
+// ─────────────────────────────────────────────────────
+// ── FIREBALL CONTACT SHEET ──────────────────────────
+// Every individual piece of the fireball laid out on its own little
+// panel — drawn the same way the assembled keyframe is, just isolated
+// so the user can see / screen-grab / download the parts vocabulary.
+// The DOWNLOAD PNG button composites all of them onto a single
+// transparent PNG with labels.
+// ─────────────────────────────────────────────────────
+const FIRE_PARTS = [
+  { label: 'ASSEMBLED', w: 36, h: 44, draw: (c, sub) => {
+      // Sphere center placed below mid so the tongues fit above.
+      drawFireball(c, sub.w >> 1, 24, 14, F4_TONGUES, 0, 'clenched');
+    } },
+  { label: 'SPHERE', w: 32, h: 32, draw: (c, sub) => {
+      drawSphere(c, sub.w >> 1, sub.h >> 1, 14, 0);
+    } },
+  { label: 'TONGUE S', w: 8, h: 8, draw: (c, sub) => {
+      paintFlame(c, TONGUE_S, sub.w >> 1, sub.h - 1);
+    } },
+  { label: 'TONGUE M', w: 8, h: 10, draw: (c, sub) => {
+      paintFlame(c, TONGUE_M, sub.w >> 1, sub.h - 1);
+    } },
+  { label: 'TONGUE L', w: 8, h: 12, draw: (c, sub) => {
+      paintFlame(c, TONGUE_L, sub.w >> 1, sub.h - 1);
+    } },
+  { label: 'TONGUE XL', w: 8, h: 14, draw: (c, sub) => {
+      paintFlame(c, TONGUE_XL, sub.w >> 1, sub.h - 1);
+    } },
+  { label: 'BROWS', w: 24, h: 10, draw: (c, sub) => {
+      const cx = sub.w >> 1;
+      drawFireBrow(c, cx - 6, 3, +1);
+      drawFireBrow(c, cx + 6, 3, -1);
+    } },
+  { label: 'EYES', w: 22, h: 8, draw: (c, sub) => {
+      const cx = sub.w >> 1;
+      const cy = sub.h >> 1;
+      drawFireEye(c, cx - 5, cy, +1);
+      drawFireEye(c, cx + 5, cy, -1);
+    } },
+  { label: 'MOUTH (CLENCHED)', w: 18, h: 10, draw: (c, sub) => {
+      drawFireMouthClenched(c, sub.w >> 1, sub.h >> 1);
+    } },
+  { label: 'MOUTH (OPEN)', w: 20, h: 14, draw: (c, sub) => {
+      drawFireMouthOpen(c, sub.w >> 1, sub.h >> 1);
+    } },
+  { label: 'MINI FIREBALL', w: 8, h: 8, draw: (c, sub) => {
+      drawMiniFireball(c, sub.w >> 1, sub.h >> 1, 3);
+    } },
+];
+
+// Populate the on-page contact sheet with one labeled panel per part.
+// Each panel is sized exactly to the piece and displayed at 4× scale.
+(function buildFireContactSheet() {
+  const sheet = document.getElementById('fireContactSheet');
+  const DISPLAY_SCALE = 4;
+  for (const p of FIRE_PARTS) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display: flex; flex-direction: column; align-items: center;';
+    const cv = document.createElement('canvas');
+    cv.className = 'pixelCanvas';
+    cv.width = p.w;
+    cv.height = p.h;
+    cv.style.width = (p.w * DISPLAY_SCALE) + 'px';
+    cv.style.height = (p.h * DISPLAY_SCALE) + 'px';
+    const labelDiv = document.createElement('div');
+    labelDiv.style.cssText = 'margin-top: 8px; font-family: Impact, \'Arial Black\', sans-serif; font-size: 11px; letter-spacing: 3px; color: #c8b0a0; text-align: center;';
+    labelDiv.textContent = p.label;
+    wrap.appendChild(cv);
+    wrap.appendChild(labelDiv);
+    sheet.appendChild(wrap);
+    const c = cv.getContext('2d');
+    c.imageSmoothingEnabled = false;
+    // White panel backdrop matches the keyframe canvases above.
+    c.fillStyle = '#ffffff';
+    c.fillRect(0, 0, p.w, p.h);
+    p.draw(c, { w: p.w, h: p.h });
+  }
+})();
+
+// Composite all parts onto one transparent canvas and save as PNG.
+// Single row, top-aligned, monospace label below each piece (aligned
+// to the bottom of the tallest piece so labels are even).
+document.getElementById('downloadFireContactBtn').addEventListener('click', () => {
+  const GAP = 16;
+  const PADDING = 16;
+  const LABEL_GAP = 8;
+  const LABEL_H = 14;
+  let totalW = 0;
+  let maxH = 0;
+  for (const p of FIRE_PARTS) {
+    totalW += p.w + GAP;
+    if (p.h > maxH) maxH = p.h;
+  }
+  totalW -= GAP;
+  const outW = totalW + PADDING * 2;
+  const outH = maxH + PADDING * 2 + LABEL_GAP + LABEL_H;
+
+  const out = document.createElement('canvas');
+  out.width = outW;
+  out.height = outH;
+  const c = out.getContext('2d');
+  c.imageSmoothingEnabled = false;
+  // Transparent backdrop — no fill.
+
+  let x = PADDING;
+  for (const p of FIRE_PARTS) {
+    c.save();
+    c.translate(x, PADDING);
+    p.draw(c, { w: p.w, h: p.h });
+    c.restore();
+    c.fillStyle = '#14060a';
+    c.font = 'bold 10px monospace';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText(p.label, x + p.w / 2, PADDING + maxH + LABEL_GAP + LABEL_H / 2);
+    x += p.w + GAP;
+  }
+
+  out.toBlob((blob) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'fireball-contact-sheet.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }, 'image/png');
+});
 
 // ─────────────────────────────────────────────────────
 // ── ANIMATION ────────────────────────────────────────
