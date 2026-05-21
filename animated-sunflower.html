@@ -107,6 +107,10 @@
   </div>
 </div>
 
+<div style="display: flex; gap: 12px; justify-content: center; margin: 0 0 32px;">
+  <button id="downloadExplodedBtn" style="font-family: Impact, 'Arial Black', sans-serif; font-size: 14px; letter-spacing: 3px; padding: 10px 22px; background: #ffd060; color: #04000c; border: 2px solid #04000c; cursor: pointer;">DOWNLOAD PNG (TRANSPARENT)</button>
+</div>
+
 <div class="canvasFrame">
   <canvas id="cvAnim" class="pixelCanvas" width="128" height="192" style="width: 512px; height: 768px;"></canvas>
 </div>
@@ -943,6 +947,110 @@ paintPart('partEyes', (c, cv) => {
 paintPart('partMouth', (c, cv) => {
   c.translate((cv.width >> 1) - CX, (cv.height >> 1) - 54);
   drawClenchedMouth(CX, 54);
+});
+
+// ── DOWNLOAD PNG (TRANSPARENT) ─────────────────────
+// Composites every part onto one fresh canvas (transparent by
+// default — no #BCBCBC panel fill, no backdrop) and saves as a PNG.
+// Each piece's paint function is reused from the on-page exploded
+// view: we wrap an outer ctx.translate around it to slot the piece
+// into a sub-region of the composite canvas.
+const EXPLODED_PARTS = [
+  { label: 'STEM',   w: 16, h: 140, draw: (c, sub) => {
+      c.translate(8 - CX, 4 - STEM_TOP_Y);
+      drawStem();
+    } },
+  { label: 'LEAVES', w: 56, h: 60,  draw: (c, sub) => {
+      c.translate((sub.w >> 1) - 65, (sub.h >> 1) - 105);
+      drawLeaves();
+    } },
+  { label: 'HALO',   w: 48, h: 48,  draw: (c, sub) => {
+      c.translate((sub.w >> 1) - CX, (sub.h >> 1) - CY);
+      drawHalo();
+    } },
+  { label: 'DISK',   w: 36, h: 36,  draw: (c, sub) => {
+      c.translate((sub.w >> 1) - CX, (sub.h >> 1) - CY);
+      drawCenter();
+    } },
+  { label: 'PETAL x 12', w: 20, h: 28, draw: (c, sub) => {
+      c.translate((sub.w >> 1) - CX, sub.h - 4 - (CY - DISK_R + 1));
+      const angle = -Math.PI / 2;
+      const baseOffset = DISK_R - 1;
+      drawTeardrop(
+        CX + Math.cos(angle) * baseOffset,
+        CY + Math.sin(angle) * baseOffset,
+        angle, 21, 12,
+        { out: C.out, hi: C.petalHi, lit: C.petalLit, mid: C.petalMid,
+          dark: C.petalDark, warmHi: C.petalWarmHi },
+        { curve: 0.18 });
+    } },
+  { label: 'BROWS',  w: 28, h: 14,  draw: (c, sub) => {
+      c.translate((sub.w >> 1) - CX, (sub.h >> 1) - 38);
+      drawBrowIdle(CX - 6, 38, +1);
+      drawBrowIdle(CX + 6, 38, -1);
+    } },
+  { label: 'EYES',   w: 28, h: 12,  draw: (c, sub) => {
+      c.translate((sub.w >> 1) - CX, (sub.h >> 1) - 45);
+      drawEyeIdle(CX - 6, 45, +1);
+      drawEyeIdle(CX + 6, 45, -1);
+    } },
+  { label: 'MOUTH',  w: 24, h: 12,  draw: (c, sub) => {
+      c.translate((sub.w >> 1) - CX, (sub.h >> 1) - 54);
+      drawClenchedMouth(CX, 54);
+    } },
+];
+
+document.getElementById('downloadExplodedBtn').addEventListener('click', () => {
+  const GAP        = 16;
+  const PADDING    = 16;
+  const LABEL_GAP  = 8;
+  const LABEL_H    = 14;
+  // Layout: single row, top-aligned, label below each piece.
+  let totalW = 0;
+  let maxH   = 0;
+  for (const p of EXPLODED_PARTS) {
+    totalW += p.w + GAP;
+    if (p.h > maxH) maxH = p.h;
+  }
+  totalW -= GAP;
+  const outW = totalW + PADDING * 2;
+  const outH = maxH + PADDING * 2 + LABEL_GAP + LABEL_H;
+  const out  = document.createElement('canvas');
+  out.width = outW;
+  out.height = outH;
+  const c = out.getContext('2d');
+  c.imageSmoothingEnabled = false;
+  // Transparent backdrop — leave the canvas untouched.
+
+  const prevCtx = ctx;
+  ctx = c;
+  let x = PADDING;
+  for (const p of EXPLODED_PARTS) {
+    c.save();
+    c.translate(x, PADDING);
+    p.draw(c, { w: p.w, h: p.h });
+    c.restore();
+    // Label below the piece. The label row is aligned to the bottom of
+    // the tallest piece so they all line up.
+    c.fillStyle = '#04000c';
+    c.font = 'bold 10px monospace';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText(p.label, x + p.w / 2, PADDING + maxH + LABEL_GAP + LABEL_H / 2);
+    x += p.w + GAP;
+  }
+  ctx = prevCtx;
+
+  out.toBlob((blob) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'sunflower-frame1-parts.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }, 'image/png');
 });
 
 // ─────────────────────────────────────────────────────
