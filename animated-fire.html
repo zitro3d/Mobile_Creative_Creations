@@ -966,20 +966,24 @@ const RING_ORBIT_SPEED = Math.PI;
 //   2. Fewer layers fit inside the thin back tube, so the back
 //      naturally stops showing the cream/yellow core and reads as
 //      mostly red/orange — atmospheric perspective for free.
-function drawFireRing(ctx, cx, cy, rx, ry, t) {
+//
+// visibleRange { startAngle, sweepStart, sweepEnd } restricts which
+// pixels paint — used to "sweep" the ring into / out of existence
+// along its own perimeter. relAngle is measured CW from startAngle
+// (so startAngle = −π/2 means the sweep starts at the top of the
+// ellipse). A pixel paints only if relAngle ∈ [sweepStart, sweepEnd].
+// Pass null/undefined for the full ring.
+function drawFireRing(ctx, cx, cy, rx, ry, t, visibleRange) {
   const TUBE_R_BACK  = 2;     // top of the ring — far from viewer
   const TUBE_R_FRONT = 4;     // bottom of the ring — close to viewer
   const MARGIN = Math.ceil(TUBE_R_FRONT + 1);
   const rx2 = rx * rx;
   const ry2 = ry * ry;
+  const TWO_PI = Math.PI * 2;
   for (let dy = -ry - MARGIN; dy <= ry + MARGIN; dy++) {
-    // yNorm: -1 at back (top), 0 at sides, +1 at front (bottom).
     const yNorm = Math.max(-1, Math.min(1, dy / ry));
     const tubeR = TUBE_R_BACK + (TUBE_R_FRONT - TUBE_R_BACK) * (yNorm * 0.5 + 0.5);
     for (let dx = -rx - MARGIN; dx <= rx + MARGIN; dx++) {
-      // Perpendicular distance from ellipse via |F|/|∇F| where
-      // F(x,y) = (x/rx)² + (y/ry)² − 1. Exact for circles, accurate
-      // for points near the ellipse.
       const f = (dx*dx)/rx2 + (dy*dy)/ry2 - 1;
       const gradX = (2 * dx) / rx2;
       const gradY = (2 * dy) / ry2;
@@ -987,15 +991,21 @@ function drawFireRing(ctx, cx, cy, rx, ry, t) {
       if (gradMag < 1e-6) continue;
       const distFromEllipse = Math.abs(f) / gradMag;
       if (distFromEllipse > tubeR + 0.4) continue;
-      // Concentric layers — same step sizes drawSphere uses.
+      // Sweep gate — skip pixels outside the visible angular band.
+      if (visibleRange) {
+        const pixelAngle = Math.atan2(dy / ry, dx / rx);
+        let relAngle = pixelAngle - visibleRange.startAngle;
+        relAngle = ((relAngle % TWO_PI) + TWO_PI) % TWO_PI;
+        if (relAngle < visibleRange.sweepStart) continue;
+        if (relAngle > visibleRange.sweepEnd)   continue;
+      }
       const distFromEdge = tubeR - distFromEllipse;
       let layer;
-      if      (distFromEdge < 0.5) layer = 1;   // outline
-      else if (distFromEdge < 1.5) layer = 2;   // red
-      else if (distFromEdge < 2.4) layer = 3;   // orange
-      else if (distFromEdge < 3.2) layer = 4;   // yellow
-      else                          layer = 5;   // cream center
-      // Heat cycling — bright pulse rotates CCW around the ring.
+      if      (distFromEdge < 0.5) layer = 1;
+      else if (distFromEdge < 1.5) layer = 2;
+      else if (distFromEdge < 2.4) layer = 3;
+      else if (distFromEdge < 3.2) layer = 4;
+      else                          layer = 5;
       if (layer >= 2 && layer <= 5) {
         const angle = Math.atan2(dy / ry, dx / rx);
         const heatPhase = angle * 3 - t * 4;
@@ -1011,17 +1021,40 @@ function drawFireRing(ctx, cx, cy, rx, ry, t) {
 // Orbiters use drawMiniFireball (cream→yellow→orange→red→outline
 // shading, same vocabulary as the main fireball's shots). Front
 // orbiters get radius 2; back orbiters get radius 1 for depth.
-function drawRingOrbiters(ctx, cx, cy, rx, ry, t, side) {
+// visibleRange — same gate as drawFireRing, so orbiters only show
+// up at angles where the sweep has already drawn the ring.
+function drawRingOrbiters(ctx, cx, cy, rx, ry, t, side, visibleRange) {
+  const TWO_PI = Math.PI * 2;
   for (let i = 0; i < RING_ORBITERS.length; i++) {
     const o = RING_ORBITERS[i];
     const angle = o.phase + t * RING_ORBIT_SPEED;
     const s = Math.sin(angle);
     if (side === 'back'  && s >  0) continue;
     if (side === 'front' && s <= 0) continue;
+    if (visibleRange) {
+      let relAngle = angle - visibleRange.startAngle;
+      relAngle = ((relAngle % TWO_PI) + TWO_PI) % TWO_PI;
+      if (relAngle < visibleRange.sweepStart) continue;
+      if (relAngle > visibleRange.sweepEnd)   continue;
+    }
     const ex = Math.round(cx + rx * Math.cos(angle));
     const ey = Math.round(cy + ry * s);
     drawMiniFireball(ctx, ex, ey, side === 'front' ? 2 : 1);
   }
+}
+
+// Bright spark at the leading edge of a sweep — sells the "magical
+// energy line drawing the ring" effect. A mini-fireball at the head
+// plus a couple of slightly smaller ones trailing just behind it.
+function drawSweepHead(ctx, cx, cy, rx, ry, angle) {
+  const head = (a, r) => {
+    const ex = Math.round(cx + rx * Math.cos(a));
+    const ey = Math.round(cy + ry * Math.sin(a));
+    drawMiniFireball(ctx, ex, ey, r);
+  };
+  head(angle - 0.30, 1);   // trail (further behind)
+  head(angle - 0.15, 2);   // trail (close behind)
+  head(angle,        3);   // bright head
 }
 
 // Magical entry / exit poof for the ring — radial particles flying
@@ -1063,48 +1096,72 @@ function easeInCubic(t)  { return t * t * t; }
 
 function paintRingFrame(ctx, frameNum) {
   const t = frameNum / FPS;
-  // Backdrop — white for live preview, magenta sentinel during GIF
-  // export so the recorded file has a transparent background.
   ctx.fillStyle = isExportingRing ? GIF_TRANSPARENT_HEX : '#ffffff';
   ctx.fillRect(0, 0, RING_NATIVE_W, RING_NATIVE_H);
 
   // ── 4-second timeline at 30 fps ─────────────────────
-  //   0.00 – 0.20 s   empty lead-in
-  //   0.20 – 0.50 s   POOF — central spark + radial particles burst out
-  //   0.50 – 0.90 s   GROW — ring scales 0 → full (easeOutCubic)
-  //   0.90 – 3.55 s   STABLE — full ring spinning with orbital motes
-  //   3.55 – 3.85 s   SHRINK — ring scales full → 0 (easeInCubic)
+  //   0.00 – 0.15 s   empty lead-in
+  //   0.15 – 0.40 s   POOF — central spark + radial particles burst out
+  //   0.40 – 1.30 s   REVEAL SWEEP — bright spark head travels CW around
+  //                   the ring starting from the top, drawing the tube
+  //                   behind it (sweepEnd grows 0 → 2π via easeOutCubic)
+  //   1.30 – 3.30 s   STABLE — full ring spinning, all orbiters present
+  //   3.30 – 3.85 s   ERASE SWEEP — second head sweeps the same direction
+  //                   erasing the ring behind it (sweepStart grows 0 → 2π
+  //                   via easeInOut)
   //   3.85 – 4.00 s   empty lead-out (matches lead-in so the GIF loops)
+  const TWO_PI = Math.PI * 2;
+  const SWEEP_START_ANGLE = -Math.PI / 2;       // sweep starts at top, CW
 
-  if (t < 0.20) return;
+  if (t < 0.15) return;
 
-  if (t < 0.50) {
-    const localT = (t - 0.20) / 0.30;
+  if (t < 0.40) {
+    const localT = (t - 0.15) / 0.25;
     drawRingPoof(ctx, RING_CX, RING_CY, localT);
     return;
   }
 
-  let scale = 1;
-  if (t < 0.90) {
-    scale = easeOutCubic((t - 0.50) / 0.40);
-  } else if (t < 3.55) {
-    scale = 1;
+  let sweepStart = 0;
+  let sweepEnd   = TWO_PI;
+  let activeHead = null;   // angle of the active sweep edge, if any
+  if (t < 1.30) {
+    // REVEAL sweep
+    const localT = (t - 0.40) / 0.90;
+    sweepEnd = easeOutCubic(localT) * TWO_PI;
+    activeHead = SWEEP_START_ANGLE + sweepEnd;
+  } else if (t < 3.30) {
+    // STABLE — full ring
   } else if (t < 3.85) {
-    scale = 1 - easeInCubic((t - 3.55) / 0.30);
+    // ERASE sweep
+    const localT = (t - 3.30) / 0.55;
+    sweepStart = easeInOutCubic(localT) * TWO_PI;
+    activeHead = SWEEP_START_ANGLE + sweepStart;
   } else {
     return;                                     // empty lead-out
   }
 
-  const rx = RING_RX * scale;
-  const ry = RING_RY * scale;
-  if (rx < 3 || ry < 1) return;                 // too small to draw cleanly
+  if (sweepEnd - sweepStart < 0.05) return;     // nothing visible
+
+  const visibleRange = {
+    startAngle: SWEEP_START_ANGLE,
+    sweepStart: sweepStart,
+    sweepEnd:   sweepEnd,
+  };
 
   // Z-order: back orbiters → ring (covers them where they overlap)
-  // → front orbiters. Orbiters use the SAME scaled radii so they
-  // travel with the ring as it grows/shrinks.
-  drawRingOrbiters(ctx, RING_CX, RING_CY, rx, ry, t, 'back');
-  drawFireRing    (ctx, RING_CX, RING_CY, rx, ry, t);
-  drawRingOrbiters(ctx, RING_CX, RING_CY, rx, ry, t, 'front');
+  // → front orbiters → bright sweep head on top of everything.
+  drawRingOrbiters(ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'back',  visibleRange);
+  drawFireRing    (ctx, RING_CX, RING_CY, RING_RX, RING_RY, t,         visibleRange);
+  drawRingOrbiters(ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'front', visibleRange);
+  if (activeHead !== null) {
+    drawSweepHead(ctx, RING_CX, RING_CY, RING_RX, RING_RY, activeHead);
+  }
+}
+
+function easeInOutCubic(t) {
+  return t < 0.5
+    ? 4 * t * t * t
+    : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
 // isExportingRing flips true while the RECORD GIF button is iterating
