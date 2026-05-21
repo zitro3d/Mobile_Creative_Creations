@@ -106,8 +106,10 @@
 </div>
 <div class="stamp">HORIZONTAL FIRE RING — LIVE PREVIEW</div>
 
-<div style="display: flex; gap: 12px; margin-top: 8px; margin-bottom: 24px;">
-  <button id="recordRingBtn" style="font-family: Impact, 'Arial Black', sans-serif; font-size: 14px; letter-spacing: 3px; padding: 10px 22px; background: #ff7e2e; color: #14060a; border: 2px solid #14060a; cursor: pointer;">RECORD GIF</button>
+<div style="display: flex; gap: 12px; margin-top: 8px; margin-bottom: 24px; flex-wrap: wrap; justify-content: center;">
+  <button id="recordRingFullBtn"  style="font-family: Impact, 'Arial Black', sans-serif; font-size: 14px; letter-spacing: 3px; padding: 10px 22px; background: #ff7e2e; color: #14060a; border: 2px solid #14060a; cursor: pointer;">RECORD FULL</button>
+  <button id="recordRingBackBtn"  style="font-family: Impact, 'Arial Black', sans-serif; font-size: 14px; letter-spacing: 3px; padding: 10px 22px; background: #ffcd3f; color: #14060a; border: 2px solid #14060a; cursor: pointer;">RECORD BACK</button>
+  <button id="recordRingFrontBtn" style="font-family: Impact, 'Arial Black', sans-serif; font-size: 14px; letter-spacing: 3px; padding: 10px 22px; background: #ffe8a8; color: #14060a; border: 2px solid #14060a; cursor: pointer;">RECORD FRONT</button>
 </div>
 
 <div id="ringGifResult" style="margin-bottom: 22px;"></div>
@@ -979,7 +981,7 @@ const RING_ORBIT_SPEED = Math.PI;
 // (so startAngle = −π/2 means the sweep starts at the top of the
 // ellipse). A pixel paints only if relAngle ∈ [sweepStart, sweepEnd].
 // Pass null/undefined for the full ring.
-function drawFireRing(ctx, cx, cy, rx, ry, t, visibleRange) {
+function drawFireRing(ctx, cx, cy, rx, ry, t, visibleRange, half) {
   const TUBE_R_BACK  = 2;     // top of the ring — far from viewer
   const TUBE_R_FRONT = 4;     // bottom of the ring — close to viewer
   const MARGIN = Math.ceil(TUBE_R_FRONT + 1);
@@ -987,6 +989,11 @@ function drawFireRing(ctx, cx, cy, rx, ry, t, visibleRange) {
   const ry2 = ry * ry;
   const TWO_PI = Math.PI * 2;
   for (let dy = -ry - MARGIN; dy <= ry + MARGIN; dy++) {
+    // Layer split — back layer paints only above the equator, front
+    // layer only at and below. Used to export the ring as two
+    // separate GIFs so an object can be sandwiched between them.
+    if (half === 'back'  && dy >= 0) continue;
+    if (half === 'front' && dy <  0) continue;
     const yNorm = Math.max(-1, Math.min(1, dy / ry));
     const tubeR = TUBE_R_BACK + (TUBE_R_FRONT - TUBE_R_BACK) * (yNorm * 0.5 + 0.5);
     for (let dx = -rx - MARGIN; dx <= rx + MARGIN; dx++) {
@@ -1052,10 +1059,15 @@ function drawRingOrbiters(ctx, cx, cy, rx, ry, t, side, visibleRange) {
 // Bright spark at the leading edge of a sweep — sells the "magical
 // energy line drawing the ring" effect. A mini-fireball at the head
 // plus a couple of slightly smaller ones trailing just behind it.
-function drawSweepHead(ctx, cx, cy, rx, ry, angle) {
+// `half` gates each sub-spark by which side of the equator its y
+// lands on, so the back/front exports get only their share of the
+// comet tail.
+function drawSweepHead(ctx, cx, cy, rx, ry, angle, half) {
   const head = (a, r) => {
     const ex = Math.round(cx + rx * Math.cos(a));
     const ey = Math.round(cy + ry * Math.sin(a));
+    if (half === 'back'  && ey >= cy) return;
+    if (half === 'front' && ey <  cy) return;
     drawMiniFireball(ctx, ex, ey, r);
   };
   head(angle - 0.30, 1);   // trail (further behind)
@@ -1100,7 +1112,11 @@ function drawRingPoof(ctx, cx, cy, intensity) {
 function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
 function easeInCubic(t)  { return t * t * t; }
 
-function paintRingFrame(ctx, frameNum) {
+function paintRingFrame(ctx, frameNum, half) {
+  // half: undefined → full ring (default), 'back' → only the top half
+  // of the tube + back orbiters, 'front' → only the bottom half +
+  // front orbiters. Used by the layered GIF exports so an object can
+  // be sandwiched between the two halves at composite time.
   const t = frameNum / FPS;
   ctx.fillStyle = isExportingRing ? GIF_TRANSPARENT_HEX : '#ffffff';
   ctx.fillRect(0, 0, RING_NATIVE_W, RING_NATIVE_H);
@@ -1156,11 +1172,17 @@ function paintRingFrame(ctx, frameNum) {
 
   // Z-order: back orbiters → ring (covers them where they overlap)
   // → front orbiters → bright sweep head on top of everything.
-  drawRingOrbiters(ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'back',  visibleRange);
-  drawFireRing    (ctx, RING_CX, RING_CY, RING_RX, RING_RY, t,         visibleRange);
-  drawRingOrbiters(ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'front', visibleRange);
+  // Each call is gated by `half` so the layered exports get only
+  // their share of pixels.
+  if (half !== 'front') {
+    drawRingOrbiters(ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'back', visibleRange);
+  }
+  drawFireRing(ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, visibleRange, half);
+  if (half !== 'back') {
+    drawRingOrbiters(ctx, RING_CX, RING_CY, RING_RX, RING_RY, t, 'front', visibleRange);
+  }
   if (activeHead !== null) {
-    drawSweepHead(ctx, RING_CX, RING_CY, RING_RX, RING_RY, activeHead);
+    drawSweepHead(ctx, RING_CX, RING_CY, RING_RX, RING_RY, activeHead, half);
   }
 }
 
@@ -1191,13 +1213,17 @@ function ringLoop(now) {
 }
 requestAnimationFrame(ringLoop);
 
-// ── RING GIF EXPORT ────────────────────────────────
+// ── RING GIF EXPORT (FULL / BACK / FRONT) ──────────
 // Same magenta-sentinel approach as the fireball: paintRingFrame
-// already checks isExportingRing and paints magenta instead of white
-// when it's set. gif.js remaps that sentinel to the GIF's transparent
-// index. Output is 768 × 384 (clean 8× of 96 × 48).
-document.getElementById('recordRingBtn').addEventListener('click', function () {
-  const btn = this;
+// paints magenta when isExportingRing is true; gif.js remaps that
+// sentinel to the GIF's transparent index. Output is 768 × 384 —
+// clean 8× of 96 × 48.
+//
+// half: 'full' → entire ring (one composited GIF)
+//       'back' → only the top half + back orbiters (object goes on top)
+//       'front'→ only the bottom half + front orbiters (object goes
+//                 under, ring half goes over)
+function recordRingGif(btn, half, fileLabel) {
   if (typeof GIF === 'undefined') {
     alert('GIF library not loaded yet — try again in a moment');
     return;
@@ -1237,21 +1263,25 @@ document.getElementById('recordRingBtn').addEventListener('click', function () {
     isExportingRing = false;
     const url = URL.createObjectURL(blob);
     const resultDiv = document.getElementById('ringGifResult');
-    resultDiv.innerHTML = '';
+    // Append a new preview row per export so the user can grab back
+    // AND front from a single page session without re-recording.
+    const row = document.createElement('div');
+    row.style.cssText = 'margin-bottom: 18px; text-align: center;';
+    const label = document.createElement('div');
+    label.textContent = fileLabel.toUpperCase();
+    label.style.cssText = 'font-family: Impact, "Arial Black", sans-serif; font-size: 12px; letter-spacing: 3px; color: #fafafa; margin-bottom: 8px;';
+    row.appendChild(label);
     const img = document.createElement('img');
     img.src = url;
-    img.style.maxWidth = '100%';
-    img.style.imageRendering = 'pixelated';
-    img.style.display = 'block';
-    img.style.margin = '0 auto 12px';
-    img.style.border = '2px solid #14060a';
-    resultDiv.appendChild(img);
+    img.style.cssText = 'max-width: 100%; image-rendering: pixelated; display: block; margin: 0 auto 8px; border: 2px solid #14060a;';
+    row.appendChild(img);
     const dl = document.createElement('a');
     dl.href = url;
-    dl.download = 'fire-ring.gif';
-    dl.textContent = 'DOWNLOAD GIF';
+    dl.download = 'fire-ring-' + fileLabel + '.gif';
+    dl.textContent = 'DOWNLOAD ' + fileLabel.toUpperCase();
     dl.style.cssText = 'display: inline-block; font-family: Impact, "Arial Black", sans-serif; font-size: 12px; letter-spacing: 2px; padding: 8px 16px; background: #ff7e2e; color: #14060a; border: 2px solid #14060a; text-decoration: none;';
-    resultDiv.appendChild(dl);
+    row.appendChild(dl);
+    resultDiv.appendChild(row);
     btn.disabled = false;
     btn.textContent = origLabel;
   });
@@ -1261,10 +1291,13 @@ document.getElementById('recordRingBtn').addEventListener('click', function () {
     btn.textContent = 'ERROR — RETRY';
   });
 
+  // half value to pass to paintRingFrame: 'full' → undefined.
+  const paintHalf = (half === 'full') ? undefined : half;
+
   isExportingRing = true;
   try {
     for (let f = 0; f < TOTAL_FRAMES; f++) {
-      paintRingFrame(srcCx, f);
+      paintRingFrame(srcCx, f, paintHalf);
       dstCx.clearRect(0, 0, OUT_W, OUT_H);
       dstCx.drawImage(srcCv, 0, 0, OUT_W, OUT_H);
       gif.addFrame(dstCv, { copy: true, delay: 1000 / FPS });
@@ -1277,6 +1310,16 @@ document.getElementById('recordRingBtn').addEventListener('click', function () {
     btn.textContent = 'ERROR — RETRY';
     alert('GIF capture failed: ' + (err && err.message ? err.message : err));
   }
+}
+
+document.getElementById('recordRingFullBtn').addEventListener('click', function () {
+  recordRingGif(this, 'full', 'full');
+});
+document.getElementById('recordRingBackBtn').addEventListener('click', function () {
+  recordRingGif(this, 'back', 'back');
+});
+document.getElementById('recordRingFrontBtn').addEventListener('click', function () {
+  recordRingGif(this, 'front', 'front');
 });
 </script>
 </body>
