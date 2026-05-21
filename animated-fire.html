@@ -106,6 +106,12 @@
 </div>
 <div class="stamp">HORIZONTAL FIRE RING — LIVE PREVIEW</div>
 
+<div style="display: flex; gap: 12px; margin-top: 8px; margin-bottom: 24px;">
+  <button id="recordRingBtn" style="font-family: Impact, 'Arial Black', sans-serif; font-size: 14px; letter-spacing: 3px; padding: 10px 22px; background: #ff7e2e; color: #14060a; border: 2px solid #14060a; cursor: pointer;">RECORD GIF</button>
+</div>
+
+<div id="ringGifResult" style="margin-bottom: 22px;"></div>
+
 <div class="meta">Approve to proceed with the in-between tweens and the looping animation.</div>
 
 <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
@@ -1184,6 +1190,94 @@ function ringLoop(now) {
   requestAnimationFrame(ringLoop);
 }
 requestAnimationFrame(ringLoop);
+
+// ── RING GIF EXPORT ────────────────────────────────
+// Same magenta-sentinel approach as the fireball: paintRingFrame
+// already checks isExportingRing and paints magenta instead of white
+// when it's set. gif.js remaps that sentinel to the GIF's transparent
+// index. Output is 768 × 384 (clean 8× of 96 × 48).
+document.getElementById('recordRingBtn').addEventListener('click', function () {
+  const btn = this;
+  if (typeof GIF === 'undefined') {
+    alert('GIF library not loaded yet — try again in a moment');
+    return;
+  }
+  btn.disabled = true;
+  const origLabel = btn.textContent;
+  btn.textContent = 'RECORDING…';
+
+  const SCALE = 8;
+  const OUT_W = RING_NATIVE_W * SCALE;   // 768
+  const OUT_H = RING_NATIVE_H * SCALE;   // 384
+
+  const srcCv = document.createElement('canvas');
+  srcCv.width = RING_NATIVE_W; srcCv.height = RING_NATIVE_H;
+  const srcCx = srcCv.getContext('2d');
+  srcCx.imageSmoothingEnabled = false;
+  const dstCv = document.createElement('canvas');
+  dstCv.width = OUT_W; dstCv.height = OUT_H;
+  const dstCx = dstCv.getContext('2d');
+  dstCx.imageSmoothingEnabled = false;
+
+  const gifOpts = {
+    quality: 8,
+    width: OUT_W,
+    height: OUT_H,
+    dither: false,
+    transparent: GIF_TRANSPARENT_INT,
+  };
+  if (gifWorkerBlob) { gifOpts.workers = 2; gifOpts.workerScript = gifWorkerBlob; }
+  else                gifOpts.workers = 0;
+  const gif = new GIF(gifOpts);
+
+  gif.on('progress', (p) => {
+    btn.textContent = 'ENCODING ' + Math.round(p * 100) + '%';
+  });
+  gif.on('finished', (blob) => {
+    isExportingRing = false;
+    const url = URL.createObjectURL(blob);
+    const resultDiv = document.getElementById('ringGifResult');
+    resultDiv.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = url;
+    img.style.maxWidth = '100%';
+    img.style.imageRendering = 'pixelated';
+    img.style.display = 'block';
+    img.style.margin = '0 auto 12px';
+    img.style.border = '2px solid #14060a';
+    resultDiv.appendChild(img);
+    const dl = document.createElement('a');
+    dl.href = url;
+    dl.download = 'fire-ring.gif';
+    dl.textContent = 'DOWNLOAD GIF';
+    dl.style.cssText = 'display: inline-block; font-family: Impact, "Arial Black", sans-serif; font-size: 12px; letter-spacing: 2px; padding: 8px 16px; background: #ff7e2e; color: #14060a; border: 2px solid #14060a; text-decoration: none;';
+    resultDiv.appendChild(dl);
+    btn.disabled = false;
+    btn.textContent = origLabel;
+  });
+  gif.on('abort', () => {
+    isExportingRing = false;
+    btn.disabled = false;
+    btn.textContent = 'ERROR — RETRY';
+  });
+
+  isExportingRing = true;
+  try {
+    for (let f = 0; f < TOTAL_FRAMES; f++) {
+      paintRingFrame(srcCx, f);
+      dstCx.clearRect(0, 0, OUT_W, OUT_H);
+      dstCx.drawImage(srcCv, 0, 0, OUT_W, OUT_H);
+      gif.addFrame(dstCv, { copy: true, delay: 1000 / FPS });
+    }
+    btn.textContent = 'ENCODING 0%';
+    gif.render();
+  } catch (err) {
+    isExportingRing = false;
+    btn.disabled = false;
+    btn.textContent = 'ERROR — RETRY';
+    alert('GIF capture failed: ' + (err && err.message ? err.message : err));
+  }
+});
 </script>
 </body>
 </html>
