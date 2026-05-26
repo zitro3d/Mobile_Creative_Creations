@@ -54,12 +54,36 @@
 </div>
 <div class="stamp">KEYFRAME 1 — IDLE</div>
 
+<div class="canvasFrame">
+  <canvas id="cvAnim" class="pixelCanvas" width="96" height="96" style="width: 384px; height: 384px;"></canvas>
+</div>
+<div class="stamp">ANIMATION — STARTUP → ACTIVATED</div>
+
+<div style="display: flex; gap: 12px; margin-top: 8px; margin-bottom: 24px;">
+  <button id="recordBtn" style="font-family: Impact, 'Arial Black', sans-serif; font-size: 14px; letter-spacing: 3px; padding: 10px 22px; background: #f7a8d8; color: #15101f; border: 2px solid #0c0814; cursor: pointer;">RECORD GIF</button>
+</div>
+
+<div id="gifResult" style="margin-bottom: 22px;"></div>
+
 <div class="meta">Approve to proceed with the portal-opening keyframes and the animation.</div>
 
+<script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
+
 <script>
-const cv = document.getElementById('cv1');
-const ctx = cv.getContext('2d');
-ctx.imageSmoothingEnabled = false;
+const cv1 = document.getElementById('cv1');
+const ctx1 = cv1.getContext('2d');
+ctx1.imageSmoothingEnabled = false;
+
+const cvAnim = document.getElementById('cvAnim');
+const ctxAnim = cvAnim.getContext('2d');
+ctxAnim.imageSmoothingEnabled = false;
+
+let ctx = ctx1;   // active context — swapped between the keyframe and the animation
+
+// GIF transparency sentinel — see the export handler at the bottom.
+let isExporting = false;
+const GIF_TRANSPARENT_HEX = '#ff00ff';
+const GIF_TRANSPARENT_INT = 0xff00ff;
 
 function px(color, x, y, w, h) {
   ctx.fillStyle = color;
@@ -175,25 +199,194 @@ function drawSparkles() {
   }
 }
 
-// ── COMPOSITE — IDLE PORTAL ───────────────────────────
-function drawIdle() {
-  // Backdrop — dark void (also fills the inactive center).
-  px(P.voidBg, 0, 0, 96, 96);
-  // Frame + structure.
+// ── PORTAL BASE — frame + feet + gems (no backdrop) ───
+function drawPortalBase() {
   drawFrame();
   drawFoot(28);
   drawFoot(68);
-  // Decorative gems.
   drawTopGem();
   drawDiamondGem(28, 50);
   drawDiamondGem(68, 50);
   drawPinkGem(28, 70);
   drawPinkGem(68, 70);
-  // A calm scatter of sparkles.
-  drawSparkles();
+}
+
+// ── COMPOSITE — IDLE KEYFRAME (cv1) ───────────────────
+function drawIdle() {
+  ctx = ctx1;
+  px(P.voidBg, 0, 0, 96, 96);   // dark void fills the inactive center
+  drawPortalBase();
+  drawSparkles();               // calm static scatter
+}
+
+// ── SWIRLING VORTEX — the activation effect ───────────
+// Fills the doorway opening with a rotating spiral. `intensity` (0..1)
+// controls how far out the vortex reaches (it grows from the center as
+// the portal powers up) and how bright it glows. The spiral itself
+// spins continuously via the time term.
+function drawSwirl(t, intensity) {
+  if (intensity <= 0.02) return;
+  const ocx = 48, ocy = 54;     // opening center
+  const orx = 11, ory = 28;     // opening ellipse radii (tall doorway)
+  const spin = t * 4;           // angular spin speed
+  for (let y = 28; y <= 83; y++) {
+    for (let x = 38; x <= 58; x++) {
+      const ndx = (x - ocx) / orx;
+      const ndy = (y - ocy) / ory;
+      const dist = Math.sqrt(ndx*ndx + ndy*ndy);
+      if (dist > intensity) continue;        // outside the grown radius
+      const angle = Math.atan2(ndy, ndx);
+      // Two-arm spiral winding into the center, rotating over time.
+      const spiral = angle * 2 - dist * 6 + spin;
+      const band   = (Math.sin(spiral) + 1) / 2;          // 0..1
+      const radial = 1 - (dist / Math.max(intensity, 0.01)); // 1 center → 0 edge
+      const bright = radial * 0.55 + band * 0.45;          // combine glow + arms
+      let color;
+      if      (bright > 0.82) color = P.white;
+      else if (bright > 0.64) color = P.pink;
+      else if (bright > 0.48) color = P.cyan;
+      else if (bright > 0.34) color = P.blue;
+      else if (bright > 0.20) color = P.purple;
+      else                    color = P.magenta;
+      px(color, x, y);
+    }
+  }
+}
+
+// ── ANIMATED SPARKLES — twinkle + activation burst ────
+// Base sparkles twinkle gently always; a second set fades in with the
+// activation intensity so the portal visibly "charges up."
+const ANIM_SPARKLES = [
+  [16, 34, P.yellow, 0.0], [80, 40, P.yellow, 1.1], [14, 64, P.yellow, 2.2],
+  [82, 70, P.yellow, 0.6], [18, 80, P.pink, 1.7],   [78, 84, P.pink, 2.8],
+  [34, 26, P.cyan, 0.3],   [62, 28, P.cyan, 1.4],   [30, 52, P.white, 2.0],
+  [66, 56, P.white, 0.9],  [12, 48, P.pink, 1.2],   [84, 52, P.cyan, 2.5],
+];
+const CHARGE_SPARKLES = [
+  [24, 22, P.white, 0.0],  [72, 24, P.white, 0.5],  [10, 42, P.cyan, 1.0],
+  [86, 46, P.pink, 1.5],   [20, 58, P.yellow, 0.7], [76, 62, P.cyan, 1.2],
+  [26, 88, P.pink, 1.8],   [70, 90, P.yellow, 0.4], [40, 18, P.white, 1.6],
+  [56, 18, P.cyan, 0.2],   [8, 70, P.yellow, 1.3],  [88, 74, P.white, 0.8],
+];
+function drawAnimatedSparkles(t, intensity) {
+  for (let i = 0; i < ANIM_SPARKLES.length; i++) {
+    const s = ANIM_SPARKLES[i];
+    if (Math.sin(t * 6 + s[3]) > -0.3) px(s[2], s[0], s[1]);
+  }
+  for (let i = 0; i < CHARGE_SPARKLES.length; i++) {
+    const s = CHARGE_SPARKLES[i];
+    // Threshold drops as intensity rises, so more charge sparkles show
+    // once the portal is active; each still twinkles on its own phase.
+    if (Math.sin(t * 9 + s[3]) > (1 - intensity * 1.6)) px(s[2], s[0], s[1]);
+  }
+}
+
+// ── ANIMATION TIMELINE ────────────────────────────────
+// 4-second loop at 30 fps = 120 frames.
+//   0.0 – 0.4 s   IDLE        — dark center, calm sparkles
+//   0.4 – 1.6 s   STARTUP     — vortex grows from the center (ease-out),
+//                               charge sparkles fade in
+//   1.6 – 3.4 s   ACTIVATED   — full vortex spinning
+//   3.4 – 4.0 s   DEACTIVATE  — vortex shrinks back to dark (loops clean)
+const FPS = 30;
+const TOTAL_FRAMES = 120;
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+function easeInCubic(t)  { return t * t * t; }
+
+function portalIntensityAt(t) {
+  if (t < 0.4)  return 0;
+  if (t < 1.6)  return easeOutCubic((t - 0.4) / 1.2);
+  if (t < 3.4)  return 1;
+  if (t < 4.0)  return 1 - easeInCubic((t - 3.4) / 0.6);
+  return 0;
+}
+
+function paintPortalAnim(targetCtx, frameNum) {
+  ctx = targetCtx;
+  const t = frameNum / FPS;
+  const intensity = portalIntensityAt(t);
+  // Backdrop — magenta sentinel during GIF export (→ transparent),
+  // otherwise transparent so the dark canvas CSS bg shows through.
+  if (isExporting) { px(GIF_TRANSPARENT_HEX, 0, 0, 96, 96); }
+  else             { targetCtx.clearRect(0, 0, 96, 96); }
+  drawSwirl(t, intensity);        // behind the frame (in the opening)
+  drawPortalBase();               // frame + gems on top of the swirl edges
+  drawAnimatedSparkles(t, intensity);
 }
 
 drawIdle();
+
+// ── LIVE PREVIEW LOOP ─────────────────────────────────
+let animStart = performance.now();
+function animLoop(now) {
+  const frameNum = Math.floor((now - animStart) / 1000 * FPS) % TOTAL_FRAMES;
+  paintPortalAnim(ctxAnim, frameNum);
+  requestAnimationFrame(animLoop);
+}
+requestAnimationFrame(animLoop);
+
+// ── GIF EXPORT (transparent, 96×96 → 480×480 @ 5×) ────
+let gifWorkerBlob = null;
+fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js')
+  .then((r) => r.ok ? r.text() : Promise.reject(r.status))
+  .then((js) => { gifWorkerBlob = URL.createObjectURL(new Blob([js], { type: 'application/javascript' })); })
+  .catch(() => {});
+
+document.getElementById('recordBtn').addEventListener('click', function () {
+  const btn = this;
+  if (typeof GIF === 'undefined') { alert('GIF library not loaded yet — try again in a moment'); return; }
+  btn.disabled = true;
+  const origLabel = btn.textContent;
+  btn.textContent = 'RECORDING…';
+
+  const NATIVE = 96, SCALE = 5, OUT = NATIVE * SCALE;   // 480 × 480
+  const srcCv = document.createElement('canvas');
+  srcCv.width = NATIVE; srcCv.height = NATIVE;
+  const srcCx = srcCv.getContext('2d');
+  srcCx.imageSmoothingEnabled = false;
+  const dstCv = document.createElement('canvas');
+  dstCv.width = OUT; dstCv.height = OUT;
+  const dstCx = dstCv.getContext('2d');
+  dstCx.imageSmoothingEnabled = false;
+
+  const gifOpts = { quality: 8, width: OUT, height: OUT, dither: false, transparent: GIF_TRANSPARENT_INT };
+  if (gifWorkerBlob) { gifOpts.workers = 2; gifOpts.workerScript = gifWorkerBlob; }
+  else                gifOpts.workers = 0;
+  const gif = new GIF(gifOpts);
+
+  gif.on('progress', (p) => { btn.textContent = 'ENCODING ' + Math.round(p * 100) + '%'; });
+  gif.on('finished', (blob) => {
+    isExporting = false;
+    const url = URL.createObjectURL(blob);
+    const resultDiv = document.getElementById('gifResult');
+    resultDiv.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = url;
+    img.style.cssText = 'max-width: 100%; image-rendering: pixelated; display: block; margin: 0 auto 12px; border: 2px solid #0c0814;';
+    resultDiv.appendChild(img);
+    const dl = document.createElement('a');
+    dl.href = url; dl.download = 'magic-portal.gif'; dl.textContent = 'DOWNLOAD GIF';
+    dl.style.cssText = 'display: inline-block; font-family: Impact, "Arial Black", sans-serif; font-size: 12px; letter-spacing: 2px; padding: 8px 16px; background: #f7a8d8; color: #15101f; border: 2px solid #0c0814; text-decoration: none;';
+    resultDiv.appendChild(dl);
+    btn.disabled = false; btn.textContent = origLabel;
+  });
+  gif.on('abort', () => { isExporting = false; btn.disabled = false; btn.textContent = 'ERROR — RETRY'; });
+
+  isExporting = true;
+  try {
+    for (let f = 0; f < TOTAL_FRAMES; f++) {
+      paintPortalAnim(srcCx, f);
+      dstCx.clearRect(0, 0, OUT, OUT);
+      dstCx.drawImage(srcCv, 0, 0, OUT, OUT);
+      gif.addFrame(dstCv, { copy: true, delay: 1000 / FPS });
+    }
+    btn.textContent = 'ENCODING 0%';
+    gif.render();
+  } catch (err) {
+    isExporting = false; btn.disabled = false; btn.textContent = 'ERROR — RETRY';
+    alert('GIF capture failed: ' + (err && err.message ? err.message : err));
+  }
+});
 </script>
 </body>
 </html>
