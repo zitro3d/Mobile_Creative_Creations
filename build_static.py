@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Phase 1 — static magical stone portal (matches the red overlay).
+"""Phase 1 — static magical stone portal (traced to the red drawing).
 
 125x250 logical RGBA -> 8x NEAREST -> output/portal_static.png (1000x2000).
 
-Shape follows the red drawing: a WIDE, pointed (gothic) arch in 3/4
-perspective. The right pillar is markedly thicker and reads as a
-receding 3D column — wrap-around bands + rivet studs run down the
-sides. Opening is shifted left so the right inner-wall face shows.
-Interior glow uses an edge-distance transform (pink rim hugs the arch,
-dark void elongates down the center). One palette color per pixel, no
-anti-aliasing.
+Shape follows the red sketch: an ASYMMETRIC, leaning archway. The left
+pillar is thin and nearly straight; the right pillar is much thicker and
+reads as a receding 3D column in 3/4 perspective, with three banded
+rings that protrude outward to the right. A tilted capstone cylinder and
+a round orb cap the arch point. The pointed opening widens slightly down
+to the floor. Interior glow uses an edge-distance transform (pink rim
+hugs the arch, dark void elongates down the center). One palette color
+per pixel, no anti-aliasing.
 """
 import os, math
 from collections import deque
@@ -42,75 +43,69 @@ def get(x, y):
         return PX[x, y]
     return (0, 0, 0, 0)
 
-# ── Pointed-arch geometry (WIDE, gothic) ──────────────
-O_LEFT, O_RIGHT     = 10, 116        # outer span (wide — fills the frame)
-O_SPRING, O_BASE    = 126, 244       # pillars run straight below the spring
-O_R                 = 113            # arc radius → pointiness
-O_SPAN              = O_RIGHT - O_LEFT
+# ── Traced edges (x, y), top→bottom; piecewise-linear ──
+# Left outer (thin pillar, leans in then near-vertical):
+LO = [(53,33),(48,38),(42,44),(36.5,62),(31,88),(28,119),
+      (26.7,156),(26,194),(27,222),(29,236)]
+# Left inner (left side of the opening):
+LI = [(58,55),(53,61),(46,81),(42,112),(39.6,150),(38.5,188),(39,216),(40,236)]
+# Right inner (right side of the opening):
+RI = [(60,55),(63,58),(67,81),(71,119),(74,156),(76,194),(77.5,222),(79,236)]
+# Right outer (thick pillar, sweeps out, leans right):
+RO = [(64,33),(71,34.5),(81,53),(92,81),(97,112),(99,150),
+      (100,188),(102,225),(102,236)]
 
-def outer_bounds(y):
-    if y > O_BASE:
+def edge(pts, y):
+    if y < pts[0][1] or y > pts[-1][1]:
         return None
-    if y >= O_SPRING:
-        return (O_LEFT, O_RIGHT)
-    dy = y - O_SPRING                 # negative above the spring
-    disc = O_R * O_R - dy * dy
-    if disc < 0:
-        return None
-    s = math.sqrt(disc)
-    lx = O_LEFT + O_R - s             # left arc (center at right spring + R)
-    rx = O_RIGHT - O_R + s            # right arc
-    if lx >= rx:
-        return None                   # above the apex
-    return (lx, rx)
+    for i in range(len(pts) - 1):
+        x0, y0 = pts[i]
+        x1, y1 = pts[i + 1]
+        if y0 <= y <= y1:
+            if y1 == y0:
+                return x0
+            t = (y - y0) / (y1 - y0)
+            return x0 + t * (x1 - x0)
+    return None
 
-# Inner opening = outer shrunk by stone thickness. Right thickness >>
-# left → opening shifted left, right pillar thick (3/4 view).
-T_LEFT, T_RIGHT = 16, 27
-WALL = 5                              # right inner-wall strip (depth face)
-
-def inner_bounds(y):
-    ob = outer_bounds(y)
-    if ob is None:
-        return None
-    il = ob[0] + T_LEFT
-    ir = ob[1] - T_RIGHT
-    if ir - il < 3:
-        return None
-    return (il, ir)
-
-def opening_span(y):
-    ib = inner_bounds(y)
-    if ib is None:
-        return None
-    il = int(math.ceil(ib[0]))
-    ir = int(math.floor(ib[1]))
-    if ir - il < 3:
-        return None
-    return il, ir - WALL, ir          # portal [il, pr], wall (pr, ir]
+CROWN_TOP = 33
+WALL = 4                              # right inner-wall reveal (depth face)
 
 # ── Stone front face + opening + right inner wall ─────
 for y in range(H):
-    ob = outer_bounds(y)
-    if ob is None:
+    lo = edge(LO, y)
+    ro = edge(RO, y)
+    if lo is None or ro is None:
         continue
-    ol, orr = int(math.floor(ob[0])), int(math.ceil(ob[1]))
-    sp = opening_span(y)
+    ol, orr = int(math.floor(lo)), int(math.ceil(ro))
+    li = edge(LI, y)
+    ri = edge(RI, y)
+    if li is None or ri is None:
+        for x in range(ol, orr + 1):     # solid arch crown / sill
+            put(x, y, PURPLE)
+        continue
+    ilo = int(math.ceil(li))
+    iro = int(math.floor(ri))
     for x in range(ol, orr + 1):
-        if sp and sp[0] <= x <= sp[2]:
-            if x > sp[1]:
-                put(x, y, DEEP_PURPLE)        # receding inner wall
-        else:
-            put(x, y, PURPLE)                 # stone front face
+        if x < ilo:
+            put(x, y, PURPLE)            # left wall (front face)
+        elif x > iro:
+            if x <= iro + WALL:
+                put(x, y, DEEP_PURPLE)   # receding inner-wall reveal
+            else:
+                put(x, y, PURPLE)        # right wall (front face)
+        # opening (ilo..iro) left for the glow pass
 
 # ── Interior glow — edge-distance transform ───────────
 mask = [[False] * W for _ in range(H)]
 for y in range(H):
-    sp = opening_span(y)
-    if sp is None:
+    li = edge(LI, y)
+    ri = edge(RI, y)
+    if li is None or ri is None:
         continue
-    for x in range(sp[0], sp[1] + 1):
-        mask[y][x] = True
+    for x in range(int(math.ceil(li)), int(math.floor(ri)) + 1):
+        if 0 <= x < W:
+            mask[y][x] = True
 
 INF = 10 ** 9
 dist = [[INF] * W for _ in range(H)]
@@ -154,14 +149,14 @@ for (x, y) in stone:
             put(x, y, DEEP_PURPLE)
             break
 
-# ── LAVENDER highlight on the lit (left) edge ─────────
+# ── LAVENDER highlight on the lit (left) outer edge ───
 for y in range(H):
-    ob = outer_bounds(y)
-    if ob is None:
+    lo = edge(LO, y)
+    if lo is None:
         continue
-    ol = int(math.floor(ob[0]))
+    ol = int(math.floor(lo))
     run = 0
-    for x in range(ol, ol + 10):
+    for x in range(ol, ol + 12):
         if get(x, y)[:3] == PURPLE:
             put(x, y, LAVENDER)
             run += 1
@@ -170,76 +165,98 @@ for y in range(H):
         elif run:
             break
 
-# ── Wrap-around bands on the right pillar (cylinder) ──
-def draw_band(by):
-    ob = outer_bounds(by)
-    ib = inner_bounds(by)
-    if ob is None or ib is None:
+# ── Banded rings on the thick right pillar (protrude) ─
+def draw_band(cy):
+    ri = edge(RI, cy)
+    ro = edge(RO, cy)
+    if ri is None or ro is None:
         return
-    rs = int(math.ceil(ib[1])) + 1
-    re = int(math.ceil(ob[1]))
-    width = max(1, re - rs)
-    for i, x in enumerate(range(rs, re + 1)):
-        drop = int(round((i / width) * 2))     # far side droops (cylinder)
-        for yy in range(by + drop, by + 5 + drop):
-            if get(x, yy)[3] != 0:
-                put(x, yy, LAVENDER)
-        put(x, by + 5 + drop, DEEP_PURPLE)
-        put(x, by + 6 + drop, DEEP_PURPLE)
-        if get(x, by + drop)[3] != 0:
-            put(x, by + drop, LAVENDER)
-for by in (150, 185, 218):
-    draw_band(by)
+    sx = int(math.floor(ri)) + 1
+    ex = int(math.ceil(ro)) + 7          # stick out past the outer edge
+    span = max(1, ex - sx)
+    half = 3
+    for x in range(sx, ex + 1):
+        f = (x - sx) / span
+        drop = int(round(f * 3))         # tilt down toward the far end
+        # rounded ends
+        h = half if f < 0.85 else half - 1
+        if x == ex:
+            h = half - 2
+        top = cy - h + drop
+        bot = cy + h + drop
+        for yy in range(top, bot + 1):
+            base = get(x, yy)
+            stick_out = x > int(math.ceil(ro))
+            if base[3] != 0 or stick_out:
+                put(x, yy, PURPLE)
+        put(x, top, LAVENDER)
+        put(x, bot, DEEP_PURPLE)
+        put(x, bot + 1, DEEP_PURPLE)
+for cy in (76, 133, 194):
+    draw_band(cy)
 
-# ── Rivet studs down both outer edges ─────────────────
-def draw_rivets():
-    for ry in range(138, 236, 15):
-        ob = outer_bounds(ry)
-        if ob is None:
+# ── Faint banding ticks down the left pillar edge ─────
+for ty in range(70, 232, 20):
+    lo = edge(LO, ty)
+    li = edge(LI, ty)
+    if lo is None or li is None:
+        continue
+    ol = int(math.floor(lo))
+    il = int(math.ceil(li))
+    for x in range(ol + 1, il):
+        if get(x, ty)[:3] in (PURPLE, LAVENDER):
+            put(x, ty, DEEP_PURPLE)
+        if get(x, ty - 1)[:3] == PURPLE:
+            put(x, ty - 1, LAVENDER)
+
+# ── Capstone cylinder + orb, seated on the arch point ─
+def draw_capstone():
+    x0, y0 = 51, 30
+    x1, y1 = 79, 35                       # tilted: right end lower
+    span = x1 - x0
+    for x in range(x0, x1 + 1):
+        f = (x - x0) / span
+        cyf = y0 + f * (y1 - y0)
+        h = 4 if 0.08 < f < 0.92 else 3
+        cy = int(round(cyf))
+        for yy in range(cy - h, cy + h + 1):
+            put(x, yy, PURPLE)
+        put(x, cy - h, LAVENDER)
+        put(x, cy - h + 1, LAVENDER)
+        put(x, cy + h, DEEP_PURPLE)
+        put(x, cy + h + 1, DEEP_PURPLE)
+    # round orb tucked at the upper-left of the capstone
+    ox, oy, orad = 46, 40, 6
+    for dy in range(-orad, orad + 1):
+        for dx in range(-orad, orad + 1):
+            if dx * dx + dy * dy <= orad * orad:
+                put(ox + dx, oy + dy, PURPLE)
+    for dy in range(-orad, orad + 1):
+        for dx in range(-orad, orad + 1):
+            r2 = dx * dx + dy * dy
+            if r2 <= orad * orad and dx + dy < -3:
+                put(ox + dx, oy + dy, LAVENDER)
+            elif r2 <= orad * orad and dx + dy > 4:
+                put(ox + dx, oy + dy, DEEP_PURPLE)
+    put(ox - 2, oy - 3, PALE_CYAN)
+draw_capstone()
+
+# ── Pillar feet — small mossy stone base ──────────────
+def draw_feet():
+    for (pts_o, pts_i) in ((LO, LI), (RI, RO)):
+        eo = edge(pts_o, 235)
+        ei = edge(pts_i, 235)
+        if eo is None or ei is None:
             continue
-        lx = int(math.floor(ob[0]))
-        rx = int(math.ceil(ob[1]))
-        # left edge rivet
-        put(lx + 2, ry, LAVENDER); put(lx + 3, ry, LAVENDER)
-        put(lx + 2, ry + 1, PURPLE); put(lx + 3, ry + 1, DEEP_PURPLE)
-        # right edge rivet
-        put(rx - 3, ry, LAVENDER); put(rx - 2, ry, LAVENDER)
-        put(rx - 3, ry + 1, PURPLE); put(rx - 2, ry + 1, DEEP_PURPLE)
-draw_rivets()
+        a, b = sorted((int(round(eo)), int(round(ei))))
+        for yy in range(234, H):
+            for x in range(a - 2, b + 3):
+                put(x, yy, DEEP_PURPLE)
+draw_feet()
 
-# ── Keystone crystal — seated at the arch point ───────
-def draw_keystone():
-    kx, ky = O_LEFT + O_SPAN // 2, 40
-    for dy in range(-5, 6):
-        for dx in range(-4, 5):
-            if abs(dx) / 4.0 + abs(dy) / 5.0 <= 1.0:
-                put(kx + dx, ky + dy, CYAN)
-    put(kx - 1, ky - 3, WHITE); put(kx - 2, ky - 1, PALE_CYAN); put(kx - 1, ky - 2, PALE_CYAN)
-    put(kx, ky, PALE_CYAN)
-    put(kx + 1, ky + 2, DEEP_BLUE); put(kx, ky + 3, DEEP_BLUE); put(kx + 2, ky + 1, DEEP_BLUE)
-draw_keystone()
-
-# ── Base flare — mossy stone foot (irregular) ─────────
-def draw_base_flare():
-    ob = outer_bounds(O_BASE)
-    ol, orr = int(math.floor(ob[0])), int(math.ceil(ob[1]))
-    profile_l = [2, 4, 6, 7, 6, 5, 4]
-    profile_r = [3, 6, 8, 9, 8, 6, 5]
-    for i in range(7):
-        yy = O_BASE - 1 + i
-        if yy >= H:
-            break
-        extl = profile_l[i] + (1 if (i % 2) else 0)
-        extr = profile_r[i] + (1 if (i % 3 == 0) else 0)
-        for x in range(ol - extl, ol + 10):
-            put(x, yy, DEEP_PURPLE)
-        for x in range(orr - 9, orr + extr + 1):
-            put(x, yy, DEEP_PURPLE)
-draw_base_flare()
-
-# ── Ground light spill ────────────────────────────────
+# ── Ground light spill below the opening ──────────────
 def draw_ground_spill():
-    cx, cy = (O_LEFT + O_RIGHT) // 2 - 3, O_BASE + 4
+    cx, cy = 58, 240
     rw, rh = 20, 4
     for dy in range(-rh, rh + 1):
         for dx in range(-rw, rw + 1):
@@ -251,21 +268,17 @@ def draw_ground_spill():
             put(cx + dx, cy + dy, PALE_CYAN)
 draw_ground_spill()
 
-# ── Cracks / overgrowth ───────────────────────────────
-CRACKS = [
-    (20, 90), (24, 130), (18, 170), (22, 205), (28, 60),
-    (104, 95), (108, 140), (110, 180), (105, 212), (100, 66),
-    (40, 46), (86, 48), (30, 228), (96, 230),
-]
-MOSS = [
-    (22, 110), (26, 150), (106, 120), (102, 195), (90, 60),
-    (34, 218), (110, 100), (19, 145),
-]
+# ── Cracks / overgrowth (hand-placed) ─────────────────
+CRACKS = [(33,100),(30,150),(28,190),(31,210),(40,60),
+          (96,95),(99,140),(101,175),(99,205),(72,45),
+          (35,70),(85,55),(34,228),(98,232)]
+MOSS = [(31,118),(29,168),(98,120),(100,198),(78,50),
+        (33,218),(101,100),(27,145)]
 for (x, y) in CRACKS:
-    if get(x, y)[3] != 0:
+    if get(x, y)[3] != 0 and get(x, y)[:3] in (PURPLE, LAVENDER):
         put(x, y, DEEP_PURPLE)
 for (x, y) in MOSS:
-    if get(x, y)[3] != 0:
+    if get(x, y)[3] != 0 and get(x, y)[:3] in (PURPLE, LAVENDER, DEEP_PURPLE):
         put(x, y, HOT_PINK)
 
 # ── Upscale + save ────────────────────────────────────
