@@ -1,33 +1,34 @@
 #!/usr/bin/env python3
-"""Medieval sword — single pixel-art frame, transparent background.
+"""Medieval sword — single pixel-art frame, styled to match the portal.
 
-Vertical knightly sword matching the reference: tapered steel blade with
-a chiselled tip and a bright fuller highlight, a gold crossguard with
-rounded knob ends, a wrapped brown leather grip, and a round gold pommel
-set with a red gem. Light reads from the upper-left. One palette colour
-per pixel, no anti-aliasing. Logical 37x132 -> 8x NEAREST -> 296x1056.
+Long knightly sword in the portal's palette: a glowing cyan/pale crystal
+blade with a chiselled tip and white fuller highlight, a purple-stone
+crossguard and wrapped grip with lavender highlights (DEEP_PURPLE
+outline like the portal stone), and a round pommel set with a hot-pink
+gem that echoes the portal's energy. Light reads from the upper-left.
+One palette colour per pixel, no anti-aliasing.
+Logical 37x180 -> 8x NEAREST -> 296x1440.
 """
-import os, math
+import os
 from PIL import Image
 
-W, H, SCALE = 37, 132, 8
+W, H, SCALE = 37, 180, 8
 CX = 18
 
-# ── Palette ───────────────────────────────────────────
-OUTLINE      = (33, 28, 40)
-BLADE_DARK   = (108, 110, 140)
-BLADE_MID    = (150, 153, 185)
-BLADE_LIGHT  = (196, 200, 228)
-BLADE_HI     = (234, 238, 252)
-GOLD_DARK    = (150, 108, 38)
-GOLD_MID     = (214, 168, 66)
-GOLD_LIGHT   = (248, 220, 120)
-HAND_DARK    = (72, 46, 30)
-HAND_MID     = (112, 72, 46)
-HAND_LIGHT   = (146, 98, 62)
-GEM_DARK     = (120, 32, 40)
-GEM_MID      = (190, 58, 60)
-GEM_HI       = (236, 124, 110)
+# ── Portal-matched palette ────────────────────────────
+DEEP_PURPLE = (58, 38, 75)
+PURPLE      = (92, 64, 110)
+LAVENDER    = (140, 105, 155)
+HOT_PINK    = (235, 110, 180)
+SOFT_PINK   = (255, 170, 215)
+CYAN        = (130, 200, 245)
+PALE_CYAN   = (200, 235, 255)
+DEEP_BLUE   = (60, 75, 165)
+WHITE       = (255, 255, 255)
+
+OUTLINE   = DEEP_PURPLE
+GRIP_DARK = (40, 26, 52)            # darkest shade for the wrap grooves
+GEM_DARK  = (150, 50, 110)
 
 img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
 PX = img.load()
@@ -42,104 +43,97 @@ def get(x, y):
         return PX[x, y]
     return (0, 0, 0, 0)
 
-# ── Blade ─────────────────────────────────────────────
-TIP_Y, SHOULDER_Y, BASE_Y = 6, 21, 81
+# ── Blade (long, glowing crystal) ─────────────────────
+TIP_Y, SHOULDER_Y, BASE_Y = 6, 26, 120
 
 def blade_hw(y):
     if y < TIP_Y or y > BASE_Y:
         return None
     if y < SHOULDER_Y:
         f = (y - TIP_Y) / (SHOULDER_Y - TIP_Y)
-        return 0.4 + f * 5.1
+        return 0.4 + f * 5.2
     f = (y - SHOULDER_Y) / (BASE_Y - SHOULDER_Y)
-    return 5.5 + f * 1.0
+    return 5.6 + f * 1.0
 
 for y in range(TIP_Y, BASE_Y + 1):
     hw = blade_hw(y)
     ihw = int(round(hw))
     for c in range(-ihw, ihw + 1):
         if c <= -ihw + 1:
-            col = BLADE_LIGHT          # lit left edge
+            col = PALE_CYAN          # lit left edge
         elif c >= ihw - 1:
-            col = BLADE_DARK           # shadow right edge
+            col = DEEP_BLUE          # shadow right edge
         else:
-            col = BLADE_MID
+            col = CYAN
         put(CX + c, y, col)
-    # central fuller highlight (the bright streak)
-    if ihw >= 3 and y > TIP_Y + 3:
-        put(CX - 1, y, BLADE_HI)
-        put(CX, y, BLADE_LIGHT)
+    if ihw >= 3 and y > TIP_Y + 3:   # bright fuller highlight
+        put(CX - 1, y, WHITE)
+        put(CX, y, PALE_CYAN)
 
-# ── Crossguard (gold bar, rounded knob ends) ──────────
-GY0, GY1 = 82, 89
+# ── Crossguard (purple stone, lavender-lit, knob ends) ─
+GY0, GY1 = 121, 129
 for x in range(3, W - 3):
     for y in range(GY0 + 1, GY1):
-        put(x, y, GOLD_MID)
-# rounded knob ends
-for (ex, sgn) in ((4, 1), (W - 5, -1)):
+        put(x, y, PURPLE)
+for ex in (4, W - 5):
     for dx in range(-3, 4):
         for dy in range(-3, 4):
             if dx * dx + dy * dy <= 9:
-                put(ex + dx, (GY0 + GY1) // 2 + dy, GOLD_MID)
-# central mount block where blade seats
+                put(ex + dx, (GY0 + GY1) // 2 + dy, PURPLE)
 for x in range(CX - 6, CX + 7):
     for y in range(GY0 - 1, GY1 + 2):
-        put(x, y, GOLD_MID)
-# gold shading (light top, shadow bottom)
-for x in range(0, W):
+        put(x, y, PURPLE)
+for x in range(W):
     for y in range(GY0 - 1, GY1 + 2):
-        if get(x, y)[:3] == GOLD_MID:
-            if get(x, y - 1)[3] == 0 or get(x, y - 1)[:3] not in (GOLD_MID, GOLD_LIGHT, GOLD_DARK):
-                put(x, y, GOLD_LIGHT)
+        if get(x, y)[:3] == PURPLE:
+            if get(x, y - 1)[:3] not in (PURPLE, LAVENDER, DEEP_PURPLE):
+                put(x, y, LAVENDER)
             elif get(x, y + 1)[3] == 0:
-                put(x, y, GOLD_DARK)
+                put(x, y, DEEP_PURPLE)
 
-# ── Grip (wrapped leather) ────────────────────────────
-GRIP_TOP, GRIP_BOT = GY1 + 1, 113
+# ── Grip (wrapped, dark purple leather) ───────────────
+GRIP_TOP, GRIP_BOT = GY1 + 1, 156
 for y in range(GRIP_TOP, GRIP_BOT + 1):
     hw = 4 if y < GRIP_BOT - 1 else 3
     for c in range(-hw, hw + 1):
         if c <= -hw + 1:
-            col = HAND_LIGHT
+            col = PURPLE             # lit
         elif c >= hw:
-            col = HAND_DARK
+            col = GRIP_DARK
         else:
-            col = HAND_MID
-        # diagonal wrap grooves
-        if (y - c) % 3 == 0:
-            col = HAND_DARK
+            col = DEEP_PURPLE
+        if (y - c) % 3 == 0:         # diagonal wrap grooves
+            col = GRIP_DARK
         put(CX + c, y, col)
 
-# ── Pommel (gold disc + diamond frame + red gem) ──────
-PCX, PCY, PR = CX, 121, 9
+# ── Pommel (purple disc + diamond frame + pink gem) ───
+PCX, PCY, PR = CX, 167, 9
 for dy in range(-PR, PR + 1):
     for dx in range(-PR, PR + 1):
         if dx * dx + dy * dy <= PR * PR:
-            c = GOLD_MID
+            c = PURPLE
             if dx + dy <= -4:
-                c = GOLD_LIGHT
+                c = LAVENDER
             elif dx + dy >= 5:
-                c = GOLD_DARK
+                c = DEEP_PURPLE
             put(PCX + dx, PCY + dy, c)
-# diamond frame accent
 for d in range(-5, 6):
-    put(PCX + d, PCY - 5 + abs(d), GOLD_LIGHT if d <= 0 else GOLD_DARK)
-    put(PCX + d, PCY + 5 - abs(d), GOLD_DARK)
-# red gem
+    put(PCX + d, PCY - 5 + abs(d), LAVENDER if d <= 0 else DEEP_PURPLE)
+    put(PCX + d, PCY + 5 - abs(d), DEEP_PURPLE)
 GR = 4
 for dy in range(-GR, GR + 1):
     for dx in range(-GR, GR + 1):
         if dx * dx + dy * dy <= GR * GR:
-            c = GEM_MID
+            c = HOT_PINK
             if dx + dy <= -3:
-                c = GEM_HI
+                c = SOFT_PINK
             elif dx + dy >= 4:
                 c = GEM_DARK
             put(PCX + dx, PCY + dy, c)
-put(PCX - 2, PCY - 2, GEM_HI)
-put(PCX - 1, PCY - 2, (255, 200, 190))
+put(PCX - 2, PCY - 2, SOFT_PINK)
+put(PCX - 1, PCY - 2, WHITE)
 
-# ── Black outline around the whole silhouette ─────────
+# ── DEEP_PURPLE outline around the silhouette ─────────
 opaque = [(x, y) for y in range(H) for x in range(W) if get(x, y)[3] != 0]
 edge = []
 for (x, y) in opaque:
