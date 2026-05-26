@@ -43,19 +43,19 @@
 <div class="kicker">MAGIC PORTAL · KEYFRAME REVIEW</div>
 <h1>RAINBOW PORTAL</h1>
 <p class="sub">
-  Static keyframe 1 for approval — the portal IDLE / inactive: the ornate
-  rainbow archway stands dormant with an empty, dark center (no energy
-  swirling yet). The "opening" keyframes will fill the center and bloom
-  the frame. 96 × 96 native at 4× nearest-neighbor scale.
+  192 × 192 native — smooth RGB-gradient frame, gems, and a swirling
+  center vortex. Keyframe 1 is the portal IDLE; the animation below
+  powers it up: vortex blooms from the core, spins fully activated,
+  then settles. Displayed at 2× nearest-neighbor scale.
 </p>
 
 <div class="canvasFrame">
-  <canvas id="cv1" class="pixelCanvas" width="96" height="96" style="width: 384px; height: 384px;"></canvas>
+  <canvas id="cv1" class="pixelCanvas" width="192" height="192" style="width: 384px; height: 384px;"></canvas>
 </div>
 <div class="stamp">KEYFRAME 1 — IDLE</div>
 
 <div class="canvasFrame">
-  <canvas id="cvAnim" class="pixelCanvas" width="96" height="96" style="width: 384px; height: 384px;"></canvas>
+  <canvas id="cvAnim" class="pixelCanvas" width="192" height="192" style="width: 384px; height: 384px;"></canvas>
 </div>
 <div class="stamp">ANIMATION — STARTUP → ACTIVATED</div>
 
@@ -65,22 +65,20 @@
 
 <div id="gifResult" style="margin-bottom: 22px;"></div>
 
-<div class="meta">Approve to proceed with the portal-opening keyframes and the animation.</div>
+<div class="meta">Approve to proceed with the next keyframes and the final animation.</div>
 
 <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
 
 <script>
+const NATIVE = 192;
 const cv1 = document.getElementById('cv1');
 const ctx1 = cv1.getContext('2d');
 ctx1.imageSmoothingEnabled = false;
-
 const cvAnim = document.getElementById('cvAnim');
 const ctxAnim = cvAnim.getContext('2d');
 ctxAnim.imageSmoothingEnabled = false;
+let ctx = ctx1;
 
-let ctx = ctx1;   // active context — swapped between the keyframe and the animation
-
-// GIF transparency sentinel — see the export handler at the bottom.
 let isExporting = false;
 const GIF_TRANSPARENT_HEX = '#ff00ff';
 const GIF_TRANSPARENT_INT = 0xff00ff;
@@ -90,233 +88,228 @@ function px(color, x, y, w, h) {
   ctx.fillRect(x | 0, y | 0, (w || 1) | 0, (h || 1) | 0);
 }
 
-// ── PALETTE ───────────────────────────────────────────
-const P = {
-  voidBg:  '#1b1430',   // dark inactive center / canvas backdrop
-  out:     '#2e1a45',   // dark purple outline / stone
-  outLt:   '#43285f',   // lighter stone shadow
-  purple:  '#7d3b9e',
-  magenta: '#c94f9e',
-  blue:    '#4a7fd4',
-  cyan:    '#43c6d6',
-  yellow:  '#f3e05e',
-  pink:    '#f7a8d8',
-  pinkLt:  '#fcd6ee',
-  white:   '#ffffff',
-  orange:  '#f5934f',
-  red:     '#e8533f',
-  gemcyan: '#7fe8f0',
-  gempink: '#f56fb0',
-};
-
-const CX = 48;
-
-// ── ARCHWAY FRAME — nested ⊓ bands (rainbow) ──────────
-// Each band is a "⊓" (top bar + two columns), inset further inward
-// than the last, so a horizontal slice through a column reads as a
-// rainbow stack from the dark-purple stone edge to the bright pink
-// inner glow.
-function drawArchBand(color, L, T, R, B, thick) {
-  px(color, L, T, R - L, thick);             // top bar
-  px(color, L, T, thick, B - T);             // left column
-  px(color, R - thick, T, thick, B - T);     // right column
+// ── SMOOTH GRADIENT SYSTEM ────────────────────────────
+// gradColor samples a multi-stop RGB gradient at t∈[0,1] and returns
+// an rgb() string. This is what makes the frame / swirl / gems read
+// as smooth gradients instead of chunky bands.
+function lerp(a, b, t) { return a + (b - a) * t; }
+function gradColor(stops, t) {
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  const n = stops.length - 1;
+  const f = t * n;
+  const i = Math.min(Math.floor(f), n - 1);
+  const lt = f - i;
+  const a = stops[i], b = stops[i + 1];
+  return 'rgb(' + Math.round(lerp(a[0], b[0], lt)) + ','
+               + Math.round(lerp(a[1], b[1], lt)) + ','
+               + Math.round(lerp(a[2], b[2], lt)) + ')';
 }
 
-function drawFrame() {
-  const L = 22, T = 12, R = 74, B = 84;
-  const bands = [
-    [P.out,     2],
-    [P.purple,  2],
-    [P.magenta, 2],
-    [P.blue,    2],
-    [P.cyan,    2],
-    [P.yellow,  2],
-    [P.pink,    2],
-  ];
-  let inset = 0;
-  for (let i = 0; i < bands.length; i++) {
-    drawArchBand(bands[i][0], L + inset, T + inset, R - inset, B, bands[i][1]);
-    inset += bands[i][1];
-  }
-  // Inner glow line — 1 px light pink just inside the pink band.
-  drawArchBand(P.pinkLt, L + inset, T + inset, R - inset, B, 1);
-
-  // Top overhang caps — the lintel flares slightly past the columns
-  // with little dark-stone caps at the corners (matches the reference).
-  px(P.out, L - 4, T - 2, 8, 4);
-  px(P.out, R - 4, T - 2, 8, 4);
-  px(P.purple, L - 3, T - 1, 3, 2);
-  px(P.purple, R, T - 1, 3, 2);
-}
-
-// ── FEET / STONE BASES at the bottom of each column ───
-function drawFoot(cx) {
-  // Rounded dark-stone base flaring out below the column.
-  px(P.out,   cx - 6, 84, 14, 8);
-  px(P.out,   cx - 8, 88, 18, 4);
-  px(P.outLt, cx - 4, 85, 9,  3);   // a touch of lighter stone on top
-}
-
-// ── GEMS ──────────────────────────────────────────────
-// Top centerpiece — warm orange jewel set into the lintel.
-function drawTopGem() {
-  const cx = CX, cy = 15;
-  px(P.out,    cx - 4, cy - 4, 8, 9);   // setting
-  px(P.red,    cx - 3, cy - 3, 6, 7);
-  px(P.orange, cx - 2, cy - 2, 4, 5);
-  px(P.yellow, cx - 1, cy - 1, 2, 3);
-  px(P.white,  cx - 1, cy - 1, 1, 1);   // shine
-}
-
-// Cyan crystal diamond — set into each column.
-function drawDiamondGem(cx, cy) {
-  px(P.out,     cx,     cy - 3, 1, 7);  // vertical axis (outline)
-  px(P.out,     cx - 3, cy,     7, 1);  // horizontal axis (outline)
-  px(P.gemcyan, cx,     cy - 2, 1, 5);
-  px(P.gemcyan, cx - 2, cy,     5, 1);
-  px(P.cyan,    cx - 1, cy + 1, 3, 1);
-  px(P.white,   cx,     cy,     1, 1);  // center shine
-}
-
-// Small pink gem — lower accent on each column.
-function drawPinkGem(cx, cy) {
-  px(P.out,     cx - 2, cy - 2, 5, 5);
-  px(P.gempink, cx - 1, cy - 1, 3, 3);
-  px(P.pinkLt,  cx,     cy - 1, 1, 1);
-}
-
-// ── SPARKLES — static scatter (idle has a calm few) ───
-// [x, y, color]. Idle keeps it sparse; the opening frames add more.
-const SPARKLES = [
-  [16, 34, P.yellow], [80, 40, P.yellow], [14, 64, P.yellow],
-  [82, 70, P.yellow], [18, 80, P.pink],   [78, 84, P.pink],
-  [34, 30, P.cyan],   [62, 32, P.cyan],   [30, 52, P.white],
-  [66, 56, P.white],  [12, 48, P.pink],   [84, 52, P.cyan],
+// Gradient stops (outer → inner / dark → bright).
+const STONE_DARK  = '#2e1a45';
+const STONE_LT    = '#43285f';
+const FRAME_STOPS = [
+  [46, 26, 69],     // dark purple stone (outer)
+  [99, 47, 140],    // deep violet
+  [157, 60, 168],   // purple
+  [201, 79, 158],   // magenta
+  [120, 96, 200],   // indigo
+  [74, 127, 212],   // blue
+  [67, 198, 214],   // cyan
+  [150, 222, 170],  // teal-green
+  [243, 224, 94],   // yellow
+  [248, 170, 150],  // peach
+  [247, 168, 216],  // pink
+  [252, 214, 238],  // light pink (inner rim)
 ];
-function drawSparkles() {
-  for (let i = 0; i < SPARKLES.length; i++) {
-    px(SPARKLES[i][2], SPARKLES[i][0], SPARKLES[i][1]);
+const SWIRL_STOPS = [
+  [70, 40, 110],    // deep purple (outer)
+  [74, 127, 212],   // blue
+  [67, 198, 214],   // cyan
+  [150, 230, 200],  // mint
+  [247, 168, 216],  // pink
+  [255, 245, 252],  // near-white (hot core)
+];
+const TOPGEM_STOPS = [[255, 250, 210], [245, 200, 90], [245, 130, 70], [210, 70, 60]];
+const CYANGEM_STOPS = [[240, 255, 255], [120, 232, 240], [60, 150, 220]];
+const PINKGEM_STOPS = [[255, 245, 252], [247, 140, 200], [190, 70, 150]];
+
+const CX = 96;
+const P_VOID = '#1b1430';   // dark inactive center / canvas backdrop
+
+// ── ARCHWAY FRAME — many thin gradient bands ──────────
+function drawArchBand(color, L, T, R, B, thick) {
+  px(color, L, T, R - L, thick);
+  px(color, L, T, thick, B - T);
+  px(color, R - thick, T, thick, B - T);
+}
+// Frame geometry.
+const F_L = 40, F_T = 20, F_R = 152, F_B = 168, F_THICK = 30;
+function drawFrame() {
+  for (let i = 0; i < F_THICK; i++) {
+    const gt = i / (F_THICK - 1);          // 0 outer → 1 inner
+    drawArchBand(gradColor(FRAME_STOPS, gt), F_L + i, F_T + i, F_R - i, F_B, 1);
   }
+  // Bright inner rim glow (1 px, near-white pink).
+  drawArchBand('#fde8f6', F_L + F_THICK, F_T + F_THICK, F_R - F_THICK, F_B, 1);
+  // Lintel overhang + corner caps (dark stone).
+  px(STONE_DARK, F_L - 8, F_T - 4, 16, 8);
+  px(STONE_DARK, F_R - 8, F_T - 4, 16, 8);
+  px(STONE_LT,   F_L - 6, F_T - 2,  6, 3);
+  px(STONE_LT,   F_R,     F_T - 2,  6, 3);
 }
 
-// ── PORTAL BASE — frame + feet + gems (no backdrop) ───
-function drawPortalBase() {
-  drawFrame();
-  drawFoot(28);
-  drawFoot(68);
-  drawTopGem();
-  drawDiamondGem(28, 50);
-  drawDiamondGem(68, 50);
-  drawPinkGem(28, 70);
-  drawPinkGem(68, 70);
+// ── FEET / STONE BASES ────────────────────────────────
+function drawFoot(cx) {
+  px(STONE_DARK, cx - 13, F_B,      28, 14);
+  px(STONE_DARK, cx - 17, F_B + 8,  36, 8);
+  px(STONE_LT,   cx - 9,  F_B + 2,  18, 5);
 }
 
-// ── COMPOSITE — IDLE KEYFRAME (cv1) ───────────────────
-function drawIdle() {
-  ctx = ctx1;
-  px(P.voidBg, 0, 0, 96, 96);   // dark void fills the inactive center
-  drawPortalBase();
-  drawSparkles();               // calm static scatter
+// ── GEM HELPER — gradient-filled ellipse w/ shine ─────
+function drawGem(cx, cy, rx, ry, stops) {
+  for (let dy = -ry - 1; dy <= ry + 1; dy++) {
+    for (let dx = -rx - 1; dx <= rx + 1; dx++) {
+      const nd = (dx*dx) / (rx*rx) + (dy*dy) / (ry*ry);
+      if (nd > 1.04) continue;
+      if (nd > 0.80) { px(STONE_DARK, cx + dx, cy + dy); continue; }   // outline
+      px(gradColor(stops, nd), cx + dx, cy + dy);                      // bright center → dark edge
+    }
+  }
+  px('#ffffff', cx - Math.round(rx * 0.35), cy - Math.round(ry * 0.35)); // shine
 }
+function drawTopGem()        { drawGem(CX, 28, 8, 10, TOPGEM_STOPS); }
+function drawDiamondGem(cx)  { drawGem(cx, 100, 7, 9, CYANGEM_STOPS); }
+function drawPinkGem(cx)     { drawGem(cx, 140, 5, 6, PINKGEM_STOPS); }
 
-// ── SWIRLING VORTEX — the activation effect ───────────
-// Fills the doorway opening with a rotating spiral. `intensity` (0..1)
-// controls how far out the vortex reaches (it grows from the center as
-// the portal powers up) and how bright it glows. The spiral itself
-// spins continuously via the time term.
+// ── SWIRLING VORTEX (square — fills the doorway) ──────
+// 3-arm spiral filling the RECTANGULAR doorway opening edge-to-edge.
+// The fill region and radial glow use a max-norm (Chebyshev) distance
+// so the contours are square/rectangular, not an ellipse — the vortex
+// reaches right into the corners of the frame. `intensity` (0..1)
+// grows the square from the core outward and brightens it; the spiral
+// rotates on the time term. SWIRL_STOPS keeps the arms smooth.
+// O_RX / O_RY are set so the full square exactly matches the opening:
+// x 70..122, y 51..168.
+const O_CX = 96, O_CY = 109, O_RX = 26, O_RY = 58;
 function drawSwirl(t, intensity) {
   if (intensity <= 0.02) return;
-  const ocx = 48, ocy = 54;     // opening center
-  const orx = 11, ory = 28;     // opening ellipse radii (tall doorway)
-  const spin = t * 4;           // angular spin speed
-  for (let y = 28; y <= 83; y++) {
-    for (let x = 38; x <= 58; x++) {
-      const ndx = (x - ocx) / orx;
-      const ndy = (y - ocy) / ory;
-      const dist = Math.sqrt(ndx*ndx + ndy*ndy);
-      if (dist > intensity) continue;        // outside the grown radius
-      const angle = Math.atan2(ndy, ndx);
-      // Two-arm spiral winding into the center, rotating over time.
-      const spiral = angle * 2 - dist * 6 + spin;
-      const band   = (Math.sin(spiral) + 1) / 2;          // 0..1
-      const radial = 1 - (dist / Math.max(intensity, 0.01)); // 1 center → 0 edge
-      const bright = radial * 0.55 + band * 0.45;          // combine glow + arms
-      let color;
-      if      (bright > 0.82) color = P.white;
-      else if (bright > 0.64) color = P.pink;
-      else if (bright > 0.48) color = P.cyan;
-      else if (bright > 0.34) color = P.blue;
-      else if (bright > 0.20) color = P.purple;
-      else                    color = P.magenta;
-      px(color, x, y);
+  const spin = t * 2.4;
+  for (let y = O_CY - O_RY; y <= O_CY + O_RY; y++) {
+    if (y < F_T + F_THICK || y > F_B) continue;     // clip to the opening
+    for (let x = O_CX - O_RX; x <= O_CX + O_RX; x++) {
+      const ndx = (x - O_CX) / O_RX;
+      const ndy = (y - O_CY) / O_RY;
+      const sq = Math.max(Math.abs(ndx), Math.abs(ndy));   // square distance
+      if (sq > intensity) continue;
+      const angle  = Math.atan2(ndy, ndx);
+      const spiral = angle * 3 - sq * 9 + spin;
+      const band   = (Math.sin(spiral) + 1) / 2;
+      const radial = 1 - sq / Math.max(intensity, 0.01);
+      let bright = radial * 0.60 + band * 0.40;
+      // Soft edge falloff so the vortex blends into the dark rim.
+      const edge = (intensity - sq) / 0.14;
+      if (edge < 1) bright *= Math.max(0, edge);
+      px(gradColor(SWIRL_STOPS, bright), x, y);
     }
   }
 }
 
-// ── ANIMATED SPARKLES — twinkle + activation burst ────
-// Base sparkles twinkle gently always; a second set fades in with the
-// activation intensity so the portal visibly "charges up."
-const ANIM_SPARKLES = [
-  [16, 34, P.yellow, 0.0], [80, 40, P.yellow, 1.1], [14, 64, P.yellow, 2.2],
-  [82, 70, P.yellow, 0.6], [18, 80, P.pink, 1.7],   [78, 84, P.pink, 2.8],
-  [34, 26, P.cyan, 0.3],   [62, 28, P.cyan, 1.4],   [30, 52, P.white, 2.0],
-  [66, 56, P.white, 0.9],  [12, 48, P.pink, 1.2],   [84, 52, P.cyan, 2.5],
+// ── SPARKLES ──────────────────────────────────────────
+// Static set for the idle keyframe; animated twinkle + charge set for
+// the animation. 4-point sparkle shape for the larger ones.
+const IDLE_SPARKS = [
+  [30, 64, 1], [162, 78, 1], [26, 128, 1], [166, 138, 0], [36, 160, 0],
+  [156, 166, 0], [66, 50, 1], [126, 54, 1], [22, 96, 0], [170, 104, 0],
 ];
-const CHARGE_SPARKLES = [
-  [24, 22, P.white, 0.0],  [72, 24, P.white, 0.5],  [10, 42, P.cyan, 1.0],
-  [86, 46, P.pink, 1.5],   [20, 58, P.yellow, 0.7], [76, 62, P.cyan, 1.2],
-  [26, 88, P.pink, 1.8],   [70, 90, P.yellow, 0.4], [40, 18, P.white, 1.6],
-  [56, 18, P.cyan, 0.2],   [8, 70, P.yellow, 1.3],  [88, 74, P.white, 0.8],
+function drawSpark(x, y, big, color) {
+  px(color, x, y);
+  if (big) {
+    px(color, x - 1, y); px(color, x + 1, y);
+    px(color, x, y - 1); px(color, x, y + 1);
+  }
+}
+function drawIdleSparks() {
+  for (let i = 0; i < IDLE_SPARKS.length; i++) {
+    const s = IDLE_SPARKS[i];
+    drawSpark(s[0], s[1], s[2], '#fde8f6');
+  }
+}
+
+const ANIM_SPARKS = [
+  [30, 64, 0.0, '#f3e05e'], [162, 78, 1.1, '#f3e05e'], [26, 128, 2.2, '#43c6d6'],
+  [166, 138, 0.6, '#f7a8d8'], [36, 160, 1.7, '#f7a8d8'], [156, 166, 2.8, '#f3e05e'],
+  [66, 48, 0.3, '#7fe8f0'], [126, 52, 1.4, '#7fe8f0'], [22, 96, 2.0, '#fde8f6'],
+  [170, 104, 0.9, '#fde8f6'], [20, 50, 1.2, '#f7a8d8'], [172, 60, 2.5, '#43c6d6'],
 ];
-function drawAnimatedSparkles(t, intensity) {
-  for (let i = 0; i < ANIM_SPARKLES.length; i++) {
-    const s = ANIM_SPARKLES[i];
-    if (Math.sin(t * 6 + s[3]) > -0.3) px(s[2], s[0], s[1]);
+const CHARGE_SPARKS = [
+  [48, 40, 0.0, '#ffffff'], [144, 42, 0.5, '#ffffff'], [16, 80, 1.0, '#7fe8f0'],
+  [176, 88, 1.5, '#f7a8d8'], [40, 116, 0.7, '#f3e05e'], [152, 122, 1.2, '#7fe8f0'],
+  [52, 176, 1.8, '#f7a8d8'], [140, 180, 0.4, '#f3e05e'], [80, 34, 1.6, '#ffffff'],
+  [112, 34, 0.2, '#7fe8f0'], [14, 140, 1.3, '#f3e05e'], [178, 146, 0.8, '#ffffff'],
+];
+function drawAnimSparks(t, intensity) {
+  for (let i = 0; i < ANIM_SPARKS.length; i++) {
+    const s = ANIM_SPARKS[i];
+    const tw = (Math.sin(t * 6 + s[2]) + 1) / 2;
+    if (tw > 0.35) drawSpark(s[0], s[1], tw > 0.8, s[3]);
   }
-  for (let i = 0; i < CHARGE_SPARKLES.length; i++) {
-    const s = CHARGE_SPARKLES[i];
-    // Threshold drops as intensity rises, so more charge sparkles show
-    // once the portal is active; each still twinkles on its own phase.
-    if (Math.sin(t * 9 + s[3]) > (1 - intensity * 1.6)) px(s[2], s[0], s[1]);
+  for (let i = 0; i < CHARGE_SPARKS.length; i++) {
+    const s = CHARGE_SPARKS[i];
+    const tw = (Math.sin(t * 9 + s[2]) + 1) / 2;
+    if (tw > (1 - intensity * 0.9)) drawSpark(s[0], s[1], tw > 0.7, s[3]);
   }
+}
+
+// ── COMPOSITES ────────────────────────────────────────
+function drawPortalBase() {
+  drawFrame();
+  drawFoot(56);
+  drawFoot(136);
+  drawTopGem();
+  drawDiamondGem(56);
+  drawDiamondGem(136);
+  drawPinkGem(56);
+  drawPinkGem(136);
+}
+
+function drawIdle() {
+  ctx = ctx1;
+  px(P_VOID, 0, 0, NATIVE, NATIVE);
+  drawPortalBase();
+  drawIdleSparks();
 }
 
 // ── ANIMATION TIMELINE ────────────────────────────────
-// 4-second loop at 30 fps = 120 frames.
-//   0.0 – 0.4 s   IDLE        — dark center, calm sparkles
-//   0.4 – 1.6 s   STARTUP     — vortex grows from the center (ease-out),
-//                               charge sparkles fade in
-//   1.6 – 3.4 s   ACTIVATED   — full vortex spinning
-//   3.4 – 4.0 s   DEACTIVATE  — vortex shrinks back to dark (loops clean)
+// 5-second loop at 30 fps = 150 frames (longer so the bloom + spin
+// read smoothly).
+//   0.0 – 0.5 s   IDLE
+//   0.5 – 2.0 s   STARTUP    vortex blooms from the core (smootherstep)
+//   2.0 – 4.2 s   ACTIVATED  full vortex spinning
+//   4.2 – 5.0 s   SETTLE     vortex eases back to dark (clean loop)
 const FPS = 30;
-const TOTAL_FRAMES = 120;
-function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
-function easeInCubic(t)  { return t * t * t; }
-
+const TOTAL_FRAMES = 150;
+function smootherstep(t) { t = t<0?0:(t>1?1:t); return t*t*t*(t*(t*6-15)+10); }
 function portalIntensityAt(t) {
-  if (t < 0.4)  return 0;
-  if (t < 1.6)  return easeOutCubic((t - 0.4) / 1.2);
-  if (t < 3.4)  return 1;
-  if (t < 4.0)  return 1 - easeInCubic((t - 3.4) / 0.6);
+  if (t < 0.5)  return 0;
+  if (t < 2.0)  return smootherstep((t - 0.5) / 1.5);
+  if (t < 4.2)  return 1;
+  if (t < 5.0)  return 1 - smootherstep((t - 4.2) / 0.8);
   return 0;
 }
-
 function paintPortalAnim(targetCtx, frameNum) {
   ctx = targetCtx;
   const t = frameNum / FPS;
   const intensity = portalIntensityAt(t);
-  // Backdrop — magenta sentinel during GIF export (→ transparent),
-  // otherwise transparent so the dark canvas CSS bg shows through.
-  if (isExporting) { px(GIF_TRANSPARENT_HEX, 0, 0, 96, 96); }
-  else             { targetCtx.clearRect(0, 0, 96, 96); }
-  drawSwirl(t, intensity);        // behind the frame (in the opening)
-  drawPortalBase();               // frame + gems on top of the swirl edges
-  drawAnimatedSparkles(t, intensity);
+  if (isExporting) { px(GIF_TRANSPARENT_HEX, 0, 0, NATIVE, NATIVE); }
+  else             { targetCtx.clearRect(0, 0, NATIVE, NATIVE); }
+  drawSwirl(t, intensity);
+  drawPortalBase();
+  drawAnimSparks(t, intensity);
 }
 
 drawIdle();
 
-// ── LIVE PREVIEW LOOP ─────────────────────────────────
 let animStart = performance.now();
 function animLoop(now) {
   const frameNum = Math.floor((now - animStart) / 1000 * FPS) % TOTAL_FRAMES;
@@ -325,7 +318,7 @@ function animLoop(now) {
 }
 requestAnimationFrame(animLoop);
 
-// ── GIF EXPORT (transparent, 96×96 → 480×480 @ 5×) ────
+// ── GIF EXPORT (transparent, 192 → 768 @ 4×) ──────────
 let gifWorkerBlob = null;
 fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js')
   .then((r) => r.ok ? r.text() : Promise.reject(r.status))
@@ -339,7 +332,7 @@ document.getElementById('recordBtn').addEventListener('click', function () {
   const origLabel = btn.textContent;
   btn.textContent = 'RECORDING…';
 
-  const NATIVE = 96, SCALE = 5, OUT = NATIVE * SCALE;   // 480 × 480
+  const SCALE = 4, OUT = NATIVE * SCALE;   // 768 × 768
   const srcCv = document.createElement('canvas');
   srcCv.width = NATIVE; srcCv.height = NATIVE;
   const srcCx = srcCv.getContext('2d');
@@ -349,7 +342,7 @@ document.getElementById('recordBtn').addEventListener('click', function () {
   const dstCx = dstCv.getContext('2d');
   dstCx.imageSmoothingEnabled = false;
 
-  const gifOpts = { quality: 8, width: OUT, height: OUT, dither: false, transparent: GIF_TRANSPARENT_INT };
+  const gifOpts = { quality: 6, width: OUT, height: OUT, dither: false, transparent: GIF_TRANSPARENT_INT };
   if (gifWorkerBlob) { gifOpts.workers = 2; gifOpts.workerScript = gifWorkerBlob; }
   else                gifOpts.workers = 0;
   const gif = new GIF(gifOpts);
