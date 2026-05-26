@@ -46,13 +46,15 @@ def get(x, y):
     return (0, 0, 0, 0)
 
 # ── Traced edges (x, y), top→bottom; piecewise-linear ──
-# Left outer — thin pillar, near-vertical near the left frame edge:
-LO = [(48,30),(42,38),(33,52),(24,72),(19,100),(16,140),(16,180),(17,215),(19,240)]
-# Front-face inner edges of the arched hole (the rim of the opening):
-LI = [(54,50),(50,58),(43,76),(37,105),(34,145),(33,185),(33,218),(34,240)]
-RI = [(64,50),(69,58),(75,78),(79,108),(81,148),(81,188),(80,218),(80,240)]
-# Right outer — thick pillar that bows far out and leans right:
-RO = [(72,30),(80,40),(95,64),(108,95),(115,135),(117,175),(116,210),(112,240)]
+# Rounded gothic arch that leans right. Vertical-ish legs curve smoothly
+# over the top into a rounded crown (not a sharp point).
+# Left outer — thin leg, near-vertical, curves over at the top:
+LO = [(60,32),(52,38),(44,48),(36,64),(30,92),(27,130),(26,170),(27,206),(29,236)]
+# Front-face inner edges of the arched opening (rounded crown):
+LI = [(58,48),(54,52),(50,60),(45,76),(40,100),(37,135),(35,170),(34,200),(35,236)]
+RI = [(66,48),(70,52),(74,60),(77,76),(79,100),(80,135),(80,170),(80,200),(79,236)]
+# Right outer — thick leg that bows far out and leans right:
+RO = [(70,32),(80,40),(92,56),(103,80),(112,112),(116,148),(117,180),(115,208),(112,236)]
 
 def edge(pts, y):
     if y < pts[0][1] or y > pts[-1][1]:
@@ -195,8 +197,8 @@ for y in range(H):
         elif run:
             break
 
-# ── Banded rings on the thick right pillar (protrude) ─
-def draw_band(cy):
+# ── Binding bands on the thick right leg (protrude out) ─
+def draw_right_band(cy):
     ri = edge(RI, cy)
     ro = edge(RO, cy)
     if ri is None or ro is None:
@@ -204,7 +206,7 @@ def draw_band(cy):
     sx = int(math.floor(ri)) + R_REV     # start past the recessed jamb
     ex = int(math.ceil(ro)) + 7          # stick out past the outer edge
     span = max(1, ex - sx)
-    half = 3
+    half = 4
     for x in range(sx, ex + 1):
         f = (x - sx) / span
         drop = int(round(f * 3))         # tilt down toward the far end
@@ -219,15 +221,37 @@ def draw_band(cy):
             if base[3] != 0 or stick_out:
                 put(x, yy, PURPLE)
         put(x, top, LAVENDER)
+        put(x, top + 1, LAVENDER)
         put(x, bot, DEEP_PURPLE)
         put(x, bot + 1, DEEP_PURPLE)
-for cy in (72, 135, 198):
-    draw_band(cy)
+for cy in (78, 140, 202):               # three evenly spaced bands
+    draw_right_band(cy)
 
-# ── Capstone cylinder + orb, seated on the arch point ─
-def draw_capstone():
-    x0, y0 = 44, 24
-    x1, y1 = 78, 31                       # tilted: right end lower
+# ── Binding wraps on the thin left leg (subtle, protrude a touch) ─
+def draw_left_wrap(cy):
+    lo = edge(LO, cy)
+    li = edge(LI, cy)
+    if lo is None or li is None:
+        return
+    sx = int(math.floor(lo)) - 2         # nudge out past the outer edge
+    ex = int(math.ceil(li)) - 1          # stop before the opening
+    if ex - sx < 3:
+        return
+    for x in range(sx, ex + 1):
+        for yy in range(cy - 3, cy + 3):
+            base = get(x, yy)
+            if base[3] != 0 or x < int(math.floor(lo)):
+                put(x, yy, PURPLE)
+        put(x, cy - 3, LAVENDER)
+        put(x, cy + 2, DEEP_PURPLE)
+        put(x, cy + 3, DEEP_PURPLE)
+for cy in (78, 130, 182, 222):
+    draw_left_wrap(cy)
+
+# ── Crossbar cylinder + round joints at each shoulder ─
+def draw_crossbar():
+    x0, y0 = 46, 25
+    x1, y1 = 80, 32                       # tilted: right end lower
     span = x1 - x0
     for x in range(x0, x1 + 1):
         f = (x - x0) / span
@@ -240,19 +264,22 @@ def draw_capstone():
         put(x, cy - h + 1, LAVENDER)
         put(x, cy + h, DEEP_PURPLE)
         put(x, cy + h + 1, DEEP_PURPLE)
-    # round orb tucked at the upper-left of the capstone
-    ox, oy, orad = 40, 35, 6
+
+def draw_joint(ox, oy, orad):
     for dy in range(-orad, orad + 1):
         for dx in range(-orad, orad + 1):
             r2 = dx * dx + dy * dy
             if r2 <= orad * orad:
                 put(ox + dx, oy + dy, PURPLE)
-                if dx + dy < -3:
+                if dx + dy < -2:
                     put(ox + dx, oy + dy, LAVENDER)
-                elif dx + dy > 4:
+                elif dx + dy > 3:
                     put(ox + dx, oy + dy, DEEP_PURPLE)
-    put(ox - 2, oy - 3, PALE_CYAN)
-draw_capstone()
+
+draw_joint(43, 37, 6)                    # left shoulder knot (prominent)
+draw_joint(74, 36, 4)                    # right shoulder knot (smaller)
+draw_crossbar()
+put(41, 34, PALE_CYAN)                   # tiny glint on the left knot
 
 # ── Pillar feet — small mossy stone base ──────────────
 def draw_feet():
