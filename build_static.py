@@ -244,38 +244,52 @@ def draw_band(cy):
 for cy in (128, 165, 202):
     draw_band(cy)
 
-# ── Tilted capstone + orb on the crown ────────────────
+# ── Tilted capstone + orb, seated solidly on the crown ─
 def draw_capstone():
-    # Seat: fill any gap between the bar and the dome apex so it reads as one.
-    for x in range(64, 110):
-        for y in range(36, 44):
-            if get(x, y)[3] == 0 and (is3(x, y + 4, PURPLE) or is3(x, y + 5, DEEP_PURPLE)):
-                put(x, y, PURPLE)
-    x0, y0 = 60, 32
-    x1, y1 = 116, 39
+    x0, y0 = 58, 30
+    x1, y1 = 118, 38
     span = x1 - x0
+    bar_bottom = {}
     for x in range(x0, x1 + 1):
         f = (x - x0) / span
         cy = int(round(y0 + f * (y1 - y0)))
-        h = 4 if 0.07 < f < 0.93 else 3
+        h = 4 if 0.06 < f < 0.94 else 3
         for yy in range(cy - h, cy + h + 1):
             put(x, yy, PURPLE)
         put(x, cy - h, LAVENDER)
         put(x, cy - h + 1, LAVENDER)
         put(x, cy + h, DEEP_PURPLE)
-        put(x, cy + h + 1, DEEP_PURPLE)
-    ox, oy, r = 63, 47, 8                    # orb on the left shoulder
+        bar_bottom[x] = cy + h
+    # Fill the spandrel gap between the flat bar and the rounded crown so
+    # the top reads as one solid mass (no floating pieces).
+    for x in range(x0, x1 + 1):
+        y = bar_bottom[x] + 1
+        while y < 68 and get(x, y)[3] == 0:
+            put(x, y, PURPLE)
+            y += 1
+    # Clean spherical orb on the left shoulder, bridging bar to arch.
+    ox, oy, r = 60, 46, 7
     for dy in range(-r, r + 1):
         for dx in range(-r, r + 1):
             if dx * dx + dy * dy <= r * r:
-                put(ox + dx, oy + dy, PURPLE)
-                if dx + dy < -3:
-                    put(ox + dx, oy + dy, LAVENDER)
-                elif dx + dy > 5:
-                    put(ox + dx, oy + dy, DEEP_PURPLE)
-    put(ox - 3, oy - 4, PALE_CYAN)
+                c = PURPLE
+                if dx + dy <= -3:
+                    c = LAVENDER
+                elif dx + dy >= 5:
+                    c = DEEP_PURPLE
+                put(ox + dx, oy + dy, c)
+    put(ox - 3, oy - 3, PALE_CYAN)
     put(ox - 2, oy - 4, WHITE)
 draw_capstone()
+
+# Re-clean the top silhouette after seating the capstone/orb/spandrel.
+for y in range(0, 70):
+    for x in range(W):
+        if is3(x, y, PURPLE):
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                if get(x + dx, y + dy)[3] == 0:
+                    put(x, y, DEEP_PURPLE)
+                    break
 
 # ── Pillar feet ───────────────────────────────────────
 def draw_feet():
@@ -285,6 +299,75 @@ def draw_feet():
             for x in range(a - 2, b + 3):
                 put(x, yy, DEEP_PURPLE)
 draw_feet()
+
+# ── Rivets / studs — dense rows down both outer edges ──
+def stud(cx, cy, glow=False):
+    if glow:
+        body, hi, lo, core = CYAN, PALE_CYAN, DEEP_BLUE, WHITE
+    else:
+        body, hi, lo, core = PURPLE, LAVENDER, DEEP_PURPLE, LAVENDER
+    for dx in range(-1, 2):
+        for dy in range(-1, 2):
+            if abs(dx) + abs(dy) <= 2:
+                put(cx + dx, cy + dy, body)
+    put(cx - 1, cy - 1, hi)
+    put(cx, cy - 1, hi)
+    put(cx + 1, cy + 1, lo)
+    put(cx, cy + 1, lo)
+    put(cx, cy, core)
+
+i = 0
+for y in range(48, 232, 10):
+    ob = outer_b(y)
+    if ob is None:
+        continue
+    stud(int(math.floor(ob[0])) + 3, y, glow=(i % 4 == 2))   # left edge
+    stud(int(math.ceil(ob[1])) - 4, y, glow=(i % 4 == 0))    # right edge
+    i += 1
+
+# ── Alien energy veins glowing through the stone ──────
+VEINS = [
+    [(46,72),(43,86),(48,100),(42,116),(46,132),(40,148)],   # left pillar
+    [(34,162),(30,176),(35,190),(31,206)],
+    [(120,78),(127,92),(121,108),(128,124),(122,140)],       # right pillar
+    [(141,150),(135,166),(142,182),(137,198),(143,214)],
+    [(82,46),(76,54),(84,62),(78,70)],                       # crown
+    [(112,60),(118,72),(113,84)],
+]
+def draw_vein(path):
+    first = True
+    for k in range(len(path) - 1):
+        x0, y0 = path[k]
+        x1, y1 = path[k + 1]
+        steps = max(abs(x1 - x0), abs(y1 - y0), 1)
+        for s in range(steps + 1):
+            x = int(round(x0 + (x1 - x0) * s / steps))
+            y = int(round(y0 + (y1 - y0) * s / steps))
+            if get(x, y)[:3] in (PURPLE, LAVENDER, DEEP_PURPLE):
+                put(x, y, HOT_PINK)
+                if first:
+                    put(x, y, SOFT_PINK)   # bright source nearest the arch
+                    first = False
+for v in VEINS:
+    draw_vein(v)
+
+# ── Intensify the glow — hot core + sparks (alien) ────
+for y in range(H):
+    xs = [x for x in range(W) if back[y][x]]
+    if not xs:
+        continue
+    cx = sum(xs) // len(xs)
+    if dist[y][cx] >= 16:
+        put(cx, y, PALE_CYAN)
+        put(cx - 1, y, PALE_CYAN)
+        if dist[y][cx] >= 22 and y % 3 == 0:
+            put(cx, y, WHITE)
+SPARKS = [(78,108),(84,150),(80,188),(86,120),(76,168),(82,214),(80,90)]
+for (x, y) in SPARKS:
+    if back[y][x]:
+        put(x, y, WHITE)
+        put(x + 1, y, PALE_CYAN)
+        put(x, y + 1, PALE_CYAN)
 
 # ── Ground light spill below the opening ──────────────
 def draw_ground_spill():
