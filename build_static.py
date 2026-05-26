@@ -3,14 +3,16 @@
 
 125x250 logical RGBA -> 8x NEAREST -> output/portal_static.png (1000x2000).
 
-Shape follows the red sketch: an ASYMMETRIC, leaning archway. The left
-pillar is thin and nearly straight; the right pillar is much thicker and
-reads as a receding 3D column in 3/4 perspective, with three banded
-rings that protrude outward to the right. A tilted capstone cylinder and
-a round orb cap the arch point. The pointed opening widens slightly down
-to the floor. Interior glow uses an edge-distance transform (pink rim
-hugs the arch, dark void elongates down the center). One palette color
-per pixel, no anti-aliasing.
+Shape follows the red sketch: an ASYMMETRIC, leaning archway seen in
+3/4 perspective so you can feel the 3D depth. The opening is a RECESSED
+doorway — the front stone face has an arched hole, and through it you
+look into the wall's thickness: a lit front lip steps back to a shaded
+soffit (top) and a thick right jamb (the receding inner wall), then the
+magical glow sits deepest. The left jamb faces away and barely shows.
+The left pillar is thin and near-vertical; the right pillar is much
+thicker with three banded rings that protrude outward. A tilted capstone
+cylinder and a round orb cap the arch point. One palette color per
+pixel, no anti-aliasing.
 """
 import os, math
 from collections import deque
@@ -47,10 +49,9 @@ def get(x, y):
 # Left outer (thin pillar, leans in then near-vertical):
 LO = [(53,33),(48,38),(42,44),(36.5,62),(31,88),(28,119),
       (26.7,156),(26,194),(27,222),(29,236)]
-# Left inner (left side of the opening):
-LI = [(58,55),(53,61),(46,81),(42,112),(39.6,150),(38.5,188),(39,216),(40,236)]
-# Right inner (right side of the opening):
-RI = [(60,55),(63,58),(67,81),(71,119),(74,156),(76,194),(77.5,222),(79,236)]
+# Front-face inner edges of the arched hole (the rim of the opening):
+LI = [(56,54),(53,60),(47,76),(42,98),(40,130),(39,165),(38.5,195),(39,218),(40,236)]
+RI = [(62,54),(66,60),(72,76),(76,98),(78,130),(79,165),(79,195),(79,218),(79,236)]
 # Right outer (thick pillar, sweeps out, leans right):
 RO = [(64,33),(71,34.5),(81,53),(92,81),(97,112),(99,150),
       (100,188),(102,225),(102,236)]
@@ -68,10 +69,13 @@ def edge(pts, y):
             return x0 + t * (x1 - x0)
     return None
 
-CROWN_TOP = 33
-WALL = 4                              # right inner-wall reveal (depth face)
+# ── Recess depth (the reveal that gives 3D feel) ──────
+TOP_REV = 11      # soffit depth across the top (receding ceiling)
+R_REV   = 10      # right jamb depth — thick, faces us, most visible
+L_REV   = 2       # left jamb faces away → barely shows
 
-# ── Stone front face + opening + right inner wall ─────
+# ── Front stone face + the arched hole ────────────────
+front = [[False] * W for _ in range(H)]   # opening (front rim inward)
 for y in range(H):
     lo = edge(LO, y)
     ro = edge(RO, y)
@@ -87,36 +91,65 @@ for y in range(H):
     ilo = int(math.ceil(li))
     iro = int(math.floor(ri))
     for x in range(ol, orr + 1):
-        if x < ilo:
-            put(x, y, PURPLE)            # left wall (front face)
-        elif x > iro:
-            if x <= iro + WALL:
-                put(x, y, DEEP_PURPLE)   # receding inner-wall reveal
-            else:
-                put(x, y, PURPLE)        # right wall (front face)
-        # opening (ilo..iro) left for the glow pass
+        if x < ilo or x > iro:
+            put(x, y, PURPLE)            # front stone face
+        else:
+            front[y][x] = True           # inside the hole
 
-# ── Interior glow — edge-distance transform ───────────
-mask = [[False] * W for _ in range(H)]
+# topmost open row per column (front-top rim — the soffit springs here)
+top_y = [None] * W
+for x in range(W):
+    for y in range(H):
+        if front[y][x]:
+            top_y[x] = y
+            break
+
+# ── Split the hole into reveal (receding walls) + void ─
+back = [[False] * W for _ in range(H)]    # deepest opening → glow
+reveal_depth = [[0] * W for _ in range(H)]
 for y in range(H):
     li = edge(LI, y)
     ri = edge(RI, y)
     if li is None or ri is None:
         continue
-    for x in range(int(math.ceil(li)), int(math.floor(ri)) + 1):
-        if 0 <= x < W:
-            mask[y][x] = True
+    ilo = int(math.ceil(li))
+    iro = int(math.floor(ri))
+    for x in range(ilo, iro + 1):
+        if not front[y][x]:
+            continue
+        dr = iro - x            # 0 at front-right rim
+        dl = x - ilo            # 0 at front-left rim
+        dt = y - top_y[x]       # 0 at front-top rim
+        # is this pixel still inside the recessed back opening?
+        if dr >= R_REV and dl >= L_REV and dt >= TOP_REV:
+            back[y][x] = True
+        else:
+            reveal_depth[y][x] = min(dr, dl, dt) + 1   # 1 = lit front lip
 
+# Reveal shading: lit lip steps back into shadow (recession cue)
+for y in range(H):
+    for x in range(W):
+        d = reveal_depth[y][x]
+        if d == 0:
+            continue
+        if d <= 1:
+            put(x, y, LAVENDER)      # front lip catches light
+        elif d <= 3:
+            put(x, y, PURPLE)
+        else:
+            put(x, y, DEEP_PURPLE)   # deep in the recess
+
+# ── Interior glow — edge-distance transform on the void ─
 INF = 10 ** 9
 dist = [[INF] * W for _ in range(H)]
 dq = deque()
 for y in range(H):
     for x in range(W):
-        if not mask[y][x]:
+        if not back[y][x]:
             continue
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             nx, ny = x + dx, y + dy
-            if nx < 0 or nx >= W or ny < 0 or ny >= H or not mask[ny][nx]:
+            if nx < 0 or nx >= W or ny < 0 or ny >= H or not back[ny][nx]:
                 dist[y][x] = 1
                 dq.append((x, y))
                 break
@@ -124,7 +157,7 @@ while dq:
     x, y = dq.popleft()
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         nx, ny = x + dx, y + dy
-        if 0 <= nx < W and 0 <= ny < H and mask[ny][nx] and dist[ny][nx] == INF:
+        if 0 <= nx < W and 0 <= ny < H and back[ny][nx] and dist[ny][nx] == INF:
             dist[ny][nx] = dist[y][x] + 1
             dq.append((nx, ny))
 
@@ -138,7 +171,7 @@ def ring_by_dist(d):
 
 for y in range(H):
     for x in range(W):
-        if mask[y][x]:
+        if back[y][x]:
             put(x, y, ring_by_dist(dist[y][x]))
 
 # ── Stone outline against transparency ────────────────
@@ -171,14 +204,13 @@ def draw_band(cy):
     ro = edge(RO, cy)
     if ri is None or ro is None:
         return
-    sx = int(math.floor(ri)) + 1
+    sx = int(math.floor(ri)) + R_REV     # start past the recessed jamb
     ex = int(math.ceil(ro)) + 7          # stick out past the outer edge
     span = max(1, ex - sx)
     half = 3
     for x in range(sx, ex + 1):
         f = (x - sx) / span
         drop = int(round(f * 3))         # tilt down toward the far end
-        # rounded ends
         h = half if f < 0.85 else half - 1
         if x == ex:
             h = half - 2
@@ -194,20 +226,6 @@ def draw_band(cy):
         put(x, bot + 1, DEEP_PURPLE)
 for cy in (76, 133, 194):
     draw_band(cy)
-
-# ── Faint banding ticks down the left pillar edge ─────
-for ty in range(70, 232, 20):
-    lo = edge(LO, ty)
-    li = edge(LI, ty)
-    if lo is None or li is None:
-        continue
-    ol = int(math.floor(lo))
-    il = int(math.ceil(li))
-    for x in range(ol + 1, il):
-        if get(x, ty)[:3] in (PURPLE, LAVENDER):
-            put(x, ty, DEEP_PURPLE)
-        if get(x, ty - 1)[:3] == PURPLE:
-            put(x, ty - 1, LAVENDER)
 
 # ── Capstone cylinder + orb, seated on the arch point ─
 def draw_capstone():
@@ -229,26 +247,24 @@ def draw_capstone():
     ox, oy, orad = 46, 40, 6
     for dy in range(-orad, orad + 1):
         for dx in range(-orad, orad + 1):
-            if dx * dx + dy * dy <= orad * orad:
-                put(ox + dx, oy + dy, PURPLE)
-    for dy in range(-orad, orad + 1):
-        for dx in range(-orad, orad + 1):
             r2 = dx * dx + dy * dy
-            if r2 <= orad * orad and dx + dy < -3:
-                put(ox + dx, oy + dy, LAVENDER)
-            elif r2 <= orad * orad and dx + dy > 4:
-                put(ox + dx, oy + dy, DEEP_PURPLE)
+            if r2 <= orad * orad:
+                put(ox + dx, oy + dy, PURPLE)
+                if dx + dy < -3:
+                    put(ox + dx, oy + dy, LAVENDER)
+                elif dx + dy > 4:
+                    put(ox + dx, oy + dy, DEEP_PURPLE)
     put(ox - 2, oy - 3, PALE_CYAN)
 draw_capstone()
 
 # ── Pillar feet — small mossy stone base ──────────────
 def draw_feet():
-    for (pts_o, pts_i) in ((LO, LI), (RI, RO)):
-        eo = edge(pts_o, 235)
-        ei = edge(pts_i, 235)
-        if eo is None or ei is None:
+    for (pa, pb) in ((LO, LI), (RI, RO)):
+        ea = edge(pa, 235)
+        eb = edge(pb, 235)
+        if ea is None or eb is None:
             continue
-        a, b = sorted((int(round(eo)), int(round(ei))))
+        a, b = sorted((int(round(ea)), int(round(eb))))
         for yy in range(234, H):
             for x in range(a - 2, b + 3):
                 put(x, yy, DEEP_PURPLE)
@@ -275,10 +291,10 @@ CRACKS = [(33,100),(30,150),(28,190),(31,210),(40,60),
 MOSS = [(31,118),(29,168),(98,120),(100,198),(78,50),
         (33,218),(101,100),(27,145)]
 for (x, y) in CRACKS:
-    if get(x, y)[3] != 0 and get(x, y)[:3] in (PURPLE, LAVENDER):
+    if get(x, y)[:3] in (PURPLE, LAVENDER):
         put(x, y, DEEP_PURPLE)
 for (x, y) in MOSS:
-    if get(x, y)[3] != 0 and get(x, y)[:3] in (PURPLE, LAVENDER, DEEP_PURPLE):
+    if get(x, y)[:3] in (PURPLE, LAVENDER, DEEP_PURPLE):
         put(x, y, HOT_PINK)
 
 # ── Upscale + save ────────────────────────────────────
