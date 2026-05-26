@@ -46,15 +46,13 @@ def get(x, y):
     return (0, 0, 0, 0)
 
 # ── Traced edges (x, y), top→bottom; piecewise-linear ──
-# Left outer (thin pillar, leans in then near-vertical):
-LO = [(53,33),(48,38),(42,44),(36.5,62),(31,88),(28,119),
-      (26.7,156),(26,194),(27,222),(29,236)]
+# Left outer — thin pillar, near-vertical near the left frame edge:
+LO = [(48,30),(42,38),(33,52),(24,72),(19,100),(16,140),(16,180),(17,215),(19,240)]
 # Front-face inner edges of the arched hole (the rim of the opening):
-LI = [(56,54),(53,60),(47,76),(42,98),(40,130),(39,165),(38.5,195),(39,218),(40,236)]
-RI = [(62,54),(66,60),(72,76),(76,98),(78,130),(79,165),(79,195),(79,218),(79,236)]
-# Right outer (thick pillar, sweeps out, leans right):
-RO = [(64,33),(71,34.5),(81,53),(92,81),(97,112),(99,150),
-      (100,188),(102,225),(102,236)]
+LI = [(54,50),(50,58),(43,76),(37,105),(34,145),(33,185),(33,218),(34,240)]
+RI = [(64,50),(69,58),(75,78),(79,108),(81,148),(81,188),(80,218),(80,240)]
+# Right outer — thick pillar that bows far out and leans right:
+RO = [(72,30),(80,40),(95,64),(108,95),(115,135),(117,175),(116,210),(112,240)]
 
 def edge(pts, y):
     if y < pts[0][1] or y > pts[-1][1]:
@@ -70,9 +68,9 @@ def edge(pts, y):
     return None
 
 # ── Recess depth (the reveal that gives 3D feel) ──────
-TOP_REV = 11      # soffit depth across the top (receding ceiling)
-R_REV   = 10      # right jamb depth — thick, faces us, most visible
-L_REV   = 2       # left jamb faces away → barely shows
+TOP_REV = 15      # soffit depth across the top (receding ceiling)
+R_REV   = 14      # right jamb depth — thick, faces us, most visible
+L_REV   = 4       # left jamb faces away → barely shows
 
 # ── Front stone face + the arched hole ────────────────
 front = [[False] * W for _ in range(H)]   # opening (front rim inward)
@@ -126,18 +124,17 @@ for y in range(H):
         else:
             reveal_depth[y][x] = min(dr, dl, dt) + 1   # 1 = lit front lip
 
-# Reveal shading: lit lip steps back into shadow (recession cue)
+# Reveal shading: lit lip steps back into shadow (strong recession cue)
+def reveal_color(d):
+    if d <= 1:  return LAVENDER      # front lip catches the light
+    if d <= 3:  return PURPLE        # face turning away
+    if d <= 7:  return DEEP_PURPLE   # in shadow
+    return DARK_VOID                 # deepest part of the recess
 for y in range(H):
     for x in range(W):
         d = reveal_depth[y][x]
-        if d == 0:
-            continue
-        if d <= 1:
-            put(x, y, LAVENDER)      # front lip catches light
-        elif d <= 3:
-            put(x, y, PURPLE)
-        else:
-            put(x, y, DEEP_PURPLE)   # deep in the recess
+        if d:
+            put(x, y, reveal_color(d))
 
 # ── Interior glow — edge-distance transform on the void ─
 INF = 10 ** 9
@@ -224,13 +221,13 @@ def draw_band(cy):
         put(x, top, LAVENDER)
         put(x, bot, DEEP_PURPLE)
         put(x, bot + 1, DEEP_PURPLE)
-for cy in (76, 133, 194):
+for cy in (72, 135, 198):
     draw_band(cy)
 
 # ── Capstone cylinder + orb, seated on the arch point ─
 def draw_capstone():
-    x0, y0 = 51, 30
-    x1, y1 = 79, 35                       # tilted: right end lower
+    x0, y0 = 44, 24
+    x1, y1 = 78, 31                       # tilted: right end lower
     span = x1 - x0
     for x in range(x0, x1 + 1):
         f = (x - x0) / span
@@ -244,7 +241,7 @@ def draw_capstone():
         put(x, cy + h, DEEP_PURPLE)
         put(x, cy + h + 1, DEEP_PURPLE)
     # round orb tucked at the upper-left of the capstone
-    ox, oy, orad = 46, 40, 6
+    ox, oy, orad = 40, 35, 6
     for dy in range(-orad, orad + 1):
         for dx in range(-orad, orad + 1):
             r2 = dx * dx + dy * dy
@@ -272,8 +269,8 @@ draw_feet()
 
 # ── Ground light spill below the opening ──────────────
 def draw_ground_spill():
-    cx, cy = 58, 240
-    rw, rh = 20, 4
+    cx, cy = 57, 243
+    rw, rh = 24, 4
     for dy in range(-rh, rh + 1):
         for dx in range(-rw, rw + 1):
             nd = (dx / rw) ** 2 + (dy / rh) ** 2
@@ -285,11 +282,11 @@ def draw_ground_spill():
 draw_ground_spill()
 
 # ── Cracks / overgrowth (hand-placed) ─────────────────
-CRACKS = [(33,100),(30,150),(28,190),(31,210),(40,60),
-          (96,95),(99,140),(101,175),(99,205),(72,45),
-          (35,70),(85,55),(34,228),(98,232)]
-MOSS = [(31,118),(29,168),(98,120),(100,198),(78,50),
-        (33,218),(101,100),(27,145)]
+CRACKS = [(24,90),(20,140),(18,180),(20,210),(30,55),
+          (95,90),(105,130),(110,170),(106,205),(70,42),
+          (26,68),(80,48),(22,228),(108,232)]
+MOSS = [(19,118),(17,165),(106,115),(110,195),(76,46),
+        (24,215),(112,98),(18,150)]
 for (x, y) in CRACKS:
     if get(x, y)[:3] in (PURPLE, LAVENDER):
         put(x, y, DEEP_PURPLE)
