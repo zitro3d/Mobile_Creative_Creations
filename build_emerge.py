@@ -40,7 +40,7 @@ for _ in range(64):
         ang=random.uniform(0, TAU),
         swirl=random.uniform(-2.2, 2.2),       # spiral tightness (matches vortex)
         reach=random.uniform(55, 105),
-        big=random.random() < 0.35,
+        big=random.random() < 0.55,
     ))
 
 # Trailing ribbon lines that undulate out of the mouth (the "lines follow").
@@ -87,6 +87,13 @@ def render_frame(t, frame_idx):
                 return
         PX[x, y] = c + (255,)
 
+    def blob(x, y, c, env=1.0, r=1):
+        # filled round-ish blob of radius r (r=1 -> plus, r=2 -> 13px disc)
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                if dx * dx + dy * dy <= r * r + (1 if r > 1 else 0):
+                    put(x + dx, y + dy, c, env)
+
     # Undulating ribbon lines streaming out of the mouth
     for rb in RIBBONS:
         steps = rb['length']
@@ -108,23 +115,26 @@ def render_frame(t, frame_idx):
             if rb['amp'] >= 7 and f < 0.5:        # thicken the bright base
                 put(xx + 1, yy, c, env * 0.7)
 
-    # Sparkle particles with comet trails
+    # Sparkle particles with thick comet trails
     for p in PARTICLES:
         frac = (t + p['phase']) % 1.0
         env = envelope(frac)
         if env <= 0.02:
             continue
+        base_r = 2 if p['big'] else 1
         for k, (lag, col) in enumerate(TRAIL):
             tf = frac - lag
             if tf < 0:
                 break
             x, y = particle_pos(p, tf, t)
             e = env * (1.0 - k / (len(TRAIL) + 1))
-            put(x, y, col, e)
-            if p['big'] and k == 0:               # bright sparkle core
-                put(x + 1, y, PALE_CYAN, env * 0.8)
-                put(x, y + 1, PALE_CYAN, env * 0.8)
-                put(x - 1, y, CYAN, env * 0.6)
+            # Trail tapers: fat near the head, thinner toward the tail.
+            r = base_r + 1 if k == 0 else base_r if k <= 2 else max(1, base_r - 1)
+            blob(x, y, col, e, r)
+        # Bright sparkle head on top: glow halo then solid white core.
+        hx, hy = particle_pos(p, frac, t)
+        blob(hx, hy, PALE_CYAN, env * 0.8, base_r + 1)
+        blob(hx, hy, WHITE, env, base_r)
     return img
 
 
