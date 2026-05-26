@@ -92,9 +92,14 @@ for x in range(W):
                 put(x, y, DEEP_PURPLE)
 
 # ── Grip (wrapped, dark purple leather) ───────────────
-GRIP_TOP, GRIP_BOT = GY1 + 1, 156
+GRIP_TOP, GRIP_BOT = GY1 + 1, 161        # extends down to plug into the pommel
 for y in range(GRIP_TOP, GRIP_BOT + 1):
-    hw = 4 if y < GRIP_BOT - 1 else 3
+    if y >= GRIP_BOT - 1:
+        hw = 2
+    elif y >= GRIP_BOT - 4:
+        hw = 3
+    else:
+        hw = 4
     for c in range(-hw, hw + 1):
         if c <= -hw + 1:
             col = PURPLE             # lit
@@ -117,8 +122,7 @@ for dy in range(-PR, PR + 1):
             elif dx + dy >= 5:
                 c = DEEP_PURPLE
             put(PCX + dx, PCY + dy, c)
-for d in range(-5, 6):
-    put(PCX + d, PCY - 5 + abs(d), LAVENDER if d <= 0 else DEEP_PURPLE)
+for d in range(-5, 6):                    # lower diamond accent only
     put(PCX + d, PCY + 5 - abs(d), DEEP_PURPLE)
 GR = 4
 for dy in range(-GR, GR + 1):
