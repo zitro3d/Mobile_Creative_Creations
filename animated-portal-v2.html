@@ -40,7 +40,7 @@
 </head>
 <body>
 
-<div class="kicker">MAGIC PORTAL · KEYFRAME REVIEW · V3</div>
+<div class="kicker">MAGIC PORTAL · KEYFRAME REVIEW</div>
 <h1>RAINBOW PORTAL</h1>
 <p class="sub">
   192 × 192 native — smooth RGB-gradient frame, gems, and a swirling
@@ -166,8 +166,7 @@ function drawFoot(cx) {
   px(STONE_LT,   cx - 9,  F_B + 2,  18, 5);
 }
 
-// ── GEM HELPERS ───────────────────────────────────────
-// Gradient-filled ellipse jewel with outline + shine.
+// ── GEM HELPER — gradient-filled ellipse w/ shine ─────
 function drawGem(cx, cy, rx, ry, stops) {
   for (let dy = -ry - 1; dy <= ry + 1; dy++) {
     for (let dx = -rx - 1; dx <= rx + 1; dx++) {
@@ -179,34 +178,9 @@ function drawGem(cx, cy, rx, ry, stops) {
   }
   px('#ffffff', cx - Math.round(rx * 0.35), cy - Math.round(ry * 0.35)); // shine
 }
-// 4-point star / sparkle gem — diamond body + thin cross spikes,
-// gradient-shaded from a white-hot center out to the rim color.
-function drawStarGem(cx, cy, R, stops) {
-  for (let dy = -R; dy <= R; dy++) {
-    for (let dx = -R; dx <= R; dx++) {
-      const ax = Math.abs(dx), ay = Math.abs(dy);
-      const dia = ax + ay;                                  // taxicab distance
-      let inStar = false, t = 0;
-      if (dia <= R * 0.55) {                                 // diamond body
-        inStar = true; t = dia / (R * 0.55);
-      } else if ((dx === 0 || dy === 0) && dia <= R) {       // N/S/E/W spikes
-        inStar = true; t = 0.62 + 0.38 * (dia / R);
-      }
-      if (!inStar) continue;
-      px(gradColor(stops, t), cx + dx, cy + dy);
-    }
-  }
-  px('#ffffff', cx, cy);                                     // hot center
-}
-function drawTopGem() {
-  drawGem(CX, 28, 8, 10, TOPGEM_STOPS);
-  // small teal base set beneath the jewel (matches the reference)
-  px(STONE_DARK, CX - 4, 38, 9, 5);
-  px('#43c6d6', CX - 3, 39, 7, 3);
-  px('#7fe8f0', CX - 1, 39, 2, 1);
-}
-function drawDiamondGem(cx) { drawStarGem(cx, 100, 8, CYANGEM_STOPS); }
-function drawPinkGem(cx)    { drawStarGem(cx, 140, 5, PINKGEM_STOPS); }
+function drawTopGem()        { drawGem(CX, 28, 8, 10, TOPGEM_STOPS); }
+function drawDiamondGem(cx)  { drawGem(cx, 100, 7, 9, CYANGEM_STOPS); }
+function drawPinkGem(cx)     { drawGem(cx, 140, 5, 6, PINKGEM_STOPS); }
 
 // ── SWIRLING VORTEX (square — fills the doorway) ──────
 // 3-arm spiral filling the RECTANGULAR doorway opening edge-to-edge.
@@ -221,8 +195,6 @@ const O_CX = 96, O_CY = 109, O_RX = 26, O_RY = 58;
 function drawSwirl(t, intensity) {
   if (intensity <= 0.02) return;
   const spin = t * 2.4;
-  // Core pulses gently so the center "breathes" light.
-  const corePulse = 0.5 + 0.5 * Math.sin(t * 3.5);
   for (let y = O_CY - O_RY; y <= O_CY + O_RY; y++) {
     if (y < F_T + F_THICK || y > F_B) continue;     // clip to the opening
     for (let x = O_CX - O_RX; x <= O_CX + O_RX; x++) {
@@ -230,18 +202,13 @@ function drawSwirl(t, intensity) {
       const ndy = (y - O_CY) / O_RY;
       const sq = Math.max(Math.abs(ndx), Math.abs(ndy));   // square distance
       if (sq > intensity) continue;
-      const angle = Math.atan2(ndy, ndx);
-      // 4-arm spiral + a second finer counter-arm for richness.
-      const spiral = Math.sin(angle * 4 - sq * 10 + spin) * 0.6
-                   + Math.sin(angle * 2 + sq * 6 - spin * 0.6) * 0.4;
-      const band   = (spiral + 1) / 2;
+      const angle  = Math.atan2(ndy, ndx);
+      const spiral = angle * 3 - sq * 9 + spin;
+      const band   = (Math.sin(spiral) + 1) / 2;
       const radial = 1 - sq / Math.max(intensity, 0.01);
-      // Hot pulsing core near the center.
-      const core = radial > 0.78 ? (radial - 0.78) / 0.22 * corePulse : 0;
-      let bright = radial * 0.55 + band * 0.38 + core * 0.5;
-      bright = bright < 0 ? 0 : (bright > 1 ? 1 : bright);
+      let bright = radial * 0.60 + band * 0.40;
       // Soft edge falloff so the vortex blends into the dark rim.
-      const edge = (intensity - sq) / 0.16;
+      const edge = (intensity - sq) / 0.14;
       if (edge < 1) bright *= Math.max(0, edge);
       px(gradColor(SWIRL_STOPS, bright), x, y);
     }
@@ -294,38 +261,9 @@ function drawAnimSparks(t, intensity) {
   }
 }
 
-// ── FRAME TEXTURE — embedded sparkle flecks ───────────
-// Scatters tiny bright flecks across the frame band so it reads as
-// hand-pixeled magical stone rather than flat gradient. Positions are
-// deterministic (hash of x,y) so they never flicker between frames.
-function hash2(x, y) {
-  let h = (x * 73856093) ^ (y * 19349663);
-  h = (h ^ (h >> 13)) >>> 0;
-  return (h % 10007) / 10007;
-}
-function isOnFrame(x, y) {
-  if (x < F_L || x > F_R || y < F_T || y > F_B) return false;
-  if (y <= F_T + F_THICK) return true;   // top lintel
-  if (x <= F_L + F_THICK) return true;   // left column
-  if (x >= F_R - F_THICK) return true;   // right column
-  return false;                          // the opening
-}
-function drawFrameTexture() {
-  for (let y = F_T; y <= F_B; y++) {
-    for (let x = F_L; x <= F_R; x++) {
-      if (!isOnFrame(x, y)) continue;
-      const h = hash2(x, y);
-      if      (h > 0.974) px('#ffffff', x, y);   // white sparkle
-      else if (h > 0.952) px('#fde8f6', x, y);   // light-pink fleck
-      else if (h > 0.934) px('#f3e05e', x, y);   // gold fleck
-    }
-  }
-}
-
 // ── COMPOSITES ────────────────────────────────────────
 function drawPortalBase() {
   drawFrame();
-  drawFrameTexture();
   drawFoot(56);
   drawFoot(136);
   drawTopGem();
