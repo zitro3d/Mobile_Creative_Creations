@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rainbow Portal v5 — rainbow frame in 3D perspective</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(120% 90% at 50% 38%, #0a0712 0%, #050308 60%, #000 100%);
+    color: #cdbbe0; font: 14px/1.5 system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; min-height: 100%;
+  }
+  h1 { font-weight: 600; letter-spacing: .06em; margin: 18px 0 4px; color: #f0d9ff; }
+  .sub { opacity: .65; margin: 0 0 16px; }
+  canvas {
+    image-rendering: pixelated;
+    height: min(86vh, 1500px);
+    width: auto; aspect-ratio: 160 / 250;
+    filter: drop-shadow(0 0 36px rgba(255, 120, 200, .28));
+    background: #07050a;
+  }
+  .row { display: flex; gap: 10px; margin: 14px 0 30px; flex-wrap: wrap; justify-content: center; }
+  button {
+    background: #1f1430; color: #f0d9ff; border: 1px solid #5c3a7a;
+    padding: 8px 14px; border-radius: 8px; cursor: pointer; font: inherit;
+  }
+  button[aria-pressed="true"] { background: #4a2c70; }
+</style>
+</head>
+<body>
+  <h1>RAINBOW PORTAL · v5</h1>
+  <p class="sub">rainbow frame in the purple portal's 3D perspective — pink neon rim, gem, sparkles, gold puddle</p>
+  <canvas id="cv" width="160" height="250"></canvas>
+  <div class="row">
+    <button id="bSpeed" aria-pressed="false">Slower</button>
+    <button id="bChecker" aria-pressed="false">Checker bg</button>
+  </div>
+
+<script>
+(() => {
+const W = 160, H = 250;
+const TAU = Math.PI * 2;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d', { willReadFrequently: true });
+
+// ── Working palette ───────────────────────────────────
+const DEEP_PURPLE = [58, 38, 75];
+const PURPLE      = [92, 64, 110];
+const LAVENDER    = [140, 105, 155];
+const HOT_PINK    = [235, 110, 180];
+const SOFT_PINK   = [255, 170, 215];
+const PALE_CYAN   = [200, 235, 255];
+const WHITE       = [255, 255, 255];
+const GEM_HI      = [255, 175, 180];
+const GEM_MID     = [220, 70, 90];
+const GEM_DARK    = [120, 30, 50];
+const GOLD_HI     = [255, 220, 110];
+const GOLD_MID    = [225, 170, 60];
+const GOLD_DARK   = [165, 105, 35];
+
+// ── Geometry (purple-portal perspective) ──────────────
+const Y_S = 96, Y_BOT = 238;
+const LO=[40,30], LI=[58,50], RI=[104,112], RO=[132,144];
+const CX_O=86, A_O=46, B_O=58;
+const CX_I=81, A_I=23, B_I=46;
+const TOP_REV=19, R_REV=16, L_REV=3;
+
+const legX = (p, y) => p[0] + (p[1]-p[0])*((y-Y_S)/(Y_BOT-Y_S));
+const dome = (cx, a, b, y) => {
+  const dy = Y_S - y;
+  if (dy < 0 || dy > b) return null;
+  const s = a * Math.sqrt(Math.max(0, 1 - (dy/b)**2));
+  return [cx - s, cx + s];
+};
+const outerB = y => y >= Y_S ? [legX(LO,y), legX(RO,y)] : dome(CX_O,A_O,B_O,y);
+const innerB = y => y >= Y_S ? [legX(LI,y), legX(RI,y)] : dome(CX_I,A_I,B_I,y);
+
+// ── Buffers ───────────────────────────────────────────
+const base = new Uint8ClampedArray(W*H*4);
+const front = new Uint8Array(W*H);
+const back  = new Uint8Array(W*H);
+const revealD = new Int16Array(W*H);
+const topY = new Int16Array(W).fill(-1);
+
+const idx = (x,y) => (y*W+x)*4;
+const set = (buf,x,y,c) => {
+  if (x<0||x>=W||y<0||y>=H) return;
+  const i = idx(x,y);
+  buf[i]=c[0]; buf[i+1]=c[1]; buf[i+2]=c[2]; buf[i+3]=255;
+};
+const getRGB = (buf,x,y) => {
+  if (x<0||x>=W||y<0||y>=H) return [0,0,0,0];
+  const i = idx(x,y);
+  return [buf[i],buf[i+1],buf[i+2],buf[i+3]];
+};
+const sameC = (buf,x,y,c) => {
+  const [r,g,b,a] = getRGB(buf,x,y);
+  return a===255 && r===c[0] && g===c[1] && b===c[2];
+};
+
+function hsl(h, s, l) {
+  s/=100; l/=100;
+  const k = n => (n + h/30) % 12;
+  const a = s*Math.min(l, 1-l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n)-3, 9-k(n), 1));
+  return [Math.round(f(0)*255), Math.round(f(8)*255), Math.round(f(4)*255)];
+}
+
+// ── Build the purple-portal base ──────────────────────
+function buildBase() {
+  for (let y=0; y<H; y++) {
+    const ob = outerB(y); if (!ob) continue;
+    const ol = Math.floor(ob[0]), orr = Math.ceil(ob[1]);
+    const ib = innerB(y);
+    if (!ib) { for (let x=ol; x<=orr; x++) set(base,x,y,PURPLE); continue; }
+    const ilo = Math.ceil(ib[0]), iro = Math.floor(ib[1]);
+    for (let x=ol; x<=orr; x++) {
+      if (x<ilo || x>iro) set(base,x,y,PURPLE);
+      else front[y*W+x]=1;
+    }
+  }
+  for (let x=0; x<W; x++)
+    for (let y=0; y<H; y++) if (front[y*W+x]) { topY[x]=y; break; }
+  for (let y=0; y<H; y++) {
+    const ib = innerB(y); if (!ib) continue;
+    const ilo = Math.ceil(ib[0]), iro = Math.floor(ib[1]);
+    for (let x=ilo; x<=iro; x++) {
+      if (!front[y*W+x]) continue;
+      const dr=iro-x, dl=x-ilo, dt=y-topY[x];
+      if (dr>=R_REV && dl>=L_REV && dt>=TOP_REV) back[y*W+x]=1;
+      else {
+        const d = Math.min(dr,dl,dt)+1;
+        revealD[y*W+x] = d;
+        set(base, x, y, d<=1?LAVENDER : d<=4?PURPLE : DEEP_PURPLE);
+      }
+    }
+  }
+  // Right pillar shadow strip
+  for (let y=Y_S; y<=Y_BOT; y++) {
+    const ro = legX(RO,y);
+    for (let x=Math.round(ro)-5; x<=Math.round(ro); x++)
+      if (sameC(base,x,y,PURPLE)) set(base,x,y,DEEP_PURPLE);
+  }
+  for (let y=38; y<Y_S; y++) {
+    const ob = outerB(y); if (!ob) continue;
+    for (let x=Math.round(ob[1])-5; x<=Math.round(ob[1]); x++)
+      if (sameC(base,x,y,PURPLE)) set(base,x,y,DEEP_PURPLE);
+  }
+  // Outline
+  for (let y=0; y<H; y++) for (let x=0; x<W; x++) {
+    if (!sameC(base,x,y,PURPLE)) continue;
+    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const a = (x+dx<0||x+dx>=W||y+dy<0||y+dy>=H) ? 0 : base[idx(x+dx,y+dy)+3];
+      if (a === 0) { set(base,x,y,DEEP_PURPLE); break; }
+    }
+  }
+  // LAVENDER lit edge on left outer
+  for (let y=0; y<H; y++) {
+    const ob = outerB(y); if (!ob) continue;
+    const ol = Math.floor(ob[0]); let run=0;
+    for (let x=ol; x<ol+16; x++) {
+      if (sameC(base,x,y,PURPLE)) { set(base,x,y,LAVENDER); if(++run>=3) break; }
+      else if (run) break;
+    }
+  }
+  // Three banded rings on the right pillar
+  const drawBand = cy => {
+    const ri=legX(RI,cy), ro=legX(RO,cy);
+    const sx = Math.round(ri)+R_REV-1, ex = Math.round(ro)+9;
+    const span = Math.max(1, ex-sx), half=4;
+    for (let x=sx; x<=ex; x++) {
+      const f=(x-sx)/span, drop=Math.round(f*3);
+      const h = f<0.9 ? half : half-1;
+      for (let yy=cy-h+drop; yy<=cy+h+drop; yy++) {
+        const a = getRGB(base,x,yy)[3];
+        if (a!==0 || x > Math.round(ro)) set(base,x,yy,PURPLE);
+      }
+      set(base,x,cy-h+drop,LAVENDER); set(base,x,cy-h+1+drop,LAVENDER);
+      set(base,x,cy+h+drop,DEEP_PURPLE); set(base,x,cy+h+1+drop,DEEP_PURPLE);
+    }
+  };
+  [128,165,202].forEach(drawBand);
+  // Capstone + spandrel
+  const x0=58,y0=30,x1=118,y1=38, span=x1-x0;
+  const barBot = {};
+  for (let x=x0; x<=x1; x++) {
+    const f=(x-x0)/span;
+    const cy = Math.round(y0 + f*(y1-y0));
+    const h = (f>0.06 && f<0.94) ? 4 : 3;
+    for (let yy=cy-h; yy<=cy+h; yy++) set(base,x,yy,PURPLE);
+    set(base,x,cy-h,LAVENDER); set(base,x,cy-h+1,LAVENDER);
+    set(base,x,cy+h,DEEP_PURPLE);
+    barBot[x] = cy+h;
+  }
+  for (let x=x0; x<=x1; x++) {
+    let y = barBot[x]+1;
+    while (y<68 && getRGB(base,x,y)[3]===0) { set(base,x,y,PURPLE); y++; }
+  }
+  // Top outline cleanup
+  for (let y=0; y<70; y++) for (let x=0; x<W; x++) {
+    if (!sameC(base,x,y,PURPLE)) continue;
+    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const a = (x+dx<0||x+dx>=W||y+dy<0||y+dy>=H) ? 0 : base[idx(x+dx,y+dy)+3];
+      if (a===0) { set(base,x,y,DEEP_PURPLE); break; }
+    }
+  }
+  // Feet
+  for (const [pa, pb] of [[LO,LI],[RI,RO]]) {
+    let a = Math.round(legX(pa,Y_BOT)), b = Math.round(legX(pb,Y_BOT));
+    if (a>b) [a,b] = [b,a];
+    for (let yy=Y_BOT-1; yy<H; yy++)
+      for (let x=a-2; x<=b+2; x++) set(base,x,yy,DEEP_PURPLE);
+  }
+}
+buildBase();
+
+// ── Rainbow recolor pass — keeps the 3D shading ───────
+function rainbowRecolor() {
+  for (let y=0; y<H; y++) for (let x=0; x<W; x++) {
+    const i = idx(x,y);
+    const r = base[i], g = base[i+1], b = base[i+2], a = base[i+3];
+    if (a !== 255) continue;
+    let light;
+    if      (r===PURPLE[0]      && g===PURPLE[1]      && b===PURPLE[2])      light = 55;
+    else if (r===LAVENDER[0]    && g===LAVENDER[1]    && b===LAVENDER[2])    light = 72;
+    else if (r===DEEP_PURPLE[0] && g===DEEP_PURPLE[1] && b===DEEP_PURPLE[2]) light = 28;
+    else continue;
+    let hue;
+    if (y < Y_S) {
+      const ang = Math.atan2(y - Y_S, x - CX_O);   // -π..0
+      const phi = Math.abs(ang + Math.PI/2);        // 0 at top, π/2 at side
+      hue = phi / (Math.PI/2) * 130;                // 0..130   (red→yellow→green)
+    } else {
+      const tt = (y - Y_S) / (Y_BOT - Y_S);
+      hue = 130 + tt * 200;                         // 130..330 (green→cyan→blue→magenta)
+    }
+    hue = (hue + (x - CX_O) * 0.4 + 360) % 360;
+    const [nr, ng, nb] = hsl(hue, 88, light);
+    base[i]=nr; base[i+1]=ng; base[i+2]=nb;
+  }
+}
+rainbowRecolor();
+
+// ── Pink neon rim around the opening (replaces the lavender lip) ─
+for (let y=0; y<H; y++) for (let x=0; x<W; x++) {
+  if (revealD[y*W+x] === 1) set(base, x, y, HOT_PINK);
+}
+
+// ── Red gem crown on the capstone ─────────────────────
+{
+  const gx=60, gy=46, gr=8;
+  for (let dy=-gr; dy<=gr; dy++) for (let dx=-gr; dx<=gr; dx++) {
+    if (dx*dx+dy*dy <= gr*gr) {
+      let c = GEM_MID;
+      if (dx+dy <= -3) c = GEM_HI;
+      else if (dx+dy >= 4) c = GEM_DARK;
+      set(base, gx+dx, gy+dy, c);
+    }
+  }
+  // gold inner ring
+  for (let ang=0; ang<TAU; ang+=0.18) {
+    const rx = Math.round(gx + Math.cos(ang)*(gr+1));
+    const ry = Math.round(gy + Math.sin(ang)*(gr+1));
+    set(base, rx, ry, GOLD_MID);
+  }
+  set(base, gx-3, gy-3, [255, 230, 230]);
+  set(base, gx-2, gy-4, WHITE);
+}
+
+// ── Gold puddle drips at the feet ─────────────────────
+{
+  const baseY = Y_BOT + 5;
+  for (let dy=-3; dy<=6; dy++) for (let dx=-46; dx<=46; dx++) {
+    const cx = 81 + dx, cy = baseY + dy;
+    const nd = (dx/46)**2 + (dy/4.5)**2;
+    if (nd > 1) continue;
+    // skip already-stone (the feet)
+    const [r,g,b,a] = getRGB(base, cx, cy);
+    if (a===255 && !(r===DEEP_PURPLE[0]&&g===DEEP_PURPLE[1]&&b===DEEP_PURPLE[2])) continue;
+    const col = nd < 0.35 ? GOLD_HI : nd < 0.7 ? GOLD_MID : GOLD_DARK;
+    set(base, cx, cy, col);
+  }
+  // little drip mounds at the foot corners
+  const drip = (cx) => {
+    for (let dy=0; dy<=4; dy++) for (let dx=-3; dx<=3; dx++)
+      if (dx*dx + dy*dy*2 <= 9) set(base, cx+dx, baseY-1+dy, dy===0 ? GOLD_HI : GOLD_MID);
+  };
+  drip(34); drip(126);
+}
+
+// ── Void distance + centroid (used for subtle inner glow) ─
+const dist = new Int32Array(W*H);
+for (let i=0;i<dist.length;i++) dist[i]=0x7fffffff;
+const queue = [];
+for (let y=0; y<H; y++) for (let x=0; x<W; x++) {
+  if (!back[y*W+x]) continue;
+  for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    const nx=x+dx, ny=y+dy;
+    const isBack = (nx>=0&&nx<W&&ny>=0&&ny<H) && back[ny*W+nx];
+    if (!isBack) { dist[y*W+x] = 1; queue.push(x,y); break; }
+  }
+}
+let qh = 0;
+while (qh < queue.length) {
+  const x = queue[qh++], y = queue[qh++];
+  const d = dist[y*W+x];
+  for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    const nx=x+dx, ny=y+dy;
+    if (nx<0||nx>=W||ny<0||ny>=H) continue;
+    if (!back[ny*W+nx]) continue;
+    if (dist[ny*W+nx] > d+1) { dist[ny*W+nx] = d+1; queue.push(nx,ny); }
+  }
+}
+const voidCells = [];
+let svx=0, svy=0, vct=0;
+for (let y=0; y<H; y++) for (let x=0; x<W; x++) {
+  if (!back[y*W+x]) continue;
+  voidCells.push({x, y, d: dist[y*W+x], ang: 0});
+  svx+=x; svy+=y; vct++;
+}
+const vx0 = svx/vct, vy0 = svy/vct;
+let yTopV=H, yBotV=0;
+for (const c of voidCells) {
+  c.ang = Math.atan2(c.y - vy0, c.x - vx0);
+  if (c.y < yTopV) yTopV = c.y;
+  if (c.y > yBotV) yBotV = c.y;
+}
+
+// ── Air sparkles drifting around the portal ───────────
+function rng(seed){ let s=seed>>>0; return () => { s = (s*1664525 + 1013904223) >>> 0; return s/4294967296; }; }
+const rand = rng(13);
+const AIR_SPARKS = [];
+for (let i=0; i<22; i++) {
+  AIR_SPARKS.push({
+    cx: 20 + rand()*120,
+    cy: 30 + rand()*200,
+    radius: 5 + rand()*9,
+    spd: 0.5 + rand()*1.5,
+    phase: rand(),
+    hue: rand()*360,
+    big: rand() < 0.4,
+  });
+}
+
+// ── Animation loop ────────────────────────────────────
+const out = ctx.createImageData(W, H);
+let speedMul = 1.0;
+const startMs = performance.now();
+
+function frame(now) {
+  const t = (((now - startMs) / 5500) * speedMul) % 1;
+  out.data.set(base);
+
+  // Subtle vortex inside opening — dim cycling rainbow
+  for (let i=0; i<voidCells.length; i++) {
+    const c = voidCells[i];
+    const swirl = Math.sin(2*c.ang + 0.4*c.d - TAU*2*t);
+    let hue = (c.d * 12 - t*360 + c.ang*180/Math.PI*0.6) % 360;
+    if (hue < 0) hue += 360;
+    let light = 35 - c.d*0.7 + swirl*5;
+    if (light < 10) light = 10; else if (light > 55) light = 55;
+    const [r,g,b] = hsl(hue, 65, light);
+    const ii = idx(c.x, c.y);
+    out.data[ii]=r; out.data[ii+1]=g; out.data[ii+2]=b; out.data[ii+3]=255;
+    // rim sparkle just inside the neon
+    if (c.d <= 2 && Math.sin(4*c.ang - TAU*2*t) > 0.78) {
+      out.data[ii]=255; out.data[ii+1]=255; out.data[ii+2]=255;
+    }
+  }
+
+  // Neon rim pulse — animate the HOT_PINK lip
+  const rimPulse = 0.5 + 0.5*Math.sin(TAU*t*1.5);
+  const rimCol = rimPulse > 0.55 ? WHITE : rimPulse > 0.25 ? SOFT_PINK : HOT_PINK;
+  for (let y=0; y<H; y++) for (let x=0; x<W; x++) {
+    if (revealD[y*W+x] !== 1) continue;
+    // dither so the pulse looks alive
+    if (((x*5 + y*3 + Math.floor(t*48)) % 7) < 5) set(out.data, x, y, rimCol);
+    else set(out.data, x, y, HOT_PINK);
+  }
+
+  // Drifting air sparkles around the portal
+  for (const s of AIR_SPARKS) {
+    const ang = (t * s.spd + s.phase) * TAU;
+    const x = Math.round(s.cx + Math.cos(ang) * s.radius);
+    const y = Math.round(s.cy + Math.sin(ang) * s.radius);
+    // only on transparent pixels (don't pollute the frame)
+    if (getRGB(base, x, y)[3] !== 0) continue;
+    const flick = (Math.sin(TAU*(t*3 + s.phase)) + 1) * 0.5;
+    if (flick < 0.25) continue;
+    const hue = (s.hue + t * 360) % 360;
+    const col = flick > 0.85 ? WHITE : hsl(hue, 90, 75);
+    set(out.data, x, y, col);
+    if (s.big && flick > 0.6) {
+      set(out.data, x+1, y, col); set(out.data, x, y+1, col);
+      set(out.data, x-1, y, hsl(hue, 80, 60));
+    }
+  }
+
+  // Gem glint sweep
+  const glintT = (t * 2) % 1;
+  if (glintT < 0.2) {
+    const gx = 60 - 5 + Math.round(glintT * 25);
+    const gy = 46 - 4 + Math.round(glintT * 6);
+    if (getRGB(base, gx, gy)[3] === 255) set(out.data, gx, gy, WHITE);
+  }
+
+  // Gold puddle shimmer — flicker the bright tone
+  const flick = Math.floor(t*48) % 3;
+  for (let dx=-46; dx<=46; dx+=2) {
+    const cy = Y_BOT + 5 + ((dx + flick) % 3 === 0 ? 0 : 1);
+    const [r,g,b,a] = getRGB(base, 81+dx, cy);
+    if (a !== 255) continue;
+    if (r===GOLD_MID[0] && g===GOLD_MID[1] && b===GOLD_MID[2]) set(out.data, 81+dx, cy, GOLD_HI);
+  }
+
+  ctx.putImageData(out, 0, 0);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ── UI ────────────────────────────────────────────────
+document.getElementById('bSpeed').onclick = e => {
+  const slow = e.target.getAttribute('aria-pressed') === 'true';
+  e.target.setAttribute('aria-pressed', String(!slow));
+  e.target.textContent = slow ? 'Slower' : 'Normal';
+  speedMul = slow ? 1.0 : 0.45;
+};
+document.getElementById('bChecker').onclick = e => {
+  const on = e.target.getAttribute('aria-pressed') === 'true';
+  e.target.setAttribute('aria-pressed', String(!on));
+  document.body.style.background = on ? '' :
+    'repeating-conic-gradient(#382a52 0% 25%, #281e3f 0% 50%) 0 / 28px 28px';
+};
+})();
+</script>
+</body>
+</html>
