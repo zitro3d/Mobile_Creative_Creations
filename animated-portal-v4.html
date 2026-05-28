@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rainbow Portal v4 — purple portal geometry, rainbow vortex</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(120% 90% at 50% 38%, #1c1230 0%, #0e0818 60%, #050308 100%);
+    color: #cdbbe0; font: 14px/1.5 system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; min-height: 100%;
+  }
+  h1 { font-weight: 600; letter-spacing: .06em; margin: 18px 0 4px; color: #f0d9ff; }
+  .sub { opacity: .65; margin: 0 0 16px; }
+  canvas {
+    image-rendering: pixelated;
+    height: min(86vh, 1500px);
+    width: auto; aspect-ratio: 160 / 250;
+    filter: drop-shadow(0 0 32px rgba(180,120,255,.3));
+    background: transparent;
+  }
+  .row { display: flex; gap: 10px; margin: 14px 0 30px; flex-wrap: wrap; justify-content: center; }
+  button {
+    background: #271a3b; color: #f0d9ff; border: 1px solid #6c4a85;
+    padding: 8px 14px; border-radius: 8px; cursor: pointer; font: inherit;
+  }
+  button[aria-pressed="true"] { background: #5a3c7a; }
+</style>
+</head>
+<body>
+  <h1>RAINBOW PORTAL · v4</h1>
+  <p class="sub">purple-portal proportions + rainbow vortex, recess depth, rivets, veins, sparks</p>
+  <canvas id="cv" width="160" height="250"></canvas>
+  <div class="row">
+    <button id="bSpeed" aria-pressed="false">Slow</button>
+    <button id="bChecker" aria-pressed="false">Checker bg</button>
+  </div>
+
+<script>
+(() => {
+const W = 160, H = 250;
+const TAU = Math.PI * 2;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d', { willReadFrequently: true });
+
+// ── Palette (stone matches the purple portal) ─────────
+const DEEP_PURPLE = [58, 38, 75];
+const PURPLE      = [92, 64, 110];
+const LAVENDER    = [140, 105, 155];
+const HOT_PINK    = [235, 110, 180];
+const SOFT_PINK   = [255, 170, 215];
+const PALE_CYAN   = [200, 235, 255];
+const WHITE       = [255, 255, 255];
+
+// ── Geometry (mirrors the purple portal) ──────────────
+const Y_S = 96, Y_BOT = 238;
+const LO=[40,30], LI=[58,50], RI=[104,112], RO=[132,144];
+const CX_O=86, A_O=46, B_O=58;
+const CX_I=81, A_I=23, B_I=46;
+const TOP_REV=19, R_REV=16, L_REV=3;
+
+const legX = (p, y) => p[0] + (p[1]-p[0])*((y-Y_S)/(Y_BOT-Y_S));
+const dome = (cx, a, b, y) => {
+  const dy = Y_S - y;
+  if (dy < 0 || dy > b) return null;
+  const s = a * Math.sqrt(Math.max(0, 1 - (dy/b)**2));
+  return [cx - s, cx + s];
+};
+const outerB = y => y >= Y_S ? [legX(LO,y), legX(RO,y)] : dome(CX_O,A_O,B_O,y);
+const innerB = y => y >= Y_S ? [legX(LI,y), legX(RI,y)] : dome(CX_I,A_I,B_I,y);
+
+// ── Base buffer + helpers ─────────────────────────────
+const base = new Uint8ClampedArray(W*H*4);          // static stone/rivet/vein/outline
+const front = new Uint8Array(W*H);                  // inside the arched hole
+const back  = new Uint8Array(W*H);                  // deepest opening cells (vortex)
+const revealD = new Int16Array(W*H);
+const topY = new Int16Array(W);
+const dist = new Int32Array(W*H).fill(0); for (let i=0;i<dist.length;i++) dist[i]=0x7fffffff;
+
+const idx = (x,y) => (y*W+x)*4;
+const set = (buf,x,y,c) => {
+  if (x<0||x>=W||y<0||y>=H) return;
+  const i = idx(x,y);
+  buf[i]=c[0]; buf[i+1]=c[1]; buf[i+2]=c[2]; buf[i+3]=255;
+};
+const getRGB = (buf,x,y) => {
+  if (x<0||x>=W||y<0||y>=H) return [0,0,0,0];
+  const i = idx(x,y);
+  return [buf[i],buf[i+1],buf[i+2],buf[i+3]];
+};
+const sameC = (buf,x,y,c) => {
+  const [r,g,b,a] = getRGB(buf,x,y);
+  return a===255 && r===c[0] && g===c[1] && b===c[2];
+};
+
+// ── Build the static base (stone, recess, outline, rivets, veins) ─
+function buildBase() {
+  // Front face + hole
+  for (let y=0; y<H; y++) {
+    const ob = outerB(y); if (!ob) continue;
+    const ol = Math.floor(ob[0]), orr = Math.ceil(ob[1]);
+    const ib = innerB(y);
+    if (!ib) { for (let x=ol; x<=orr; x++) set(base,x,y,PURPLE); continue; }
+    const ilo = Math.ceil(ib[0]), iro = Math.floor(ib[1]);
+    for (let x=ol; x<=orr; x++) {
+      if (x<ilo || x>iro) set(base,x,y,PURPLE);
+      else front[y*W+x]=1;
+    }
+  }
+  // top_y
+  for (let x=0; x<W; x++) {
+    topY[x] = -1;
+    for (let y=0; y<H; y++) if (front[y*W+x]) { topY[x]=y; break; }
+  }
+  // recess + back mask + reveal shading
+  for (let y=0; y<H; y++) {
+    const ib = innerB(y); if (!ib) continue;
+    const ilo = Math.ceil(ib[0]), iro = Math.floor(ib[1]);
+    for (let x=ilo; x<=iro; x++) {
+      if (!front[y*W+x]) continue;
+      const dr=iro-x, dl=x-ilo, dt=y-topY[x];
+      if (dr>=R_REV && dl>=L_REV && dt>=TOP_REV) back[y*W+x]=1;
+      else {
+        const d = Math.min(dr,dl,dt)+1;
+        revealD[y*W+x] = d;
+        set(base, x, y, d<=1?LAVENDER : d<=4?PURPLE : DEEP_PURPLE);
+      }
+    }
+  }
+  // Right pillar shadow strip
+  for (let y=Y_S; y<=Y_BOT; y++) {
+    const ro = legX(RO,y);
+    for (let x=Math.round(ro)-5; x<=Math.round(ro); x++)
+      if (sameC(base,x,y,PURPLE)) set(base,x,y,DEEP_PURPLE);
+  }
+  for (let y=38; y<Y_S; y++) {
+    const ob = outerB(y); if (!ob) continue;
+    for (let x=Math.round(ob[1])-5; x<=Math.round(ob[1]); x++)
+      if (sameC(base,x,y,PURPLE)) set(base,x,y,DEEP_PURPLE);
+  }
+  // Outline
+  for (let y=0; y<H; y++) for (let x=0; x<W; x++) {
+    if (!sameC(base,x,y,PURPLE)) continue;
+    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const i = idx(x+dx,y+dy);
+      const a = (x+dx<0||x+dx>=W||y+dy<0||y+dy>=H) ? 0 : base[i+3];
+      if (a === 0) { set(base,x,y,DEEP_PURPLE); break; }
+    }
+  }
+  // Lavender lit edge on left outer
+  for (let y=0; y<H; y++) {
+    const ob = outerB(y); if (!ob) continue;
+    const ol = Math.floor(ob[0]); let run=0;
+    for (let x=ol; x<ol+16; x++) {
+      if (sameC(base,x,y,PURPLE)) { set(base,x,y,LAVENDER); if(++run>=3) break; }
+      else if (run) break;
+    }
+  }
+  // Bands on right pillar
+  const drawBand = cy => {
+    const ri=legX(RI,cy), ro=legX(RO,cy);
+    const sx = Math.round(ri)+R_REV-1, ex = Math.round(ro)+9;
+    const span = Math.max(1, ex-sx), half=4;
+    for (let x=sx; x<=ex; x++) {
+      const f=(x-sx)/span, drop=Math.round(f*3);
+      const h = f<0.9 ? half : half-1;
+      for (let yy=cy-h+drop; yy<=cy+h+drop; yy++) {
+        const a = getRGB(base,x,yy)[3];
+        if (a!==0 || x > Math.round(ro)) set(base,x,yy,PURPLE);
+      }
+      set(base,x,cy-h+drop,LAVENDER); set(base,x,cy-h+1+drop,LAVENDER);
+      set(base,x,cy+h+drop,DEEP_PURPLE); set(base,x,cy+h+1+drop,DEEP_PURPLE);
+    }
+  };
+  [128,165,202].forEach(drawBand);
+  // Capstone + orb + spandrel fill
+  const x0=58,y0=30,x1=118,y1=38, span=x1-x0;
+  const barBot = {};
+  for (let x=x0; x<=x1; x++) {
+    const f=(x-x0)/span;
+    const cy = Math.round(y0 + f*(y1-y0));
+    const h = (f>0.06 && f<0.94) ? 4 : 3;
+    for (let yy=cy-h; yy<=cy+h; yy++) set(base,x,yy,PURPLE);
+    set(base,x,cy-h,LAVENDER); set(base,x,cy-h+1,LAVENDER);
+    set(base,x,cy+h,DEEP_PURPLE);
+    barBot[x] = cy+h;
+  }
+  for (let x=x0; x<=x1; x++) {
+    let y = barBot[x]+1;
+    while (y<68 && getRGB(base,x,y)[3]===0) { set(base,x,y,PURPLE); y++; }
+  }
+  const ox=60, oy=46, r=7;
+  for (let dy=-r; dy<=r; dy++) for (let dx=-r; dx<=r; dx++) {
+    if (dx*dx+dy*dy <= r*r) {
+      let c = PURPLE;
+      if (dx+dy <= -3) c = LAVENDER;
+      else if (dx+dy >= 5) c = DEEP_PURPLE;
+      set(base, ox+dx, oy+dy, c);
+    }
+  }
+  set(base, ox-3, oy-3, PALE_CYAN); set(base, ox-2, oy-4, WHITE);
+  // Re-outline the top after seating
+  for (let y=0; y<70; y++) for (let x=0; x<W; x++) {
+    if (!sameC(base,x,y,PURPLE)) continue;
+    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const a = (x+dx<0||x+dx>=W||y+dy<0||y+dy>=H) ? 0 : base[idx(x+dx,y+dy)+3];
+      if (a===0) { set(base,x,y,DEEP_PURPLE); break; }
+    }
+  }
+  // Feet
+  for (const [pa, pb] of [[LO,LI],[RI,RO]]) {
+    let a = Math.round(legX(pa,Y_BOT)), b = Math.round(legX(pb,Y_BOT));
+    if (a>b) [a,b] = [b,a];
+    for (let yy=Y_BOT-1; yy<H; yy++)
+      for (let x=a-2; x<=b+2; x++) set(base,x,yy,DEEP_PURPLE);
+  }
+}
+buildBase();
+
+// ── Compute void edge distance for the vortex glow ────
+const voidCells = [];
+const queue = [];
+for (let y=0; y<H; y++) for (let x=0; x<W; x++) {
+  if (!back[y*W+x]) continue;
+  // border of back -> distance 1
+  for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    const nx=x+dx, ny=y+dy;
+    const isBack = (nx>=0&&nx<W&&ny>=0&&ny<H) && back[ny*W+nx];
+    if (!isBack) { dist[y*W+x] = 1; queue.push(x,y); break; }
+  }
+}
+let qh = 0;
+while (qh < queue.length) {
+  const x = queue[qh++], y = queue[qh++];
+  const d = dist[y*W+x];
+  for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    const nx=x+dx, ny=y+dy;
+    if (nx<0||nx>=W||ny<0||ny>=H) continue;
+    if (!back[ny*W+nx]) continue;
+    if (dist[ny*W+nx] > d+1) {
+      dist[ny*W+nx] = d+1;
+      queue.push(nx,ny);
+    }
+  }
+}
+let svx=0, svy=0, vct=0;
+for (let y=0; y<H; y++) for (let x=0; x<W; x++) {
+  if (!back[y*W+x]) continue;
+  svx+=x; svy+=y; vct++;
+  voidCells.push({x, y, d: dist[y*W+x], ang: 0});
+}
+const vx0 = svx/vct, vy0 = svy/vct;
+let yTopV=H, yBotV=0;
+for (const c of voidCells) {
+  c.ang = Math.atan2(c.y - vy0, c.x - vx0);
+  if (c.y < yTopV) yTopV = c.y;
+  if (c.y > yBotV) yBotV = c.y;
+}
+
+// ── Rivets — repeat the purple-portal layout ──────────
+const studPositions = [];   // [{cx,cy,glow}]
+{
+  let i = 0;
+  for (let y=48; y<232; y+=10) {
+    const ob = outerB(y); if (!ob) continue;
+    studPositions.push({cx: Math.floor(ob[0])+3, cy: y, glow: i%4===2});
+    studPositions.push({cx: Math.ceil(ob[1])-4, cy: y, glow: i%4===0});
+    i++;
+  }
+  for (const s of studPositions) {
+    // sink the rivet body into the base
+    const body = s.glow ? [80,150,200] : PURPLE;
+    const hi   = s.glow ? PALE_CYAN : LAVENDER;
+    const lo   = s.glow ? [50,40,90] : DEEP_PURPLE;
+    for (let dx=-1; dx<=1; dx++) for (let dy=-1; dy<=1; dy++)
+      if (Math.abs(dx)+Math.abs(dy) <= 2) set(base, s.cx+dx, s.cy+dy, body);
+    set(base, s.cx-1, s.cy-1, hi); set(base, s.cx, s.cy-1, hi);
+    set(base, s.cx+1, s.cy+1, lo); set(base, s.cx, s.cy+1, lo);
+    set(base, s.cx, s.cy, s.glow ? WHITE : LAVENDER);
+  }
+}
+const glowStuds = studPositions.filter(s => s.glow);
+
+// ── Static veins (collect ordered for the pulse) ──────
+const VEINS = [
+  [[46,72],[43,86],[48,100],[42,116],[46,132],[40,148]],
+  [[34,162],[30,176],[35,190],[31,206]],
+  [[120,78],[127,92],[121,108],[128,124],[122,140]],
+  [[141,150],[135,166],[142,182],[137,198],[143,214]],
+  [[82,46],[76,54],[84,62],[78,70]],
+  [[112,60],[118,72],[113,84]],
+];
+const veinPx = [];
+const isStone = (x,y) => {
+  const [r,g,b,a] = getRGB(base,x,y);
+  if (a!==255) return false;
+  return (r===PURPLE[0]&&g===PURPLE[1]&&b===PURPLE[2]) ||
+         (r===LAVENDER[0]&&g===LAVENDER[1]&&b===LAVENDER[2]) ||
+         (r===DEEP_PURPLE[0]&&g===DEEP_PURPLE[1]&&b===DEEP_PURPLE[2]);
+};
+for (const path of VEINS) {
+  const pts = [];
+  for (let k=0; k<path.length-1; k++) {
+    const [ax,ay]=path[k], [bx,by]=path[k+1];
+    const steps = Math.max(Math.abs(bx-ax), Math.abs(by-ay), 1);
+    for (let s=0; s<=steps; s++) {
+      const x = Math.round(ax + (bx-ax)*s/steps);
+      const y = Math.round(ay + (by-ay)*s/steps);
+      if (isStone(x,y) && !pts.some(p=>p[0]===x&&p[1]===y)) pts.push([x,y]);
+    }
+  }
+  const n = Math.max(1, pts.length-1);
+  pts.forEach(([x,y], j) => {
+    veinPx.push({x, y, frac: j/n});
+    set(base, x, y, HOT_PINK);
+  });
+}
+
+// ── Sparks ────────────────────────────────────────────
+const SPARK_SEED = [
+  {sx:78, ph:0.00}, {sx:84, ph:0.25}, {sx:80, ph:0.55}, {sx:86, ph:0.10},
+  {sx:76, ph:0.70}, {sx:82, ph:0.40}, {sx:79, ph:0.85}, {sx:88, ph:0.60},
+];
+
+// ── HSL → RGB ─────────────────────────────────────────
+function hsl(h, s, l) {
+  s/=100; l/=100;
+  const k = n => (n + h/30) % 12;
+  const a = s*Math.min(l, 1-l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n)-3, 9-k(n), 1));
+  return [Math.round(f(0)*255), Math.round(f(8)*255), Math.round(f(4)*255)];
+}
+
+// ── Animation loop ────────────────────────────────────
+const out = ctx.createImageData(W, H);
+let speedMul = 1.0;
+const startMs = performance.now();
+const ARMS = 2, SWIRL = 0.42;
+
+function frame(now) {
+  const t = (((now - startMs) / 4500) * speedMul) % 1;
+  // copy base
+  out.data.set(base);
+
+  // Vortex — rainbow rings flowing inward + spiral arms rotating
+  for (let i=0; i<voidCells.length; i++) {
+    const c = voidCells[i];
+    const swirl = Math.sin(ARMS*c.ang + SWIRL*c.d - TAU*2*t);
+    const armPulse = Math.sin(TAU*t - c.d*0.07);
+    let hue = (c.d * 9 - t*360 + c.ang*180/Math.PI*0.6) % 360;
+    if (hue < 0) hue += 360;
+    let light = 78 - c.d*1.3 + swirl*9 + armPulse*4;
+    if (light < 32) light = 32; else if (light > 88) light = 88;
+    const sat = 86;
+    const [r,g,b] = hsl(hue, sat, light);
+    const ii = idx(c.x, c.y);
+    out.data[ii]=r; out.data[ii+1]=g; out.data[ii+2]=b; out.data[ii+3]=255;
+    // rim shimmer
+    if (c.d <= 3 && Math.sin(5*c.ang - TAU*2*t) > 0.86) {
+      out.data[ii]=255; out.data[ii+1]=255; out.data[ii+2]=255;
+    }
+  }
+
+  // Vein pulse (rainbow-tinted) — only bright phase shows through arch's HOT_PINK base
+  for (const v of veinPx) {
+    const wave = Math.sin(TAU*(t - v.frac));
+    if (wave > 0.55) {
+      set(out.data, v.x, v.y, WHITE);
+    } else if (wave > 0.0) {
+      let hue = (t*360 + v.frac*200) % 360;
+      const c = hsl(hue, 90, 78);
+      set(out.data, v.x, v.y, c);
+    }
+  }
+
+  // Glow rivet pulse — cycle through the rainbow
+  for (const s of glowStuds) {
+    let hue = (t*360 + s.cx*4) % 360;
+    const body = hsl(hue, 85, 65);
+    set(out.data, s.cx, s.cy, body);
+    if (Math.sin(TAU*t*2 + s.cx*0.3) > 0) {
+      set(out.data, s.cx, s.cy, WHITE);
+      set(out.data, s.cx-1, s.cy, hsl(hue, 90, 80));
+      set(out.data, s.cx+1, s.cy, hsl(hue, 90, 80));
+    }
+  }
+
+  // Sparks rising through the void
+  const span = Math.max(1, yBotV - yTopV);
+  for (const sp of SPARK_SEED) {
+    let prog = ((sp.ph - t) % 1 + 1) % 1;
+    const sy = Math.round(yBotV - prog * span);
+    if (sy>=0 && sy<H && back[sy*W+sp.sx]) {
+      set(out.data, sp.sx, sy, WHITE);
+      if (back[(sy-1)*W+sp.sx]) set(out.data, sp.sx, sy-1, PALE_CYAN);
+      if (back[sy*W+sp.sx+1]) set(out.data, sp.sx+1, sy, PALE_CYAN);
+    }
+  }
+
+  // Ground spill — cycling rainbow puddle
+  const breath = Math.sin(TAU*t);
+  const cx=81, cy=243;
+  const rw = 36 + 5*breath, rh = 4;
+  const spillHue = (t*360 + 200) % 360;
+  const spillCol = hsl(spillHue, 80, 80);
+  for (let dy=-Math.round(rh)-1; dy<=Math.round(rh)+1; dy++)
+    for (let dx=-Math.round(rw)-1; dx<=Math.round(rw)+1; dx++) {
+      const nd = (dx/rw)**2 + (dy/rh)**2;
+      if (nd > 1) continue;
+      if (nd > 0.45 && ((dx+dy+Math.floor(t*4))%2 === 0)) continue;
+      if (getRGB(base, cx+dx, cy+dy)[3] === 0)
+        set(out.data, cx+dx, cy+dy, spillCol);
+    }
+
+  ctx.putImageData(out, 0, 0);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ── UI ────────────────────────────────────────────────
+document.getElementById('bSpeed').onclick = e => {
+  const slow = e.target.getAttribute('aria-pressed') === 'true';
+  e.target.setAttribute('aria-pressed', String(!slow));
+  e.target.textContent = slow ? 'Slow' : 'Normal';
+  speedMul = slow ? 1.0 : 0.4;
+};
+document.getElementById('bChecker').onclick = e => {
+  const on = e.target.getAttribute('aria-pressed') === 'true';
+  e.target.setAttribute('aria-pressed', String(!on));
+  document.body.style.background = on ? '' :
+    'repeating-conic-gradient(#382a52 0% 25%, #281e3f 0% 50%) 0 / 28px 28px';
+};
+})();
+</script>
+</body>
+</html>
