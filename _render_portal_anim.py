@@ -31,6 +31,62 @@ def build(frame):
 
     # Void
     f(16, 19, 115, 44, 1)
+
+    # Z-depth tunnel — receding concentric rings + diagonal walls
+    VCX, VCY = 32, 65
+    MAX_HW, MAX_HH, N_RINGS = 12, 49, 10
+
+    def draw_line(r1, c1, r2, c2, color):
+        dr = abs(r2 - r1); dc = abs(c2 - c1)
+        sr = 1 if r1 < r2 else -1
+        sc = 1 if c1 < c2 else -1
+        err = dc - dr
+        r, c = r1, c1
+        for _ in range(300):
+            if 16 <= r <= 115 and 19 <= c <= 44:
+                s(r, c, color)
+            if r == r2 and c == c2:
+                break
+            e2 = 2 * err
+            if e2 > -dr: err -= dr; c += sc
+            if e2 <  dc: err += dc; r += sr
+
+    draw_line(VCY, VCX,  16, 19, 3)
+    draw_line(VCY, VCX,  16, 44, 3)
+    draw_line(VCY, VCX, 115, 19, 3)
+    draw_line(VCY, VCX, 115, 44, 3)
+
+    t = frame / FRAMES
+    for i in range(N_RINGS):
+        phase = ((i / N_RINGS) + t * 2) % 1
+        size = 1 - phase
+        if size < 0.05: continue
+        halfW = round(size * MAX_HW)
+        halfH = round(size * MAX_HH)
+        if halfW < 1 or halfH < 1: continue
+        if   size > 0.85: color = 9
+        elif size > 0.70: color = 5
+        elif size > 0.55: color = 6
+        elif size > 0.40: color = 8
+        elif size > 0.25: color = 7
+        elif size > 0.15: color = 4
+        else:             color = 3
+        rTop, rBot = VCY - halfH, VCY + halfH
+        cL, cR = VCX - halfW, VCX + halfW
+        for c in range(cL, cR + 1):
+            s(rTop, c, color)
+            s(rBot, c, color)
+        for r in range(rTop, rBot + 1):
+            s(r, cL, color)
+            s(r, cR, color)
+
+    tw = frame % 3
+    s(VCY, VCX, 9)
+    if tw != 0: s(VCY - 1, VCX, 9)
+    if tw != 1: s(VCY + 1, VCX, 9)
+    if tw != 2: s(VCY, VCX - 1, 9)
+    if tw != 0: s(VCY, VCX + 1, 9)
+
     # Rim
     f(14, 17, 15, 46, 5)
     f(14, 17, 115, 18, 5)
