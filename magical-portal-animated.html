@@ -95,76 +95,51 @@ function buildGrid(frame) {
   // ── BLACK VOID ──
   fill(16, 19, 115, 44, 1);
 
-  // ── Z-DEPTH TUNNEL — perspective rings pulling backward into the void ──
-  // The doorway opens onto a recess: concentric rectangles shrink toward
-  // a central vanishing point + 4 diagonal "tunnel-wall" lines from each
-  // entrance corner to the vanishing point.
+  // ── SWIRLING VORTEX inside the doorway ──
+  // For each void pixel, compute polar coordinates from the central
+  // vanishing point and pick a colour from the 3-spiral-arm pattern.
+  // The arms wind inward (TWIST*d term) and rotate over the loop, giving
+  // the "pulling backward" swirl. Same 3 cool colours as before so the
+  // vortex doesn't fight the arch's warm gold/magenta palette.
   {
-    const VCX = 32, VCY = 65;          // vanishing point (centre of void)
-    const MAX_HW = 12, MAX_HH = 49;
-    const N_RINGS = 12;                // denser for a smoother gradient
+    const VCX = 32, VCY = 65;
+    const HALF_W = 12.5, HALF_H = 49.5;
+    const N_ARMS = 3;
+    const TWIST = 5;
     const t = frame / TOTAL_FRAMES;
+    const rotation = t * Math.PI * 2;     // one full rotation per loop
+    const TAU = Math.PI * 2;
 
-    // Clipped Bresenham line, only paints inside the void box
-    const drawLine = (r1, c1, r2, c2, color) => {
-      const dr = Math.abs(r2 - r1);
-      const dc = Math.abs(c2 - c1);
-      const sr = r1 < r2 ? 1 : -1;
-      const sc = c1 < c2 ? 1 : -1;
-      let err = dc - dr;
-      let r = r1, c = c1;
-      for (let safety = 0; safety < 300; safety++) {
-        if (r >= 16 && r <= 115 && c >= 19 && c <= 44) set(r, c, color);
-        if (r === r2 && c === c2) break;
-        const e2 = 2 * err;
-        if (e2 > -dr) { err -= dr; c += sc; }
-        if (e2 <  dc) { err += dc; r += sr; }
-      }
-    };
+    for (let r = 16; r <= 115; r++) {
+      for (let c = 19; c <= 44; c++) {
+        const dy = (r - VCY) / HALF_H;    // normalised to half-height
+        const dx = (c - VCX) / HALF_W;
+        const d = Math.sqrt(dx * dx + dy * dy);
 
-    // Diagonal corner-to-vanishing-point lines (the tunnel "walls").
-    // Plum so they recede into the same depth tone as the deepest rings.
-    drawLine(VCY, VCX,  16, 19, 3);   // top-left
-    drawLine(VCY, VCX,  16, 44, 3);   // top-right
-    drawLine(VCY, VCX, 115, 19, 3);   // bottom-left
-    drawLine(VCY, VCX, 115, 44, 3);   // bottom-right
+        // Hot cream vanishing-point core
+        if (d < 0.10) {
+          set(r, c, 9);
+          continue;
+        }
 
-    // Concentric rings, each shrinking from the entrance toward the
-    // vanishing point. Tunnel uses only THREE cool colours (cream → cyan
-    // → plum) so it never visually competes with the warm gold/magenta/
-    // pink palette of the surrounding arch.
-    for (let i = 0; i < N_RINGS; i++) {
-      const phase = ((i / N_RINGS) + t * 2) % 1;   // 0 = at entrance, 1 = at vanishing point
-      const size = 1 - phase;                       // 1 → 0
-      if (size < 0.05) continue;
-      const halfW = Math.round(size * MAX_HW);
-      const halfH = Math.round(size * MAX_HH);
-      if (halfW < 1 || halfH < 1) continue;
-      // Smooth 3-stop gradient: bright cream entrance → electric cyan
-      // mid-depth → plum at the deepest rings (blends into the walls).
-      let color;
-      if      (size > 0.78) color = 9;   // cream
-      else if (size > 0.42) color = 6;   // cyan
-      else                  color = 3;   // plum
-      const rTop = VCY - halfH, rBot = VCY + halfH;
-      const cLeft = VCX - halfW, cRight = VCX + halfW;
-      for (let c = cLeft; c <= cRight; c++) {
-        set(rTop, c, color);
-        set(rBot, c, color);
-      }
-      for (let r = rTop; r <= rBot; r++) {
-        set(r, cLeft, color);
-        set(r, cRight, color);
+        const theta = Math.atan2(dy, dx);
+        // arms move inward over time → "pulling backward" feel
+        const arg = N_ARMS * theta + TWIST * d + rotation;
+        const phase = ((arg / TAU) % 1 + 1) % 1;
+
+        let color;
+        if      (phase < 0.34) color = 9;   // cream — bright arm
+        else if (phase < 0.67) color = 6;   // cyan — mid
+        else                   color = 3;   // plum — gap / arm trail
+        set(r, c, color);
       }
     }
 
-    // Hot cream vanishing-point pixel with a 3-frame twinkle
+    // Twinkle around the hot core
     const tw = frame % 3;
-    set(VCY, VCX, 9);
-    if (tw !== 0) set(VCY - 1, VCX, 9);
-    if (tw !== 1) set(VCY + 1, VCX, 9);
-    if (tw !== 2) set(VCY, VCX - 1, 9);
-    if (tw !== 0) set(VCY, VCX + 1, 9);
+    if (tw === 0) set(VCY - 1, VCX, 6);
+    if (tw === 1) set(VCY, VCX + 1, 6);
+    if (tw === 2) set(VCY + 1, VCX, 6);
   }
 
   // ── PINK RIM ──
