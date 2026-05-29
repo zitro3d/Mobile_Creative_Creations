@@ -32,57 +32,37 @@ def build(frame):
     # Void
     f(16, 19, 115, 44, 1)
 
-    # Z-depth tunnel — receding concentric rings + diagonal walls.
-    # 3-stop cool gradient (cream → cyan → plum) to contrast the arch.
+    # Swirling vortex inside the doorway: 3 spiral arms, twisted by depth,
+    # rotating over the loop. Same 3 cool colours (cream/cyan/plum).
+    import math as _math
     VCX, VCY = 32, 65
-    MAX_HW, MAX_HH, N_RINGS = 12, 49, 12
-
-    def draw_line(r1, c1, r2, c2, color):
-        dr = abs(r2 - r1); dc = abs(c2 - c1)
-        sr = 1 if r1 < r2 else -1
-        sc = 1 if c1 < c2 else -1
-        err = dc - dr
-        r, c = r1, c1
-        for _ in range(300):
-            if 16 <= r <= 115 and 19 <= c <= 44:
-                s(r, c, color)
-            if r == r2 and c == c2:
-                break
-            e2 = 2 * err
-            if e2 > -dr: err -= dr; c += sc
-            if e2 <  dc: err += dc; r += sr
-
-    draw_line(VCY, VCX,  16, 19, 3)
-    draw_line(VCY, VCX,  16, 44, 3)
-    draw_line(VCY, VCX, 115, 19, 3)
-    draw_line(VCY, VCX, 115, 44, 3)
-
+    HALF_W, HALF_H = 12.5, 49.5
+    N_ARMS = 3
+    TWIST = 5
     t = frame / FRAMES
-    for i in range(N_RINGS):
-        phase = ((i / N_RINGS) + t * 2) % 1
-        size = 1 - phase
-        if size < 0.05: continue
-        halfW = round(size * MAX_HW)
-        halfH = round(size * MAX_HH)
-        if halfW < 1 or halfH < 1: continue
-        if   size > 0.78: color = 9   # cream — close
-        elif size > 0.42: color = 6   # cyan — mid
-        else:             color = 3   # plum — deep
-        rTop, rBot = VCY - halfH, VCY + halfH
-        cL, cR = VCX - halfW, VCX + halfW
-        for c in range(cL, cR + 1):
-            s(rTop, c, color)
-            s(rBot, c, color)
-        for r in range(rTop, rBot + 1):
-            s(r, cL, color)
-            s(r, cR, color)
+    rotation = t * 2 * _math.pi
+    TAU = 2 * _math.pi
+
+    for r in range(16, 116):
+        for c in range(19, 45):
+            dy = (r - VCY) / HALF_H
+            dx = (c - VCX) / HALF_W
+            d = _math.sqrt(dx * dx + dy * dy)
+            if d < 0.10:
+                s(r, c, 9)
+                continue
+            theta = _math.atan2(dy, dx)
+            arg = N_ARMS * theta + TWIST * d + rotation
+            phase = ((arg / TAU) % 1 + 1) % 1
+            if   phase < 0.34: color = 9
+            elif phase < 0.67: color = 6
+            else:              color = 3
+            s(r, c, color)
 
     tw = frame % 3
-    s(VCY, VCX, 9)
-    if tw != 0: s(VCY - 1, VCX, 9)
-    if tw != 1: s(VCY + 1, VCX, 9)
-    if tw != 2: s(VCY, VCX - 1, 9)
-    if tw != 0: s(VCY, VCX + 1, 9)
+    if tw == 0: s(VCY - 1, VCX, 6)
+    if tw == 1: s(VCY, VCX + 1, 6)
+    if tw == 2: s(VCY + 1, VCX, 6)
 
     # Rim
     f(14, 17, 15, 46, 5)
