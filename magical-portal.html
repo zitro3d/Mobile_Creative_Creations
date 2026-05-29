@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magical Portal — 64×128 HD Matrix</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    background: linear-gradient(135deg, #050214 0%, #0e0625 50%, #050214 100%);
+    min-height: 100vh;
+    padding: 24px 16px 40px;
+    color: #f0e0ff;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  h1 {
+    margin: 0;
+    letter-spacing: 0.1em;
+    font-size: clamp(20px, 3.6vw, 30px);
+    background: linear-gradient(90deg, #ff59b3, #ffd947, #4ee2ec, #a2f075);
+    -webkit-background-clip: text;
+            background-clip: text;
+    color: transparent;
+  }
+  .sub { margin: 0; color: #a090c0; font-size: 13px; text-align: center; }
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: transparent;
+    max-height: 80vh;
+    width: auto;
+    filter: drop-shadow(0 0 24px rgba(255, 89, 179, 0.30))
+            drop-shadow(0 0 48px rgba(78, 226, 236, 0.18))
+            drop-shadow(0 0 72px rgba(255, 217, 71, 0.08));
+  }
+  .palette {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 6px;
+    justify-content: center;
+    max-width: 760px;
+  }
+  .swatch { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #a090c0; }
+  .swatch > i {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 3px;
+  }
+  button {
+    background: #2a1a45; color: #f0e0ff;
+    border: 1px solid #5a3a85;
+    padding: 8px 14px; border-radius: 8px; cursor: pointer; font: inherit;
+  }
+  button:hover { background: #3a2055; }
+</style>
+</head>
+<body>
+  <h1>MAGICAL PORTAL · 64×128 HD</h1>
+  <p class="sub">strict 64×128 matrix · 10-color indexed palette · HTML5 Canvas + React</p>
+  <div id="root"></div>
+  <button id="dl">Download PNG</button>
+  <div class="palette" id="palette"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const { useRef, useEffect } = React;
+
+const PORTAL_W = 64;
+const PORTAL_H = 128;
+
+// Strict 10-color palette (index → CSS colour)
+const PALETTE = [
+  'transparent', // 0  background
+  '#000000',     // 1  inner portal void
+  '#170f26',     // 2  darkest midnight purple (outlines)
+  '#341e54',     // 3  deep plum purple (shadows / base)
+  '#6a357a',     // 4  muted magenta/purple (mid-tones)
+  '#ff59b3',     // 5  neon pink (inner rim glow)
+  '#4ee2ec',     // 6  cyan/teal (side crystal nodes)
+  '#a2f075',     // 7  pastel lime/mint (gradient transition)
+  '#ffd947',     // 8  golden yellow (magical fluid)
+  '#fff6cc',     // 9  cream white (hot highlights)
+];
+const PALETTE_LABELS = ['bg', 'void', 'midnight', 'plum', 'magenta', 'pink', 'cyan', 'mint', 'gold', 'cream'];
+
+// Build the 64×128 grid deterministically (strict 2D matrix, no random/procedural noise).
+function buildGrid() {
+  const W = PORTAL_W, H = PORTAL_H;
+  const g = Array.from({ length: H }, () => Array(W).fill(0));
+  const set = (r, c, v) => {
+    if (r >= 0 && r < H && c >= 0 && c < W) g[r][c] = v;
+  };
+  const fill = (r1, c1, r2, c2, v) => {
+    for (let r = r1; r <= r2; r++)
+      for (let c = c1; c <= c2; c++)
+        set(r, c, v);
+  };
+
+  // ── BLACK PORTAL VOID (rows 16-115, cols 19-44) ──
+  fill(16, 19, 115, 44, 1);
+
+  // ── NEON PINK RIM (2 px thick, framing top/left/right of void) ──
+  fill(14, 17, 15, 46, 5);     // top edge
+  fill(14, 17, 115, 18, 5);    // left edge
+  fill(14, 45, 115, 46, 5);    // right edge
+
+  // ── LEFT PILLAR (cols 4-16, rows 14-115) — vertical bands, outer-dark to inner-glow ──
+  for (let r = 14; r <= 115; r++) {
+    let pattern;
+    if (r <= 24)       pattern = [2,3,3,4,4,7,7,7,8,8,8,9,9];   // top: bright golden glow
+    else if (r <= 50)  pattern = [2,3,3,4,4,4,7,7,7,8,8,9,8];   // upper-mid: warm glow
+    else if (r <= 75)  pattern = [2,3,3,3,4,4,7,7,7,7,8,8,7];   // middle: mint/gold mix
+    else if (r <= 100) pattern = [2,3,3,3,4,4,4,4,7,7,7,4,4];   // lower-mid: cooling
+    else               pattern = [2,2,3,3,3,4,4,4,4,3,3,3,3];   // bottom: deep shadow
+    for (let i = 0; i < 13; i++) set(r, 4 + i, pattern[i]);
+  }
+
+  // ── RIGHT PILLAR (cols 47-59) — mirror ──
+  for (let r = 14; r <= 115; r++) {
+    let pattern;
+    if (r <= 24)       pattern = [2,3,3,4,4,7,7,7,8,8,8,9,9];
+    else if (r <= 50)  pattern = [2,3,3,4,4,4,7,7,7,8,8,9,8];
+    else if (r <= 75)  pattern = [2,3,3,3,4,4,7,7,7,7,8,8,7];
+    else if (r <= 100) pattern = [2,3,3,3,4,4,4,4,7,7,7,4,4];
+    else               pattern = [2,2,3,3,3,4,4,4,4,3,3,3,3];
+    for (let i = 0; i < 13; i++) set(r, 47 + i, pattern[12 - i]);
+  }
+
+  // ── LEFT CYAN CRYSTAL NODE (mid-pillar, bulges out into transparent space) ──
+  // Rounded diamond, rows 60-70, cols 0-6
+  const leftCrystal = [
+    [60, [0,0,0,6,0,0,0]],
+    [61, [0,0,6,6,6,0,0]],
+    [62, [0,6,6,6,6,6,0]],
+    [63, [6,6,6,6,6,6,6]],
+    [64, [6,6,9,9,9,6,6]],
+    [65, [6,9,9,9,9,9,6]],
+    [66, [6,6,9,9,9,6,6]],
+    [67, [6,6,6,6,6,6,6]],
+    [68, [0,6,6,6,6,6,0]],
+    [69, [0,0,6,6,6,0,0]],
+    [70, [0,0,0,6,0,0,0]],
+  ];
+  for (const [r, row] of leftCrystal)
+    for (let c = 0; c < row.length; c++)
+      if (row[c] !== 0) set(r, c, row[c]);
+
+  // ── RIGHT CYAN CRYSTAL NODE (mirror, cols 57-63) ──
+  for (const [r, row] of leftCrystal)
+    for (let c = 0; c < row.length; c++)
+      if (row[c] !== 0) set(r, 63 - c, row[c]);
+
+  // ── TOP CROWN BODY (rows 5-13, cols 4-59) ──
+  fill(5, 4, 13, 59, 3);          // deep plum body
+  fill(5, 4, 5, 59, 2);           // top outline
+  fill(6, 4, 13, 4, 2);           // left outline
+  fill(6, 59, 13, 59, 2);         // right outline
+  fill(13, 4, 13, 59, 2);         // bottom outline
+
+  // Crown decorative magic — magenta accents woven in
+  for (let r = 7; r <= 11; r++) {
+    for (let c = 6; c <= 57; c++) {
+      // Diagonal magenta pattern via deterministic position math
+      if ((r * 3 + c) % 9 === 0) g[r][c] = 4;
+    }
+  }
+  // Golden flecks embedded in the crown
+  const crownGold = [[7,12],[7,51],[8,18],[8,45],[9,22],[9,41],[10,9],[10,54],[11,15],[11,48],[8,30],[8,33],[10,27],[10,36]];
+  for (const [r, c] of crownGold) set(r, c, 8);
+  // Cream specular highlights
+  const crownCream = [[7,8],[7,55],[8,14],[8,49],[9,18],[9,45],[10,11],[10,52],[6,22],[6,41]];
+  for (const [r, c] of crownCream) set(r, c, 9);
+
+  // ── LEFT CORNER FLARE (rows 1-4, cols 0-7) — stepped pyramid above crown ──
+  fill(4, 0, 4, 7, 3);
+  set(4, 0, 2); set(4, 7, 2);
+  fill(3, 1, 3, 6, 3);
+  set(3, 1, 2); set(3, 6, 2);
+  fill(2, 2, 2, 5, 3);
+  set(2, 2, 2); set(2, 5, 2);
+  fill(1, 3, 1, 4, 2);
+  // a small gold gem inside each flare
+  set(3, 3, 8); set(3, 4, 8);
+  set(2, 3, 9); set(2, 4, 9);
+
+  // ── RIGHT CORNER FLARE (mirror, cols 56-63) ──
+  fill(4, 56, 4, 63, 3);
+  set(4, 56, 2); set(4, 63, 2);
+  fill(3, 57, 3, 62, 3);
+  set(3, 57, 2); set(3, 62, 2);
+  fill(2, 58, 2, 61, 3);
+  set(2, 58, 2); set(2, 61, 2);
+  fill(1, 59, 1, 60, 2);
+  set(3, 59, 8); set(3, 60, 8);
+  set(2, 59, 9); set(2, 60, 9);
+
+  // ── FLAME CREST (top centre, rows 0-4, cols 27-36) ──
+  // Taper from 2-px tip to 10-px base, golden body with cream hot-core
+  set(0, 31, 9); set(0, 32, 9);
+  set(1, 30, 8); set(1, 31, 9); set(1, 32, 9); set(1, 33, 8);
+  fill(2, 29, 2, 34, 8);
+  set(2, 30, 9); set(2, 31, 9); set(2, 32, 9); set(2, 33, 9);
+  fill(3, 28, 3, 35, 8);
+  set(3, 30, 9); set(3, 31, 9); set(3, 32, 9); set(3, 33, 9);
+  fill(4, 27, 4, 36, 8);
+  set(4, 30, 9); set(4, 31, 9); set(4, 32, 9); set(4, 33, 9);
+
+  // ── PEDESTAL BASE (rows 116-127, 12 rows) — stepped outward flare ──
+  const pedExtent = (r) => {
+    if (r === 116) return 0;
+    if (r <= 118) return 1;
+    if (r <= 120) return 2;
+    if (r <= 122) return 3;
+    if (r <= 124) return 4;
+    return 5;
+  };
+  for (let r = 116; r <= 127; r++) {
+    const ext = pedExtent(r);
+    // Left pedestal
+    const lLeft = Math.max(0, 4 - ext);
+    const lRight = 16;
+    for (let c = lLeft; c <= lRight; c++) {
+      if (c === lLeft || c === lRight) set(r, c, 2);
+      else set(r, c, 3);
+    }
+    // Right pedestal
+    const rLeft = 47;
+    const rRight = Math.min(W - 1, 59 + ext);
+    for (let c = rLeft; c <= rRight; c++) {
+      if (c === rLeft || c === rRight) set(r, c, 2);
+      else set(r, c, 3);
+    }
+  }
+  // Top of pedestal slightly lighter (mid-tone)
+  fill(116, 5, 116, 15, 4);
+  fill(116, 48, 116, 58, 4);
+
+  // ── GOLDEN MAGICAL FLUID dripping at pillar bases + pooling on floor ──
+  // Drips coming down from each pillar where it meets pedestal
+  fill(116, 8, 117, 12, 8);
+  set(118, 9, 8); set(118, 10, 8); set(118, 11, 8);
+  set(119, 10, 8);
+  // Cream highlights on drips
+  set(116, 10, 9); set(117, 10, 9);
+  // Right side mirror
+  fill(116, 51, 117, 55, 8);
+  set(118, 52, 8); set(118, 53, 8); set(118, 54, 8);
+  set(119, 53, 8);
+  set(116, 53, 9); set(117, 53, 9);
+
+  // Gold pool filling the floor between the pedestals (where void ends)
+  // Drips growing wider as they fall
+  fill(120, 22, 121, 41, 8);
+  fill(122, 20, 123, 43, 8);
+  fill(124, 19, 127, 44, 8);
+  // Cream specular highlights on the pool surface
+  fill(125, 24, 125, 39, 9);
+  fill(126, 27, 126, 36, 9);
+  // Edge highlights on pool sides
+  set(122, 19, 4); set(122, 44, 4);
+  set(124, 19, 4); set(124, 44, 4);
+
+  // ── FLOATING SPARKLES (1px and 2×2 clusters of colours 5/6/8 in empty space) ──
+  // Left side margins (cols 0-3)
+  fill(20, 1, 21, 2, 5);    // 2×2 pink
+  set(33, 2, 8);            // single yellow
+  set(45, 1, 6);            // single cyan
+  fill(82, 2, 83, 3, 8);    // 2×2 yellow
+  set(95, 1, 5);            // single pink
+  set(105, 2, 6);           // single cyan
+  set(8, 2, 8); set(13, 1, 6); set(28, 0, 5);
+
+  // Right side margins (cols 60-63)
+  fill(25, 61, 26, 62, 6);  // 2×2 cyan
+  set(40, 62, 8);
+  set(52, 61, 5);
+  fill(75, 60, 76, 61, 5);  // 2×2 pink
+  set(90, 62, 8);
+  set(102, 60, 6);
+  set(8, 61, 5); set(15, 62, 8); set(35, 63, 6);
+
+  // Top sparkles (outside the flame and corner flares)
+  set(2, 14, 8);
+  set(3, 22, 6);
+  set(2, 44, 6);
+  set(3, 50, 8);
+  set(0, 10, 5);
+  set(0, 53, 5);
+
+  // Sparkles near the crystal nodes
+  set(58, 0, 5); set(72, 0, 8);
+  set(58, 63, 5); set(72, 63, 8);
+
+  return g;
+}
+
+function Portal() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const scale = 10;                              // each grid cell = 10 px
+    canvas.width  = PORTAL_W * scale;
+    canvas.height = PORTAL_H * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;             // CRISP PIXELS
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const grid = buildGrid();
+    for (let r = 0; r < PORTAL_H; r++) {
+      for (let c = 0; c < PORTAL_W; c++) {
+        const idx = grid[r][c];
+        if (idx === 0) continue;                   // transparent
+        ctx.fillStyle = PALETTE[idx];
+        ctx.fillRect(c * scale, r * scale, scale, scale);
+      }
+    }
+  }, []);
+
+  return <canvas ref={canvasRef} aria-label="magical portal HD pixel sprite" />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Portal />);
+
+// Palette swatches
+const paletteEl = document.getElementById('palette');
+PALETTE.forEach((color, i) => {
+  const el = document.createElement('div');
+  el.className = 'swatch';
+  const swatch = `<i style="background:${i === 0 ? 'repeating-conic-gradient(#333 0 25%, #222 0 50%) 50% / 6px 6px' : color}"></i>`;
+  el.innerHTML = `${swatch}<span><b>${i}</b> ${PALETTE_LABELS[i]} <code>${i === 0 ? '∅' : color}</code></span>`;
+  paletteEl.appendChild(el);
+});
+
+// Download as PNG
+document.getElementById('dl').onclick = () => {
+  const canvas = document.querySelector('canvas');
+  if (!canvas) return;
+  const link = document.createElement('a');
+  link.download = 'magical-portal-hd.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+};
+</script>
+</body>
+</html>
