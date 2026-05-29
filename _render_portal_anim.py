@@ -95,8 +95,8 @@ def build(frame, layers=None):
                 s(r, 47 + i, p[12 - i])
 
         # Pillar pulses (animated cream travelling down inner edge)
-        pulse_y1 = 14 + ((frame * 4) % 104)
-        pulse_y2 = 14 + ((frame * 4 + 52) % 104)
+        pulse_y1 = 14 + ((frame * 3) % 108)
+        pulse_y2 = 14 + ((frame * 3 + 54) % 108)
         for py in (pulse_y1, pulse_y2):
             if 14 <= py <= 113:
                 if g[py][15]: s(py, 15, 9)
@@ -119,7 +119,7 @@ def build(frame, layers=None):
              (64,[6,9,9,9,9,9,6]),(65,[9,9,9,9,9,9,9]),(66,[6,9,9,9,9,9,6]),(67,[6,6,9,9,9,6,6]),
              (68,[0,6,6,9,6,6,0]),(69,[0,0,6,6,6,0,0]),(70,[0,0,0,6,0,0,0])],
         ]
-        crystal = crystal_shapes[(frame // 4) % 4]
+        crystal = crystal_shapes[(frame % 12) // 3]
         for r, row in crystal:
             for c in range(len(row)):
                 if row[c]: s(r, c, row[c])
@@ -201,7 +201,7 @@ def build(frame, layers=None):
         s(122,19,4); s(122,44,4); s(124,19,4); s(124,44,4)
         # Ripples
         for w in range(2):
-            wave_pos = ((frame * 2 + w * 18) % 30) - 5
+            wave_pos = ((frame * 2 + w * 12) % 24) - 2
             for dx in range(3):
                 x = 19 + wave_pos + dx
                 if 19 <= x <= 44:
@@ -215,11 +215,11 @@ def build(frame, layers=None):
         s(116,10,9); s(117,10,9); s(116,53,9); s(117,53,9)
         f(118, 9, 118, 11, 8); f(118, 52, 118, 54, 8)
         # Falling drops
-        dropL = frame % 8
+        dropL = frame % 9
         if 1 <= dropL <= 5:
             s(118 + dropL, 10, 8)
             if dropL >= 3: s(118 + dropL - 1, 10, 4)
-        dropR = (frame + 4) % 8
+        dropR = (frame + 4) % 9
         if 1 <= dropR <= 5:
             s(118 + dropR, 53, 8)
             if dropR >= 3: s(118 + dropR - 1, 53, 4)
@@ -295,7 +295,7 @@ def build(frame, layers=None):
             if raw_phase > life or raw_phase < 0.02: continue
             phase = raw_phase / life
 
-            raw = (i * GOLDEN + t * TAU * 0.25) % TAU
+            raw = (i * GOLDEN + t * TAU) % TAU
             off = raw - FORWARD
             while off >  _math.pi: off -= TAU
             while off < -_math.pi: off += TAU
