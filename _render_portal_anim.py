@@ -236,6 +236,36 @@ def build(frame):
         if (frame + r * 7 + c * 11) % 12 < 8:
             if g[r][c] == 0: s(r, c, v)
 
+    # Magical particles erupting from the vortex toward the camera
+    VCX, VCY = 32, 65
+    NUM_PARTICLES = 16
+    t = frame / FRAMES
+    GOLDEN = 2.39996
+    for i in range(NUM_PARTICLES):
+        phase_offset = i / NUM_PARTICLES
+        phase = (t + phase_offset) % 1
+        if phase < 0.06: continue
+        angle = i * GOLDEN + t * _math.pi * 0.4
+        dist = (phase ** 0.85) * 75
+        px = round(VCX + _math.cos(angle) * dist)
+        py = round(VCY + _math.sin(angle) * dist * 1.35)
+        if   phase < 0.16: size = 0
+        elif phase < 0.36: size = 1
+        elif phase < 0.62: size = 2
+        elif phase < 0.86: size = 3
+        else:              size = 2
+        if   phase < 0.22: color = 6
+        elif phase < 0.46: color = 9
+        elif phase < 0.70: color = 8
+        elif phase < 0.92: color = 5
+        else:              color = 4
+        for dr in range(-size, size + 1):
+            for dc in range(-size, size + 1):
+                if abs(dr) + abs(dc) <= size:
+                    s(py + dr, px + dc, color)
+        if size >= 2:
+            s(py, px, 9)
+
     return g
 
 
