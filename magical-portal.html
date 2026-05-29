@@ -32,11 +32,11 @@
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     background: transparent;
-    max-height: 80vh;
+    max-height: 82vh;
     width: auto;
-    filter: drop-shadow(0 0 24px rgba(255, 89, 179, 0.30))
-            drop-shadow(0 0 48px rgba(78, 226, 236, 0.18))
-            drop-shadow(0 0 72px rgba(255, 217, 71, 0.08));
+    filter: drop-shadow(0 0 24px rgba(255, 89, 179, 0.32))
+            drop-shadow(0 0 48px rgba(78, 226, 236, 0.20))
+            drop-shadow(0 0 72px rgba(255, 217, 71, 0.10));
   }
   .palette {
     display: flex;
@@ -63,7 +63,7 @@
 </head>
 <body>
   <h1>MAGICAL PORTAL · 64×128 HD</h1>
-  <p class="sub">strict 64×128 matrix · 10-color indexed palette · HTML5 Canvas + React</p>
+  <p class="sub">strict 64×128 matrix · 10-color indexed palette · dithered fluid pillars · React + HTML5 Canvas</p>
   <div id="root"></div>
   <button id="dl">Download PNG</button>
   <div class="palette" id="palette"></div>
@@ -77,22 +77,21 @@ const { useRef, useEffect } = React;
 const PORTAL_W = 64;
 const PORTAL_H = 128;
 
-// Strict 10-color palette (index → CSS colour)
 const PALETTE = [
-  'transparent', // 0  background
-  '#000000',     // 1  inner portal void
-  '#170f26',     // 2  darkest midnight purple (outlines)
-  '#341e54',     // 3  deep plum purple (shadows / base)
-  '#6a357a',     // 4  muted magenta/purple (mid-tones)
-  '#ff59b3',     // 5  neon pink (inner rim glow)
-  '#4ee2ec',     // 6  cyan/teal (side crystal nodes)
-  '#a2f075',     // 7  pastel lime/mint (gradient transition)
-  '#ffd947',     // 8  golden yellow (magical fluid)
-  '#fff6cc',     // 9  cream white (hot highlights)
+  'transparent', // 0
+  '#000000',     // 1 inner void
+  '#170f26',     // 2 midnight purple (outlines)
+  '#341e54',     // 3 deep plum (shadows / base)
+  '#6a357a',     // 4 muted magenta (mid-tones)
+  '#ff59b3',     // 5 neon pink (inner rim)
+  '#4ee2ec',     // 6 cyan/teal (side crystals)
+  '#a2f075',     // 7 pastel mint/lime
+  '#ffd947',     // 8 golden yellow (magical fluid)
+  '#fff6cc',     // 9 cream / hot highlight
 ];
 const PALETTE_LABELS = ['bg', 'void', 'midnight', 'plum', 'magenta', 'pink', 'cyan', 'mint', 'gold', 'cream'];
 
-// Build the 64×128 grid deterministically (strict 2D matrix, no random/procedural noise).
+// Build the 64×128 grid deterministically (strict 2D matrix).
 function buildGrid() {
   const W = PORTAL_W, H = PORTAL_H;
   const g = Array.from({ length: H }, () => Array(W).fill(0));
@@ -104,117 +103,199 @@ function buildGrid() {
       for (let c = c1; c <= c2; c++)
         set(r, c, v);
   };
+  // Deterministic dither hash (returns 0..1 for any (r,c)).
+  const dith = (r, c) => ((r * 7 + c * 13 + (r * c) % 11 + (c >> 1) * 5) % 12) / 12;
 
-  // ── BLACK PORTAL VOID (rows 16-115, cols 19-44) ──
+  // ── BLACK PORTAL VOID ──
   fill(16, 19, 115, 44, 1);
 
-  // ── NEON PINK RIM (2 px thick, framing top/left/right of void) ──
-  fill(14, 17, 15, 46, 5);     // top edge
-  fill(14, 17, 115, 18, 5);    // left edge
-  fill(14, 45, 115, 46, 5);    // right edge
+  // Subtle cosmic-dust texture (a few deep purple/magenta dots in the lower void)
+  const voidDust = [
+    [72,26,3],[78,33,4],[83,22,3],[88,38,4],[92,28,3],
+    [96,41,4],[99,23,3],[102,35,4],[105,30,3],[108,39,4],
+    [111,25,3],[113,32,4],[114,28,3],[107,21,4],[100,42,3],
+  ];
+  for (const [r,c,v] of voidDust) set(r, c, v);
 
-  // ── LEFT PILLAR (cols 4-16, rows 14-115) — vertical bands, outer-dark to inner-glow ──
+  // ── NEON PINK RIM (2 px thick around top/left/right of void) ──
+  fill(14, 17, 15, 46, 5);
+  fill(14, 17, 115, 18, 5);
+  fill(14, 45, 115, 46, 5);
+  // Brighter rim highlights — cream sparkle at intervals on the outer edge
+  for (let r = 14; r <= 115; r += 11) {
+    set(r, 17, 9);
+    set(r, 46, 9);
+  }
+  set(14, 22, 9); set(14, 30, 9); set(14, 41, 9);
+
+  // ── LEFT PILLAR — DITHERED FLUID ENERGY ──
   for (let r = 14; r <= 115; r++) {
-    let pattern;
-    if (r <= 24)       pattern = [2,3,3,4,4,7,7,7,8,8,8,9,9];   // top: bright golden glow
-    else if (r <= 50)  pattern = [2,3,3,4,4,4,7,7,7,8,8,9,8];   // upper-mid: warm glow
-    else if (r <= 75)  pattern = [2,3,3,3,4,4,7,7,7,7,8,8,7];   // middle: mint/gold mix
-    else if (r <= 100) pattern = [2,3,3,3,4,4,4,4,7,7,7,4,4];   // lower-mid: cooling
-    else               pattern = [2,2,3,3,3,4,4,4,4,3,3,3,3];   // bottom: deep shadow
-    for (let i = 0; i < 13; i++) set(r, 4 + i, pattern[i]);
+    for (let c = 4; c <= 16; c++) {
+      const relC = c - 4;
+      let v;
+      if (relC === 0) {
+        v = 2;                                         // hard outer outline
+      } else if (relC === 1) {
+        v = dith(r, c) < 0.45 ? 3 : 2;                 // dithered shadow edge
+      } else {
+        const t = (r - 14) / 101;
+        const d = dith(r, c);
+        if (t < 0.18) {                                // hot golden top
+          if (d < 0.20) v = 9;
+          else if (d < 0.50) v = 8;
+          else if (d < 0.78) v = 7;
+          else v = 4;
+        } else if (t < 0.40) {                          // warm gold-mint flow
+          if (d < 0.16) v = 9;
+          else if (d < 0.42) v = 8;
+          else if (d < 0.68) v = 7;
+          else if (d < 0.88) v = 4;
+          else v = 3;
+        } else if (t < 0.65) {                          // intermixing middle
+          if (d < 0.14) v = 9;
+          else if (d < 0.38) v = 8;
+          else if (d < 0.62) v = 7;
+          else if (d < 0.85) v = 4;
+          else v = 3;
+        } else if (t < 0.88) {                          // cooling lower
+          if (d < 0.14) v = 8;
+          else if (d < 0.36) v = 7;
+          else if (d < 0.62) v = 4;
+          else if (d < 0.88) v = 3;
+          else v = 2;
+        } else {                                        // bottom: occasional bright pops
+          if (d < 0.08) v = 8;
+          else if (d < 0.24) v = 4;
+          else if (d < 0.62) v = 3;
+          else v = 2;
+        }
+      }
+      set(r, c, v);
+    }
   }
 
-  // ── RIGHT PILLAR (cols 47-59) — mirror ──
+  // ── RIGHT PILLAR (mirror) ──
   for (let r = 14; r <= 115; r++) {
-    let pattern;
-    if (r <= 24)       pattern = [2,3,3,4,4,7,7,7,8,8,8,9,9];
-    else if (r <= 50)  pattern = [2,3,3,4,4,4,7,7,7,8,8,9,8];
-    else if (r <= 75)  pattern = [2,3,3,3,4,4,7,7,7,7,8,8,7];
-    else if (r <= 100) pattern = [2,3,3,3,4,4,4,4,7,7,7,4,4];
-    else               pattern = [2,2,3,3,3,4,4,4,4,3,3,3,3];
-    for (let i = 0; i < 13; i++) set(r, 47 + i, pattern[12 - i]);
+    for (let c = 47; c <= 59; c++) {
+      const relC = 59 - c;
+      let v;
+      if (relC === 0) {
+        v = 2;
+      } else if (relC === 1) {
+        v = dith(r, c) < 0.45 ? 3 : 2;
+      } else {
+        const t = (r - 14) / 101;
+        const d = dith(r, c);
+        if (t < 0.18) {
+          if (d < 0.20) v = 9;
+          else if (d < 0.50) v = 8;
+          else if (d < 0.78) v = 7;
+          else v = 4;
+        } else if (t < 0.40) {
+          if (d < 0.16) v = 9;
+          else if (d < 0.42) v = 8;
+          else if (d < 0.68) v = 7;
+          else if (d < 0.88) v = 4;
+          else v = 3;
+        } else if (t < 0.65) {
+          if (d < 0.14) v = 9;
+          else if (d < 0.38) v = 8;
+          else if (d < 0.62) v = 7;
+          else if (d < 0.85) v = 4;
+          else v = 3;
+        } else if (t < 0.88) {
+          if (d < 0.14) v = 8;
+          else if (d < 0.36) v = 7;
+          else if (d < 0.62) v = 4;
+          else if (d < 0.88) v = 3;
+          else v = 2;
+        } else {
+          if (d < 0.08) v = 8;
+          else if (d < 0.24) v = 4;
+          else if (d < 0.62) v = 3;
+          else v = 2;
+        }
+      }
+      set(r, c, v);
+    }
   }
 
-  // ── LEFT CYAN CRYSTAL NODE (mid-pillar, bulges out into transparent space) ──
-  // Rounded diamond, rows 60-70, cols 0-6
+  // ── ROUNDED CRYSTAL NODES (organic egg-shape, polished gem) ──
   const leftCrystal = [
-    [60, [0,0,0,6,0,0,0]],
-    [61, [0,0,6,6,6,0,0]],
-    [62, [0,6,6,6,6,6,0]],
-    [63, [6,6,6,6,6,6,6]],
-    [64, [6,6,9,9,9,6,6]],
+    [60, [0,0,0,6,6,0,0]],
+    [61, [0,0,6,6,6,6,0]],
+    [62, [0,6,6,9,6,6,6]],
+    [63, [6,6,9,9,9,6,6]],
+    [64, [6,9,9,9,9,9,6]],
     [65, [6,9,9,9,9,9,6]],
-    [66, [6,6,9,9,9,6,6]],
-    [67, [6,6,6,6,6,6,6]],
-    [68, [0,6,6,6,6,6,0]],
-    [69, [0,0,6,6,6,0,0]],
-    [70, [0,0,0,6,0,0,0]],
+    [66, [6,9,9,9,9,9,6]],
+    [67, [6,6,9,9,9,6,6]],
+    [68, [0,6,6,9,6,6,6]],
+    [69, [0,0,6,6,6,6,0]],
+    [70, [0,0,0,6,6,0,0]],
   ];
   for (const [r, row] of leftCrystal)
     for (let c = 0; c < row.length; c++)
       if (row[c] !== 0) set(r, c, row[c]);
-
-  // ── RIGHT CYAN CRYSTAL NODE (mirror, cols 57-63) ──
+  // Right crystal (mirror)
   for (const [r, row] of leftCrystal)
     for (let c = 0; c < row.length; c++)
       if (row[c] !== 0) set(r, 63 - c, row[c]);
 
-  // ── TOP CROWN BODY (rows 5-13, cols 4-59) ──
-  fill(5, 4, 13, 59, 3);          // deep plum body
-  fill(5, 4, 5, 59, 2);           // top outline
-  fill(6, 4, 13, 4, 2);           // left outline
-  fill(6, 59, 13, 59, 2);         // right outline
-  fill(13, 4, 13, 59, 2);         // bottom outline
+  // ── TOP CROWN BODY ──
+  fill(5, 4, 13, 59, 3);
+  fill(5, 4, 5, 59, 2);
+  fill(6, 4, 13, 4, 2);
+  fill(6, 59, 13, 59, 2);
+  fill(13, 4, 13, 59, 2);
 
-  // Crown decorative magic — magenta accents woven in
-  for (let r = 7; r <= 11; r++) {
-    for (let c = 6; c <= 57; c++) {
-      // Diagonal magenta pattern via deterministic position math
-      if ((r * 3 + c) % 9 === 0) g[r][c] = 4;
+  // ── DENSE STARFIELD inside the crown header ──
+  for (let r = 6; r <= 12; r++) {
+    for (let c = 5; c <= 58; c++) {
+      const h = (r * 13 + c * 7) % 31;
+      if (h === 0 || h === 7) g[r][c] = 9;          // cream stars
+      else if (h === 3 || h === 14) g[r][c] = 8;    // gold stars
+      else if (h === 11) g[r][c] = 4;               // magenta stars
+      else if (h === 18) g[r][c] = 7;               // tiny mint star
     }
   }
-  // Golden flecks embedded in the crown
-  const crownGold = [[7,12],[7,51],[8,18],[8,45],[9,22],[9,41],[10,9],[10,54],[11,15],[11,48],[8,30],[8,33],[10,27],[10,36]];
-  for (const [r, c] of crownGold) set(r, c, 8);
-  // Cream specular highlights
-  const crownCream = [[7,8],[7,55],[8,14],[8,49],[9,18],[9,45],[10,11],[10,52],[6,22],[6,41]];
-  for (const [r, c] of crownCream) set(r, c, 9);
+  // 2-pixel "bigger" stars for variety
+  const bigStars = [[7,15],[7,52],[8,28],[8,39],[9,22],[10,46],[11,11]];
+  for (const [r, c] of bigStars) {
+    set(r, c, 9); set(r, c + 1, 9);
+  }
 
-  // ── LEFT CORNER FLARE (rows 1-4, cols 0-7) — stepped pyramid above crown ──
-  fill(4, 0, 4, 7, 3);
-  set(4, 0, 2); set(4, 7, 2);
-  fill(3, 1, 3, 6, 3);
-  set(3, 1, 2); set(3, 6, 2);
-  fill(2, 2, 2, 5, 3);
-  set(2, 2, 2); set(2, 5, 2);
-  fill(1, 3, 1, 4, 2);
-  // a small gold gem inside each flare
-  set(3, 3, 8); set(3, 4, 8);
-  set(2, 3, 9); set(2, 4, 9);
+  // ── CORNER FINIAL CAPS (smaller, clean) ──
+  // Left finial
+  fill(4, 1, 4, 6, 3);
+  set(4, 1, 2); set(4, 6, 2);
+  fill(3, 2, 3, 5, 3);
+  set(3, 2, 2); set(3, 5, 2);
+  fill(2, 3, 2, 4, 2);                              // top cap
+  set(1, 3, 8); set(1, 4, 9);                       // gold + cream finial gem
+  // Right finial
+  fill(4, 57, 4, 62, 3);
+  set(4, 57, 2); set(4, 62, 2);
+  fill(3, 58, 3, 61, 3);
+  set(3, 58, 2); set(3, 61, 2);
+  fill(2, 59, 2, 60, 2);
+  set(1, 59, 9); set(1, 60, 8);
 
-  // ── RIGHT CORNER FLARE (mirror, cols 56-63) ──
-  fill(4, 56, 4, 63, 3);
-  set(4, 56, 2); set(4, 63, 2);
-  fill(3, 57, 3, 62, 3);
-  set(3, 57, 2); set(3, 62, 2);
-  fill(2, 58, 2, 61, 3);
-  set(2, 58, 2); set(2, 61, 2);
-  fill(1, 59, 1, 60, 2);
-  set(3, 59, 8); set(3, 60, 8);
-  set(2, 59, 9); set(2, 60, 9);
-
-  // ── FLAME CREST (top centre, rows 0-4, cols 27-36) ──
-  // Taper from 2-px tip to 10-px base, golden body with cream hot-core
+  // ── COMPLEX FLICKING FLAME CREST (rows 0-4, multi-pixel, 3D) ──
+  // Hot cream/white core, golden body, purple tips at base
   set(0, 31, 9); set(0, 32, 9);
-  set(1, 30, 8); set(1, 31, 9); set(1, 32, 9); set(1, 33, 8);
-  fill(2, 29, 2, 34, 8);
-  set(2, 30, 9); set(2, 31, 9); set(2, 32, 9); set(2, 33, 9);
-  fill(3, 28, 3, 35, 8);
-  set(3, 30, 9); set(3, 31, 9); set(3, 32, 9); set(3, 33, 9);
-  fill(4, 27, 4, 36, 8);
-  set(4, 30, 9); set(4, 31, 9); set(4, 32, 9); set(4, 33, 9);
+  set(1, 30, 8); set(1, 31, 9); set(1, 32, 9); set(1, 33, 9); set(1, 34, 8);
+  set(2, 28, 8); set(2, 29, 8); set(2, 30, 9); set(2, 31, 9);
+  set(2, 32, 9); set(2, 33, 9); set(2, 34, 8); set(2, 35, 8);
+  set(3, 27, 8); set(3, 28, 9); set(3, 29, 9); set(3, 30, 9); set(3, 31, 9);
+  set(3, 32, 9); set(3, 33, 9); set(3, 34, 9); set(3, 35, 8); set(3, 36, 8);
+  set(4, 27, 4); set(4, 28, 8); set(4, 29, 8); set(4, 30, 9); set(4, 31, 9);
+  set(4, 32, 9); set(4, 33, 9); set(4, 34, 8); set(4, 35, 8); set(4, 36, 4);
+  // Tiny side flickers
+  set(2, 36, 8);                                    // right flicker
+  set(1, 28, 9);                                    // left tip flicker
 
-  // ── PEDESTAL BASE (rows 116-127, 12 rows) — stepped outward flare ──
+  // ── PEDESTAL BASE (rows 116-127) — stepped outward flare ──
   const pedExtent = (r) => {
     if (r === 116) return 0;
     if (r <= 118) return 1;
@@ -225,14 +306,12 @@ function buildGrid() {
   };
   for (let r = 116; r <= 127; r++) {
     const ext = pedExtent(r);
-    // Left pedestal
     const lLeft = Math.max(0, 4 - ext);
     const lRight = 16;
     for (let c = lLeft; c <= lRight; c++) {
       if (c === lLeft || c === lRight) set(r, c, 2);
       else set(r, c, 3);
     }
-    // Right pedestal
     const rLeft = 47;
     const rRight = Math.min(W - 1, 59 + ext);
     for (let c = rLeft; c <= rRight; c++) {
@@ -240,99 +319,130 @@ function buildGrid() {
       else set(r, c, 3);
     }
   }
-  // Top of pedestal slightly lighter (mid-tone)
+  // Top of pedestal slightly lighter
   fill(116, 5, 116, 15, 4);
   fill(116, 48, 116, 58, 4);
 
-  // ── GOLDEN MAGICAL FLUID dripping at pillar bases + pooling on floor ──
-  // Drips coming down from each pillar where it meets pedestal
-  fill(116, 8, 117, 12, 8);
-  set(118, 9, 8); set(118, 10, 8); set(118, 11, 8);
-  set(119, 10, 8);
-  // Cream highlights on drips
-  set(116, 10, 9); set(117, 10, 9);
-  // Right side mirror
-  fill(116, 51, 117, 55, 8);
-  set(118, 52, 8); set(118, 53, 8); set(118, 54, 8);
-  set(119, 53, 8);
-  set(116, 53, 9); set(117, 53, 9);
+  // ── GOLDEN/MAGENTA DRIPS pooling on the pedestals (organic, no parallel lines) ──
+  // Left pedestal drips
+  const leftDrips = [
+    [116, 6, 8],[116, 7, 8],[116, 9, 8],[116, 10, 8],
+    [116, 12, 8],[116, 13, 8],[116, 15, 8],
+    [117, 6, 8],[117, 8, 4],[117, 10, 8],[117, 12, 8],[117, 14, 4],[117, 15, 8],
+    [118, 7, 8],[118, 9, 8],[118, 11, 4],[118, 13, 8],[118, 15, 8],
+    [119, 8, 8],[119, 11, 8],[119, 13, 8],
+    [120, 9, 8],[120, 11, 4],[120, 13, 8],
+    [121, 10, 8],[121, 13, 8],
+    [122, 11, 8],[122, 13, 4],
+    [123, 12, 8],
+  ];
+  for (const [r, c, v] of leftDrips) {
+    if (g[r][c] === 3 || g[r][c] === 2 || g[r][c] === 4) set(r, c, v);
+  }
+  // Cream sparkles on left drips
+  set(117, 9, 9); set(118, 10, 9); set(120, 10, 9);
+  // Right pedestal drips (mirror)
+  const rightDrips = [
+    [116, 48, 8],[116, 50, 8],[116, 51, 8],[116, 53, 8],
+    [116, 54, 8],[116, 56, 8],[116, 57, 8],
+    [117, 48, 8],[117, 49, 8],[117, 51, 8],[117, 53, 8],[117, 55, 4],[117, 57, 8],
+    [118, 48, 8],[118, 50, 8],[118, 52, 4],[118, 54, 8],[118, 56, 8],
+    [119, 50, 8],[119, 52, 8],[119, 55, 8],
+    [120, 50, 8],[120, 52, 4],[120, 54, 8],
+    [121, 50, 8],[121, 53, 8],
+    [122, 50, 4],[122, 52, 8],
+    [123, 51, 8],
+  ];
+  for (const [r, c, v] of rightDrips) {
+    if (g[r][c] === 3 || g[r][c] === 2 || g[r][c] === 4) set(r, c, v);
+  }
+  set(117, 54, 9); set(118, 53, 9); set(120, 53, 9);
 
-  // Gold pool filling the floor between the pedestals (where void ends)
-  // Drips growing wider as they fall
-  fill(120, 22, 121, 41, 8);
-  fill(122, 20, 123, 43, 8);
-  fill(124, 19, 127, 44, 8);
-  // Cream specular highlights on the pool surface
-  fill(125, 24, 125, 39, 9);
-  fill(126, 27, 126, 36, 9);
-  // Edge highlights on pool sides
+  // ── GOLD POOL on the floor (between pedestals, OUTSIDE the void) ──
+  // Note: void ends at row 115; pool lives at rows 118-127 between pedestals.
+  fill(118, 24, 119, 39, 8);                        // initial drip ring
+  fill(120, 21, 121, 42, 8);                        // widening
+  fill(122, 19, 127, 44, 8);                        // pooled body
+
+  // Sparse cream glints in the pool (replaces the cream "platform")
+  const poolGlints = [
+    [124, 23, 9],[124, 28, 9],[124, 34, 9],[124, 40, 9],
+    [125, 21, 9],[125, 26, 9],[125, 32, 9],[125, 38, 9],[125, 42, 9],
+    [126, 24, 9],[126, 30, 9],[126, 36, 9],
+    [127, 22, 9],[127, 28, 9],[127, 34, 9],[127, 40, 9],
+    [123, 27, 9],[123, 36, 9],
+  ];
+  for (const [r, c, v] of poolGlints) set(r, c, v);
+  // Magenta shadows at pool edges
   set(122, 19, 4); set(122, 44, 4);
-  set(124, 19, 4); set(124, 44, 4);
+  set(123, 19, 4); set(123, 44, 4);
+  set(126, 19, 4); set(126, 44, 4);
 
-  // ── FLOATING SPARKLES (1px and 2×2 clusters of colours 5/6/8 in empty space) ──
-  // Left side margins (cols 0-3)
-  fill(20, 1, 21, 2, 5);    // 2×2 pink
-  set(33, 2, 8);            // single yellow
-  set(45, 1, 6);            // single cyan
-  fill(82, 2, 83, 3, 8);    // 2×2 yellow
-  set(95, 1, 5);            // single pink
-  set(105, 2, 6);           // single cyan
-  set(8, 2, 8); set(13, 1, 6); set(28, 0, 5);
-
-  // Right side margins (cols 60-63)
-  fill(25, 61, 26, 62, 6);  // 2×2 cyan
-  set(40, 62, 8);
-  set(52, 61, 5);
-  fill(75, 60, 76, 61, 5);  // 2×2 pink
-  set(90, 62, 8);
-  set(102, 60, 6);
-  set(8, 61, 5); set(15, 62, 8); set(35, 63, 6);
-
-  // Top sparkles (outside the flame and corner flares)
-  set(2, 14, 8);
-  set(3, 22, 6);
-  set(2, 44, 6);
-  set(3, 50, 8);
-  set(0, 10, 5);
-  set(0, 53, 5);
-
-  // Sparkles near the crystal nodes
-  set(58, 0, 5); set(72, 0, 8);
-  set(58, 63, 5); set(72, 63, 8);
+  // ── CLUSTERED SPARKLE AURA (densest near crystals + frame) ──
+  const auraSparks = [
+    // Around left crystal
+    [55, 1, 6],[56, 0, 8],[58, 1, 9],[58, 2, 6],
+    [70, 0, 5],[71, 1, 8],[73, 0, 6],[74, 1, 9],
+    [76, 0, 5],[78, 1, 6],
+    // Around right crystal (mirror)
+    [55, 62, 6],[56, 63, 8],[58, 62, 9],[58, 61, 6],
+    [70, 63, 5],[71, 62, 8],[73, 63, 6],[74, 62, 9],
+    [76, 63, 5],[78, 62, 6],
+    // Top-frame aura (close to crown)
+    [2, 14, 8],[2, 18, 5],[2, 24, 6],[2, 40, 6],[2, 44, 5],[2, 49, 8],
+    [3, 11, 5],[3, 22, 8],[3, 41, 8],[3, 52, 5],
+    [4, 9, 6],[4, 54, 6],
+    [0, 14, 5],[0, 49, 5],[0, 10, 8],[0, 53, 8],
+    // Pillar-side aura (along left)
+    [20, 1, 5],[28, 2, 6],[36, 1, 8],[44, 2, 5],
+    [82, 2, 9],[90, 1, 5],[96, 2, 6],[104, 1, 8],
+    // Pillar-side aura (along right, mirror)
+    [20, 62, 5],[28, 61, 6],[36, 62, 8],[44, 61, 5],
+    [82, 61, 9],[90, 62, 5],[96, 61, 6],[104, 62, 8],
+  ];
+  for (const [r, c, v] of auraSparks) {
+    if (g[r][c] === 0) set(r, c, v);
+  }
+  // A few 2-pixel sparkle clusters next to the crystals
+  const bigClusters = [
+    [62, 1, 6],[62, 2, 6],[63, 1, 6],
+    [62, 62, 6],[62, 61, 6],[63, 62, 6],
+    [68, 1, 8],[68, 2, 8],
+    [68, 62, 8],[68, 61, 8],
+  ];
+  for (const [r, c, v] of bigClusters) {
+    if (g[r][c] === 0) set(r, c, v);
+  }
 
   return g;
 }
 
 function Portal() {
   const canvasRef = useRef(null);
-
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const scale = 10;                              // each grid cell = 10 px
+    const scale = 10;
     canvas.width  = PORTAL_W * scale;
     canvas.height = PORTAL_H * scale;
     const ctx = canvas.getContext('2d');
-    ctx.imageSmoothingEnabled = false;             // CRISP PIXELS
+    ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     const grid = buildGrid();
     for (let r = 0; r < PORTAL_H; r++) {
       for (let c = 0; c < PORTAL_W; c++) {
         const idx = grid[r][c];
-        if (idx === 0) continue;                   // transparent
+        if (idx === 0) continue;
         ctx.fillStyle = PALETTE[idx];
         ctx.fillRect(c * scale, r * scale, scale, scale);
       }
     }
   }, []);
-
   return <canvas ref={canvasRef} aria-label="magical portal HD pixel sprite" />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<Portal />);
 
-// Palette swatches
 const paletteEl = document.getElementById('palette');
 PALETTE.forEach((color, i) => {
   const el = document.createElement('div');
@@ -342,7 +452,6 @@ PALETTE.forEach((color, i) => {
   paletteEl.appendChild(el);
 });
 
-// Download as PNG
 document.getElementById('dl').onclick = () => {
   const canvas = document.querySelector('canvas');
   if (!canvas) return;
