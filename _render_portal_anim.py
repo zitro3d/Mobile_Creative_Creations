@@ -7,7 +7,7 @@ from PIL import Image
 # Portal proper is built in the original 64x128 grid then composited into
 # the larger canvas (192x256) at offset (64, 64).
 PORTAL_W, PORTAL_H = 64, 128
-W, H, SCALE, FRAMES, FPS = 192, 256, 4, 36, 12
+W, H, SCALE, FRAMES, FPS = 192, 256, 4, 72, 24
 COL_OFF, ROW_OFF = (W - PORTAL_W) // 2, (H - PORTAL_H) // 2
 
 PALETTE = [
