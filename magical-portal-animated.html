@@ -55,6 +55,9 @@
   <div class="controls">
     <button id="pause" aria-pressed="false">Pause</button>
     <button id="slow" aria-pressed="false">Slower</button>
+    <button id="lArch"   aria-pressed="true">Arch</button>
+    <button id="lVortex" aria-pressed="true">Vortex</button>
+    <button id="lDust"   aria-pressed="true">Dust</button>
   </div>
 
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -80,7 +83,12 @@ const PALETTE = [
   '#fff6cc',
 ];
 
-function buildGrid(frame) {
+function buildGrid(frame, layers) {
+  // Three logical layers, each independently togglable:
+  //   layers.arch   — the static doorway frame + closed purple sill
+  //   layers.vortex — the swirling spiral inside the door opening
+  //   layers.dust   — the magical particles bursting toward the camera
+  layers = layers || { arch: true, vortex: true, dust: true };
   // Portal proper still uses the original 64x128 grid — every line of the
   // existing build code references these dims, so nothing inside the portal
   // build needs to move. We composite the portal into the larger canvas at
@@ -96,16 +104,18 @@ function buildGrid(frame) {
         set(r, c, v);
   };
 
-  // ── BLACK VOID ──
-  fill(16, 19, 115, 44, 1);
+  // ── BLACK VOID (arch layer background) ──
+  if (layers.arch) {
+    fill(16, 19, 115, 44, 1);
+  }
 
-  // ── SWIRLING VORTEX inside the doorway ──
+  // ── SWIRLING VORTEX inside the doorway (vortex layer) ──
   // For each void pixel, compute polar coordinates from the central
   // vanishing point and pick a colour from the 3-spiral-arm pattern.
   // The arms wind inward (TWIST*d term) and rotate over the loop, giving
   // the "pulling backward" swirl. Same 3 cool colours as before so the
   // vortex doesn't fight the arch's warm gold/magenta palette.
-  {
+  if (layers.vortex) {
     const VCX = 32, VCY = 65;
     const HALF_W = 12.5, HALF_H = 49.5;
     const N_ARMS = 3;
@@ -145,6 +155,15 @@ function buildGrid(frame) {
     if (tw === 1) set(VCY, VCX + 1, 6);
     if (tw === 2) set(VCY + 1, VCX, 6);
   }
+
+  // ── ARCH LAYER (everything from here through the sparkles) ──
+  if (layers.arch) {
+
+  // ── PURPLE SILL — closes the bottom of the doorway "box" ──
+  fill(112, 19, 115, 44, 3);            // plum floor
+  fill(112, 19, 112, 44, 4);            // a brighter magenta highlight on the lip
+  set(112, 19, 2); set(112, 44, 2);    // dark outline corners
+  set(115, 19, 2); set(115, 44, 2);
 
   // ── PINK RIM ──
   fill(14, 17, 15, 46, 5);
@@ -428,6 +447,8 @@ function buildGrid(frame) {
     }
   }
 
+  }  // ── end ARCH LAYER ──
+
   // ── COMPOSITE the 64x128 portal into the 192x256 canvas ──
   // The bigger canvas gives the magical particles room to travel before
   // hitting the edge. The portal is centred (64-px margin on each side).
@@ -445,24 +466,27 @@ function buildGrid(frame) {
     if (r >= 0 && r < BH && c >= 0 && c < BW) big[r][c] = v;
   };
 
-  // ── MAGICAL PARTICLES erupting from the vortex toward the camera ──
-  // Upgrades over the previous burst:
-  //   * 32 particles for a denser shower
-  //   * forward bias — angle is shrunk toward the downward "out" axis so
-  //     more particles fly toward the viewer than back behind the arch
-  //   * wider ejection cone (CONE = 0.85 → ~306° of arc still in play)
-  //   * 3-stamp fading tail behind each head (gold → cyan → plum)
-  //   * extended MAX_DIST = 105 (the bigger canvas can hold them)
-  {
-    const VCX = 32 + COL_OFF;             // portal centre in canvas coords
+  // ── MAGICAL DUST PARTICLES erupting from the vortex (top layer) ──
+  // Each particle now has random life / distance / angle jitter so the
+  // burst feels organic and particles die off at unpredictable points.
+  // Speed is fixed at 1 so the loop stays seamless — the variation lives
+  // in lifetime, distance, angle, and start offset.
+  if (layers.dust) {
+    const VCX = 32 + COL_OFF;
     const VCY = 65 + ROW_OFF;
     const NUM_PARTICLES = 32;
     const t = frame / TOTAL_FRAMES;
-    const GOLDEN = 2.39996;               // ~137.5° in radians
-    const FORWARD = Math.PI / 2;          // downward = out of the doorway
-    const CONE = 0.85;                    // wider but biased toward camera
+    const GOLDEN = 2.39996;
+    const FORWARD = Math.PI / 2;
+    const CONE = 0.85;
     const MAX_DIST = 105;
     const TAU = Math.PI * 2;
+
+    // Cheap deterministic hash → [0, 1)
+    const rng = (i, salt) => {
+      const x = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453;
+      return x - Math.floor(x);
+    };
 
     const stamp = (cx, cy, sz, col) => {
       if (sz < 0) return;
@@ -474,24 +498,29 @@ function buildGrid(frame) {
     };
 
     for (let i = 0; i < NUM_PARTICLES; i++) {
-      const phase = (t + i / NUM_PARTICLES) % 1;
-      if (phase < 0.05) continue;
+      // Random per-particle properties (deterministic per index)
+      const startOff   = rng(i, 1);                       // 0–1 random start
+      const lifeFactor = 0.30 + rng(i, 2) * 0.70;         // 0.30–1.00 of loop
+      const distMult   = 0.65 + rng(i, 3) * 0.75;         // 0.65–1.40
+      const angleJit   = (rng(i, 4) - 0.5) * 0.6;         // ±0.30 rad
 
-      // Golden-angle fan + slow rotation → unique direction per particle
+      // Particle is alive while rawPhase ∈ [0, lifeFactor]
+      const rawPhase = (t + startOff) % 1;
+      if (rawPhase > lifeFactor || rawPhase < 0.02) continue;
+      const phase = rawPhase / lifeFactor;                // normalise 0–1
+
+      // Direction: golden fan, forward-biased, with random jitter
       const raw = (i * GOLDEN + t * TAU * 0.25) % TAU;
-      // Convert to signed offset from FORWARD, wrap to [-pi, pi]
       let off = raw - FORWARD;
       while (off >  Math.PI) off -= TAU;
       while (off < -Math.PI) off += TAU;
-      // Shrink the offset → forward bias + wider cone via CONE factor
-      const angle = FORWARD + off * CONE;
+      const angle = FORWARD + off * CONE + angleJit;
 
-      // Accelerating outward (camera rush)
-      const dist = Math.pow(phase, 0.85) * MAX_DIST;
+      // Accelerating radial motion
+      const dist = Math.pow(phase, 0.85) * MAX_DIST * distMult;
       const px = Math.round(VCX + Math.cos(angle) * dist);
       const py = Math.round(VCY + Math.sin(angle) * dist);
 
-      // Size ramp 0 → 1 → 2 → 3, slight shrink at end of life
       let size;
       if      (phase < 0.16) size = 0;
       else if (phase < 0.36) size = 1;
@@ -499,7 +528,6 @@ function buildGrid(frame) {
       else if (phase < 0.86) size = 3;
       else                   size = 2;
 
-      // Colour ramp from cyan (deep) → cream → gold → pink → magenta
       let color;
       if      (phase < 0.22) color = 6;
       else if (phase < 0.46) color = 9;
@@ -507,12 +535,12 @@ function buildGrid(frame) {
       else if (phase < 0.92) color = 5;
       else                   color = 4;
 
-      // 3-stamp fading tail behind the head (drawn first so head overlays)
-      const TRAIL_COLORS = [0, 8, 6, 3];   // index 0 unused; 1=gold,2=cyan,3=plum
+      // 3-stamp fading tail (gold → cyan → plum)
+      const TRAIL_COLORS = [0, 8, 6, 3];
       for (let trail = 3; trail >= 1; trail--) {
         const tp = phase - trail * 0.022;
         if (tp < 0.02) continue;
-        const td = Math.pow(tp, 0.85) * MAX_DIST;
+        const td = Math.pow(tp, 0.85) * MAX_DIST * distMult;
         const tpx = Math.round(VCX + Math.cos(angle) * td);
         const tpy = Math.round(VCY + Math.sin(angle) * td);
         const tsz = Math.max(0, size - trail);
@@ -529,7 +557,12 @@ function buildGrid(frame) {
 }
 
 // Shared mutable controls (read every frame by the render loop)
-const controls = { paused: false, slow: false };
+const controls = {
+  paused: false, slow: false,
+  arch:   true,  // doorway frame + closed bottom sill
+  vortex: true,  // swirling spiral inside the opening
+  dust:   true,  // magical particles erupting toward the camera
+};
 
 function Portal() {
   const canvasRef = useRef(null);
@@ -548,7 +581,11 @@ function Portal() {
     let lastTime = 0;
     const renderFrame = (frame) => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const grid = buildGrid(frame);
+      const grid = buildGrid(frame, {
+        arch:   controls.arch,
+        vortex: controls.vortex,
+        dust:   controls.dust,
+      });
       for (let r = 0; r < PORTAL_H; r++) {
         for (let c = 0; c < PORTAL_W; c++) {
           const idx = grid[r][c];
@@ -591,6 +628,17 @@ document.getElementById('slow').onclick = (e) => {
   e.target.setAttribute('aria-pressed', String(controls.slow));
   e.target.textContent = controls.slow ? 'Normal' : 'Slower';
 };
+
+// Layer-visibility toggles
+const layerToggle = (id, key) => {
+  document.getElementById(id).onclick = (e) => {
+    controls[key] = !controls[key];
+    e.target.setAttribute('aria-pressed', String(controls[key]));
+  };
+};
+layerToggle('lArch',   'arch');
+layerToggle('lVortex', 'vortex');
+layerToggle('lDust',   'dust');
 </script>
 </body>
 </html>
