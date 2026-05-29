@@ -32,9 +32,10 @@ def build(frame):
     # Void
     f(16, 19, 115, 44, 1)
 
-    # Z-depth tunnel — receding concentric rings + diagonal walls
+    # Z-depth tunnel — receding concentric rings + diagonal walls.
+    # 3-stop cool gradient (cream → cyan → plum) to contrast the arch.
     VCX, VCY = 32, 65
-    MAX_HW, MAX_HH, N_RINGS = 12, 49, 10
+    MAX_HW, MAX_HH, N_RINGS = 12, 49, 12
 
     def draw_line(r1, c1, r2, c2, color):
         dr = abs(r2 - r1); dc = abs(c2 - c1)
@@ -64,13 +65,9 @@ def build(frame):
         halfW = round(size * MAX_HW)
         halfH = round(size * MAX_HH)
         if halfW < 1 or halfH < 1: continue
-        if   size > 0.85: color = 9
-        elif size > 0.70: color = 5
-        elif size > 0.55: color = 6
-        elif size > 0.40: color = 8
-        elif size > 0.25: color = 7
-        elif size > 0.15: color = 4
-        else:             color = 3
+        if   size > 0.78: color = 9   # cream — close
+        elif size > 0.42: color = 6   # cyan — mid
+        else:             color = 3   # plum — deep
         rTop, rBot = VCY - halfH, VCY + halfH
         cL, cR = VCX - halfW, VCX + halfW
         for c in range(cL, cR + 1):
