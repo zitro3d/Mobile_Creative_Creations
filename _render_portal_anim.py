@@ -3,7 +3,12 @@
 import os
 from PIL import Image
 
-W, H, SCALE, FRAMES, FPS = 64, 128, 8, 36, 12
+# Canvas is bigger than the portal so the burst particles can travel.
+# Portal proper is built in the original 64x128 grid then composited into
+# the larger canvas (192x256) at offset (64, 64).
+PORTAL_W, PORTAL_H = 64, 128
+W, H, SCALE, FRAMES, FPS = 192, 256, 4, 36, 12
+COL_OFF, ROW_OFF = (W - PORTAL_W) // 2, (H - PORTAL_H) // 2
 
 PALETTE = [
     (0, 0, 0, 0),       # transparent
@@ -20,9 +25,11 @@ PALETTE = [
 
 
 def build(frame):
-    g = [[0] * W for _ in range(H)]
+    # Portal grid (64x128) — every line of the existing build code below
+    # references these dims, no changes needed inside the build.
+    g = [[0] * PORTAL_W for _ in range(PORTAL_H)]
     def s(r, c, v):
-        if 0 <= r < H and 0 <= c < W:
+        if 0 <= r < PORTAL_H and 0 <= c < PORTAL_W:
             g[r][c] = v
     def f(r1, c1, r2, c2, v):
         for r in range(r1, r2 + 1):
@@ -236,19 +243,46 @@ def build(frame):
         if (frame + r * 7 + c * 11) % 12 < 8:
             if g[r][c] == 0: s(r, c, v)
 
-    # Magical particles erupting from the vortex toward the camera
-    VCX, VCY = 32, 65
-    NUM_PARTICLES = 16
+    # ── Composite portal (64x128) → bigger canvas (192x256) ──
+    big = [[0] * W for _ in range(H)]
+    for r in range(PORTAL_H):
+        for c in range(PORTAL_W):
+            v = g[r][c]
+            if v: big[r + ROW_OFF][c + COL_OFF] = v
+    def sb(r, c, v):
+        if 0 <= r < H and 0 <= c < W:
+            big[r][c] = v
+
+    # ── 32 particles, forward bias, wider cone, 3-stamp trails ──
+    VCX = 32 + COL_OFF       # portal centre in canvas coords
+    VCY = 65 + ROW_OFF
+    NUM_PARTICLES = 32
     t = frame / FRAMES
     GOLDEN = 2.39996
+    FORWARD = _math.pi / 2     # downward — out of the doorway, toward the camera
+    CONE = 0.85                # forward bias + wider arc
+    MAX_DIST = 105
+    TAU = 2 * _math.pi
+    TRAIL_COLORS = [0, 8, 6, 3]   # gold, cyan, plum behind the head
+
+    def stamp(cx, cy, sz, col):
+        if sz < 0: return
+        for dr in range(-sz, sz + 1):
+            for dc in range(-sz, sz + 1):
+                if abs(dr) + abs(dc) <= sz:
+                    sb(cy + dr, cx + dc, col)
+
     for i in range(NUM_PARTICLES):
-        phase_offset = i / NUM_PARTICLES
-        phase = (t + phase_offset) % 1
-        if phase < 0.06: continue
-        angle = i * GOLDEN + t * _math.pi * 0.4
-        dist = (phase ** 0.85) * 75
+        phase = (t + i / NUM_PARTICLES) % 1
+        if phase < 0.05: continue
+        raw = (i * GOLDEN + t * TAU * 0.25) % TAU
+        off = raw - FORWARD
+        while off >  _math.pi: off -= TAU
+        while off < -_math.pi: off += TAU
+        angle = FORWARD + off * CONE
+        dist = (phase ** 0.85) * MAX_DIST
         px = round(VCX + _math.cos(angle) * dist)
-        py = round(VCY + _math.sin(angle) * dist * 1.35)
+        py = round(VCY + _math.sin(angle) * dist)
         if   phase < 0.16: size = 0
         elif phase < 0.36: size = 1
         elif phase < 0.62: size = 2
@@ -259,14 +293,19 @@ def build(frame):
         elif phase < 0.70: color = 8
         elif phase < 0.92: color = 5
         else:              color = 4
-        for dr in range(-size, size + 1):
-            for dc in range(-size, size + 1):
-                if abs(dr) + abs(dc) <= size:
-                    s(py + dr, px + dc, color)
-        if size >= 2:
-            s(py, px, 9)
+        # Trails first so the head overlays on top
+        for trail in (3, 2, 1):
+            tp = phase - trail * 0.022
+            if tp < 0.02: continue
+            td = (tp ** 0.85) * MAX_DIST
+            tpx = round(VCX + _math.cos(angle) * td)
+            tpy = round(VCY + _math.sin(angle) * td)
+            tsz = max(0, size - trail)
+            stamp(tpx, tpy, tsz, TRAIL_COLORS[trail])
+        stamp(px, py, size, color)
+        if size >= 2: sb(py, px, 9)
 
-    return g
+    return big
 
 
 # Build palette for GIF
