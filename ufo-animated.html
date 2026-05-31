@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UFO Tractor Beam — Animated</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html, body { margin: 0; padding: 0; background: #1d1d22; color: #d8d8e2; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .root { display: flex; flex-direction: column; align-items: center; padding: 20px 12px 60px; gap: 14px; }
+  h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #aab; margin: 0; }
+  .canvas-wrap {
+    /* checkered transparency backdrop so the alpha is visible */
+    background-color: #14141a;
+    background-image:
+      linear-gradient(45deg, #1f1f28 25%, transparent 25%),
+      linear-gradient(-45deg, #1f1f28 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #1f1f28 75%),
+      linear-gradient(-45deg, transparent 75%, #1f1f28 75%);
+    background-size: 24px 24px;
+    background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+    border: 1px solid #2a2a35;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 560px; }
+  button { background: #2a2a36; color: #e0e0ec; border: 1px solid #3a3a48; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer; border-radius: 3px; }
+  button:hover { background: #34344a; }
+  button.on { background: #4a5a8a; border-color: #6a7aaa; }
+  input[type=range] { flex: 1; min-width: 180px; }
+  label { font-size: 11px; color: #888; user-select: none; }
+  .frame-label { color: #888; font-size: 11px; min-width: 80px; text-align: right; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+
+// ── Canvas / animation constants ─────────────────────
+const W = 192, H = 360, SCALE = 3;
+const TOTAL_FRAMES = 72;
+const FPS = 24;
+const TAU = Math.PI * 2;
+const HCX = 96, UCX = 96;
+const DCX = 96, DCY_BASE = 145, DR = 38;
+
+// ── Palette ──────────────────────────────────────────
+const C = {
+  SHINE: [255,252,235], HOT: [255,240,175], BRIGHT: [255,215,110],
+  LIGHT: [252,175,70],  ORANGE: [235,125,45], RED: [180,70,30],
+  DEEP_R: [110,35,18],  DARK_R: [60,18,10],
+  DOME_SHINE: [240,255,255], DOME_HOT: [180,240,255], DOME_BRIGHT: [105,215,250],
+  DOME_LIGHT: [55,175,225], DOME_MID: [35,130,195], DOME_DARK: [25,85,155],
+  DOME_DEEP: [18,55,110], DOME_VOID: [12,32,70],
+  HULL_VL: [200,215,230], HULL_HI: [155,175,205], HULL_L: [115,135,168],
+  HULL_M: [78,95,128],   HULL_D: [50,62,90],     HULL_DD: [30,38,60],
+  HULL_O: [12,16,30],
+  WIN_O: [255,145,55],   WIN_Y: [255,220,110],   WIN_W: [255,245,200],
+  PLASMA_SHINE: [255,255,255], PLASMA_HOT: [200,230,255], PLASMA_BRIGHT: [130,195,255],
+  PLASMA_LIGHT: [140,120,255], PLASMA_MID: [190,80,240], PLASMA_DARK: [145,35,195],
+  PLASMA_DEEP: [90,18,130],
+  COW_W: [245,240,230], COW_S: [180,165,140], COW_O: [50,35,25], COW_PINK: [220,130,130],
+};
+
+// Light direction (3D world coords)
+const LX = 0.50, LY = 0.55, LZ = 0.67;
+const LM = Math.sqrt(LX*LX + LY*LY + LZ*LZ);
+const Lx = LX/LM, Ly = LY/LM, Lz = LZ/LM;
+
+// ── Pixel helper with alpha-over compositing ─────────
+function makePut(buf) {
+  return function put(x, y, c, a) {
+    x = Math.round(x); y = Math.round(y);
+    if (x < 0 || x >= W || y < 0 || y >= H) return;
+    const idx = (y * W + x) * 4;
+    if (a === undefined || a >= 255) {
+      buf[idx]   = c[0];
+      buf[idx+1] = c[1];
+      buf[idx+2] = c[2];
+      buf[idx+3] = 255;
+      return;
+    }
+    if (a <= 0) return;
+    const ea = buf[idx+3];
+    const na = a / 255;
+    const oa = na + (ea / 255) * (1 - na);
+    if (oa <= 0) return;
+    const ow = (ea / 255) * (1 - na);
+    buf[idx]   = (c[0] * na + buf[idx]   * ow) / oa;
+    buf[idx+1] = (c[1] * na + buf[idx+1] * ow) / oa;
+    buf[idx+2] = (c[2] * na + buf[idx+2] * ow) / oa;
+    buf[idx+3] = oa * 255;
+  };
+}
+
+// ── Saucer row data (33-row disc) ────────────────────
+const SAUCER_ROWS = [
+  [146,44,'rim_flare'],[147,58,'rim_flare'],[148,70,'rim_flare'],
+  [149,80,'rim_flare'],[150,86,'rim_top'],[151,90,'rim_top'],
+  [152,92,'body_hi'], [153,93,'body_hi'],[154,94,'body_hi'],
+  [155,94,'body_hi'], [156,94,'seam'],   [157,94,'body_lights'],
+  [158,94,'body_lights'],[159,93,'body_lights'],[160,93,'body_lights'],
+  [161,92,'seam'],    [162,91,'body_dark'],[163,90,'body_dark'],
+  [164,88,'body_dark'],[165,86,'body_dark'],[166,84,'body_dark'],
+  [167,82,'seam'],    [168,80,'body_lights2'],[169,78,'body_lights2'],
+  [170,76,'body_lights2'],[171,73,'body_lights2'],[172,70,'seam'],
+  [173,66,'taper'],   [174,61,'taper'],  [175,55,'taper'],
+  [176,48,'taper'],   [177,40,'taper'],  [178,32,'taper'],
+  [179,25,'lower_panel'],[180,21,'lower_panel'],[181,18,'lower_lights'],
+  [182,16,'lower_dark'],[183,13,'neck'], [184,11,'neck'],
+  [185,9,'neck'],     [186,8,'neck'],
+];
+
+function shadeSaucer(role, dx, hw) {
+  const rel = dx / Math.max(hw, 1);
+  if (Math.abs(dx) === hw && hw > 3) return C.HULL_O;
+  if (Math.abs(dx) >= hw - 1 && hw > 6) return C.HULL_DD;
+  switch (role) {
+    case 'rim_flare':
+      if (rel > 0.4) return C.HULL_VL;
+      if (rel > 0.0) return C.HULL_HI;
+      if (rel > -0.4) return C.HULL_L;
+      return C.HULL_M;
+    case 'rim_top':
+      if (rel > 0.4) return C.HULL_VL;
+      if (rel > -0.1) return C.HULL_HI;
+      if (rel > -0.5) return C.HULL_L;
+      return C.HULL_M;
+    case 'body_hi':
+      if (rel > 0.3) return C.HULL_HI;
+      if (rel > -0.2) return C.HULL_L;
+      if (rel > -0.6) return C.HULL_M;
+      return C.HULL_D;
+    case 'seam': return C.HULL_O;
+    case 'body_lights':
+      if (rel > 0.4) return C.HULL_L;
+      if (rel > -0.3) return C.HULL_M;
+      return C.HULL_D;
+    case 'body_lights2':
+      if (rel > 0.3) return C.HULL_M;
+      if (rel > -0.3) return C.HULL_D;
+      return C.HULL_DD;
+    case 'body_dark':
+      if (rel > 0.3) return C.HULL_M;
+      if (rel > -0.3) return C.HULL_D;
+      return C.HULL_DD;
+    case 'taper':
+      if (rel > 0.3) return C.HULL_M;
+      if (rel > -0.3) return C.HULL_D;
+      return C.HULL_DD;
+    case 'lower_panel':
+      if (rel > 0.3) return C.HULL_L;
+      if (rel > -0.3) return C.HULL_M;
+      return C.HULL_D;
+    case 'lower_lights': return C.HULL_M;
+    case 'lower_dark':   return C.HULL_D;
+    case 'neck':
+      if (dx > 0) return C.HULL_M;
+      if (dx > -2) return C.HULL_D;
+      return C.HULL_DD;
+  }
+  return C.HULL_M;
+}
+
+function drawSaucer(put) {
+  for (const [y, hw, role] of SAUCER_ROWS) {
+    for (let dx = -hw; dx <= hw; dx++) {
+      put(HCX + dx, y, shadeSaucer(role, dx, hw));
+    }
+  }
+  // External tapered neck below dict
+  for (let y = 187; y < 193; y++) {
+    const hw = y < 191 ? 4 : 6;
+    for (let dx = -hw; dx <= hw; dx++) {
+      const x = HCX + dx;
+      let col;
+      if (Math.abs(dx) === hw) col = C.HULL_O;
+      else if (dx > 1) col = C.HULL_M;
+      else if (dx > -2) col = C.HULL_D;
+      else col = C.HULL_DD;
+      put(x, y, col);
+    }
+  }
+}
+
+function drawDome(put) {
+  for (let y = DCY_BASE - DR; y <= DCY_BASE; y++) {
+    for (let x = DCX - DR; x <= DCX + DR; x++) {
+      const u = (x - DCX) / DR;
+      const v = (DCY_BASE - y) / DR;
+      if (v < 0) continue;
+      if (u*u + v*v > 1.0) continue;
+      const w = Math.sqrt(Math.max(0, 1 - u*u - v*v));
+      const diff = Math.max(0, u*Lx + v*Ly + w*Lz);
+      const glow = 0.55 + 0.10 * w;
+      let i = diff * 0.55 + glow * 0.40;
+      const r = Math.sqrt(u*u + v*v);
+      if (r > 0.96) i *= 0.20;
+      else if (r > 0.90) i *= 0.50;
+      else if (r > 0.82) i *= 0.75;
+      let col;
+      if      (i > 0.95) col = C.DOME_SHINE;
+      else if (i > 0.82) col = C.DOME_HOT;
+      else if (i > 0.68) col = C.DOME_BRIGHT;
+      else if (i > 0.54) col = C.DOME_LIGHT;
+      else if (i > 0.40) col = C.DOME_MID;
+      else if (i > 0.25) col = C.DOME_DARK;
+      else if (i > 0.10) col = C.DOME_DEEP;
+      else               col = C.DOME_VOID;
+      put(x, y, col);
+    }
+  }
+  // Diagonal specular streak
+  const streak = [
+    [DCX+12, DCY_BASE-34, C.DOME_HOT],[DCX+13, DCY_BASE-33, C.DOME_SHINE],
+    [DCX+14, DCY_BASE-32, C.DOME_SHINE],[DCX+15, DCY_BASE-31, C.DOME_SHINE],
+    [DCX+16, DCY_BASE-30, C.DOME_SHINE],[DCX+17, DCY_BASE-28, C.DOME_SHINE],
+    [DCX+18, DCY_BASE-26, C.DOME_SHINE],[DCX+19, DCY_BASE-24, C.DOME_HOT],
+    [DCX+20, DCY_BASE-22, C.DOME_HOT],[DCX+21, DCY_BASE-19, C.DOME_HOT],
+    [DCX+22, DCY_BASE-16, C.DOME_BRIGHT],[DCX+22, DCY_BASE-13, C.DOME_BRIGHT],
+    [DCX+23, DCY_BASE-10, C.DOME_LIGHT],
+  ];
+  for (const [x, y, c] of streak) put(x, y, c);
+}
+
+function drawDomeSlits(put, frame) {
+  const slits = [
+    [DCX-19, DCY_BASE-18, DCY_BASE-5, 0.0],
+    [DCX-13, DCY_BASE-24, DCY_BASE-4, 0.33],
+    [DCX-7,  DCY_BASE-28, DCY_BASE-3, 0.66],
+  ];
+  for (const [sx, ys, ye, phase] of slits) {
+    const t = (frame / TOTAL_FRAMES + phase) % 1.0;
+    const pulse = 0.55 + 0.45 * Math.sin(t * TAU * 2);
+    let glow;
+    if      (pulse > 0.85) glow = C.WIN_W;
+    else if (pulse > 0.55) glow = C.WIN_Y;
+    else                   glow = C.WIN_O;
+    const mid = Math.floor((ys + ye) / 2);
+    for (let y = ys; y <= ye; y++) {
+      put(sx, y, C.DOME_VOID);
+      if (mid - 2 <= y && y <= mid + 2) put(sx, y, glow);
+    }
+  }
+}
+
+function drawRotatingLights(put, frame) {
+  const phase = (frame / TOTAL_FRAMES) * TAU;
+  // Top band (row 158-159) — 28 lights
+  const N1 = 28, R1 = 90;
+  for (let i = 0; i < N1; i++) {
+    const alpha = (i / N1) * TAU + phase;
+    const ca = Math.cos(alpha);
+    if (ca <= 0.05) continue;
+    const x = HCX + Math.round(R1 * Math.sin(alpha));
+    if      (ca > 0.80) { put(x, 158, C.WIN_W); put(x, 159, C.WIN_Y); }
+    else if (ca > 0.55) { put(x, 158, C.WIN_Y); put(x, 159, C.WIN_O); }
+    else if (ca > 0.30) { put(x, 158, C.WIN_O); put(x, 159, C.ORANGE); }
+    else if (ca > 0.10) { put(x, 158, C.ORANGE); put(x, 159, C.RED); }
+    else                { put(x, 158, C.RED); }
+  }
+  // Second band (row 169-170) — 20 lights, same direction
+  const N2 = 20, R2 = 74;
+  for (let i = 0; i < N2; i++) {
+    const alpha = (i / N2) * TAU + phase;
+    const ca = Math.cos(alpha);
+    if (ca <= 0.05) continue;
+    const x = HCX + Math.round(R2 * Math.sin(alpha));
+    if      (ca > 0.70) { put(x, 169, C.WIN_Y); put(x, 170, C.WIN_O); }
+    else if (ca > 0.40) { put(x, 169, C.WIN_O); put(x, 170, C.ORANGE); }
+    else if (ca > 0.15) { put(x, 169, C.ORANGE); put(x, 170, C.RED); }
+    else                { put(x, 169, C.RED); }
+  }
+  // Lower panel (row 181) — 9 lights, counter-spinning faster
+  const N3 = 9, R3 = 16;
+  for (let i = 0; i < N3; i++) {
+    const alpha = (i / N3) * TAU - phase * 1.5;
+    const ca = Math.cos(alpha);
+    if (ca <= 0.05) continue;
+    const x = HCX + Math.round(R3 * Math.sin(alpha));
+    if      (ca > 0.55) put(x, 181, C.WIN_Y);
+    else if (ca > 0.25) put(x, 181, C.WIN_O);
+    else                put(x, 181, C.ORANGE);
+  }
+}
+
+function drawCabinWindows(put, frame) {
+  const t0 = ((frame * 3) % TOTAL_FRAMES) / TOTAL_FRAMES;
+  const cabins = [[-44, 0.0],[-26, 0.2],[-10, 0.4],[10, 0.6],[26, 0.8],[44, 1.0]];
+  for (const [dxc, off] of cabins) {
+    const t = (t0 + off) % 1.0;
+    let inner, outer;
+    if (t < 0.75) { inner = C.WIN_W; outer = C.WIN_Y; }
+    else          { inner = C.WIN_O; outer = C.ORANGE; }
+    const x = HCX + dxc;
+    put(x, 158, inner); put(x + 1, 158, outer);
+    put(x, 159, outer); put(x + 1, 159, C.WIN_O);
+  }
+}
+
+function drawPlume(put, frame) {
+  const breath = Math.sin(frame / TOTAL_FRAMES * TAU);
+  const pulse = 0.92 + 0.18 * breath;
+  const base = [
+    [193,2],[194,3],[195,3],[196,4],[197,5],
+    [198,6],[199,7],[200,8],[201,9],[202,10],
+    [203,11],[204,12],[205,13],[206,14],
+  ];
+  const top = base[0][0], bot = base[base.length-1][0];
+  const ht = bot - top;
+  for (const [y, hwBase] of base) {
+    const hw = Math.max(1, Math.round(hwBase * pulse));
+    const relY = (y - top) / ht;
+    for (let dx = -hw; dx <= hw; dx++) {
+      const u = dx / Math.max(hw, 1);
+      const i = (1 - Math.abs(u) * 0.60) * (1 - relY * 0.55) * pulse;
+      let col;
+      if      (i > 0.88) col = C.PLASMA_SHINE;
+      else if (i > 0.72) col = C.PLASMA_HOT;
+      else if (i > 0.56) col = C.PLASMA_BRIGHT;
+      else if (i > 0.42) col = C.PLASMA_LIGHT;
+      else if (i > 0.28) col = C.PLASMA_MID;
+      else if (i > 0.14) col = C.PLASMA_DARK;
+      else               col = C.PLASMA_DEEP;
+      put(HCX + dx, y, col);
+    }
+  }
+}
+
+function drawBeam(put, frame) {
+  const TOP = 207, BOT = 332;
+  const HT = BOT - TOP;
+  const HW_T = 12, HW_B = 44;
+  const pulse = 0.85 + 0.15 * Math.sin(frame / TOTAL_FRAMES * TAU * 2);
+  // Beam body
+  for (let y = TOP; y <= BOT; y++) {
+    const relY = (y - TOP) / HT;
+    const hw = HW_T + relY * (HW_B - HW_T);
+    for (let dx = -Math.ceil(hw) - 1; dx <= Math.ceil(hw) + 1; dx++) {
+      const u = dx / hw;
+      if (Math.abs(u) > 1.05) continue;
+      const edge = 1 - Math.min(1, Math.pow(Math.abs(u), 1.4));
+      const vfade = 1 - relY * 0.30;
+      const a_base = edge * vfade * pulse;
+      let col, alpha;
+      if (Math.abs(u) < 0.18) { col = C.PLASMA_HOT;    alpha = Math.round(220 * a_base); }
+      else if (Math.abs(u) < 0.45) { col = C.PLASMA_BRIGHT; alpha = Math.round(170 * a_base); }
+      else if (Math.abs(u) < 0.75) { col = C.PLASMA_LIGHT;  alpha = Math.round(120 * a_base); }
+      else                         { col = C.PLASMA_MID;    alpha = Math.round(70 * a_base); }
+      put(HCX + dx, y, col, alpha);
+    }
+  }
+  // Inner upward-scrolling lines
+  const N_LINES = 4;
+  for (let li = 0; li < N_LINES; li++) {
+    const offFrac = (li / N_LINES) - 0.5 + 0.125;
+    const linePhase = (frame * 2 + li * 18) % TOTAL_FRAMES;
+    for (let y = TOP; y <= BOT; y++) {
+      const relY = (y - TOP) / HT;
+      const hw = HW_T + relY * (HW_B - HW_T);
+      const scrollY = ((y - TOP - linePhase * (HT / TOTAL_FRAMES) * 3) % HT + HT) % HT;
+      if (scrollY > 6) continue;
+      const wob = Math.sin((y / 8) + frame / TOTAL_FRAMES * TAU) * 0.08;
+      const dx = Math.round((offFrac + wob) * hw * 1.6);
+      const a = Math.round(180 * (1 - scrollY / 6));
+      put(HCX + dx, y, C.PLASMA_HOT, a);
+    }
+  }
+  // Upward streaming bright particles (the "suction")
+  const N_PART = 24;
+  for (let i = 0; i < N_PART; i++) {
+    const rng  = (Math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1;
+    const rng2 = (Math.sin(i * 9.7777 + 22.111) * 12345.6789) % 1;
+    const r1 = rng < 0 ? rng + 1 : rng;
+    const r2 = rng2 < 0 ? rng2 + 1 : rng2;
+    const progress = ((frame * 2.5 + i * (TOTAL_FRAMES / N_PART)) % TOTAL_FRAMES) / TOTAL_FRAMES;
+    const py = BOT - progress * HT;
+    const relY = (py - TOP) / HT;
+    if (relY < 0 || relY > 1) continue;
+    const hw = HW_T + relY * (HW_B - HW_T);
+    const xOffset = (r1 - 0.5) * 2 * hw * (0.85 - 0.5 * (1 - relY));
+    const px = HCX + Math.round(xOffset);
+    const a = Math.round(245 * (0.4 + 0.6 * (1 - relY)));
+    const col = r2 > 0.6 ? C.PLASMA_SHINE : C.PLASMA_HOT;
+    put(px, Math.round(py), col, a);
+    put(px, Math.round(py) + 1, C.PLASMA_BRIGHT, Math.floor(a / 2));
+  }
+}
+
+// Cow sprite (22 wide × 14 tall)
+const COW = [
+  "....OO..........OO....",
+  "...OppO........OppO...",
+  "...O##O........O##O...",
+  "..O####OOOOOOOO####O..",
+  ".O####OO########..#O..",
+  "O###eOO############OPP",
+  "O####O############O.PP",
+  "O##.#O##.########O..PP",
+  "O##############O.....P",
+  "O##.#####.##O.........",
+  "OO##OO#OO#OO..........",
+  ".O##O.O##O.O##O.......",
+  ".O##O.O##O.O##O.......",
+  "..OO...OO...OO........",
+];
+
+function drawCow(put, frame) {
+  const bob = Math.round(Math.sin(frame / TOTAL_FRAMES * TAU * 2) * 1.5);
+  const rise = Math.round(Math.sin(frame / TOTAL_FRAMES * TAU) * 2);
+  const cw = COW[0].length;
+  const cy_top = 318 + bob - rise;
+  for (let dy = 0; dy < COW.length; dy++) {
+    const row = COW[dy];
+    for (let dx = 0; dx < row.length; dx++) {
+      const ch = row[dx];
+      const x = HCX - Math.floor(cw / 2) + dx;
+      const y = cy_top + dy;
+      if      (ch === '#') put(x, y, C.COW_W);
+      else if (ch === '.') put(x, y, C.COW_O);
+      else if (ch === 'O') put(x, y, C.COW_O);
+      else if (ch === 'P') put(x, y, C.COW_PINK);
+      else if (ch === 'p') put(x, y, C.COW_PINK);
+      else if (ch === 'e') put(x, y, C.COW_O);
+    }
+  }
+}
+
+function buildFrame(frame, buf) {
+  buf.fill(0);
+  const put = makePut(buf);
+  // Beam goes behind everything else so the UFO sits on top
+  drawBeam(put, frame);
+  drawCow(put, frame);
+  drawSaucer(put);
+  drawRotatingLights(put, frame);
+  drawCabinWindows(put, frame);
+  drawDome(put);
+  drawDomeSlits(put, frame);
+  drawPlume(put, frame);
+}
+
+// ── React component ───────────────────────────────────
+function App() {
+  const [paused, setPaused] = useState(false);
+  const [frame, setFrame] = useState(0);
+  const [slow, setSlow] = useState(false);
+  const canvasRef = useRef(null);
+  const offRef = useRef(null);
+  const bufRef = useRef(null);
+
+  // Lazy init off-canvas + buffer
+  useMemo(() => {
+    offRef.current = document.createElement('canvas');
+    offRef.current.width = W;
+    offRef.current.height = H;
+    bufRef.current = new Uint8ClampedArray(W * H * 4);
+  }, []);
+
+  // Frame ticker
+  useEffect(() => {
+    if (paused) return;
+    const interval = slow ? 1000 / 6 : 1000 / FPS;
+    const id = setInterval(() => setFrame(f => (f + 1) % TOTAL_FRAMES), interval);
+    return () => clearInterval(id);
+  }, [paused, slow]);
+
+  // Render frame to canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    buildFrame(frame, bufRef.current);
+    const offCtx = offRef.current.getContext('2d');
+    offCtx.putImageData(new ImageData(bufRef.current, W, H), 0, 0);
+    ctx.clearRect(0, 0, W * SCALE, H * SCALE);
+    ctx.drawImage(offRef.current, 0, 0, W * SCALE, H * SCALE);
+  }, [frame]);
+
+  return (
+    <div className="root">
+      <h1>UFO Tractor Beam</h1>
+      <div className="canvas-wrap">
+        <canvas ref={canvasRef} width={W * SCALE} height={H * SCALE} />
+      </div>
+      <div className="controls">
+        <button className={paused ? 'on' : ''} onClick={() => setPaused(!paused)}>
+          {paused ? 'Play' : 'Pause'}
+        </button>
+        <button className={slow ? 'on' : ''} onClick={() => setSlow(!slow)}>
+          {slow ? 'Normal speed' : 'Slow (6 fps)'}
+        </button>
+        <input
+          type="range" min="0" max={TOTAL_FRAMES - 1} value={frame}
+          onChange={e => { setPaused(true); setFrame(Number(e.target.value)); }}
+        />
+        <span className="frame-label">Frame {frame + 1} / {TOTAL_FRAMES}</span>
+      </div>
+      <div style={{maxWidth: 560, color: '#778', fontSize: 11, lineHeight: 1.5, textAlign: 'center'}}>
+        72-frame seamless loop @ 24 fps. Transparent background — the checkered backdrop
+        shows what's transparent. Spinning rim lights, blinking cabin windows, pulsing dome
+        interior, breathing plasma jet, and a translucent tractor beam pulling a cow upward.
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
