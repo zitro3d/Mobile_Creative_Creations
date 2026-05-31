@@ -60,6 +60,16 @@ WIN_O = (255, 145, 55)
 WIN_Y = (255, 220, 110)
 WIN_W = (255, 245, 200)
 
+# Plasma — engine core / energy field (white-cyan core to deep magenta edges)
+PLASMA_SHINE  = (255, 255, 255)
+PLASMA_HOT    = (200, 230, 255)
+PLASMA_BRIGHT = (130, 195, 255)
+PLASMA_LIGHT  = (140, 120, 255)
+PLASMA_MID    = (190, 80, 240)
+PLASMA_DARK   = (145, 35, 195)
+PLASMA_DEEP   = (90, 18, 130)
+PLASMA_VOID   = (45, 8, 70)
+
 STAR1 = (240, 235, 210)
 STAR2 = (255, 200, 120)
 STAR3 = (180, 160, 220)
@@ -305,43 +315,77 @@ for y in range(187, 193):
         else:                col = HULL_DD
         put(x, y, col)
 
-# Engine pod (small round sphere with glowing core)
+# Engine pod — plasma reactor core, white-cyan center to magenta-purple edges
 POD_CX = HCX
 POD_CY = 201
 POD_R = 12
 
+# Plasma halo: a soft ring of glow extending outward from the pod
+HALO_R = POD_R + 5
+for y in range(POD_CY - HALO_R, POD_CY + HALO_R + 1):
+    for x in range(POD_CX - HALO_R, POD_CX + HALO_R + 1):
+        dx = x - POD_CX
+        dy = y - POD_CY
+        d = math.sqrt(dx*dx + dy*dy)
+        if d <= POD_R or d > HALO_R: continue
+        edge = (d - POD_R) / (HALO_R - POD_R)
+        if   edge < 0.30: col = PLASMA_DARK
+        elif edge < 0.65: col = PLASMA_DEEP
+        else:             col = PLASMA_VOID
+        put(x, y, col)
+
+# Pod sphere itself
 for y in range(POD_CY - POD_R, POD_CY + POD_R + 1):
     for x in range(POD_CX - POD_R, POD_CX + POD_R + 1):
         u = (x - POD_CX) / POD_R
         v = (y - POD_CY) / POD_R
         d = math.sqrt(u*u + v*v)
         if d > 1.0: continue
-        if   d > 0.92: col = HULL_O
-        elif d > 0.80: col = HULL_DD
-        elif d > 0.65: col = ORANGE
-        elif d > 0.48: col = LIGHT
-        elif d > 0.32: col = BRIGHT
-        elif d > 0.18: col = HOT
-        else:          col = SHINE
+        if   d > 0.92: col = PLASMA_DARK
+        elif d > 0.78: col = PLASMA_MID
+        elif d > 0.62: col = PLASMA_LIGHT
+        elif d > 0.45: col = PLASMA_BRIGHT
+        elif d > 0.28: col = PLASMA_HOT
+        elif d > 0.12: col = PLASMA_SHINE
+        else:          col = PLASMA_SHINE
         put(x, y, col)
 
-# Specular dot on engine pod
-put(POD_CX + 3, POD_CY - 4, SHINE)
-put(POD_CX + 4, POD_CY - 3, SHINE)
+# Specular cool-white highlight on upper-right of pod
+put(POD_CX + 3, POD_CY - 4, PLASMA_SHINE)
+put(POD_CX + 4, POD_CY - 3, PLASMA_SHINE)
+put(POD_CX + 4, POD_CY - 4, PLASMA_HOT)
 
-# ── FALLING SPARKS ──────────────────────────────────
-sparks = [
-    (HCX, 217, ORANGE),
-    (HCX - 2, 220, WIN_O),
-    (HCX + 1, 223, ORANGE),
-    (HCX,     226, ORANGE),
-    (HCX + 2, 229, WIN_O),
-    (HCX - 1, 233, ORANGE),
-    (HCX,     237, WIN_O),
-    (HCX + 1, 241, ORANGE),
-    (HCX - 2, 245, ORANGE),
+# ── PLASMA STREAM — thin glowing beam + drifting particles ──
+# Central beam: tapers and fades downward
+beam = [
+    (215, PLASMA_SHINE), (216, PLASMA_HOT),  (217, PLASMA_HOT),
+    (218, PLASMA_BRIGHT), (219, PLASMA_BRIGHT), (220, PLASMA_LIGHT),
+    (221, PLASMA_LIGHT), (222, PLASMA_MID),  (223, PLASMA_MID),
+    (224, PLASMA_DARK),  (225, PLASMA_DARK), (226, PLASMA_DEEP),
 ]
-for x, y, c in sparks:
+for y, c in beam:
+    put(HCX, y, c)
+# Edge softening on the brighter upper section
+for y, c in beam[:6]:
+    put(HCX - 1, y, PLASMA_DARK)
+    put(HCX + 1, y, PLASMA_DARK)
+
+# Drifting plasma particles below the beam (scattered, fading)
+particles = [
+    (HCX,     228, PLASMA_BRIGHT),
+    (HCX - 2, 230, PLASMA_LIGHT),
+    (HCX + 2, 232, PLASMA_LIGHT),
+    (HCX - 1, 234, PLASMA_MID),
+    (HCX + 1, 236, PLASMA_MID),
+    (HCX,     238, PLASMA_BRIGHT),
+    (HCX + 3, 240, PLASMA_DARK),
+    (HCX - 2, 242, PLASMA_MID),
+    (HCX + 1, 244, PLASMA_DARK),
+    (HCX,     247, PLASMA_DEEP),
+    (HCX - 3, 249, PLASMA_DARK),
+    (HCX + 2, 251, PLASMA_DEEP),
+]
+for x, y, c in particles:
     put(x, y, c)
 
 os.makedirs('output', exist_ok=True)
