@@ -332,101 +332,103 @@ function drawPlume(put, frame) {
   }
 }
 
+// Beam-cycle phase frames (72-frame loop):
+//   [0, 14)  extend
+//   [14, 36) hold
+//   [36, 50) retract
+//   [50, 72) pause (empty)
+const BEAM_EXTEND_END  = 14;
+const BEAM_HOLD_END    = 36;
+const BEAM_RETRACT_END = 50;
+
+function beamState(frame) {
+  if (frame < BEAM_EXTEND_END) {
+    const t = frame / BEAM_EXTEND_END;
+    const e = 1 - (1 - t) * (1 - t);
+    return { length: e, intensity: 0.4 + 0.6 * e, phase: 'extend', suction: 0 };
+  }
+  if (frame < BEAM_HOLD_END) {
+    return { length: 1, intensity: 1, phase: 'hold', suction: 0.7 };
+  }
+  if (frame < BEAM_RETRACT_END) {
+    const t = (frame - BEAM_HOLD_END) / (BEAM_RETRACT_END - BEAM_HOLD_END);
+    const e = t * t;
+    return { length: 1 - e, intensity: 1 - 0.2 * e, phase: 'retract', suction: 1.6 };
+  }
+  return { length: 0, intensity: 0, phase: 'pause', suction: 0 };
+}
+
 function drawBeam(put, frame) {
-  const TOP = 207, BOT = 332;
-  const HT = BOT - TOP;
-  const HW_T = 12, HW_B = 44;
-  const pulse = 0.85 + 0.15 * Math.sin(frame / TOTAL_FRAMES * TAU * 2);
+  const TOP = 207, MAX_BOT = 332;
+  const HW_T = 12, MAX_HW_B = 44;
+  const maxH = MAX_BOT - TOP;
+  const { length, intensity, phase, suction } = beamState(frame);
+  if (length <= 0.001 || intensity <= 0.001) return;
+
+  const curBot = TOP + length * maxH;
+  const curBotI = Math.round(curBot);
+  const leadingY = curBotI;
+  const pulse = 0.85 + 0.15 * Math.sin(frame / TOTAL_FRAMES * TAU * 4);
+
   // Beam body
-  for (let y = TOP; y <= BOT; y++) {
-    const relY = (y - TOP) / HT;
-    const hw = HW_T + relY * (HW_B - HW_T);
+  for (let y = TOP; y <= curBotI; y++) {
+    const relFull = (y - TOP) / maxH;
+    const hw = HW_T + relFull * (MAX_HW_B - HW_T);
+    const relLocal = (y - TOP) / Math.max(curBot - TOP, 1);
+    const distFromEdge = leadingY - y;
+    const edgeBoost = distFromEdge < 5 ? (1 - distFromEdge / 5) * 0.4 : 0;
     for (let dx = -Math.ceil(hw) - 1; dx <= Math.ceil(hw) + 1; dx++) {
       const u = dx / hw;
       if (Math.abs(u) > 1.05) continue;
       const edge = 1 - Math.min(1, Math.pow(Math.abs(u), 1.4));
-      const vfade = 1 - relY * 0.30;
-      const a_base = edge * vfade * pulse;
+      const vfade = 1 - relLocal * 0.30;
+      const a_base = edge * vfade * pulse * intensity * (1 + edgeBoost * (1 - Math.abs(u) * 0.6));
       let col, alpha;
       if (Math.abs(u) < 0.18) { col = C.PLASMA_HOT;    alpha = Math.round(220 * a_base); }
       else if (Math.abs(u) < 0.45) { col = C.PLASMA_BRIGHT; alpha = Math.round(170 * a_base); }
       else if (Math.abs(u) < 0.75) { col = C.PLASMA_LIGHT;  alpha = Math.round(120 * a_base); }
       else                         { col = C.PLASMA_MID;    alpha = Math.round(70 * a_base); }
-      put(HCX + dx, y, col, alpha);
+      put(HCX + dx, y, col, Math.max(0, Math.min(255, alpha)));
     }
   }
-  // Inner upward-scrolling lines
+
+  // Inner upward-scrolling streak lines — speed up during retract
+  const lineSpeed = phase === 'retract' ? 7.0 : 3.0;
   const N_LINES = 4;
   for (let li = 0; li < N_LINES; li++) {
     const offFrac = (li / N_LINES) - 0.5 + 0.125;
     const linePhase = (frame * 2 + li * 18) % TOTAL_FRAMES;
-    for (let y = TOP; y <= BOT; y++) {
-      const relY = (y - TOP) / HT;
-      const hw = HW_T + relY * (HW_B - HW_T);
-      const scrollY = ((y - TOP - linePhase * (HT / TOTAL_FRAMES) * 3) % HT + HT) % HT;
+    for (let y = TOP; y <= curBotI; y++) {
+      const relFull = (y - TOP) / maxH;
+      const hw = HW_T + relFull * (MAX_HW_B - HW_T);
+      const scrollY = ((y - TOP - linePhase * (maxH / TOTAL_FRAMES) * lineSpeed) % maxH + maxH) % maxH;
       if (scrollY > 6) continue;
       const wob = Math.sin((y / 8) + frame / TOTAL_FRAMES * TAU) * 0.08;
       const dx = Math.round((offFrac + wob) * hw * 1.6);
-      const a = Math.round(180 * (1 - scrollY / 6));
+      const a = Math.round(180 * (1 - scrollY / 6) * intensity);
       put(HCX + dx, y, C.PLASMA_HOT, a);
     }
   }
-  // Upward streaming bright particles (the "suction")
-  const N_PART = 24;
-  for (let i = 0; i < N_PART; i++) {
-    const rng  = (Math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1;
-    const rng2 = (Math.sin(i * 9.7777 + 22.111) * 12345.6789) % 1;
-    const r1 = rng < 0 ? rng + 1 : rng;
-    const r2 = rng2 < 0 ? rng2 + 1 : rng2;
-    const progress = ((frame * 2.5 + i * (TOTAL_FRAMES / N_PART)) % TOTAL_FRAMES) / TOTAL_FRAMES;
-    const py = BOT - progress * HT;
-    const relY = (py - TOP) / HT;
-    if (relY < 0 || relY > 1) continue;
-    const hw = HW_T + relY * (HW_B - HW_T);
-    const xOffset = (r1 - 0.5) * 2 * hw * (0.85 - 0.5 * (1 - relY));
-    const px = HCX + Math.round(xOffset);
-    const a = Math.round(245 * (0.4 + 0.6 * (1 - relY)));
-    const col = r2 > 0.6 ? C.PLASMA_SHINE : C.PLASMA_HOT;
-    put(px, Math.round(py), col, a);
-    put(px, Math.round(py) + 1, C.PLASMA_BRIGHT, Math.floor(a / 2));
-  }
-}
 
-// Cow sprite (22 wide × 14 tall)
-const COW = [
-  "....OO..........OO....",
-  "...OppO........OppO...",
-  "...O##O........O##O...",
-  "..O####OOOOOOOO####O..",
-  ".O####OO########..#O..",
-  "O###eOO############OPP",
-  "O####O############O.PP",
-  "O##.#O##.########O..PP",
-  "O##############O.....P",
-  "O##.#####.##O.........",
-  "OO##OO#OO#OO..........",
-  ".O##O.O##O.O##O.......",
-  ".O##O.O##O.O##O.......",
-  "..OO...OO...OO........",
-];
-
-function drawCow(put, frame) {
-  const bob = Math.round(Math.sin(frame / TOTAL_FRAMES * TAU * 2) * 1.5);
-  const rise = Math.round(Math.sin(frame / TOTAL_FRAMES * TAU) * 2);
-  const cw = COW[0].length;
-  const cy_top = 318 + bob - rise;
-  for (let dy = 0; dy < COW.length; dy++) {
-    const row = COW[dy];
-    for (let dx = 0; dx < row.length; dx++) {
-      const ch = row[dx];
-      const x = HCX - Math.floor(cw / 2) + dx;
-      const y = cy_top + dy;
-      if      (ch === '#') put(x, y, C.COW_W);
-      else if (ch === '.') put(x, y, C.COW_O);
-      else if (ch === 'O') put(x, y, C.COW_O);
-      else if (ch === 'P') put(x, y, C.COW_PINK);
-      else if (ch === 'p') put(x, y, C.COW_PINK);
-      else if (ch === 'e') put(x, y, C.COW_O);
+  // Upward-streaming suction particles — only when actually sucking
+  if (suction > 0.01) {
+    const N_PART = 28;
+    const speedMult = phase === 'hold' ? 2.5 : 6.0;
+    for (let i = 0; i < N_PART; i++) {
+      const rng  = ((Math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1 + 1) % 1;
+      const rng2 = ((Math.sin(i * 9.7777 + 22.111) * 12345.6789) % 1 + 1) % 1;
+      const progress = ((frame * speedMult + i * (TOTAL_FRAMES / N_PART)) % TOTAL_FRAMES) / TOTAL_FRAMES;
+      const py = curBot - progress * (curBot - TOP);
+      const relY = (py - TOP) / maxH;
+      if (relY < 0 || relY > 1) continue;
+      if (py > curBot) continue;
+      const hw = HW_T + relY * (MAX_HW_B - HW_T);
+      const xOffset = (rng - 0.5) * 2 * hw * (0.85 - 0.5 * (1 - relY));
+      const px = HCX + Math.round(xOffset);
+      const a = Math.round(245 * (0.4 + 0.6 * (1 - relY)) * suction);
+      const col = rng2 > 0.6 ? C.PLASMA_SHINE : C.PLASMA_HOT;
+      put(px, Math.round(py), col, Math.min(255, a));
+      put(px, Math.round(py) + 1, C.PLASMA_BRIGHT, Math.min(255, Math.floor(a / 2)));
     }
   }
 }
@@ -434,9 +436,8 @@ function drawCow(put, frame) {
 function buildFrame(frame, buf) {
   buf.fill(0);
   const put = makePut(buf);
-  // Beam goes behind everything else so the UFO sits on top
+  // Beam first so the UFO sits on top of it
   drawBeam(put, frame);
-  drawCow(put, frame);
   drawSaucer(put);
   drawRotatingLights(put, frame);
   drawCabinWindows(put, frame);
