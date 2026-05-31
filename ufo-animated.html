@@ -433,17 +433,19 @@ function drawBeam(put, frame) {
   }
 }
 
-function buildFrame(frame, buf) {
+function buildFrame(frame, buf, layers) {
   buf.fill(0);
   const put = makePut(buf);
-  // Beam first so the UFO sits on top of it
-  drawBeam(put, frame);
-  drawSaucer(put);
-  drawRotatingLights(put, frame);
-  drawCabinWindows(put, frame);
-  drawDome(put);
-  drawDomeSlits(put, frame);
-  drawPlume(put, frame);
+  // Beam first so the UFO sits on top of it when combined
+  if (layers.beam) drawBeam(put, frame);
+  if (layers.ufo) {
+    drawSaucer(put);
+    drawRotatingLights(put, frame);
+    drawCabinWindows(put, frame);
+    drawDome(put);
+    drawDomeSlits(put, frame);
+  }
+  if (layers.plume) drawPlume(put, frame);
 }
 
 // ── React component ───────────────────────────────────
@@ -451,6 +453,9 @@ function App() {
   const [paused, setPaused] = useState(false);
   const [frame, setFrame] = useState(0);
   const [slow, setSlow] = useState(false);
+  const [showUfo, setShowUfo] = useState(true);
+  const [showPlume, setShowPlume] = useState(true);
+  const [showBeam, setShowBeam] = useState(true);
   const canvasRef = useRef(null);
   const offRef = useRef(null);
   const bufRef = useRef(null);
@@ -477,12 +482,19 @@ function App() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    buildFrame(frame, bufRef.current);
+    buildFrame(frame, bufRef.current, { ufo: showUfo, plume: showPlume, beam: showBeam });
     const offCtx = offRef.current.getContext('2d');
     offCtx.putImageData(new ImageData(bufRef.current, W, H), 0, 0);
     ctx.clearRect(0, 0, W * SCALE, H * SCALE);
     ctx.drawImage(offRef.current, 0, 0, W * SCALE, H * SCALE);
-  }, [frame]);
+  }, [frame, showUfo, showPlume, showBeam]);
+
+  const setSoloLayer = (layer) => {
+    setShowUfo(layer === 'ufo');
+    setShowPlume(layer === 'plume');
+    setShowBeam(layer === 'beam');
+  };
+  const showAll = () => { setShowUfo(true); setShowPlume(true); setShowBeam(true); };
 
   return (
     <div className="root">
@@ -503,10 +515,22 @@ function App() {
         />
         <span className="frame-label">Frame {frame + 1} / {TOTAL_FRAMES}</span>
       </div>
-      <div style={{maxWidth: 560, color: '#778', fontSize: 11, lineHeight: 1.5, textAlign: 'center'}}>
-        72-frame seamless loop @ 24 fps. Transparent background — the checkered backdrop
-        shows what's transparent. Spinning rim lights, blinking cabin windows, pulsing dome
-        interior, breathing plasma jet, and a translucent tractor beam pulling a cow upward.
+      <div className="controls" style={{justifyContent: 'center'}}>
+        <label style={{marginRight: 8, color: '#aab'}}>Layers:</label>
+        <button className={showUfo   ? 'on' : ''} onClick={() => setShowUfo(v => !v)}>UFO</button>
+        <button className={showPlume ? 'on' : ''} onClick={() => setShowPlume(v => !v)}>Plume</button>
+        <button className={showBeam  ? 'on' : ''} onClick={() => setShowBeam(v => !v)}>Beam</button>
+        <span style={{width: 12}}/>
+        <button onClick={() => setSoloLayer('ufo')}>Solo UFO</button>
+        <button onClick={() => setSoloLayer('plume')}>Solo Plume</button>
+        <button onClick={() => setSoloLayer('beam')}>Solo Beam</button>
+        <button onClick={showAll}>All on</button>
+      </div>
+      <div style={{maxWidth: 600, color: '#778', fontSize: 11, lineHeight: 1.5, textAlign: 'center'}}>
+        72-frame seamless loop @ 24 fps. Transparent canvas — checkered backdrop shows alpha.
+        Toggle layers individually, or solo each one to isolate it. Per-layer animated GIFs
+        are exported by <code>build_ufo_anim.py</code> as <code>output/ufo_layer_ufo.gif</code>,
+        <code>ufo_layer_plume.gif</code>, and <code>ufo_layer_beam.gif</code>.
       </div>
     </div>
   );
