@@ -315,78 +315,79 @@ for y in range(187, 193):
         else:                col = HULL_DD
         put(x, y, col)
 
-# Engine pod — plasma reactor core, white-cyan center to magenta-purple edges
-POD_CX = HCX
-POD_CY = 201
-POD_R = 12
-
-# Plasma halo: a soft ring of glow extending outward from the pod
-HALO_R = POD_R + 5
-for y in range(POD_CY - HALO_R, POD_CY + HALO_R + 1):
-    for x in range(POD_CX - HALO_R, POD_CX + HALO_R + 1):
-        dx = x - POD_CX
-        dy = y - POD_CY
-        d = math.sqrt(dx*dx + dy*dy)
-        if d <= POD_R or d > HALO_R: continue
-        edge = (d - POD_R) / (HALO_R - POD_R)
-        if   edge < 0.30: col = PLASMA_DARK
-        elif edge < 0.65: col = PLASMA_DEEP
-        else:             col = PLASMA_VOID
-        put(x, y, col)
-
-# Pod sphere itself
-for y in range(POD_CY - POD_R, POD_CY + POD_R + 1):
-    for x in range(POD_CX - POD_R, POD_CX + POD_R + 1):
-        u = (x - POD_CX) / POD_R
-        v = (y - POD_CY) / POD_R
-        d = math.sqrt(u*u + v*v)
-        if d > 1.0: continue
-        if   d > 0.92: col = PLASMA_DARK
-        elif d > 0.78: col = PLASMA_MID
-        elif d > 0.62: col = PLASMA_LIGHT
-        elif d > 0.45: col = PLASMA_BRIGHT
-        elif d > 0.28: col = PLASMA_HOT
-        elif d > 0.12: col = PLASMA_SHINE
-        else:          col = PLASMA_SHINE
-        put(x, y, col)
-
-# Specular cool-white highlight on upper-right of pod
-put(POD_CX + 3, POD_CY - 4, PLASMA_SHINE)
-put(POD_CX + 4, POD_CY - 3, PLASMA_SHINE)
-put(POD_CX + 4, POD_CY - 4, PLASMA_HOT)
-
-# ── PLASMA STREAM — thin glowing beam + drifting particles ──
-# Central beam: tapers and fades downward
-beam = [
-    (215, PLASMA_SHINE), (216, PLASMA_HOT),  (217, PLASMA_HOT),
-    (218, PLASMA_BRIGHT), (219, PLASMA_BRIGHT), (220, PLASMA_LIGHT),
-    (221, PLASMA_LIGHT), (222, PLASMA_MID),  (223, PLASMA_MID),
-    (224, PLASMA_DARK),  (225, PLASMA_DARK), (226, PLASMA_DEEP),
+# ── PLASMA EMISSION — energy plume expanding downward, not a contained orb ──
+# Starts focused at the emitter point (saucer's bottom) and widens continuously
+# as it descends — like rocket exhaust spreading outward — then dissolves
+# into drifting particles. Never closes back to a point.
+EMIT_X = HCX
+plume_shape = [
+    (193, 2),  (194, 3),  (195, 3),  (196, 4),  (197, 5),
+    (198, 6),  (199, 7),  (200, 8),  (201, 9),  (202, 10),
+    (203, 11), (204, 12), (205, 13), (206, 14),
 ]
-for y, c in beam:
-    put(HCX, y, c)
-# Edge softening on the brighter upper section
-for y, c in beam[:6]:
-    put(HCX - 1, y, PLASMA_DARK)
-    put(HCX + 1, y, PLASMA_DARK)
+plume_top = plume_shape[0][0]
+plume_bot = plume_shape[-1][0]
+plume_h = plume_bot - plume_top
 
-# Drifting plasma particles below the beam (scattered, fading)
+for y, hw in plume_shape:
+    rel_y = (y - plume_top) / plume_h  # 0 at emitter, 1 at dissipation edge
+    for dx in range(-hw, hw + 1):
+        u = dx / max(hw, 1)
+        # Brightest near the emitter centerline, fading to edges and downward.
+        i = (1.0 - abs(u) * 0.60) * (1.0 - rel_y * 0.55)
+        if   i > 0.88: col = PLASMA_SHINE
+        elif i > 0.72: col = PLASMA_HOT
+        elif i > 0.56: col = PLASMA_BRIGHT
+        elif i > 0.42: col = PLASMA_LIGHT
+        elif i > 0.28: col = PLASMA_MID
+        elif i > 0.14: col = PLASMA_DARK
+        else:          col = PLASMA_DEEP
+        put(EMIT_X + dx, y, col)
+
+# Particles continuing the outward spread below the plume — energy dissipating
 particles = [
-    (HCX,     228, PLASMA_BRIGHT),
-    (HCX - 2, 230, PLASMA_LIGHT),
-    (HCX + 2, 232, PLASMA_LIGHT),
-    (HCX - 1, 234, PLASMA_MID),
-    (HCX + 1, 236, PLASMA_MID),
-    (HCX,     238, PLASMA_BRIGHT),
-    (HCX + 3, 240, PLASMA_DARK),
-    (HCX - 2, 242, PLASMA_MID),
-    (HCX + 1, 244, PLASMA_DARK),
-    (HCX,     247, PLASMA_DEEP),
-    (HCX - 3, 249, PLASMA_DARK),
-    (HCX + 2, 251, PLASMA_DEEP),
+    # Just under the plume — still relatively dense
+    (HCX - 14, 208, PLASMA_DARK),
+    (HCX - 9,  208, PLASMA_MID),
+    (HCX - 3,  208, PLASMA_LIGHT),
+    (HCX + 2,  208, PLASMA_LIGHT),
+    (HCX + 8,  208, PLASMA_MID),
+    (HCX + 13, 208, PLASMA_DARK),
+    (HCX - 11, 211, PLASMA_DARK),
+    (HCX - 5,  211, PLASMA_MID),
+    (HCX + 1,  211, PLASMA_LIGHT),
+    (HCX + 6,  211, PLASMA_MID),
+    (HCX + 12, 211, PLASMA_DARK),
+    # Spreading further out as it drifts
+    (HCX - 15, 214, PLASMA_DEEP),
+    (HCX - 8,  214, PLASMA_DARK),
+    (HCX - 2,  214, PLASMA_MID),
+    (HCX + 4,  214, PLASMA_MID),
+    (HCX + 10, 214, PLASMA_DARK),
+    (HCX + 16, 215, PLASMA_DEEP),
+    (HCX - 12, 217, PLASMA_DARK),
+    (HCX - 5,  218, PLASMA_DARK),
+    (HCX + 1,  219, PLASMA_MID),
+    (HCX + 8,  218, PLASMA_DARK),
+    (HCX + 14, 220, PLASMA_DEEP),
+    # Far drift
+    (HCX - 17, 222, PLASMA_DEEP),
+    (HCX - 9,  223, PLASMA_DARK),
+    (HCX - 2,  225, PLASMA_DARK),
+    (HCX + 5,  224, PLASMA_DARK),
+    (HCX + 11, 225, PLASMA_DEEP),
+    (HCX - 7,  228, PLASMA_DEEP),
+    (HCX + 2,  229, PLASMA_DEEP),
+    (HCX + 9,  230, PLASMA_DEEP),
+    (HCX - 13, 232, PLASMA_DEEP),
+    (HCX - 3,  234, PLASMA_DEEP),
+    (HCX + 6,  236, PLASMA_DEEP),
+    (HCX,      240, PLASMA_DEEP),
+    (HCX - 5,  243, PLASMA_DEEP),
 ]
 for x, y, c in particles:
     put(x, y, c)
+
 
 os.makedirs('output', exist_ok=True)
 img.resize((W * SCALE, H * SCALE), Image.NEAREST).save('output/ufo.png')
