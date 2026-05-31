@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
-"""16-bit pixel art UFO — glowing dome, metallic saucer hull, falling thruster sparks.
+"""16-bit pixel-art UFO matching the reference silhouette.
 
-Logical 64x80 → 12x NEAREST → 768x960, transparent background.
+Logical 192x256 → 4x NEAREST → 768x1024.
+
+Silhouette layers, top to bottom:
+  - Hemisphere glowing dome with vertical light slits + diagonal specular streak
+  - Curved top rim band catching highlight
+  - Upper saucer body with row of orange light slits
+  - Dark seams between panel layers
+  - Tapered lower hull
+  - Second smaller panel band with another row of lights
+  - Narrow engine neck
+  - Round glowing engine pod hanging below
+  - Falling sparks
 """
 import math, os
 from PIL import Image
 
-W, H, SCALE = 64, 80, 12
+W, H, SCALE = 192, 256, 4
 
-img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+img = Image.new('RGBA', (W, H), (4, 4, 10, 255))
 PX = img.load()
 
 def put(x, y, c):
@@ -16,193 +27,368 @@ def put(x, y, c):
     if 0 <= x < W and 0 <= y < H:
         PX[x, y] = c + (255,) if len(c) == 3 else c
 
-# ── 16-bit palette ────────────────────────────────────
-# Dome (warm glowing sphere)
-SHINE   = (255, 252, 230)
-HOT     = (255, 240, 165)
-BRIGHT  = (255, 205, 100)
-LIGHT   = (250, 165, 60)
-ORANGE  = (235, 115, 40)
-RED     = (195, 70, 30)
-DEEP_R  = (130, 38, 22)
-# Hull (cool blue-gray metal)
-HULL_HI = (190, 205, 230)
-HULL_L  = (135, 152, 185)
-HULL_M  = (90, 105, 138)
-HULL_D  = (52, 62, 90)
-HULL_O  = (24, 28, 48)
-# Lights / sparks / stars
-WIN_O   = (255, 145, 55)
-WIN_Y   = (255, 220, 110)
-SPARK   = (255, 180, 80)
-STAR    = (240, 235, 210)
-DIM     = (155, 155, 175)
+# ── Palette ─────────────────────────────────────────
+# Warm (engine pod core, body lights, sparks)
+SHINE  = (255, 252, 235)
+HOT    = (255, 240, 175)
+BRIGHT = (255, 215, 110)
+LIGHT  = (252, 175, 70)
+ORANGE = (235, 125, 45)
+RED    = (180, 70, 30)
+DEEP_R = (110, 35, 18)
+DARK_R = (60, 18, 10)
 
-# ── Background stars (scattered) ──────────────────────
-stars = [(10, 6, STAR), (16, 4, DIM), (40, 7, DIM),
-         (52, 10, STAR), (5, 14, DIM), (48, 16, STAR),
-         (20, 18, DIM), (58, 21, STAR), (3, 22, DIM)]
+# Cool — DOME (cyan-blue glass, glowing from within)
+DOME_SHINE  = (240, 255, 255)
+DOME_HOT    = (180, 240, 255)
+DOME_BRIGHT = (105, 215, 250)
+DOME_LIGHT  = (55, 175, 225)
+DOME_MID    = (35, 130, 195)
+DOME_DARK   = (25, 85, 155)
+DOME_DEEP   = (18, 55, 110)
+DOME_VOID   = (12, 32, 70)
+
+HULL_VL = (200, 215, 230)
+HULL_HI = (155, 175, 205)
+HULL_L  = (115, 135, 168)
+HULL_M  = (78, 95, 128)
+HULL_D  = (50, 62, 90)
+HULL_DD = (30, 38, 60)
+HULL_O  = (12, 16, 30)
+
+WIN_O = (255, 145, 55)
+WIN_Y = (255, 220, 110)
+WIN_W = (255, 245, 200)
+
+# Plasma — engine core / energy field (white-cyan core to deep magenta edges)
+PLASMA_SHINE  = (255, 255, 255)
+PLASMA_HOT    = (200, 230, 255)
+PLASMA_BRIGHT = (130, 195, 255)
+PLASMA_LIGHT  = (140, 120, 255)
+PLASMA_MID    = (190, 80, 240)
+PLASMA_DARK   = (145, 35, 195)
+PLASMA_DEEP   = (90, 18, 130)
+PLASMA_VOID   = (45, 8, 70)
+
+STAR1 = (240, 235, 210)
+STAR2 = (255, 200, 120)
+STAR3 = (180, 160, 220)
+STAR4 = (220, 180, 130)
+
+# ── Sparse colored stars ────────────────────────────
+stars = [
+    (28, 30, STAR1), (34, 35, STAR1),  # dim cluster top-left
+    (135, 22, STAR3),                   # purple star top
+    (152, 48, STAR1), (35, 80, STAR2),
+    (155, 92, STAR1), (15, 105, STAR3),
+    (78, 110, STAR1), (110, 88, STAR2),
+    (172, 130, STAR1), (60, 50, STAR4),
+]
 for x, y, c in stars:
     put(x, y, c)
 
-# ── DOME — glowing 3D sphere, lit from upper-right ────
-DCX, DCY = 32, 30
-DRX, DRY = 14, 12
-# Light vector in 3D (x: right+, y: down+, z: out of screen)
-L = (0.55, -0.55, 0.62)
-Ll = math.sqrt(sum(c * c for c in L))
-LN = (L[0] / Ll, L[1] / Ll, L[2] / Ll)
+UCX = HCX = 96
 
-for y in range(DCY - DRY, DCY + 3):
-    for x in range(DCX - DRX, DCX + DRX + 1):
-        dxn = (x - DCX) / DRX
-        dyn = (y - DCY) / DRY
-        d2 = dxn * dxn + dyn * dyn
-        if d2 > 1.0:
-            continue
-        # Cull bottom half (dome sits on hull, not a full sphere)
-        if y > DCY + 1:
-            continue
-        # Sphere surface normal (already unit length)
-        nz = math.sqrt(max(0, 1 - d2))
-        # Phong-ish intensity
-        i = dxn * LN[0] + dyn * LN[1] + nz * LN[2]
-        # Choose colour band
-        if   i > 0.92: col = SHINE
-        elif i > 0.78: col = HOT
-        elif i > 0.58: col = BRIGHT
-        elif i > 0.36: col = LIGHT
-        elif i > 0.10: col = ORANGE
-        elif i > -0.20: col = RED
-        else:          col = DEEP_R
-        # Rim outline at the silhouette
-        if d2 > 0.90 and i < 0.20:
-            col = DEEP_R
+# ── DOME — hemisphere ───────────────────────────────
+DCX = UCX
+DCY_BASE = 145
+DR = 38
+
+Lx, Ly, Lz = 0.50, 0.55, 0.67
+Lmag = math.sqrt(Lx*Lx + Ly*Ly + Lz*Lz)
+Lx /= Lmag; Ly /= Lmag; Lz /= Lmag
+
+for y in range(DCY_BASE - DR, DCY_BASE + 1):
+    for x in range(DCX - DR, DCX + DR + 1):
+        u = (x - DCX) / DR
+        v = (DCY_BASE - y) / DR
+        if v < 0: continue
+        if u*u + v*v > 1.0: continue
+        w = math.sqrt(max(0.0, 1.0 - u*u - v*v))
+        # Unit sphere normal is (u, v, w)
+        diff = max(0.0, u*Lx + v*Ly + w*Lz)
+        # Warm uniform interior glow — keeps the dome looking lit from within
+        # but without a blinding bright spot at the center.
+        glow = 0.55 + 0.10 * w
+        i = diff * 0.55 + glow * 0.40
+        radial = math.sqrt(u*u + v*v)
+        if   radial > 0.96: i *= 0.20
+        elif radial > 0.90: i *= 0.50
+        elif radial > 0.82: i *= 0.75
+        if   i > 0.95: col = DOME_SHINE
+        elif i > 0.82: col = DOME_HOT
+        elif i > 0.68: col = DOME_BRIGHT
+        elif i > 0.54: col = DOME_LIGHT
+        elif i > 0.40: col = DOME_MID
+        elif i > 0.25: col = DOME_DARK
+        elif i > 0.10: col = DOME_DEEP
+        else:          col = DOME_VOID
         put(x, y, col)
 
-# A specular highlight cluster on the upper-right of the dome
-specs = [(33, 22, SHINE), (34, 22, SHINE), (33, 23, HOT),
-         (34, 23, SHINE), (35, 23, HOT), (35, 24, HOT)]
-for x, y, c in specs:
-    put(x, y, c)
-
-# ── HULL — saucer disc with rim & windows ─────────────
-# Hand-picked half-widths per row so the silhouette is exactly right.
-HCX = 32
-hull_rows = {
-    # row : (half_width, role)
-    32: (12, 'top'),
-    33: (15, 'top'),
-    34: (19, 'top'),
-    35: (23, 'rim_top'),
-    36: (26, 'rim_top'),
-    37: (27, 'rim'),
-    38: (27, 'rim_lights'),
-    39: (26, 'rim'),
-    40: (22, 'taper'),
-    41: (17, 'taper'),
-    42: (11, 'taper'),
-    43: (6,  'thruster_base'),
-}
-for y, (hw, role) in hull_rows.items():
-    for dx in range(-hw, hw + 1):
-        x = HCX + dx
-        # Edge outline
-        if dx <= -hw + 1 or dx >= hw - 1 or y == 43:
-            col = HULL_O
-        elif role == 'top':
-            # Top surface of saucer — gradient light to dark
-            if dx > hw * 0.45:   col = HULL_HI
-            elif dx > 0:         col = HULL_L
-            elif dx > -hw * 0.5: col = HULL_M
-            else:                col = HULL_D
-        elif role == 'rim_top':
-            # Upper rim — highlight band
-            if dx > hw * 0.45:   col = HULL_HI
-            elif dx > -hw * 0.4: col = HULL_L
-            else:                col = HULL_M
-        elif role == 'rim':
-            # Vertical side wall
-            if dx > hw * 0.40:   col = HULL_M
-            elif dx > -hw * 0.4: col = HULL_D
-            else:                col = HULL_D
-        elif role == 'rim_lights':
-            # Window light row — mostly dark with bright dashes
-            col = HULL_D
-        elif role == 'taper':
-            # Bottom taper — keep mostly dark
-            if dx > hw * 0.4:    col = HULL_M
-            else:                col = HULL_D
-        elif role == 'thruster_base':
-            col = HULL_D
-        put(x, y, col)
-
-# Window lights along the rim (row 38)
-for wp in (-23, -18, -12, -6, 0, 6, 12, 18, 23):
-    x = HCX + wp
-    if -27 < wp < 27:
-        put(x, 38, WIN_O)
-# A couple brighter "cabin" windows on left (matches reference)
-for x, y in [(20, 36), (21, 36), (22, 36)]:
-    put(x, y, HULL_O)            # darker cockpit framing
-put(20, 37, WIN_O); put(21, 37, WIN_O); put(22, 37, WIN_O)
-# Decorative trim line just under the rim highlight (row 36)
-for x in range(HCX - 25, HCX + 26):
-    cur = PX[x, 36]
-    if cur and cur[3] == 255 and cur[:3] in (HULL_M, HULL_L):
-        # leave as-is
-        pass
-
-# ── Centre seam between top and bottom hull halves ────
-for dx in range(-26, 27):
-    x = HCX + dx
-    if PX[x, 39][3]:
-        put(x, 39, HULL_O if dx % 4 == 0 else HULL_D)
-
-# ── THRUSTER + GLOW ───────────────────────────────────
-# narrow rectangle below the hull
-for y in range(44, 51):
-    if   y <= 45: hw = 5
-    elif y <= 47: hw = 4
-    elif y <= 49: hw = 4
-    else:         hw = 3
-    for dx in range(-hw, hw + 1):
-        x = HCX + dx
-        if dx == -hw or dx == hw:
-            col = HULL_O
-        elif dx > 0:
-            col = HULL_M
-        else:
-            col = HULL_D
-        put(x, y, col)
-
-# Glow at the thruster mouth
-put(HCX - 2, 51, WIN_O)
-put(HCX - 1, 51, WIN_Y)
-put(HCX,     51, SHINE)
-put(HCX + 1, 51, WIN_Y)
-put(HCX + 2, 51, WIN_O)
-put(HCX - 1, 52, WIN_O)
-put(HCX,     52, WIN_Y)
-put(HCX + 1, 52, WIN_O)
-put(HCX,     53, SPARK)
-
-# Falling sparks beneath the thruster
-sparks = [
-    (HCX,     55, SPARK),
-    (HCX - 1, 57, SPARK),
-    (HCX + 1, 58, SPARK),
-    (HCX,     60, WIN_O),
-    (HCX + 2, 62, SPARK),
-    (HCX - 2, 64, SPARK),
-    (HCX,     65, SPARK),
-    (HCX - 1, 68, WIN_O),
-    (HCX + 1, 71, SPARK),
+# Specular streak on upper-right of dome (diagonal swoop)
+streak = [
+    (DCX + 12, DCY_BASE - 34, DOME_HOT),
+    (DCX + 13, DCY_BASE - 33, DOME_SHINE),
+    (DCX + 14, DCY_BASE - 32, DOME_SHINE),
+    (DCX + 15, DCY_BASE - 31, DOME_SHINE),
+    (DCX + 16, DCY_BASE - 30, DOME_SHINE),
+    (DCX + 17, DCY_BASE - 28, DOME_SHINE),
+    (DCX + 18, DCY_BASE - 26, DOME_SHINE),
+    (DCX + 19, DCY_BASE - 24, DOME_HOT),
+    (DCX + 20, DCY_BASE - 22, DOME_HOT),
+    (DCX + 21, DCY_BASE - 19, DOME_HOT),
+    (DCX + 22, DCY_BASE - 16, DOME_BRIGHT),
+    (DCX + 22, DCY_BASE - 13, DOME_BRIGHT),
+    (DCX + 23, DCY_BASE - 10, DOME_LIGHT),
 ]
-for x, y, c in sparks:
+for x, y, c in streak:
     put(x, y, c)
 
-# ── Save ──────────────────────────────────────────────
+# Vertical light slits on the LEFT side of the dome — warm interior lights
+# showing through the cool glass, for visual interest and a hint of warmth
+slit_positions = [
+    (DCX - 19, DCY_BASE - 18, DCY_BASE - 5),
+    (DCX - 13, DCY_BASE - 24, DCY_BASE - 4),
+    (DCX - 7,  DCY_BASE - 28, DCY_BASE - 3),
+]
+for sx, ys, ye in slit_positions:
+    mid = (ys + ye) // 2
+    for y in range(ys, ye + 1):
+        put(sx, y, DOME_VOID)
+        if mid - 2 <= y <= mid + 2:
+            put(sx, y, WIN_O)
+
+# ── SAUCER ──────────────────────────────────────────
+saucer_rows = [
+    # y, hw, role  — 33 rows of disc (146-178), then lower panel/neck below
+    (146, 44, 'rim_flare'),
+    (147, 58, 'rim_flare'),
+    (148, 70, 'rim_flare'),
+    (149, 80, 'rim_flare'),
+    (150, 86, 'rim_top'),
+    (151, 90, 'rim_top'),
+    (152, 92, 'body_hi'),
+    (153, 93, 'body_hi'),
+    (154, 94, 'body_hi'),
+    (155, 94, 'body_hi'),
+    (156, 94, 'seam'),
+    (157, 94, 'body_lights'),
+    (158, 94, 'body_lights'),
+    (159, 93, 'body_lights'),
+    (160, 93, 'body_lights'),
+    (161, 92, 'seam'),
+    (162, 91, 'body_dark'),
+    (163, 90, 'body_dark'),
+    (164, 88, 'body_dark'),
+    (165, 86, 'body_dark'),
+    (166, 84, 'body_dark'),
+    (167, 82, 'seam'),
+    (168, 80, 'body_lights2'),
+    (169, 78, 'body_lights2'),
+    (170, 76, 'body_lights2'),
+    (171, 73, 'body_lights2'),
+    (172, 70, 'seam'),
+    (173, 66, 'taper'),
+    (174, 61, 'taper'),
+    (175, 55, 'taper'),
+    (176, 48, 'taper'),
+    (177, 40, 'taper'),
+    (178, 32, 'taper'),
+    (179, 25, 'lower_panel'),
+    (180, 21, 'lower_panel'),
+    (181, 18, 'lower_lights'),
+    (182, 16, 'lower_dark'),
+    (183, 13, 'neck'),
+    (184, 11, 'neck'),
+    (185, 9,  'neck'),
+    (186, 8,  'neck'),
+]
+
+def shade(role, dx, hw):
+    rel = dx / max(hw, 1)
+    if abs(dx) == hw and hw > 3:
+        return HULL_O
+    if abs(dx) >= hw - 1 and hw > 6:
+        return HULL_DD
+    if role == 'rim_flare':
+        if rel > 0.4:   return HULL_VL
+        if rel > 0.0:   return HULL_HI
+        if rel > -0.4:  return HULL_L
+        return HULL_M
+    if role == 'rim_top':
+        if rel > 0.4:   return HULL_VL
+        if rel > -0.1:  return HULL_HI
+        if rel > -0.5:  return HULL_L
+        return HULL_M
+    if role == 'body_hi':
+        if rel > 0.3:   return HULL_HI
+        if rel > -0.2:  return HULL_L
+        if rel > -0.6:  return HULL_M
+        return HULL_D
+    if role == 'seam':
+        return HULL_O
+    if role == 'body_lights':
+        if rel > 0.4:   return HULL_L
+        if rel > -0.3:  return HULL_M
+        return HULL_D
+    if role == 'body_lights2':
+        if rel > 0.3:   return HULL_M
+        if rel > -0.3:  return HULL_D
+        return HULL_DD
+    if role == 'body_dark':
+        if rel > 0.3:   return HULL_M
+        if rel > -0.3:  return HULL_D
+        return HULL_DD
+    if role == 'taper':
+        if rel > 0.3:   return HULL_M
+        if rel > -0.3:  return HULL_D
+        return HULL_DD
+    if role == 'lower_panel':
+        if rel > 0.3:   return HULL_L
+        if rel > -0.3:  return HULL_M
+        return HULL_D
+    if role == 'lower_lights':
+        return HULL_M
+    if role == 'lower_dark':
+        return HULL_D
+    if role == 'neck':
+        if dx > 0:      return HULL_M
+        if dx > -2:     return HULL_D
+        return HULL_DD
+    return HULL_M
+
+for y, hw, role in saucer_rows:
+    for dx in range(-hw, hw + 1):
+        put(HCX + dx, y, shade(role, dx, hw))
+
+# ── LIGHT SLITS along the body (orange/red rectangles) ─
+# Arc the lights across the rim — they appear smaller toward the edges
+n_lights = 16
+for i in range(n_lights):
+    theta = math.pi * (i + 0.5) / n_lights - math.pi / 2  # -pi/2 .. +pi/2
+    lx = HCX + int(round(90 * math.sin(theta)))
+    edge_dim = abs(math.sin(theta))
+    if edge_dim < 0.6:
+        put(lx, 158, WIN_Y)
+        put(lx, 159, WIN_O)
+    else:
+        put(lx, 158, ORANGE)
+        put(lx, 159, RED)
+
+# Brighter front-cluster windows (cabin lights) on main body row
+for dxc in (-44, -26, -10, 10, 26, 44):
+    x = HCX + dxc
+    put(x, 158, WIN_W)
+    put(x + 1, 158, WIN_Y)
+    put(x, 159, WIN_Y)
+    put(x + 1, 159, WIN_O)
+
+# Second row of lights on the second body band
+n_mid = 12
+for i in range(n_mid):
+    theta = math.pi * (i + 0.5) / n_mid - math.pi / 2
+    lx = HCX + int(round(76 * math.sin(theta)))
+    edge_dim = abs(math.sin(theta))
+    if edge_dim < 0.6:
+        put(lx, 169, WIN_O)
+        put(lx, 170, ORANGE)
+    else:
+        put(lx, 169, ORANGE)
+        put(lx, 170, RED)
+
+# Third row of small lights on lower panel band
+n_lower = 7
+for i in range(n_lower):
+    theta = math.pi * (i + 0.5) / n_lower - math.pi / 2
+    lx = HCX + int(round(17 * math.sin(theta)))
+    put(lx, 181, WIN_O)
+
+# ── ENGINE NECK + POD ───────────────────────────────
+# Tight neck just above the pod
+for y in range(187, 193):
+    hw = 4 if y < 191 else 6
+    for dx in range(-hw, hw + 1):
+        x = HCX + dx
+        if abs(dx) == hw:    col = HULL_O
+        elif dx > 1:         col = HULL_M
+        elif dx > -2:        col = HULL_D
+        else:                col = HULL_DD
+        put(x, y, col)
+
+# ── PLASMA EMISSION — energy plume expanding downward, not a contained orb ──
+# Starts focused at the emitter point (saucer's bottom) and widens continuously
+# as it descends — like rocket exhaust spreading outward — then dissolves
+# into drifting particles. Never closes back to a point.
+EMIT_X = HCX
+plume_shape = [
+    (193, 2),  (194, 3),  (195, 3),  (196, 4),  (197, 5),
+    (198, 6),  (199, 7),  (200, 8),  (201, 9),  (202, 10),
+    (203, 11), (204, 12), (205, 13), (206, 14),
+]
+plume_top = plume_shape[0][0]
+plume_bot = plume_shape[-1][0]
+plume_h = plume_bot - plume_top
+
+for y, hw in plume_shape:
+    rel_y = (y - plume_top) / plume_h  # 0 at emitter, 1 at dissipation edge
+    for dx in range(-hw, hw + 1):
+        u = dx / max(hw, 1)
+        # Brightest near the emitter centerline, fading to edges and downward.
+        i = (1.0 - abs(u) * 0.60) * (1.0 - rel_y * 0.55)
+        if   i > 0.88: col = PLASMA_SHINE
+        elif i > 0.72: col = PLASMA_HOT
+        elif i > 0.56: col = PLASMA_BRIGHT
+        elif i > 0.42: col = PLASMA_LIGHT
+        elif i > 0.28: col = PLASMA_MID
+        elif i > 0.14: col = PLASMA_DARK
+        else:          col = PLASMA_DEEP
+        put(EMIT_X + dx, y, col)
+
+# Particles continuing the outward spread below the plume — energy dissipating
+particles = [
+    # Just under the plume — still relatively dense
+    (HCX - 14, 208, PLASMA_DARK),
+    (HCX - 9,  208, PLASMA_MID),
+    (HCX - 3,  208, PLASMA_LIGHT),
+    (HCX + 2,  208, PLASMA_LIGHT),
+    (HCX + 8,  208, PLASMA_MID),
+    (HCX + 13, 208, PLASMA_DARK),
+    (HCX - 11, 211, PLASMA_DARK),
+    (HCX - 5,  211, PLASMA_MID),
+    (HCX + 1,  211, PLASMA_LIGHT),
+    (HCX + 6,  211, PLASMA_MID),
+    (HCX + 12, 211, PLASMA_DARK),
+    # Spreading further out as it drifts
+    (HCX - 15, 214, PLASMA_DEEP),
+    (HCX - 8,  214, PLASMA_DARK),
+    (HCX - 2,  214, PLASMA_MID),
+    (HCX + 4,  214, PLASMA_MID),
+    (HCX + 10, 214, PLASMA_DARK),
+    (HCX + 16, 215, PLASMA_DEEP),
+    (HCX - 12, 217, PLASMA_DARK),
+    (HCX - 5,  218, PLASMA_DARK),
+    (HCX + 1,  219, PLASMA_MID),
+    (HCX + 8,  218, PLASMA_DARK),
+    (HCX + 14, 220, PLASMA_DEEP),
+    # Far drift
+    (HCX - 17, 222, PLASMA_DEEP),
+    (HCX - 9,  223, PLASMA_DARK),
+    (HCX - 2,  225, PLASMA_DARK),
+    (HCX + 5,  224, PLASMA_DARK),
+    (HCX + 11, 225, PLASMA_DEEP),
+    (HCX - 7,  228, PLASMA_DEEP),
+    (HCX + 2,  229, PLASMA_DEEP),
+    (HCX + 9,  230, PLASMA_DEEP),
+    (HCX - 13, 232, PLASMA_DEEP),
+    (HCX - 3,  234, PLASMA_DEEP),
+    (HCX + 6,  236, PLASMA_DEEP),
+    (HCX,      240, PLASMA_DEEP),
+    (HCX - 5,  243, PLASMA_DEEP),
+]
+for x, y, c in particles:
+    put(x, y, c)
+
+
 os.makedirs('output', exist_ok=True)
 img.resize((W * SCALE, H * SCALE), Image.NEAREST).save('output/ufo.png')
 print('wrote output/ufo.png', (W * SCALE, H * SCALE))
