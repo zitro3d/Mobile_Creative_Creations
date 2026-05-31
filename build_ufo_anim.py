@@ -36,10 +36,6 @@ PLASMA_SHINE = (255, 255, 255); PLASMA_HOT = (200, 230, 255); PLASMA_BRIGHT = (1
 PLASMA_LIGHT = (140, 120, 255); PLASMA_MID = (190, 80, 240); PLASMA_DARK = (145, 35, 195)
 PLASMA_DEEP = (90, 18, 130)
 
-# Cow palette
-COW_W = (245, 240, 230); COW_S = (180, 165, 140); COW_O = (50, 35, 25)
-COW_PINK = (220, 130, 130)
-
 UCX = HCX = 96
 DCX = UCX
 DCY_BASE = 145
@@ -308,127 +304,115 @@ def draw_plume(put, frame):
             put(HCX + dx, y, col)
 
 
+# Beam-cycle phase frames (72-frame loop):
+#   [0, 14)  extend   — beam shoots down from nothing to full length
+#   [14, 36) hold     — beam fully extended, suction particles streaming up
+#   [36, 50) retract  — beam pulls back up; intense upward suction
+#   [50, 72) pause    — beam gone, nothing visible at the emitter
+BEAM_EXTEND_END  = 14
+BEAM_HOLD_END    = 36
+BEAM_RETRACT_END = 50
+
+
+def beam_state(frame):
+    """Return (length_frac, intensity, phase, suction_strength)."""
+    if frame < BEAM_EXTEND_END:
+        t = frame / BEAM_EXTEND_END
+        t_eased = 1.0 - (1.0 - t) ** 2  # ease-out
+        return (t_eased, 0.4 + 0.6 * t_eased, 'extend', 0.0)
+    if frame < BEAM_HOLD_END:
+        return (1.0, 1.0, 'hold', 0.7)
+    if frame < BEAM_RETRACT_END:
+        t = (frame - BEAM_HOLD_END) / (BEAM_RETRACT_END - BEAM_HOLD_END)
+        t_eased = t * t  # ease-in (accelerating retraction)
+        return (1.0 - t_eased, 1.0 - 0.2 * t_eased, 'retract', 1.6)
+    return (0.0, 0.0, 'pause', 0.0)
+
+
 def draw_tractor_beam(put, frame):
-    """Translucent downward beam with particles streaming UP (suction)."""
-    BEAM_TOP_Y = 207
-    BEAM_BOT_Y = 332
-    BEAM_TOP_HW = 12
-    BEAM_BOT_HW = 44
-    beam_h = BEAM_BOT_Y - BEAM_TOP_Y
+    """Translucent downward beam with upward suction particles.
 
-    # Pulse intensity
-    pulse = 0.85 + 0.15 * math.sin(frame / TOTAL_FRAMES * TAU * 2)
+    Cycles through extend → hold → retract → pause.  Always emanates from
+    the saucer emitter point and expands at the same cone angle.
+    """
+    TOP = 207
+    MAX_BOT = 332
+    HW_TOP = 12
+    MAX_HW_BOT = 44
+    max_h = MAX_BOT - TOP
 
-    # Body of the beam (semi-transparent cyan-white gradient)
-    for y in range(BEAM_TOP_Y, BEAM_BOT_Y + 1):
-        rel_y = (y - BEAM_TOP_Y) / beam_h
-        hw = BEAM_TOP_HW + rel_y * (BEAM_BOT_HW - BEAM_TOP_HW)
+    length_frac, intensity, phase, suction = beam_state(frame)
+    if length_frac <= 0.001 or intensity <= 0.001:
+        return  # pause phase — emitter is quiet
+
+    cur_bot = TOP + length_frac * max_h
+    cur_bot_i = int(round(cur_bot))
+    leading_y = cur_bot_i  # the moving edge of the beam
+
+    pulse = 0.85 + 0.15 * math.sin(frame / TOTAL_FRAMES * TAU * 4)
+
+    # Beam body
+    for y in range(TOP, cur_bot_i + 1):
+        rel_full = (y - TOP) / max_h            # for cone angle (constant)
+        hw = HW_TOP + rel_full * (MAX_HW_BOT - HW_TOP)
+        rel_local = (y - TOP) / max(cur_bot - TOP, 1)
+        # Leading edge brightening (during extend especially) — a bright tip
+        edge_boost = 0.0
+        dist_from_edge = leading_y - y
+        if dist_from_edge < 5:
+            edge_boost = (1.0 - dist_from_edge / 5.0) * 0.4
         for dx in range(-int(hw) - 1, int(hw) + 2):
             u = dx / hw
             if abs(u) > 1.05: continue
-            # Edge alpha falls off, brighter center
             edge = 1.0 - min(1.0, abs(u) ** 1.4)
-            # Vertical fade: stays mostly bright with subtle dim near bottom
-            vfade = 1.0 - rel_y * 0.30
-            a_base = edge * vfade * pulse
-            # Inner core color (brighter near center)
+            vfade = 1.0 - rel_local * 0.30
+            a_base = edge * vfade * pulse * intensity * (1.0 + edge_boost * (1.0 - abs(u) * 0.6))
             if abs(u) < 0.18:
-                col = PLASMA_HOT
-                alpha = int(220 * a_base)
+                col = PLASMA_HOT;    alpha = int(220 * a_base)
             elif abs(u) < 0.45:
-                col = PLASMA_BRIGHT
-                alpha = int(170 * a_base)
+                col = PLASMA_BRIGHT; alpha = int(170 * a_base)
             elif abs(u) < 0.75:
-                col = PLASMA_LIGHT
-                alpha = int(120 * a_base)
+                col = PLASMA_LIGHT;  alpha = int(120 * a_base)
             else:
-                col = PLASMA_MID
-                alpha = int(70 * a_base)
-            put(HCX + dx, y, col, a=alpha)
+                col = PLASMA_MID;    alpha = int(70 * a_base)
+            put(HCX + dx, y, col, a=min(255, max(0, alpha)))
 
-    # Inner "swirl" lines that move upward — gives suction feel
+    # Inner upward-scrolling streak lines — speed up during retract
+    line_speed = 3.0 if phase != 'retract' else 7.0
     N_LINES = 4
     for li in range(N_LINES):
-        # Each line at a horizontal offset (relative to local hw at that y)
-        offset_frac = (li / N_LINES) - 0.5 + 0.125  # spread across beam
+        offset_frac = (li / N_LINES) - 0.5 + 0.125
         line_phase = (frame * 2 + li * 18) % TOTAL_FRAMES
-        # Snake the line slightly as it moves
-        for y in range(BEAM_TOP_Y, BEAM_BOT_Y + 1):
-            rel_y = (y - BEAM_TOP_Y) / beam_h
-            hw = BEAM_TOP_HW + rel_y * (BEAM_BOT_HW - BEAM_TOP_HW)
-            # Vertical scroll — visible only on certain rows
-            scroll_y = (y - BEAM_TOP_Y - line_phase * (beam_h / TOTAL_FRAMES) * 3) % beam_h
+        for y in range(TOP, cur_bot_i + 1):
+            rel_full = (y - TOP) / max_h
+            hw = HW_TOP + rel_full * (MAX_HW_BOT - HW_TOP)
+            scroll_y = (y - TOP - line_phase * (max_h / TOTAL_FRAMES) * line_speed) % max_h
             if scroll_y > 6: continue
             wob = math.sin((y / 8.0) + frame / TOTAL_FRAMES * TAU) * 0.08
             dx = int(round((offset_frac + wob) * hw * 1.6))
-            a = int(180 * (1 - scroll_y / 6.0))
+            a = int(180 * (1 - scroll_y / 6.0) * intensity)
             put(HCX + dx, y, PLASMA_HOT, a=a)
 
-    # Upward-streaming bright particles (the "suction" effect)
-    N_PART = 24
-    for i in range(N_PART):
-        # Pseudo-random horizontal offset within beam at this frame's row
-        rng = (math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1.0
-        rng2 = (math.sin(i * 9.7777 + 22.111) * 12345.6789) % 1.0
-        # Y moves UPWARD over time (frame +): subtract from bottom
-        progress = ((frame * 2.5 + i * (TOTAL_FRAMES / N_PART)) % TOTAL_FRAMES) / TOTAL_FRAMES
-        py = BEAM_BOT_Y - progress * beam_h
-        rel_y = (py - BEAM_TOP_Y) / beam_h
-        if rel_y < 0 or rel_y > 1: continue
-        hw = BEAM_TOP_HW + rel_y * (BEAM_BOT_HW - BEAM_TOP_HW)
-        # Sit at fraction of hw, slight horizontal drift toward center as it rises
-        x_offset = (rng - 0.5) * 2 * hw * (0.85 - 0.5 * (1 - rel_y))
-        px = HCX + int(round(x_offset))
-        # Brighter near the top of its trajectory
-        a = int(245 * (0.4 + 0.6 * (1 - rel_y)))
-        col = PLASMA_SHINE if rng2 > 0.6 else PLASMA_HOT
-        put(px, int(py), col, a=a)
-        # Trailing dim pixel below
-        put(px, int(py) + 1, PLASMA_BRIGHT, a=a // 2)
-
-
-# Cow sprite (22 wide × 14 tall). Legend:
-#   #  white body
-#   .  black spot
-#   O  black outline
-#   P  pink udder
-#   e  black eye
-#   p  pink ear inside
-COW = [
-    "....OO..........OO....",
-    "...OppO........OppO...",
-    "...O##O........O##O...",
-    "..O####OOOOOOOO####O..",
-    ".O####OO########..#O..",
-    "O###eOO############OPP",
-    "O####O############O.PP",
-    "O##.#O##.########O..PP",
-    "O##############O.....P",
-    "O##.#####.##O.........",
-    "OO##OO#OO#OO..........",
-    ".O##O.O##O.O##O.......",
-    ".O##O.O##O.O##O.......",
-    "..OO...OO...OO........",
-]
-
-
-def draw_cow(put, frame):
-    """A cow being lifted up by the beam — bobs gently and rises slightly."""
-    bob = int(round(math.sin(frame / TOTAL_FRAMES * TAU * 2) * 1.5))
-    rise = int(round(math.sin(frame / TOTAL_FRAMES * TAU) * 2))
-    cw = len(COW[0])
-    cx = HCX
-    cy_top = 318 + bob - rise
-    for dy, row in enumerate(COW):
-        for dx, ch in enumerate(row):
-            x = cx - cw // 2 + dx
-            y = cy_top + dy
-            if   ch == '#': put(x, y, COW_W)
-            elif ch == '.': put(x, y, COW_O)
-            elif ch == 'O': put(x, y, COW_O)
-            elif ch == 'P': put(x, y, COW_PINK)
-            elif ch == 'p': put(x, y, COW_PINK)
-            elif ch == 'e': put(x, y, COW_O)
+    # Upward-streaming bright suction particles (only during hold/retract)
+    if suction > 0.01:
+        N_PART = 28
+        speed_mult = 2.5 if phase == 'hold' else 6.0  # fast retract = vigorous suck
+        for i in range(N_PART):
+            rng  = (math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1.0
+            rng2 = (math.sin(i * 9.7777 + 22.111) * 12345.6789) % 1.0
+            progress = ((frame * speed_mult + i * (TOTAL_FRAMES / N_PART)) % TOTAL_FRAMES) / TOTAL_FRAMES
+            # Y moves upward from the current bottom edge to the top
+            py = cur_bot - progress * (cur_bot - TOP)
+            rel_y = (py - TOP) / max_h
+            if rel_y < 0 or rel_y > 1: continue
+            if py > cur_bot: continue  # don't draw past current beam edge
+            hw = HW_TOP + rel_y * (MAX_HW_BOT - HW_TOP)
+            x_offset = (rng - 0.5) * 2 * hw * (0.85 - 0.5 * (1 - rel_y))
+            px = HCX + int(round(x_offset))
+            a = int(245 * (0.4 + 0.6 * (1 - rel_y)) * suction)
+            col = PLASMA_SHINE if rng2 > 0.6 else PLASMA_HOT
+            put(px, int(py), col, a=min(255, a))
+            put(px, int(py) + 1, PLASMA_BRIGHT, a=min(255, a // 2))
 
 
 def build_frame(frame, transparent_bg=True):
@@ -437,19 +421,13 @@ def build_frame(frame, transparent_bg=True):
     PX = img.load()
     put = make_putter(PX)
 
-    # Tractor beam goes FIRST so other things sit on top of it visually
+    # Tractor beam first so the UFO sits on top of it visually
     draw_tractor_beam(put, frame)
-    # Cow at the bottom (drawn over the beam)
-    draw_cow(put, frame)
-    # Saucer hull and disc
     draw_saucer_static(put)
-    # Rotating lights and blinking windows
     draw_rotating_lights(put, frame)
     draw_cabin_windows(put, frame)
-    # Dome
     draw_dome_static(put)
     draw_dome_slits(put, frame)
-    # Plasma plume at the emission origin
     draw_plume(put, frame)
     return img
 
