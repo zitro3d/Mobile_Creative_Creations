@@ -139,34 +139,41 @@ for sx, ys, ye in slit_positions:
 # ── SAUCER ──────────────────────────────────────────
 saucer_rows = [
     # y, hw, role
-    (146, 42, 'rim_flare'),
-    (147, 56, 'rim_flare'),
-    (148, 68, 'rim_flare'),
-    (149, 76, 'rim_flare'),
-    (150, 82, 'rim_top'),
-    (151, 85, 'rim_top'),
-    (152, 87, 'body_hi'),
-    (153, 88, 'body_hi'),
-    (154, 88, 'seam'),
-    (155, 88, 'body_lights'),
-    (156, 87, 'body_lights'),
-    (157, 86, 'seam'),
-    (158, 84, 'body_dark'),
-    (159, 81, 'body_dark'),
-    (160, 77, 'seam'),
-    (161, 72, 'taper'),
-    (162, 66, 'taper'),
-    (163, 58, 'taper'),
-    (164, 50, 'taper'),
-    (165, 41, 'taper'),
-    (166, 33, 'lower_panel'),
-    (167, 27, 'lower_panel'),
-    (168, 23, 'lower_lights'),
-    (169, 20, 'lower_dark'),
-    (170, 17, 'neck'),
-    (171, 14, 'neck'),
-    (172, 11, 'neck'),
-    (173, 9,  'neck'),
+    (146, 44, 'rim_flare'),
+    (147, 58, 'rim_flare'),
+    (148, 70, 'rim_flare'),
+    (149, 80, 'rim_flare'),
+    (150, 86, 'rim_top'),
+    (151, 90, 'rim_top'),
+    (152, 92, 'body_hi'),
+    (153, 93, 'body_hi'),
+    (154, 93, 'body_hi'),
+    (155, 93, 'seam'),
+    (156, 93, 'body_lights'),
+    (157, 93, 'body_lights'),
+    (158, 92, 'body_lights'),
+    (159, 91, 'seam'),
+    (160, 90, 'body_dark'),
+    (161, 89, 'body_dark'),
+    (162, 87, 'body_dark'),
+    (163, 85, 'seam'),
+    (164, 82, 'body_lights2'),
+    (165, 79, 'body_lights2'),
+    (166, 76, 'seam'),
+    (167, 72, 'taper'),
+    (168, 67, 'taper'),
+    (169, 61, 'taper'),
+    (170, 54, 'taper'),
+    (171, 46, 'taper'),
+    (172, 37, 'taper'),
+    (173, 30, 'lower_panel'),
+    (174, 25, 'lower_panel'),
+    (175, 22, 'lower_lights'),
+    (176, 19, 'lower_dark'),
+    (177, 16, 'neck'),
+    (178, 13, 'neck'),
+    (179, 10, 'neck'),
+    (180, 8,  'neck'),
 ]
 
 def shade(role, dx, hw):
@@ -196,6 +203,10 @@ def shade(role, dx, hw):
         if rel > 0.4:   return HULL_L
         if rel > -0.3:  return HULL_M
         return HULL_D
+    if role == 'body_lights2':
+        if rel > 0.3:   return HULL_M
+        if rel > -0.3:  return HULL_D
+        return HULL_DD
     if role == 'body_dark':
         if rel > 0.3:   return HULL_M
         if rel > -0.3:  return HULL_D
@@ -227,35 +238,47 @@ for y, hw, role in saucer_rows:
 n_lights = 16
 for i in range(n_lights):
     theta = math.pi * (i + 0.5) / n_lights - math.pi / 2  # -pi/2 .. +pi/2
-    lx = HCX + int(round(84 * math.sin(theta)))
-    # Light brightness fades at the sides (further from camera)
+    lx = HCX + int(round(89 * math.sin(theta)))
     edge_dim = abs(math.sin(theta))
     if edge_dim < 0.6:
-        put(lx, 155, WIN_Y)
-        put(lx, 156, WIN_O)
+        put(lx, 156, WIN_Y)
+        put(lx, 157, WIN_O)
     else:
-        put(lx, 155, ORANGE)
-        put(lx, 156, RED)
+        put(lx, 156, ORANGE)
+        put(lx, 157, RED)
 
-# Brighter front-cluster windows (cabin lights)
-for dxc in (-38, -22, -8, 8, 22, 38):
+# Brighter front-cluster windows (cabin lights) on main body row
+for dxc in (-44, -26, -10, 10, 26, 44):
     x = HCX + dxc
-    put(x, 155, WIN_W)
-    put(x + 1, 155, WIN_Y)
-    put(x, 156, WIN_Y)
-    put(x + 1, 156, WIN_O)
+    put(x, 156, WIN_W)
+    put(x + 1, 156, WIN_Y)
+    put(x, 157, WIN_Y)
+    put(x + 1, 157, WIN_O)
 
-# Second row of lights on lower panel
+# Second row of lights on the second body band
+n_mid = 12
+for i in range(n_mid):
+    theta = math.pi * (i + 0.5) / n_mid - math.pi / 2
+    lx = HCX + int(round(78 * math.sin(theta)))
+    edge_dim = abs(math.sin(theta))
+    if edge_dim < 0.6:
+        put(lx, 164, WIN_O)
+        put(lx, 165, ORANGE)
+    else:
+        put(lx, 164, ORANGE)
+        put(lx, 165, RED)
+
+# Third row of small lights on lower panel band
 n_lower = 7
 for i in range(n_lower):
     theta = math.pi * (i + 0.5) / n_lower - math.pi / 2
-    lx = HCX + int(round(18 * math.sin(theta)))
-    put(lx, 168, WIN_O)
+    lx = HCX + int(round(20 * math.sin(theta)))
+    put(lx, 175, WIN_O)
 
 # ── ENGINE NECK + POD ───────────────────────────────
 # Tight neck just above the pod
-for y in range(174, 180):
-    hw = 4 if y < 178 else 6
+for y in range(181, 187):
+    hw = 4 if y < 185 else 6
     for dx in range(-hw, hw + 1):
         x = HCX + dx
         if abs(dx) == hw:    col = HULL_O
@@ -266,7 +289,7 @@ for y in range(174, 180):
 
 # Engine pod (small round sphere with glowing core)
 POD_CX = HCX
-POD_CY = 188
+POD_CY = 195
 POD_R = 12
 
 for y in range(POD_CY - POD_R, POD_CY + POD_R + 1):
@@ -290,15 +313,15 @@ put(POD_CX + 4, POD_CY - 3, SHINE)
 
 # ── FALLING SPARKS ──────────────────────────────────
 sparks = [
-    (HCX, 204, ORANGE),
-    (HCX - 2, 207, WIN_O),
-    (HCX + 1, 210, ORANGE),
-    (HCX,     213, ORANGE),
-    (HCX + 2, 216, WIN_O),
-    (HCX - 1, 220, ORANGE),
-    (HCX,     224, WIN_O),
-    (HCX + 1, 228, ORANGE),
-    (HCX - 2, 232, ORANGE),
+    (HCX, 211, ORANGE),
+    (HCX - 2, 214, WIN_O),
+    (HCX + 1, 217, ORANGE),
+    (HCX,     220, ORANGE),
+    (HCX + 2, 223, WIN_O),
+    (HCX - 1, 227, ORANGE),
+    (HCX,     231, WIN_O),
+    (HCX + 1, 235, ORANGE),
+    (HCX - 2, 239, ORANGE),
 ]
 for x, y, c in sparks:
     put(x, y, c)
