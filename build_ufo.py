@@ -28,6 +28,7 @@ def put(x, y, c):
         PX[x, y] = c + (255,) if len(c) == 3 else c
 
 # ── Palette ─────────────────────────────────────────
+# Warm (engine pod core, body lights, sparks)
 SHINE  = (255, 252, 235)
 HOT    = (255, 240, 175)
 BRIGHT = (255, 215, 110)
@@ -36,6 +37,16 @@ ORANGE = (235, 125, 45)
 RED    = (180, 70, 30)
 DEEP_R = (110, 35, 18)
 DARK_R = (60, 18, 10)
+
+# Cool — DOME (cyan-blue glass, glowing from within)
+DOME_SHINE  = (240, 255, 255)
+DOME_HOT    = (180, 240, 255)
+DOME_BRIGHT = (105, 215, 250)
+DOME_LIGHT  = (55, 175, 225)
+DOME_MID    = (35, 130, 195)
+DOME_DARK   = (25, 85, 155)
+DOME_DEEP   = (18, 55, 110)
+DOME_VOID   = (12, 32, 70)
 
 HULL_VL = (200, 215, 230)
 HULL_HI = (155, 175, 205)
@@ -94,36 +105,37 @@ for y in range(DCY_BASE - DR, DCY_BASE + 1):
         if   radial > 0.96: i *= 0.20
         elif radial > 0.90: i *= 0.50
         elif radial > 0.82: i *= 0.75
-        if   i > 0.95: col = SHINE
-        elif i > 0.82: col = HOT
-        elif i > 0.68: col = BRIGHT
-        elif i > 0.54: col = LIGHT
-        elif i > 0.40: col = ORANGE
-        elif i > 0.25: col = RED
-        elif i > 0.10: col = DEEP_R
-        else:          col = DARK_R
+        if   i > 0.95: col = DOME_SHINE
+        elif i > 0.82: col = DOME_HOT
+        elif i > 0.68: col = DOME_BRIGHT
+        elif i > 0.54: col = DOME_LIGHT
+        elif i > 0.40: col = DOME_MID
+        elif i > 0.25: col = DOME_DARK
+        elif i > 0.10: col = DOME_DEEP
+        else:          col = DOME_VOID
         put(x, y, col)
 
 # Specular streak on upper-right of dome (diagonal swoop)
 streak = [
-    (DCX + 12, DCY_BASE - 34, HOT),
-    (DCX + 13, DCY_BASE - 33, SHINE),
-    (DCX + 14, DCY_BASE - 32, SHINE),
-    (DCX + 15, DCY_BASE - 31, SHINE),
-    (DCX + 16, DCY_BASE - 30, SHINE),
-    (DCX + 17, DCY_BASE - 28, SHINE),
-    (DCX + 18, DCY_BASE - 26, SHINE),
-    (DCX + 19, DCY_BASE - 24, HOT),
-    (DCX + 20, DCY_BASE - 22, HOT),
-    (DCX + 21, DCY_BASE - 19, HOT),
-    (DCX + 22, DCY_BASE - 16, BRIGHT),
-    (DCX + 22, DCY_BASE - 13, BRIGHT),
-    (DCX + 23, DCY_BASE - 10, LIGHT),
+    (DCX + 12, DCY_BASE - 34, DOME_HOT),
+    (DCX + 13, DCY_BASE - 33, DOME_SHINE),
+    (DCX + 14, DCY_BASE - 32, DOME_SHINE),
+    (DCX + 15, DCY_BASE - 31, DOME_SHINE),
+    (DCX + 16, DCY_BASE - 30, DOME_SHINE),
+    (DCX + 17, DCY_BASE - 28, DOME_SHINE),
+    (DCX + 18, DCY_BASE - 26, DOME_SHINE),
+    (DCX + 19, DCY_BASE - 24, DOME_HOT),
+    (DCX + 20, DCY_BASE - 22, DOME_HOT),
+    (DCX + 21, DCY_BASE - 19, DOME_HOT),
+    (DCX + 22, DCY_BASE - 16, DOME_BRIGHT),
+    (DCX + 22, DCY_BASE - 13, DOME_BRIGHT),
+    (DCX + 23, DCY_BASE - 10, DOME_LIGHT),
 ]
 for x, y, c in streak:
     put(x, y, c)
 
-# Vertical light slits on the LEFT side of the dome
+# Vertical light slits on the LEFT side of the dome — warm interior lights
+# showing through the cool glass, for visual interest and a hint of warmth
 slit_positions = [
     (DCX - 19, DCY_BASE - 18, DCY_BASE - 5),
     (DCX - 13, DCY_BASE - 24, DCY_BASE - 4),
@@ -132,7 +144,7 @@ slit_positions = [
 for sx, ys, ye in slit_positions:
     mid = (ys + ye) // 2
     for y in range(ys, ye + 1):
-        put(sx, y, DARK_R)
+        put(sx, y, DOME_VOID)
         if mid - 2 <= y <= mid + 2:
             put(sx, y, WIN_O)
 
