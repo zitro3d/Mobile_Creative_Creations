@@ -415,47 +415,42 @@ def draw_tractor_beam(put, frame):
             put(px, int(py) + 1, PLASMA_BRIGHT, a=min(255, a // 2))
 
 
-def build_frame(frame, transparent_bg=True):
+def build_frame(frame, layers=frozenset({'ufo', 'plume', 'beam'}), transparent_bg=True):
     bg = (0, 0, 0, 0) if transparent_bg else (4, 4, 10, 255)
     img = Image.new('RGBA', (W, H), bg)
     PX = img.load()
     put = make_putter(PX)
 
-    # Tractor beam first so the UFO sits on top of it visually
-    draw_tractor_beam(put, frame)
-    draw_saucer_static(put)
-    draw_rotating_lights(put, frame)
-    draw_cabin_windows(put, frame)
-    draw_dome_static(put)
-    draw_dome_slits(put, frame)
-    draw_plume(put, frame)
+    # Beam first so UFO + plume sit on top of it when combined
+    if 'beam' in layers:
+        draw_tractor_beam(put, frame)
+    if 'ufo' in layers:
+        draw_saucer_static(put)
+        draw_rotating_lights(put, frame)
+        draw_cabin_windows(put, frame)
+        draw_dome_static(put)
+        draw_dome_slits(put, frame)
+    if 'plume' in layers:
+        draw_plume(put, frame)
     return img
 
 
-def main():
-    os.makedirs('output', exist_ok=True)
-    os.makedirs('output/ufo_anim_frames', exist_ok=True)
-
-    # Render all frames
+def render_layer_gif(name, layers, save_frames=False):
+    """Render the animation with only `layers` enabled and save an animated GIF."""
     frames = []
     for f in range(TOTAL_FRAMES):
-        img = build_frame(f, transparent_bg=True)
+        img = build_frame(f, layers=layers, transparent_bg=True)
         big = img.resize((W * SCALE, H * SCALE), Image.NEAREST)
-        big.save(f'output/ufo_anim_frames/frame_{f:03d}.png')
         frames.append(big)
-        if f % 12 == 0:
-            print(f'  rendered frame {f}/{TOTAL_FRAMES}')
-
-    # Animated GIF (1-bit transparency — beam will alpha-clip but still reads)
+        if save_frames:
+            frame_dir = f'output/ufo_layer_{name}_frames'
+            os.makedirs(frame_dir, exist_ok=True)
+            big.save(f'{frame_dir}/frame_{f:03d}.png')
     duration_ms = int(round(1000 / FPS))
-    # Convert each frame to a palette with transparency
-    gif_frames = []
-    for f in frames:
-        # PIL.Image.quantize handles this; ensure transparent pixels stay transparent
-        q = f.convert('RGBA').quantize(method=Image.FASTOCTREE, dither=Image.NONE)
-        gif_frames.append(q)
+    gif_frames = [f.convert('RGBA').quantize(method=Image.FASTOCTREE, dither=Image.NONE)
+                  for f in frames]
     gif_frames[0].save(
-        'output/ufo_animated.gif',
+        f'output/ufo_layer_{name}.gif',
         save_all=True,
         append_images=gif_frames[1:],
         duration=duration_ms,
@@ -464,15 +459,33 @@ def main():
         transparency=0,
         optimize=False,
     )
-    print('wrote output/ufo_animated.gif')
+    print(f'wrote output/ufo_layer_{name}.gif')
+    return frames
 
-    # Save a stills sheet for previewing (3 frames in a row)
-    stills = [frames[0], frames[TOTAL_FRAMES // 3], frames[2 * TOTAL_FRAMES // 3]]
-    sheet = Image.new('RGBA', (W * SCALE * 3, H * SCALE), (32, 32, 32, 255))
-    for i, s in enumerate(stills):
+
+def main():
+    import shutil
+    os.makedirs('output', exist_ok=True)
+
+    # Combined ("all") animation — drives output/ufo_animated.gif and per-frame PNGs
+    all_frames = render_layer_gif('all', {'ufo', 'plume', 'beam'})
+    shutil.copy('output/ufo_layer_all.gif', 'output/ufo_animated.gif')
+    print('wrote output/ufo_animated.gif (alias of layer_all)')
+
+    # Per-layer animations
+    ufo_frames   = render_layer_gif('ufo',   {'ufo'})
+    plume_frames = render_layer_gif('plume', {'plume'})
+    beam_frames  = render_layer_gif('beam',  {'beam'})
+
+    # 4-up preview at a representative hold-phase frame
+    hold_frame = (BEAM_EXTEND_END + BEAM_HOLD_END) // 2
+    cols = [all_frames[hold_frame], ufo_frames[hold_frame],
+            plume_frames[hold_frame], beam_frames[hold_frame]]
+    sheet = Image.new('RGBA', (W * SCALE * len(cols), H * SCALE), (28, 28, 32, 255))
+    for i, s in enumerate(cols):
         sheet.paste(s, (i * W * SCALE, 0), s)
-    sheet.save('output/ufo_anim_preview.png')
-    print('wrote output/ufo_anim_preview.png')
+    sheet.save('output/ufo_layer_preview.png')
+    print('wrote output/ufo_layer_preview.png')
 
 
 if __name__ == '__main__':
