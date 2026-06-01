@@ -43,6 +43,15 @@ ALIEN_DARK  = (75, 110, 70)     # shadow/outline
 ALIEN_VOID  = (25, 40, 30)      # eye holes / deep outline
 GROUND_DARK = (45, 50, 60)      # subtle ground line
 
+# Poof / magic-portal palette
+POOF_CORE   = (255, 255, 255)
+POOF_WHITE  = (255, 245, 255)
+POOF_CYAN   = (180, 230, 255)
+POOF_PINK   = (255, 200, 255)
+POOF_PURPLE = (190, 130, 255)
+POOF_DEEP   = (140, 70, 220)
+POOF_VOID   = (70, 30, 130)
+
 UCX = HCX = 96
 DCX = UCX
 DCY_BASE = 145
@@ -546,7 +555,89 @@ def draw_alien(put, frame):
         put(left + gx, top + gy, GLINT, a=a8)
 
 
-def build_frame(frame, layers=frozenset({'ufo', 'plume', 'beam', 'alien'}), transparent_bg=True):
+POOF_DURATION = 32           # frames of poof animation at the start of the loop
+POOF_CX = HCX
+POOF_CY = 145                # roughly centered on the saucer body
+
+
+def draw_poof(put, frame):
+    """Magic-portal materialization effect over the UFO.
+
+    Plays during frames 0..POOF_DURATION-1, silent the rest of the loop.
+    Combines a central flash, multiple expanding spinning rings, and a
+    burst of sparkles that travel outward and fade.
+    """
+    if frame >= POOF_DURATION:
+        return
+    t = frame / POOF_DURATION
+
+    # ── Central flash ────────────────────────────────
+    flash_t = min(1.0, frame / 8.0)
+    flash_alpha = max(0.0, 1.0 - flash_t)
+    if flash_alpha > 0.0:
+        radius = int(round(6 + (1.0 - flash_alpha) * 14))
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                d = math.sqrt(dx * dx + dy * dy)
+                if d > radius: continue
+                edge = 1.0 - d / radius
+                if   edge > 0.85: col = POOF_CORE
+                elif edge > 0.60: col = POOF_WHITE
+                elif edge > 0.35: col = POOF_CYAN
+                elif edge > 0.15: col = POOF_PURPLE
+                else:             col = POOF_DEEP
+                a = int(255 * edge * flash_alpha)
+                if a > 0:
+                    put(POOF_CX + dx, POOF_CY + dy, col, a=a)
+
+    # ── Expanding spinning rings ─────────────────────
+    RING_COLORS = [POOF_WHITE, POOF_CYAN, POOF_PURPLE, POOF_PINK, POOF_CORE, POOF_DEEP]
+    n_rings = 3
+    for r_idx in range(n_rings):
+        ring_delay = r_idx * 0.12
+        ring_t = max(0.0, t - ring_delay)
+        if ring_t <= 0: continue
+        ring_radius = ring_t * (95 + r_idx * 8)
+        ring_alpha = max(0.0, 1.0 - ring_t * 1.5)
+        if ring_alpha < 0.05 or ring_radius < 3: continue
+        n_points = max(28, int(ring_radius * 1.6))
+        for i in range(n_points):
+            angle = (i / n_points) * TAU + frame * (0.10 + r_idx * 0.05)
+            rx = POOF_CX + int(round(ring_radius * math.cos(angle)))
+            ry = POOF_CY + int(round(ring_radius * math.sin(angle) * 0.55))
+            col = RING_COLORS[(i + r_idx * 7) % len(RING_COLORS)]
+            a = int(255 * ring_alpha * 0.75)
+            put(rx, ry, col, a=a)
+
+    # ── Outward-flying sparkles ──────────────────────
+    SPARK_COLORS = [POOF_CORE, POOF_WHITE, POOF_CYAN, POOF_PINK, POOF_PURPLE]
+    n_sparks = 70
+    for i in range(n_sparks):
+        spark_offset = i * 0.018
+        spark_phase = (spark_offset + t * 0.9) % 1.0
+        if spark_phase > 0.85: continue
+        # Pseudo-random direction
+        rng = (math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1.0
+        if rng < 0: rng += 1
+        rng2 = (math.sin(i * 9.7777 + 22.111) * 12345.6789) % 1.0
+        if rng2 < 0: rng2 += 1
+        angle = rng * TAU
+        dist_scale = 70 + rng2 * 50
+        spark_dist = spark_phase * dist_scale
+        sx = POOF_CX + int(round(spark_dist * math.cos(angle)))
+        sy = POOF_CY + int(round(spark_dist * math.sin(angle) * 0.6))
+        spark_alpha = (1.0 - spark_phase) ** 0.7 * (1.0 - t * 0.4)
+        col = SPARK_COLORS[i % len(SPARK_COLORS)]
+        a = int(255 * spark_alpha)
+        if a > 0:
+            put(sx, sy, col, a=a)
+            # Tiny trail pixel
+            tx = POOF_CX + int(round((spark_dist - 1.5) * math.cos(angle)))
+            ty = POOF_CY + int(round((spark_dist - 1.5) * math.sin(angle) * 0.6))
+            put(tx, ty, col, a=a // 2)
+
+
+def build_frame(frame, layers=frozenset({'ufo', 'plume', 'beam', 'alien', 'poof'}), transparent_bg=True):
     bg = (0, 0, 0, 0) if transparent_bg else (4, 4, 10, 255)
     img = Image.new('RGBA', (W, H), bg)
     PX = img.load()
@@ -565,6 +656,9 @@ def build_frame(frame, layers=frozenset({'ufo', 'plume', 'beam', 'alien'}), tran
         draw_dome_slits(put, frame)
     if 'plume' in layers:
         draw_plume(put, frame)
+    # Poof goes ON TOP — magical portal overlay over everything else
+    if 'poof' in layers:
+        draw_poof(put, frame)
     return img
 
 
@@ -601,7 +695,7 @@ def main():
     os.makedirs('output', exist_ok=True)
 
     # Combined ("all") animation — drives output/ufo_animated.gif
-    all_frames = render_layer_gif('all', {'ufo', 'plume', 'beam', 'alien'})
+    all_frames = render_layer_gif('all', {'ufo', 'plume', 'beam', 'alien', 'poof'})
     shutil.copy('output/ufo_layer_all.gif', 'output/ufo_animated.gif')
     print('wrote output/ufo_animated.gif (alias of layer_all)')
 
@@ -610,12 +704,14 @@ def main():
     plume_frames = render_layer_gif('plume', {'plume'})
     beam_frames  = render_layer_gif('beam',  {'beam'})
     alien_frames = render_layer_gif('alien', {'alien'})
+    poof_frames  = render_layer_gif('poof',  {'poof'})
 
-    # 5-up preview at a representative hold-phase frame
+    # 6-up preview: a snapshot of each layer (poof at its peak, beam at hold)
     hold_frame = (BEAM_EXTEND_END + BEAM_HOLD_END) // 2
-    cols = [all_frames[hold_frame], ufo_frames[hold_frame],
+    poof_peak = 8
+    cols = [all_frames[poof_peak], ufo_frames[hold_frame],
             plume_frames[hold_frame], beam_frames[hold_frame],
-            alien_frames[hold_frame]]
+            alien_frames[hold_frame], poof_frames[poof_peak]]
     sheet = Image.new('RGBA', (W * SCALE * len(cols), H * SCALE), (28, 28, 32, 255))
     for i, s in enumerate(cols):
         sheet.paste(s, (i * W * SCALE, 0), s)
