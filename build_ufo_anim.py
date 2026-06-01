@@ -36,6 +36,13 @@ PLASMA_SHINE = (255, 255, 255); PLASMA_HOT = (200, 230, 255); PLASMA_BRIGHT = (1
 PLASMA_LIGHT = (140, 120, 255); PLASMA_MID = (190, 80, 240); PLASMA_DARK = (145, 35, 195)
 PLASMA_DEEP = (90, 18, 130)
 
+# Alien palette
+ALIEN_LIGHT = (190, 220, 175)   # highlight side of head/body
+ALIEN_MID   = (130, 170, 115)   # body
+ALIEN_DARK  = (75, 110, 70)     # shadow/outline
+ALIEN_VOID  = (25, 40, 30)      # eye holes / deep outline
+GROUND_DARK = (45, 50, 60)      # subtle ground line
+
 UCX = HCX = 96
 DCX = UCX
 DCY_BASE = 145
@@ -336,9 +343,9 @@ def draw_tractor_beam(put, frame):
     the saucer emitter point and expands at the same cone angle.
     """
     TOP = 207
-    MAX_BOT = 332
+    MAX_BOT = 345  # reaches down to the alien's body on the ground
     HW_TOP = 12
-    MAX_HW_BOT = 44
+    MAX_HW_BOT = 50
     max_h = MAX_BOT - TOP
 
     length_frac, intensity, phase, suction = beam_state(frame)
@@ -415,15 +422,141 @@ def draw_tractor_beam(put, frame):
             put(px, int(py) + 1, PLASMA_BRIGHT, a=min(255, a // 2))
 
 
-def build_frame(frame, layers=frozenset({'ufo', 'plume', 'beam'}), transparent_bg=True):
+# ── Alien — Roswell-style humanoid lifted by the beam ─
+# 14 wide × 22 tall. Legend:
+#   D  dark outline / shadow
+#   H  lit highlight (mid skin)
+#   .  transparent
+#   O  big almond eye socket
+ALIEN_BODY = [
+    "....DDDDDD....",   # 0  skull top
+    "...DHHHHHHD...",   # 1  forehead
+    "..DHHHHHHHHD..",   # 2
+    ".DHHHHHHHHHHD.",   # 3
+    "DHHHHHHHHHHHHD",   # 4  widest cranium
+    "DHOOOODDOOOOHD",   # 5  big almond eyes row 1
+    "DHOOOODDOOOOHD",   # 6  eyes row 2
+    "DHOOOODDOOOOHD",   # 7  eyes row 3
+    "DHHHHHHHHHHHHD",   # 8  cheekbones
+    ".DHHHHHHHHHHD.",   # 9  jaw
+    "..DHHHHHHHHD..",   # 10
+    "...DHHHHHHD...",   # 11 chin
+    "....DDDDDD....",   # 12 chin bottom
+    ".....DDDD.....",   # 13 neck
+    "...DHHHHHHD...",   # 14 shoulders
+    "..DHHHHHHHHD..",   # 15 chest top
+    "..DH......HD..",   # 16 arms hanging (thin body)
+    "..DHHHHHHHHD..",   # 17 waist
+    "...DHHDDHHD...",   # 18 legs forming
+    "...DHH..HHD...",   # 19 legs
+    "...DHH..HHD...",   # 20 legs
+    "...DDD..DDD...",   # 21 feet
+]
+ALIEN_W = len(ALIEN_BODY[0])  # 14
+ALIEN_H = len(ALIEN_BODY)     # 22
+
+# Walking leg variants — overlay on rows 18-21
+LEGS_STAND   = None  # use ALIEN_BODY as-is
+LEGS_STRIDE_L = [(3, 18, ALIEN_DARK), (4, 18, ALIEN_LIGHT), (5, 18, ALIEN_LIGHT),
+                 (3, 19, ALIEN_DARK), (4, 19, ALIEN_LIGHT), (5, 19, ALIEN_LIGHT),
+                 (3, 20, ALIEN_DARK), (4, 20, ALIEN_LIGHT),
+                 (8, 18, ALIEN_LIGHT), (9, 18, ALIEN_LIGHT), (10, 18, ALIEN_DARK),
+                 (9, 19, ALIEN_LIGHT), (10, 19, ALIEN_DARK),
+                 (3, 21, ALIEN_DARK), (4, 21, ALIEN_DARK),
+                 (9, 21, ALIEN_DARK), (10, 21, ALIEN_DARK)]
+LEGS_STRIDE_R = [(3, 18, ALIEN_DARK), (4, 18, ALIEN_LIGHT),
+                 (4, 19, ALIEN_LIGHT), (3, 19, ALIEN_DARK),
+                 (8, 18, ALIEN_LIGHT), (9, 18, ALIEN_LIGHT), (10, 18, ALIEN_DARK),
+                 (8, 19, ALIEN_LIGHT), (9, 19, ALIEN_LIGHT), (10, 19, ALIEN_DARK),
+                 (8, 20, ALIEN_LIGHT), (9, 20, ALIEN_LIGHT), (10, 20, ALIEN_DARK),
+                 (3, 21, ALIEN_DARK), (4, 21, ALIEN_DARK),
+                 (8, 21, ALIEN_DARK), (9, 21, ALIEN_DARK), (10, 21, ALIEN_DARK)]
+
+
+def alien_state(frame):
+    """Return (visible, x, feet_y, look, alpha) for this frame.
+
+    Timeline (synced with beam cycle):
+      0-13   extend     alien on ground, looking up at the beam
+      14-35  hold       alien rises with the beam, still looking up
+      36-49  retract    alien sucked up rapidly into the UFO, fades out
+      50-62  pause-walk new alien walks in from off-canvas left
+      63-71  pause-look alien at center, looking left/right (anticipation)
+    """
+    GROUND_FEET_Y = 348
+    if frame < BEAM_EXTEND_END:                  # 0-13: noticed the beam
+        return True, HCX, GROUND_FEET_Y, 'up', 1.0
+    if frame < BEAM_HOLD_END:                    # 14-35: rising
+        t = (frame - BEAM_EXTEND_END) / (BEAM_HOLD_END - BEAM_EXTEND_END)
+        e = t * t                                # ease-in: accelerates upward
+        y = GROUND_FEET_Y - e * 120
+        return True, HCX, int(round(y)), 'up', 1.0
+    if frame < BEAM_RETRACT_END:                 # 36-49: sucked up, fading into UFO
+        t = (frame - BEAM_HOLD_END) / (BEAM_RETRACT_END - BEAM_HOLD_END)
+        y = 228 - t * 18
+        alpha = 1.0 - t
+        return alpha > 0.05, HCX, int(round(y)), 'up', max(0.0, alpha)
+    # 50-71: pause. New alien walks in from the left.
+    WALK_END = 63
+    if frame < WALK_END:                         # 50-62: walking in
+        t = (frame - BEAM_RETRACT_END) / (WALK_END - BEAM_RETRACT_END)
+        x = 22 + t * (HCX - 22)
+        return True, int(round(x)), GROUND_FEET_Y, 'walk', 1.0
+    # 63-71: standing at center, looking around — sets up frame 0 with eyes up
+    looks = ['right', 'center', 'left', 'center', 'left', 'right', 'up', 'up', 'up']
+    idx = max(0, min(len(looks) - 1, frame - WALK_END))
+    return True, HCX, GROUND_FEET_Y, looks[idx], 1.0
+
+
+def draw_alien(put, frame):
+    visible, ax, ay_feet, look, alpha = alien_state(frame)
+    if not visible: return
+    left = ax - ALIEN_W // 2
+    top = ay_feet - ALIEN_H + 1
+    a8 = int(round(255 * alpha))
+
+    # Body matrix
+    for dy, row in enumerate(ALIEN_BODY):
+        for dx, ch in enumerate(row):
+            x, y = left + dx, top + dy
+            if   ch == 'H': put(x, y, ALIEN_LIGHT, a=a8)
+            elif ch == 'D': put(x, y, ALIEN_DARK,  a=a8)
+            elif ch == 'O': put(x, y, ALIEN_VOID,  a=a8)
+
+    # Walking leg overlay (replaces the body's leg rows for the stride pose)
+    if look == 'walk':
+        # Clear the static leg rows first by re-stamping the body's torso edge
+        # (rows 18-21 — we'll just overdraw what we want)
+        legs = LEGS_STRIDE_L if (frame % 4) < 2 else LEGS_STRIDE_R
+        for dx, dy, col in legs:
+            put(left + dx, top + dy, col, a=a8)
+
+    # Eye glints — bright pixel inside each eye for gaze direction.
+    # Left eye occupies cols 2-5 (rows 5-7), right eye cols 8-11 (rows 5-7).
+    GLINT = (245, 255, 245)
+    glint_pos = {
+        'up':     [(3, 5), (4, 5), (9, 5), (10, 5)],   # top of each eye
+        'down':   [(3, 7), (4, 7), (9, 7), (10, 7)],
+        'left':   [(2, 6), (3, 6), (8, 6), (9, 6)],
+        'right':  [(4, 6), (5, 6), (10, 6), (11, 6)],
+        'center': [(3, 6), (4, 6), (9, 6), (10, 6)],
+        'walk':   [(3, 6), (4, 6), (9, 6), (10, 6)],
+    }
+    for gx, gy in glint_pos.get(look, glint_pos['center']):
+        put(left + gx, top + gy, GLINT, a=a8)
+
+
+def build_frame(frame, layers=frozenset({'ufo', 'plume', 'beam', 'alien'}), transparent_bg=True):
     bg = (0, 0, 0, 0) if transparent_bg else (4, 4, 10, 255)
     img = Image.new('RGBA', (W, H), bg)
     PX = img.load()
     put = make_putter(PX)
 
-    # Beam first so UFO + plume sit on top of it when combined
+    # Beam first so UFO + alien + plume sit on top of it when combined
     if 'beam' in layers:
         draw_tractor_beam(put, frame)
+    if 'alien' in layers:
+        draw_alien(put, frame)
     if 'ufo' in layers:
         draw_saucer_static(put)
         draw_rotating_lights(put, frame)
@@ -467,8 +600,8 @@ def main():
     import shutil
     os.makedirs('output', exist_ok=True)
 
-    # Combined ("all") animation — drives output/ufo_animated.gif and per-frame PNGs
-    all_frames = render_layer_gif('all', {'ufo', 'plume', 'beam'})
+    # Combined ("all") animation — drives output/ufo_animated.gif
+    all_frames = render_layer_gif('all', {'ufo', 'plume', 'beam', 'alien'})
     shutil.copy('output/ufo_layer_all.gif', 'output/ufo_animated.gif')
     print('wrote output/ufo_animated.gif (alias of layer_all)')
 
@@ -476,11 +609,13 @@ def main():
     ufo_frames   = render_layer_gif('ufo',   {'ufo'})
     plume_frames = render_layer_gif('plume', {'plume'})
     beam_frames  = render_layer_gif('beam',  {'beam'})
+    alien_frames = render_layer_gif('alien', {'alien'})
 
-    # 4-up preview at a representative hold-phase frame
+    # 5-up preview at a representative hold-phase frame
     hold_frame = (BEAM_EXTEND_END + BEAM_HOLD_END) // 2
     cols = [all_frames[hold_frame], ufo_frames[hold_frame],
-            plume_frames[hold_frame], beam_frames[hold_frame]]
+            plume_frames[hold_frame], beam_frames[hold_frame],
+            alien_frames[hold_frame]]
     sheet = Image.new('RGBA', (W * SCALE * len(cols), H * SCALE), (28, 28, 32, 255))
     for i, s in enumerate(cols):
         sheet.paste(s, (i * W * SCALE, 0), s)

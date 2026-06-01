@@ -64,7 +64,8 @@ const C = {
   PLASMA_SHINE: [255,255,255], PLASMA_HOT: [200,230,255], PLASMA_BRIGHT: [130,195,255],
   PLASMA_LIGHT: [140,120,255], PLASMA_MID: [190,80,240], PLASMA_DARK: [145,35,195],
   PLASMA_DEEP: [90,18,130],
-  COW_W: [245,240,230], COW_S: [180,165,140], COW_O: [50,35,25], COW_PINK: [220,130,130],
+  ALIEN_LIGHT: [190,220,175], ALIEN_MID: [130,170,115], ALIEN_DARK: [75,110,70], ALIEN_VOID: [25,40,30],
+  GLINT: [245,255,245],
 };
 
 // Light direction (3D world coords)
@@ -359,8 +360,8 @@ function beamState(frame) {
 }
 
 function drawBeam(put, frame) {
-  const TOP = 207, MAX_BOT = 332;
-  const HW_T = 12, MAX_HW_B = 44;
+  const TOP = 207, MAX_BOT = 345;
+  const HW_T = 12, MAX_HW_B = 50;
   const maxH = MAX_BOT - TOP;
   const { length, intensity, phase, suction } = beamState(frame);
   if (length <= 0.001 || intensity <= 0.001) return;
@@ -433,11 +434,115 @@ function drawBeam(put, frame) {
   }
 }
 
+// ── Alien sprite + animation ─────────────────────────
+const ALIEN_BODY = [
+  "....DDDDDD....",
+  "...DHHHHHHD...",
+  "..DHHHHHHHHD..",
+  ".DHHHHHHHHHHD.",
+  "DHHHHHHHHHHHHD",
+  "DHOOOODDOOOOHD",
+  "DHOOOODDOOOOHD",
+  "DHOOOODDOOOOHD",
+  "DHHHHHHHHHHHHD",
+  ".DHHHHHHHHHHD.",
+  "..DHHHHHHHHD..",
+  "...DHHHHHHD...",
+  "....DDDDDD....",
+  ".....DDDD.....",
+  "...DHHHHHHD...",
+  "..DHHHHHHHHD..",
+  "..DH......HD..",
+  "..DHHHHHHHHD..",
+  "...DHHDDHHD...",
+  "...DHH..HHD...",
+  "...DHH..HHD...",
+  "...DDD..DDD...",
+];
+const ALIEN_W = ALIEN_BODY[0].length;  // 14
+const ALIEN_H = ALIEN_BODY.length;      // 22
+
+function alienState(frame) {
+  const GROUND = 348;
+  if (frame < BEAM_EXTEND_END) return { visible: true, x: HCX, y: GROUND, look: 'up', alpha: 1 };
+  if (frame < BEAM_HOLD_END) {
+    const t = (frame - BEAM_EXTEND_END) / (BEAM_HOLD_END - BEAM_EXTEND_END);
+    const e = t * t;
+    return { visible: true, x: HCX, y: Math.round(GROUND - e * 120), look: 'up', alpha: 1 };
+  }
+  if (frame < BEAM_RETRACT_END) {
+    const t = (frame - BEAM_HOLD_END) / (BEAM_RETRACT_END - BEAM_HOLD_END);
+    const y = 228 - t * 18;
+    const alpha = 1 - t;
+    return { visible: alpha > 0.05, x: HCX, y: Math.round(y), look: 'up', alpha: Math.max(0, alpha) };
+  }
+  const WALK_END = 63;
+  if (frame < WALK_END) {
+    const t = (frame - BEAM_RETRACT_END) / (WALK_END - BEAM_RETRACT_END);
+    const x = 22 + t * (HCX - 22);
+    return { visible: true, x: Math.round(x), y: GROUND, look: 'walk', alpha: 1 };
+  }
+  const looks = ['right', 'center', 'left', 'center', 'left', 'right', 'up', 'up', 'up'];
+  const idx = Math.max(0, Math.min(looks.length - 1, frame - WALK_END));
+  return { visible: true, x: HCX, y: GROUND, look: looks[idx], alpha: 1 };
+}
+
+function drawAlien(put, frame) {
+  const s = alienState(frame);
+  if (!s.visible) return;
+  const left = s.x - (ALIEN_W >> 1);
+  const top = s.y - ALIEN_H + 1;
+  const a8 = Math.round(255 * s.alpha);
+  for (let dy = 0; dy < ALIEN_BODY.length; dy++) {
+    const row = ALIEN_BODY[dy];
+    for (let dx = 0; dx < row.length; dx++) {
+      const ch = row[dx];
+      if      (ch === 'H') put(left + dx, top + dy, C.ALIEN_LIGHT, a8);
+      else if (ch === 'D') put(left + dx, top + dy, C.ALIEN_DARK,  a8);
+      else if (ch === 'O') put(left + dx, top + dy, C.ALIEN_VOID,  a8);
+    }
+  }
+  // Walking-stride leg overlay
+  if (s.look === 'walk') {
+    const phase = (frame % 4) < 2;
+    const legs = phase ? [
+      [3,18,C.ALIEN_DARK],[4,18,C.ALIEN_LIGHT],[5,18,C.ALIEN_LIGHT],
+      [3,19,C.ALIEN_DARK],[4,19,C.ALIEN_LIGHT],[5,19,C.ALIEN_LIGHT],
+      [3,20,C.ALIEN_DARK],[4,20,C.ALIEN_LIGHT],
+      [8,18,C.ALIEN_LIGHT],[9,18,C.ALIEN_LIGHT],[10,18,C.ALIEN_DARK],
+      [9,19,C.ALIEN_LIGHT],[10,19,C.ALIEN_DARK],
+      [3,21,C.ALIEN_DARK],[4,21,C.ALIEN_DARK],
+      [9,21,C.ALIEN_DARK],[10,21,C.ALIEN_DARK],
+    ] : [
+      [3,18,C.ALIEN_DARK],[4,18,C.ALIEN_LIGHT],
+      [4,19,C.ALIEN_LIGHT],[3,19,C.ALIEN_DARK],
+      [8,18,C.ALIEN_LIGHT],[9,18,C.ALIEN_LIGHT],[10,18,C.ALIEN_DARK],
+      [8,19,C.ALIEN_LIGHT],[9,19,C.ALIEN_LIGHT],[10,19,C.ALIEN_DARK],
+      [8,20,C.ALIEN_LIGHT],[9,20,C.ALIEN_LIGHT],[10,20,C.ALIEN_DARK],
+      [3,21,C.ALIEN_DARK],[4,21,C.ALIEN_DARK],
+      [8,21,C.ALIEN_DARK],[9,21,C.ALIEN_DARK],[10,21,C.ALIEN_DARK],
+    ];
+    for (const [dx, dy, col] of legs) put(left + dx, top + dy, col, a8);
+  }
+  // Eye glints
+  const glintMap = {
+    up:     [[3,5],[4,5],[9,5],[10,5]],
+    down:   [[3,7],[4,7],[9,7],[10,7]],
+    left:   [[2,6],[3,6],[8,6],[9,6]],
+    right:  [[4,6],[5,6],[10,6],[11,6]],
+    center: [[3,6],[4,6],[9,6],[10,6]],
+    walk:   [[3,6],[4,6],[9,6],[10,6]],
+  };
+  const positions = glintMap[s.look] || glintMap.center;
+  for (const [gx, gy] of positions) put(left + gx, top + gy, C.GLINT, a8);
+}
+
 function buildFrame(frame, buf, layers) {
   buf.fill(0);
   const put = makePut(buf);
-  // Beam first so the UFO sits on top of it when combined
+  // Beam first so UFO + alien + plume sit on top of it when combined
   if (layers.beam) drawBeam(put, frame);
+  if (layers.alien) drawAlien(put, frame);
   if (layers.ufo) {
     drawSaucer(put);
     drawRotatingLights(put, frame);
@@ -456,6 +561,7 @@ function App() {
   const [showUfo, setShowUfo] = useState(true);
   const [showPlume, setShowPlume] = useState(true);
   const [showBeam, setShowBeam] = useState(true);
+  const [showAlien, setShowAlien] = useState(true);
   const canvasRef = useRef(null);
   const offRef = useRef(null);
   const bufRef = useRef(null);
@@ -482,19 +588,20 @@ function App() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    buildFrame(frame, bufRef.current, { ufo: showUfo, plume: showPlume, beam: showBeam });
+    buildFrame(frame, bufRef.current, { ufo: showUfo, plume: showPlume, beam: showBeam, alien: showAlien });
     const offCtx = offRef.current.getContext('2d');
     offCtx.putImageData(new ImageData(bufRef.current, W, H), 0, 0);
     ctx.clearRect(0, 0, W * SCALE, H * SCALE);
     ctx.drawImage(offRef.current, 0, 0, W * SCALE, H * SCALE);
-  }, [frame, showUfo, showPlume, showBeam]);
+  }, [frame, showUfo, showPlume, showBeam, showAlien]);
 
   const setSoloLayer = (layer) => {
     setShowUfo(layer === 'ufo');
     setShowPlume(layer === 'plume');
     setShowBeam(layer === 'beam');
+    setShowAlien(layer === 'alien');
   };
-  const showAll = () => { setShowUfo(true); setShowPlume(true); setShowBeam(true); };
+  const showAll = () => { setShowUfo(true); setShowPlume(true); setShowBeam(true); setShowAlien(true); };
 
   return (
     <div className="root">
@@ -520,10 +627,12 @@ function App() {
         <button className={showUfo   ? 'on' : ''} onClick={() => setShowUfo(v => !v)}>UFO</button>
         <button className={showPlume ? 'on' : ''} onClick={() => setShowPlume(v => !v)}>Plume</button>
         <button className={showBeam  ? 'on' : ''} onClick={() => setShowBeam(v => !v)}>Beam</button>
+        <button className={showAlien ? 'on' : ''} onClick={() => setShowAlien(v => !v)}>Alien</button>
         <span style={{width: 12}}/>
         <button onClick={() => setSoloLayer('ufo')}>Solo UFO</button>
         <button onClick={() => setSoloLayer('plume')}>Solo Plume</button>
         <button onClick={() => setSoloLayer('beam')}>Solo Beam</button>
+        <button onClick={() => setSoloLayer('alien')}>Solo Alien</button>
         <button onClick={showAll}>All on</button>
       </div>
       <div style={{maxWidth: 600, color: '#778', fontSize: 11, lineHeight: 1.5, textAlign: 'center'}}>
