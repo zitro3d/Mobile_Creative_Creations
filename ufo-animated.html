@@ -66,6 +66,8 @@ const C = {
   PLASMA_DEEP: [90,18,130],
   ALIEN_LIGHT: [190,220,175], ALIEN_MID: [130,170,115], ALIEN_DARK: [75,110,70], ALIEN_VOID: [25,40,30],
   GLINT: [245,255,245],
+  POOF_CORE: [255,255,255], POOF_WHITE: [255,245,255], POOF_CYAN: [180,230,255],
+  POOF_PINK: [255,200,255], POOF_PURPLE: [190,130,255], POOF_DEEP: [140,70,220], POOF_VOID: [70,30,130],
 };
 
 // Light direction (3D world coords)
@@ -537,6 +539,80 @@ function drawAlien(put, frame) {
   for (const [gx, gy] of positions) put(left + gx, top + gy, C.GLINT, a8);
 }
 
+// ── Magic-portal poof — plays at the start of the loop ─
+const POOF_DURATION = 32;
+const POOF_CX = HCX;
+const POOF_CY = 145;
+const POOF_RING_COLORS = [C.POOF_WHITE, C.POOF_CYAN, C.POOF_PURPLE, C.POOF_PINK, C.POOF_CORE, C.POOF_DEEP];
+const POOF_SPARK_COLORS = [C.POOF_CORE, C.POOF_WHITE, C.POOF_CYAN, C.POOF_PINK, C.POOF_PURPLE];
+
+function drawPoof(put, frame) {
+  if (frame >= POOF_DURATION) return;
+  const t = frame / POOF_DURATION;
+  // Central flash
+  const flashT = Math.min(1.0, frame / 8.0);
+  const flashAlpha = Math.max(0, 1 - flashT);
+  if (flashAlpha > 0) {
+    const radius = Math.round(6 + (1 - flashAlpha) * 14);
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > radius) continue;
+        const edge = 1 - d / radius;
+        let col;
+        if      (edge > 0.85) col = C.POOF_CORE;
+        else if (edge > 0.60) col = C.POOF_WHITE;
+        else if (edge > 0.35) col = C.POOF_CYAN;
+        else if (edge > 0.15) col = C.POOF_PURPLE;
+        else                  col = C.POOF_DEEP;
+        const a = Math.round(255 * edge * flashAlpha);
+        if (a > 0) put(POOF_CX + dx, POOF_CY + dy, col, a);
+      }
+    }
+  }
+  // Expanding spinning rings
+  const N_RINGS = 3;
+  for (let r = 0; r < N_RINGS; r++) {
+    const ringDelay = r * 0.12;
+    const ringT = Math.max(0, t - ringDelay);
+    if (ringT <= 0) continue;
+    const radius = ringT * (95 + r * 8);
+    const alpha = Math.max(0, 1 - ringT * 1.5);
+    if (alpha < 0.05 || radius < 3) continue;
+    const n = Math.max(28, Math.round(radius * 1.6));
+    for (let i = 0; i < n; i++) {
+      const angle = (i / n) * TAU + frame * (0.10 + r * 0.05);
+      const rx = POOF_CX + Math.round(radius * Math.cos(angle));
+      const ry = POOF_CY + Math.round(radius * Math.sin(angle) * 0.55);
+      const col = POOF_RING_COLORS[(i + r * 7) % POOF_RING_COLORS.length];
+      const a = Math.round(255 * alpha * 0.75);
+      put(rx, ry, col, a);
+    }
+  }
+  // Outward-flying sparkles
+  const N_SPARKS = 70;
+  for (let i = 0; i < N_SPARKS; i++) {
+    const sparkOffset = i * 0.018;
+    const phase = (sparkOffset + t * 0.9) % 1.0;
+    if (phase > 0.85) continue;
+    let rng = ((Math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1 + 1) % 1;
+    let rng2 = ((Math.sin(i * 9.7777 + 22.111) * 12345.6789) % 1 + 1) % 1;
+    const angle = rng * TAU;
+    const distScale = 70 + rng2 * 50;
+    const dist = phase * distScale;
+    const sx = POOF_CX + Math.round(dist * Math.cos(angle));
+    const sy = POOF_CY + Math.round(dist * Math.sin(angle) * 0.6);
+    const sparkAlpha = Math.pow(1 - phase, 0.7) * (1 - t * 0.4);
+    const col = POOF_SPARK_COLORS[i % POOF_SPARK_COLORS.length];
+    const a = Math.round(255 * sparkAlpha);
+    if (a <= 0) continue;
+    put(sx, sy, col, a);
+    const tx = POOF_CX + Math.round((dist - 1.5) * Math.cos(angle));
+    const ty = POOF_CY + Math.round((dist - 1.5) * Math.sin(angle) * 0.6);
+    put(tx, ty, col, Math.floor(a / 2));
+  }
+}
+
 function buildFrame(frame, buf, layers) {
   buf.fill(0);
   const put = makePut(buf);
@@ -551,6 +627,8 @@ function buildFrame(frame, buf, layers) {
     drawDomeSlits(put, frame);
   }
   if (layers.plume) drawPlume(put, frame);
+  // Poof on top — magical portal overlay over everything
+  if (layers.poof) drawPoof(put, frame);
 }
 
 // ── React component ───────────────────────────────────
@@ -562,6 +640,7 @@ function App() {
   const [showPlume, setShowPlume] = useState(true);
   const [showBeam, setShowBeam] = useState(true);
   const [showAlien, setShowAlien] = useState(true);
+  const [showPoof, setShowPoof] = useState(true);
   const canvasRef = useRef(null);
   const offRef = useRef(null);
   const bufRef = useRef(null);
@@ -588,20 +667,21 @@ function App() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    buildFrame(frame, bufRef.current, { ufo: showUfo, plume: showPlume, beam: showBeam, alien: showAlien });
+    buildFrame(frame, bufRef.current, { ufo: showUfo, plume: showPlume, beam: showBeam, alien: showAlien, poof: showPoof });
     const offCtx = offRef.current.getContext('2d');
     offCtx.putImageData(new ImageData(bufRef.current, W, H), 0, 0);
     ctx.clearRect(0, 0, W * SCALE, H * SCALE);
     ctx.drawImage(offRef.current, 0, 0, W * SCALE, H * SCALE);
-  }, [frame, showUfo, showPlume, showBeam, showAlien]);
+  }, [frame, showUfo, showPlume, showBeam, showAlien, showPoof]);
 
   const setSoloLayer = (layer) => {
     setShowUfo(layer === 'ufo');
     setShowPlume(layer === 'plume');
     setShowBeam(layer === 'beam');
     setShowAlien(layer === 'alien');
+    setShowPoof(layer === 'poof');
   };
-  const showAll = () => { setShowUfo(true); setShowPlume(true); setShowBeam(true); setShowAlien(true); };
+  const showAll = () => { setShowUfo(true); setShowPlume(true); setShowBeam(true); setShowAlien(true); setShowPoof(true); };
 
   return (
     <div className="root">
@@ -628,11 +708,13 @@ function App() {
         <button className={showPlume ? 'on' : ''} onClick={() => setShowPlume(v => !v)}>Plume</button>
         <button className={showBeam  ? 'on' : ''} onClick={() => setShowBeam(v => !v)}>Beam</button>
         <button className={showAlien ? 'on' : ''} onClick={() => setShowAlien(v => !v)}>Alien</button>
+        <button className={showPoof  ? 'on' : ''} onClick={() => setShowPoof(v => !v)}>Poof</button>
         <span style={{width: 12}}/>
         <button onClick={() => setSoloLayer('ufo')}>Solo UFO</button>
         <button onClick={() => setSoloLayer('plume')}>Solo Plume</button>
         <button onClick={() => setSoloLayer('beam')}>Solo Beam</button>
         <button onClick={() => setSoloLayer('alien')}>Solo Alien</button>
+        <button onClick={() => setSoloLayer('poof')}>Solo Poof</button>
         <button onClick={showAll}>All on</button>
       </div>
       <div style={{maxWidth: 600, color: '#778', fontSize: 11, lineHeight: 1.5, textAlign: 'center'}}>
