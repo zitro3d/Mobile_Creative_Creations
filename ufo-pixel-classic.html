@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>16-Bit Pixel Art UFO</title>
+    <style>
+        body {
+            background-color: #0b0e14;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        canvas {
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            border: 4px solid #2c3e50;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="pixelCanvas" width="64" height="64" style="width: 512px; height: 512px;"></canvas>
+
+<script>
+const canvas = document.getElementById('pixelCanvas');
+const ctx = canvas.getContext('2d');
+
+// 16-Bit Retro Color Palette (Hex)
+const P = {
+    x: null,       // Transparent
+    W: '#ffffff',  // White highlights
+    R: '#e74c3c',  // Red dome glow
+    D: '#c0392b',  // Dark red dome shadow
+    G1: '#bdc3c7', // Light metallic gray
+    G2: '#7f8c8d', // Medium metallic gray
+    G3: '#34495e', // Dark hull shadow
+    B1: '#a3f7bf', // Bright beam center
+    B2: '#58d68d', // Mid-tone beam glow
+    B3: '#28b463'  // Deep outer beam edge
+};
+
+// 64x64 Pixel Matrix Grid
+const sprite = [
+    // --- Sky space padding ---
+    ...Array(6).fill(Array(64).fill('x')),
+
+    // --- UFO Cockpit Dome ---
+    [...Array(27).fill('x'), 'D','R','R','R','R','D', ...Array(31).fill('x')],
+    [...Array(25).fill('x'), 'D','R','W','W','R','R','R','D', ...Array(29).fill('x')],
+    [...Array(24).fill('x'), 'D','R','W','W','R','R','R','R','D', ...Array(28).fill('x')],
+
+    // --- UFO Main Metallic Hull ---
+    [...Array(18).fill('x'), 'G2','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G2', ...Array(17).fill('x')],
+    [...Array(14).fill('x'), 'G2','G1','W','W','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G2', ...Array(14).fill('x')],
+    [...Array(10).fill('x'), 'G2','G1','G1','W','W','G1','G1','G1','G1','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G1','G2', ...Array(9).fill('x')],
+    [...Array(7).fill('x'), 'G3','G2','G2','G2','G2','G2','G2','G2','G2','G3','G3','W','W','G3','G3','W','W','G3','G3','W','W','G3','G3','W','W','G3','G3','W','W','G3','G3','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G2','G3', ...Array(6).fill('x')],
+    [...Array(5).fill('x'), 'G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3', ...Array(5).fill('x')],
+    [...Array(9).fill('x'), 'G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3', ...Array(9).fill('x')],
+
+    // --- Under-side Hull / Beam Emitter Base ---
+    [...Array(20).fill('x'), 'G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3','G3', ...Array(20).fill('x')],
+    [...Array(22).fill('x'), 'B3','B2','B1','B1','B1','B1','B1','B1','B1','B1','B1','B1','B1','B1','B1','B1','B1','B1','B1','B1','B2','B3', ...Array(22).fill('x')]
+];
+
+// Dynamically generate the expanding tractor beam downward to the bottom of the canvas
+const totalRows = 64;
+const remainingRows = totalRows - sprite.length;
+
+for (let i = 0; i < remainingRows; i++) {
+    // Linear interpolation calculation to widen the beam dynamically as it descends
+    const progress = i / remainingRows;
+    const halfBeamWidth = Math.floor(10 + (progress * 14));
+
+    const center = 32;
+    const startIdx = center - halfBeamWidth;
+    const endIdx = center + halfBeamWidth;
+
+    let row = Array(64).fill('x');
+    for (let j = startIdx; j <= endIdx; j++) {
+        let distanceFromCenter = Math.abs(j - center);
+        let ratio = distanceFromCenter / halfBeamWidth;
+
+        // Anti-aliased 16-bit striping for the beam gradient effect
+        if (ratio < 0.4) {
+            row[j] = (j % 3 === 0 && i % 2 === 0) ? 'W' : 'B1'; // Hot white-green core
+        } else if (ratio < 0.75) {
+            row[j] = 'B2'; // Mid-tone green
+        } else {
+            row[j] = 'B3'; // Darker outer containment beam
+        }
+    }
+    sprite.push(row);
+}
+
+// Render loop mapping data indices onto the canvas grid
+const pixelSize = 1;
+for (let y = 0; y < sprite.length; y++) {
+    for (let x = 0; x < sprite[y].length; x++) {
+        const colorKey = sprite[y][x];
+        if (colorKey !== 'x') {
+            ctx.fillStyle = P[colorKey];
+            ctx.fillRect(x * pixelSize, y * pixelSize, pixelSize, pixelSize);
+        }
+    }
+}
+</script>
+
+</body>
+</html>
