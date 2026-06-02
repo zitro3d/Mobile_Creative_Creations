@@ -32,7 +32,7 @@ import math, os, shutil
 from PIL import Image
 
 W, H, SCALE = 128, 240, 4
-TOTAL_FRAMES = 72
+TOTAL_FRAMES = 120        # 5 s @ 24 fps — enough for full emerge / beam / absorb cycle
 FPS = 24
 TAU = math.pi * 2
 HCX = W // 2  # 64
@@ -69,9 +69,27 @@ PAL = {
 
 def put(PX, x, y, key):
     if not (0 <= x < W and 0 <= y < H): return
+    # Reveal-radius clipping (used during UFO emergence from portal)
+    if _REVEAL_R is not None:
+        dx = x - _REVEAL_CX
+        dy = y - _REVEAL_CY
+        if dx * dx + dy * dy > _REVEAL_R * _REVEAL_R: return
+    # Alpha dither (used for fade-in / fade-out)
+    if _ALPHA < 0.98:
+        if _ALPHA <= 0: return
+        threshold = ((x * 17 + y * 23) % 16) / 16.0
+        if _ALPHA <= threshold: return
     col = PAL.get(key)
     if col is not None:
         PX[x, y] = col + (255,)
+
+
+# Module-level state controlling pixel visibility per draw call.
+# build_frame sets these before each layer's draw and resets after.
+_REVEAL_R = None        # if set, only pixels within this radius of (_REVEAL_CX, _REVEAL_CY) draw
+_REVEAL_CX = 0
+_REVEAL_CY = 0
+_ALPHA = 1.0            # 0..1 — below 1 enables Bayer-like stipple dither
 
 
 def hover(frame):
@@ -332,16 +350,71 @@ def draw_beam(PX, frame):
             put(PX, HCX + dx, BEAM_BOT + dy, key)
 
 
-# ── PORTAL (time-warp swirling vortex centered on the UFO) ──────
-# Plays a single bloom-and-fade cycle per 72-frame loop. Drawn BEHIND
-# the UFO and beam so the saucer reads as emerging through it.
-PORTAL_MAX_R = 56
+# ── TIMING (120-frame / 5-second cycle) ───────────────
+# Sequence:
+#   0-9    portal opens (transition device for the UFO's appearance)
+#   10-19  UFO emerges from the portal core (radial reveal grows)
+#   20-29  portal closes, UFO fully visible, beam off
+#   30-32  beam fades in
+#   33-86  beam ON
+#   87-89  beam fades out                (30..89 → 60 frames = 2.5 s)
+#   90-104 UFO settled, no beam, no portal
+#   105-119 UFO fades out (back to empty for the loop reset)
+PORTAL_OPEN_END   = 10
+PORTAL_HOLD_END   = 20
+PORTAL_CLOSE_END  = 30
+BEAM_FADEIN_END   = 33
+BEAM_FULL_END     = 87
+BEAM_FADEOUT_END  = 90
+UFO_FADE_START    = 105
+UFO_FADE_END      = 120
+REVEAL_MAX_R      = 100
 
 
 def portal_env(frame):
-    """Smooth cyclic bloom — 0 at frame 0/72, peaks at frame 36."""
-    t = frame / TOTAL_FRAMES
-    return (1.0 - math.cos(t * TAU)) / 2.0
+    """Portal envelope — only active during the appearance transition (0..29)."""
+    if frame < PORTAL_OPEN_END:
+        return frame / PORTAL_OPEN_END
+    if frame < PORTAL_HOLD_END:
+        return 1.0
+    if frame < PORTAL_CLOSE_END:
+        return 1.0 - (frame - PORTAL_HOLD_END) / (PORTAL_CLOSE_END - PORTAL_HOLD_END)
+    return 0.0
+
+
+def ufo_reveal_radius(frame):
+    """0 → REVEAL_MAX_R during emergence (frames 10..20). Else = no clipping."""
+    if frame < PORTAL_OPEN_END:
+        return 0.0
+    if frame < PORTAL_HOLD_END:
+        t = (frame - PORTAL_OPEN_END) / (PORTAL_HOLD_END - PORTAL_OPEN_END)
+        return t * REVEAL_MAX_R
+    return float('inf')   # no clipping
+
+
+def ufo_alpha(frame):
+    """1.0 for most of the loop, fades 1→0 during the loop's tail (105..120)."""
+    if frame < UFO_FADE_START:
+        return 1.0
+    if frame < UFO_FADE_END:
+        return 1.0 - (frame - UFO_FADE_START) / (UFO_FADE_END - UFO_FADE_START)
+    return 0.0
+
+
+def beam_alpha(frame):
+    """0 outside beam-on window. Fades in/out at the edges of the 60-frame ON period."""
+    if frame < PORTAL_CLOSE_END: return 0.0
+    if frame < BEAM_FADEIN_END:
+        return (frame - PORTAL_CLOSE_END) / (BEAM_FADEIN_END - PORTAL_CLOSE_END)
+    if frame < BEAM_FULL_END: return 1.0
+    if frame < BEAM_FADEOUT_END:
+        return 1.0 - (frame - BEAM_FULL_END) / (BEAM_FADEOUT_END - BEAM_FULL_END)
+    return 0.0
+
+
+# ── PORTAL (time-warp swirling vortex centered on the UFO) ──────
+# Drawn BEHIND the UFO so the saucer reads as emerging through it.
+PORTAL_MAX_R = 56
 
 
 def draw_portal(PX, frame):
@@ -421,28 +494,57 @@ def draw_portal(PX, frame):
 
 
 def build_frame(frame, layers=frozenset({'ufo', 'beam'})):
+    global _REVEAL_R, _REVEAL_CX, _REVEAL_CY, _ALPHA
     img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     PX = img.load()
-    # Portal first so UFO + beam sit on top of it when composited
-    if 'portal' in layers:
+
+    # Reset reveal/alpha (no clipping by default)
+    _REVEAL_R = None
+    _ALPHA = 1.0
+
+    # Portal first (behind), only during its active window
+    if 'portal' in layers and portal_env(frame) > 0.02:
         draw_portal(PX, frame)
+
+    # Beam — only during its on-window, with edge fades
     if 'beam' in layers:
-        draw_beam(PX, frame)
+        b = beam_alpha(frame)
+        if b > 0.02:
+            _ALPHA = b
+            draw_beam(PX, frame)
+            _ALPHA = 1.0
+
+    # UFO — radial reveal during emergence, alpha fade at the tail
     if 'ufo' in layers:
-        draw_saucer(PX, frame)
-        draw_dome(PX, frame)
+        r = ufo_reveal_radius(frame)
+        a = ufo_alpha(frame)
+        if a > 0.02 and r > 0.5:
+            if not math.isinf(r):
+                _REVEAL_R = r
+                _REVEAL_CX = HCX
+                _REVEAL_CY = DCY_BASE + 8
+            _ALPHA = a
+            draw_saucer(PX, frame)
+            draw_dome(PX, frame)
+            _REVEAL_R = None
+            _ALPHA = 1.0
+
     return img
 
 
 def render_layer_gif(name, layers, save_frames=False):
     frames = []
+    if save_frames:
+        # Per-layer frame folder — VFX-ready PNG sequence
+        out_dir = ('output/ufo4_anim_frames' if name == 'all'
+                   else f'output/ufo4_layer_{name}_frames')
+        os.makedirs(out_dir, exist_ok=True)
     for f in range(TOTAL_FRAMES):
         img = build_frame(f, layers=layers)
         big = img.resize((W * SCALE, H * SCALE), Image.NEAREST)
         frames.append(big)
         if save_frames:
-            os.makedirs('output/ufo4_anim_frames', exist_ok=True)
-            big.save(f'output/ufo4_anim_frames/frame_{f:03d}.png')
+            big.save(f'{out_dir}/frame_{f:03d}.png')
     gif_frames = [f.convert('RGBA').quantize(method=Image.FASTOCTREE, dither=Image.NONE)
                   for f in frames]
     gif_frames[0].save(
@@ -457,17 +559,19 @@ def render_layer_gif(name, layers, save_frames=False):
 
 def main():
     os.makedirs('output', exist_ok=True)
-    # Combined composite includes the new portal layer
-    all_frames = render_layer_gif('all', {'ufo', 'beam', 'portal'}, save_frames=True)
+    # Combined composite includes the portal layer
+    all_frames    = render_layer_gif('all',    {'ufo', 'beam', 'portal'}, save_frames=True)
     shutil.copy('output/ufo4_layer_all.gif', 'output/ufo4_animated.gif')
     print('wrote output/ufo4_animated.gif')
-    ufo_frames    = render_layer_gif('ufo',    {'ufo'})
-    beam_frames   = render_layer_gif('beam',   {'beam'})
-    portal_frames = render_layer_gif('portal', {'portal'})
+    # Per-layer GIFs + per-frame PNG sequences for VFX compositing
+    ufo_frames    = render_layer_gif('ufo',    {'ufo'},    save_frames=True)
+    beam_frames   = render_layer_gif('beam',   {'beam'},   save_frames=True)
+    portal_frames = render_layer_gif('portal', {'portal'}, save_frames=True)
 
-    # 4-up preview at the portal's peak (frame 36)
-    snap = 36
-    cols = [all_frames[snap], ufo_frames[snap], beam_frames[snap], portal_frames[snap]]
+    # 4-up preview: each layer at a frame where it's at peak.
+    # All composite during beam-on (frame 50), UFO mid-beam, beam mid-on,
+    # portal at its peak (frame 15 — UFO mid-emergence).
+    cols = [all_frames[50], ufo_frames[50], beam_frames[50], portal_frames[15]]
     sheet = Image.new('RGBA', (W * SCALE * len(cols), H * SCALE), (28, 28, 32, 255))
     for i, s in enumerate(cols):
         sheet.paste(s, (i * W * SCALE, 0), s)
