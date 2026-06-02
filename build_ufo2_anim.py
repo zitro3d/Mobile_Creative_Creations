@@ -81,11 +81,9 @@ def hover(frame):
     return int(round(math.sin(frame / TOTAL_FRAMES * TAU) * 2))
 
 
-# ── DOME geometry (small red dome sitting on top, viewed from below) ──
-# Looking up at the UFO, only the front-upper portion of the dome shows;
-# the back of the rim curves up around it.
-DCY_BASE = 64
-DR = 13
+# ── DOME geometry (large bright red dome on top) ──────
+DCY_BASE = 72
+DR = 22
 
 # Lighting for dome (light from upper-right, like the reference)
 _Lx, _Ly, _Lz = 0.42, 0.55, 0.72
@@ -118,60 +116,52 @@ def draw_dome(put, frame):
             elif i > 0.18: col = DOME_D
             else:          col = DOME_DEEP
             put(x, y, col)
-    # Tiny specular streak on upper-right of dome
-    for dx, dy, c in [(4, -9, DOME_CORE), (5, -8, DOME_CORE), (6, -7, DOME_HOT),
-                      (7, -6, DOME_HOT), (7, -4, DOME_BR)]:
+    # Larger specular streak on upper-right of bigger dome
+    streak = [(6, -16, DOME_CORE), (7, -15, DOME_CORE), (8, -14, DOME_CORE),
+              (9, -13, DOME_HOT),  (10, -12, DOME_HOT), (11, -10, DOME_HOT),
+              (12, -8, DOME_BR),   (13, -6, DOME_BR),   (13, -4, DOME_L)]
+    for dx, dy, c in streak:
         put(HCX + dx, cy_base + dy, c)
 
 
-# ── SAUCER body rows — viewed from below-front, rim back-arc curves up
-# around the dome and the underside takes up most of the silhouette.
+# ── SAUCER body rows — flatter lens shape with subtle from-below tilt ──
+# Large dome sits on top, and the rim only curves up to a subtle "wing"
+# around the very bottom of the dome — not an aggressive arc.
 SAUCER_ROWS = [
-    # Back arc of the rim peeking out behind/around the dome.
-    # Drawn first, the dome will overwrite the central part — leaving
-    # the "wings" of the back arc visible to the left/right of the dome.
-    (53, 14, 'back_arc'),
-    (54, 18, 'back_arc'),
-    (55, 24, 'back_arc'),
-    (56, 30, 'back_arc'),
-    (57, 36, 'back_arc'),
-    (58, 42, 'back_arc'),
-    (59, 48, 'back_arc'),
-    (60, 54, 'back_arc'),
-    (61, 60, 'back_arc'),
-    (62, 65, 'back_arc'),
-    (63, 70, 'back_arc'),
-    (64, 74, 'back_arc'),
-    # Rim sides reaching widest
-    (65, 77, 'rim_edge'),
-    (66, 79, 'rim_edge'),
-    (67, 81, 'rim_edge'),
-    (68, 82, 'rim_edge'),
-    # Porthole band (the front-bottom of the rim ellipse, where lights are)
-    (69, 82, 'ports'),
-    (70, 82, 'ports'),
-    (71, 82, 'ports'),
-    (72, 82, 'ports'),
-    (73, 81, 'ports_bot'),
-    # Front rim curving down (lower half of rim ellipse)
-    (74, 79, 'rim_front'),
-    (75, 76, 'rim_front'),
-    (76, 72, 'rim_front'),
-    (77, 67, 'rim_front'),
-    # Underside (the big visible bowl)
-    (78, 62, 'under_top'),
-    (79, 57, 'under_top'),
-    (80, 52, 'under'),
-    (81, 47, 'under'),
-    (82, 42, 'under'),
-    (83, 37, 'under'),
-    (84, 32, 'under'),
-    (85, 27, 'under'),
-    (86, 22, 'under'),
-    (87, 17, 'under_end'),
-    (88, 13, 'under_end'),
-    (89, 9,  'emitter'),
-    (90, 7,  'emitter'),
+    # Subtle back-arc wings poking out beside the dome's lower portion
+    (68, 24, 'back_sliver'),
+    (69, 26, 'back_sliver'),
+    (70, 28, 'back_sliver'),
+    (71, 32, 'back_sliver'),
+    (72, 38, 'back_sliver'),
+    # Top of saucer flaring outward to max width
+    (73, 50, 'rim_top'),
+    (74, 62, 'rim_top'),
+    (75, 72, 'rim_top'),
+    (76, 78, 'rim_top'),
+    (77, 81, 'rim_top'),
+    (78, 83, 'body_hi'),
+    # Porthole band (rim, where lights live)
+    (79, 84, 'ports'),
+    (80, 84, 'ports'),
+    (81, 84, 'ports'),
+    # Bottom of rim transitioning to underside
+    (82, 82, 'body_dark'),
+    (83, 80, 'rim_front'),
+    (84, 77, 'rim_front'),
+    (85, 73, 'rim_front'),
+    (86, 68, 'rim_front'),
+    (87, 62, 'rim_front'),
+    # Underside curving in toward emitter
+    (88, 55, 'under_top'),
+    (89, 48, 'under_top'),
+    (90, 41, 'under'),
+    (91, 34, 'under'),
+    (92, 28, 'under'),
+    (93, 22, 'under'),
+    (94, 16, 'under'),
+    (95, 11, 'under_end'),
+    (96, 7,  'emitter'),
 ]
 
 
@@ -179,44 +169,46 @@ def shade_saucer(role, dx, hw):
     rel = dx / max(hw, 1)
     if abs(dx) == hw and hw > 3: return HULL_O
     if abs(dx) >= hw - 1 and hw > 6: return HULL_DD
-    if role == 'back_arc':
-        # Top of rim catches light from above
-        if rel > 0.3:   return HULL_VL
-        if rel > -0.2:  return HULL_HI
-        if rel > -0.5:  return HULL_L
-        return HULL_M
-    if role == 'rim_edge':
+    if role == 'back_sliver':
+        # Top edge of back rim — catches highlight
+        if rel > 0.0: return HULL_HI
+        return HULL_L
+    if role == 'rim_top':
+        # Top curve of the saucer — lit
         if rel > 0.4:   return HULL_VL
         if rel > -0.1:  return HULL_HI
         if rel > -0.5:  return HULL_L
         return HULL_M
+    if role == 'body_hi':
+        if rel > 0.3:   return HULL_HI
+        if rel > -0.2:  return HULL_L
+        if rel > -0.6:  return HULL_M
+        return HULL_D
     if role == 'ports':
         # Background for portholes — mid hull; lights drawn on top
         if rel > 0.4:   return HULL_M
         if rel > -0.4:  return HULL_D
         return HULL_DD
-    if role == 'ports_bot':
-        # Thin seam below porthole band
+    if role == 'body_dark':
+        # Below port band — darker
+        if rel > 0.3:   return HULL_D
+        if rel > -0.3:  return HULL_DD
         return HULL_O
     if role == 'rim_front':
-        # In shadow — we see the underside of the front rim
+        # Front of rim, in shadow
         if rel > 0.3:   return HULL_D
         if rel > -0.3:  return HULL_DD
         return HULL_O
     if role == 'under_top':
-        # Just below the rim — darkest shadow band
+        # Just below the rim — shadow band
         if rel > 0.3:   return HULL_DD
-        if rel > -0.3:  return HULL_O
         return HULL_O
     if role == 'under':
-        # Curved underside in shadow
         if rel > 0.4:   return HULL_DD
-        if rel > -0.4:  return HULL_O
         return HULL_O
     if role == 'under_end':
         return HULL_O
     if role == 'emitter':
-        # Emitter point gets overwritten by green glow
         return HULL_O
     return HULL_M
 
@@ -228,11 +220,11 @@ def draw_saucer(put, frame):
         for dx in range(-hw, hw + 1):
             put(HCX + dx, ys, shade_saucer(role, dx, hw))
 
-    # ── Porthole row — pale gray-blue lights along the rim arc ─
+    # ── Portholes along the rim band (3 rows tall at y=79-81) ─
     blink_t = (frame / TOTAL_FRAMES) % 1.0
     n_ports = 9
-    rim_rx = 73
-    rim_cy = 71 + bob
+    rim_rx = 76
+    rim_cy = 80 + bob
     rim_ry = 2  # subtle vertical perspective curve
     for i in range(n_ports):
         theta = math.pi * (i + 0.5) / n_ports - math.pi / 2
@@ -253,12 +245,12 @@ def draw_saucer(put, frame):
 
     # Bright greenish emitter glow at the bottom-center of the underside
     pulse = 0.85 + 0.15 * math.sin(frame / TOTAL_FRAMES * TAU * 3)
-    eg_cx, eg_cy = HCX, 90 + bob
+    eg_cx, eg_cy = HCX, 96 + bob
     for dy in range(-3, 4):
-        for dx in range(-6, 7):
+        for dx in range(-7, 8):
             d = math.sqrt(dx * dx + (dy * 1.6) ** 2)
-            if d > 5.5: continue
-            edge = (1.0 - d / 5.5) * pulse
+            if d > 6: continue
+            edge = (1.0 - d / 6) * pulse
             if   edge > 0.85: col = BEAM_CORE
             elif edge > 0.55: col = BEAM_HOT
             elif edge > 0.30: col = BEAM_BR
@@ -270,7 +262,7 @@ def draw_saucer(put, frame):
 def draw_beam(put, frame):
     """Wide green tractor beam — continuous, glowing, soft-edged."""
     bob = hover(frame)
-    TOP = 91 + bob
+    TOP = 97 + bob
     BOT = 348
     HW_TOP = 8
     HW_BOT = 64
@@ -333,7 +325,7 @@ def build_frame(frame, layers=frozenset({'ufo', 'beam'})):
         draw_beam(put, frame)
     if 'ufo' in layers:
         draw_saucer(put, frame)
-        draw_dome(put, frame)   # dome drawn LAST so it covers the back-arc center
+        draw_dome(put, frame)
     return img
 
 
