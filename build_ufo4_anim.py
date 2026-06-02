@@ -58,6 +58,12 @@ PAL = {
     'B2': h2r('#58d68d'),
     'B3': h2r('#28b463'),
     'B4': h2r('#1e6b3f'),
+    # Portal / time-warp palette
+    'PH': h2r('#c4f0ff'),   # portal hot (near-white cyan)
+    'PB': h2r('#7ec8e3'),   # portal bright (cyan)
+    'PL': h2r('#8a6dcc'),   # portal light (blue-purple)
+    'PM': h2r('#7232a3'),   # portal mid (purple)
+    'PD': h2r('#3a1860'),   # portal dark (deep purple)
 }
 
 
@@ -326,9 +332,100 @@ def draw_beam(PX, frame):
             put(PX, HCX + dx, BEAM_BOT + dy, key)
 
 
+# ── PORTAL (time-warp swirling vortex centered on the UFO) ──────
+# Plays a single bloom-and-fade cycle per 72-frame loop. Drawn BEHIND
+# the UFO and beam so the saucer reads as emerging through it.
+PORTAL_MAX_R = 56
+
+
+def portal_env(frame):
+    """Smooth cyclic bloom — 0 at frame 0/72, peaks at frame 36."""
+    t = frame / TOTAL_FRAMES
+    return (1.0 - math.cos(t * TAU)) / 2.0
+
+
+def draw_portal(PX, frame):
+    bob = hover(frame)
+    PCX = HCX
+    PCY = DCY_BASE + 8 + bob       # centered on the saucer body
+
+    env = portal_env(frame)
+    if env < 0.02: return
+    r_outer = PORTAL_MAX_R * env
+    rotation = frame * 0.13
+
+    # 1. Soft outer halo ring (the portal's outer boundary)
+    if r_outer > 4:
+        n_pts = int(r_outer * 4)
+        for i in range(n_pts):
+            theta = (i / n_pts) * TAU + rotation * 0.35
+            px = PCX + r_outer * math.cos(theta)
+            py = PCY + r_outer * math.sin(theta)
+            put(PX, int(round(px)), int(round(py)), 'PM')
+
+    # 2. Swirling spiral arms (4 logarithmic spiral arms)
+    n_arms = 4
+    n_segs = max(20, int(r_outer * 1.4))
+    for arm in range(n_arms):
+        base_angle = arm * (TAU / n_arms) + rotation
+        for s in range(n_segs):
+            t = s / n_segs                  # 0 at center, 1 at edge
+            r = r_outer * (0.05 + t * 0.95)
+            theta = base_angle + t * 4.8    # 4.8 radians of swirl
+            px = PCX + r * math.cos(theta)
+            py = PCY + r * math.sin(theta)
+            if   t < 0.18: key = 'W'
+            elif t < 0.38: key = 'PH'
+            elif t < 0.58: key = 'PB'
+            elif t < 0.78: key = 'PL'
+            elif t < 0.92: key = 'PM'
+            else:          key = 'PD'
+            put(PX, int(round(px)), int(round(py)), key)
+
+    # 3. Inner bright core (where UFO appears to emerge)
+    core_r = max(1, int(round(8 * env)))
+    for dy in range(-core_r - 1, core_r + 2):
+        for dx in range(-core_r - 1, core_r + 2):
+            d = math.sqrt(dx * dx + dy * dy)
+            if d > core_r: continue
+            edge = 1.0 - d / max(core_r, 1)
+            if   edge > 0.78: key = 'W'
+            elif edge > 0.55: key = 'PH'
+            elif edge > 0.30: key = 'PB'
+            elif edge > 0.10: key = 'PL'
+            else:             key = 'PM'
+            put(PX, PCX + dx, PCY + dy, key)
+
+    # 4. Energy sparks orbiting and pulsing outward
+    n_sparks = 28
+    for i in range(n_sparks):
+        spark_phase = ((frame / TOTAL_FRAMES) * 2 + i / n_sparks) % 1.0
+        if spark_phase > 0.85: continue
+        theta_off = (math.sin(i * 9.27) * 100) % TAU
+        theta = spark_phase * TAU + theta_off + rotation * 0.3
+        # Radius sweeps outward as the spark ages
+        r = r_outer * (0.25 + spark_phase * 0.75)
+        px = PCX + r * math.cos(theta)
+        py = PCY + r * math.sin(theta)
+        if   spark_phase < 0.25: key = 'W'
+        elif spark_phase < 0.55: key = 'PH'
+        elif spark_phase < 0.75: key = 'PB'
+        else:                    key = 'PL'
+        put(PX, int(round(px)), int(round(py)), key)
+        # Tiny trail pixel just behind it
+        if spark_phase > 0.10 and spark_phase < 0.7:
+            tr = r * 0.92
+            tx = PCX + tr * math.cos(theta)
+            ty = PCY + tr * math.sin(theta)
+            put(PX, int(round(tx)), int(round(ty)), 'PM')
+
+
 def build_frame(frame, layers=frozenset({'ufo', 'beam'})):
     img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     PX = img.load()
+    # Portal first so UFO + beam sit on top of it when composited
+    if 'portal' in layers:
+        draw_portal(PX, frame)
     if 'beam' in layers:
         draw_beam(PX, frame)
     if 'ufo' in layers:
@@ -360,14 +457,17 @@ def render_layer_gif(name, layers, save_frames=False):
 
 def main():
     os.makedirs('output', exist_ok=True)
-    all_frames = render_layer_gif('all', {'ufo', 'beam'}, save_frames=True)
+    # Combined composite includes the new portal layer
+    all_frames = render_layer_gif('all', {'ufo', 'beam', 'portal'}, save_frames=True)
     shutil.copy('output/ufo4_layer_all.gif', 'output/ufo4_animated.gif')
     print('wrote output/ufo4_animated.gif')
-    ufo_frames = render_layer_gif('ufo', {'ufo'})
-    beam_frames = render_layer_gif('beam', {'beam'})
+    ufo_frames    = render_layer_gif('ufo',    {'ufo'})
+    beam_frames   = render_layer_gif('beam',   {'beam'})
+    portal_frames = render_layer_gif('portal', {'portal'})
 
-    snap = 18
-    cols = [all_frames[snap], ufo_frames[snap], beam_frames[snap]]
+    # 4-up preview at the portal's peak (frame 36)
+    snap = 36
+    cols = [all_frames[snap], ufo_frames[snap], beam_frames[snap], portal_frames[snap]]
     sheet = Image.new('RGBA', (W * SCALE * len(cols), H * SCALE), (28, 28, 32, 255))
     for i, s in enumerate(cols):
         sheet.paste(s, (i * W * SCALE, 0), s)
