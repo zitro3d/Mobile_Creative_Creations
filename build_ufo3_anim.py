@@ -60,31 +60,38 @@ def fill_row(PX, y, cells):
 def make_ufo_rows(frame):
     """Return list of (y, [keys...]) representing the UFO sprite at this frame.
 
-    Animation: dome pulses red-bright every cycle, portholes blink in
+    Animation: dome interior shimmers on the cycle, portholes blink in
     sequence. UFO sits at the top of the canvas.
+
+    Layout (relative to base_y):
+      0-4   dome (5 rows, proper hemisphere — 1/3/5/7/9 wide, centered)
+      5     top hull
+      6     hull mid (highlight)
+      7     hull mid (wider)
+      8     porthole row
+      9     dark rim band
+      10-11 underside taper
+      12    emitter
     """
     rows = []
-    base_y = 6  # leave 6 rows of headroom
+    base_y = 4  # leave 4 rows of headroom
 
-    # ── Dome (3 rows, with red pulse) ─────────────
+    # ── Dome (5 rows, proper centered half-dome) ──
+    # Apex/upper rows get a "shimmer" pulse via the highlight pixel
     pulse = (math.sin(frame / TOTAL_FRAMES * TAU * 2) + 1) / 2  # 0..1
-    if pulse > 0.55:
-        # Bright pulse — extra white highlight
-        rows.append((base_y + 0, ['x']*27 + ['D','R','W','W','R','D']  + ['x']*31))
-    else:
-        rows.append((base_y + 0, ['x']*27 + ['D','R','R','R','R','D']  + ['x']*31))
-    rows.append((base_y + 1, ['x']*25 + ['D','R','W','W','R','R','R','D'] + ['x']*29))
-    rows.append((base_y + 2, ['x']*24 + ['D','R','W','W','R','R','R','R','D'] + ['x']*28))
+    apex_hl = 'W' if pulse > 0.65 else 'R'
+    rows.append((base_y + 0, ['x']*31 + ['D', apex_hl, 'D'] + ['x']*30))
+    rows.append((base_y + 1, ['x']*30 + ['D','R','R','R','D'] + ['x']*29))
+    rows.append((base_y + 2, ['x']*29 + ['D','R','W','W','W','R','D'] + ['x']*28))
+    rows.append((base_y + 3, ['x']*28 + ['D','R','W','W','W','W','W','R','D'] + ['x']*27))
+    rows.append((base_y + 4, ['x']*28 + ['D','R','R','R','R','R','R','R','D'] + ['x']*27))
 
     # ── Top hull (light gray catching highlight) ──
-    rows.append((base_y + 3, ['x']*18 + ['G2'] + ['G1']*27 + ['G2'] + ['x']*17))
-    rows.append((base_y + 4, ['x']*14 + ['G2'] + ['G1']*2 + ['W','W'] + ['G1']*30 + ['G2'] + ['x']*14))
-    rows.append((base_y + 5, ['x']*10 + ['G2','G1','G1','W','W'] + ['G1']*4 + ['G2']*20 + ['G1']*13 + ['G2'] + ['x']*9))
+    rows.append((base_y + 5, ['x']*18 + ['G2'] + ['G1']*27 + ['G2'] + ['x']*17))
+    rows.append((base_y + 6, ['x']*14 + ['G2'] + ['G1']*2 + ['W','W'] + ['G1']*30 + ['G2'] + ['x']*14))
+    rows.append((base_y + 7, ['x']*10 + ['G2','G1','G1','W','W'] + ['G1']*4 + ['G2']*20 + ['G1']*13 + ['G2'] + ['x']*9))
 
     # ── Porthole row (with blinking lights) ───────
-    # Each porthole is 2 wide. There are 5 portholes across.
-    # Pattern: G3 G3 [P P] G3 G3 [P P] G3 G3 [P P] G3 G3 [P P] G3 G3 [P P] G3 G3
-    # Portholes blink in sequence
     n_ports = 5
     port_t = (frame / TOTAL_FRAMES) % 1.0
     port_lights = []
@@ -96,21 +103,20 @@ def make_ufo_rows(frame):
     for p in range(n_ports):
         rim_row += [port_lights[p], port_lights[p], 'G3', 'G3']
     rim_row += ['G2']*19 + ['G3']
-    # Pad to width
     while len(rim_row) < W:
         rim_row.append('x')
     rim_row = rim_row[:W]
-    rows.append((base_y + 6, rim_row))
+    rows.append((base_y + 8, rim_row))
 
     # ── Wide dark hull rim band ───────────────────
-    rows.append((base_y + 7, ['x']*5 + ['G3']*54 + ['x']*5))
+    rows.append((base_y + 9, ['x']*5 + ['G3']*54 + ['x']*5))
 
     # ── Underside taper (narrowing) ───────────────
-    rows.append((base_y + 8, ['x']*9 + ['G3']*46 + ['x']*9))
-    rows.append((base_y + 9, ['x']*20 + ['G3']*24 + ['x']*20))
+    rows.append((base_y + 10, ['x']*9 + ['G3']*46 + ['x']*9))
+    rows.append((base_y + 11, ['x']*20 + ['G3']*24 + ['x']*20))
 
     # ── Emitter row (green bright spot) ───────────
-    rows.append((base_y + 10, ['x']*22 + ['B3','B2'] + ['B1']*18 + ['B2','B3'] + ['x']*22))
+    rows.append((base_y + 12, ['x']*22 + ['B3','B2'] + ['B1']*18 + ['B2','B3'] + ['x']*22))
 
     return rows, base_y
 
@@ -161,7 +167,7 @@ def build_frame(frame, layers=frozenset({'ufo', 'beam'})):
 
     ufo_rows, base_y = make_ufo_rows(frame)
     # Beam starts just below the UFO's emitter row
-    beam_top_y = base_y + 11 + bob
+    beam_top_y = base_y + 13 + bob
 
     if 'beam' in layers:
         draw_beam(PX, frame, beam_top_y)
