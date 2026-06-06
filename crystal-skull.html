@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crystal Skull — floating rotating 16-bit asset (React Artifact)</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: radial-gradient(120% 95% at 50% 34%, #150a2e 0%, #0a0518 55%, #03010a 100%);
+    color: #c9b6ff; font: 14px/1.5 system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center; min-height: 100vh;
+  }
+  #root { width: 100%; }
+  .wrap { display: flex; flex-direction: column; align-items: center; padding: 22px 16px 40px; }
+  h1 { font-weight: 600; letter-spacing: .1em; margin: 6px 0 2px; color: #ecdcff;
+       text-shadow: 0 0 18px rgba(170,90,255,.5); }
+  .sub { opacity: .6; margin: 0 0 16px; max-width: 560px; text-align: center; font-size: 12.5px; }
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    width: min(78vw, 520px); height: auto; aspect-ratio: 1 / 1;
+    background: #06030f;
+    border-radius: 6px;
+    filter: drop-shadow(0 0 38px rgba(150, 80, 255, .42));
+  }
+  .row { display: flex; gap: 9px; margin: 16px 0 0; flex-wrap: wrap; justify-content: center; }
+  button {
+    background: #1c1138; color: #e3d4ff; border: 1px solid #4a2f80;
+    padding: 8px 14px; border-radius: 8px; cursor: pointer; font: inherit;
+  }
+  button[data-on="true"] { background: #432a78; border-color: #7a52c8; }
+  .palette-strip { display: flex; gap: 6px; margin: 0 0 14px; }
+  .swatch { width: 22px; height: 22px; border: 2px solid #06030f; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     RENDERING ENGINE  (plain JS — strict array-charted, pixel-perfect)
+     Kept separate from the React/JSX layer so the canvas logic is
+     framework-agnostic and independently testable.
+════════════════════════════════════════════════════════════════════ -->
+<script id="engine">
+window.CrystalSkullEngine = (function () {
+  const W = 64, H = 64, CX = 32;
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const TAU = Math.PI * 2;
+
+  // ── 1. INDEXED PALETTE RAMPS ────────────────────────────────────────
+  // Shadows lean cool (midnight purple/blue); highlights lean warm/neon.
+  const RAMP_STOPS = {
+    amethyst: [
+      [0.00,[18, 9,38]],  [0.14,[40,18,74]],  [0.30,[78,34,124]],
+      [0.46,[140,52,168]],[0.60,[206,72,180]],[0.72,[255,110,210]],
+      [0.83,[120,225,255]],[0.93,[200,245,255]],[1.00,[245,253,255]],
+    ],
+    glacier: [
+      [0.00,[10,16,44]],  [0.16,[20,40,86]],  [0.32,[28,78,140]],
+      [0.48,[40,134,196]],[0.62,[70,196,232]],[0.74,[140,236,255]],
+      [0.86,[200,250,255]],[1.00,[247,255,255]],
+    ],
+    venom: [
+      [0.00,[12,20,30]],  [0.16,[18,52,46]],  [0.32,[24,96,72]],
+      [0.48,[44,160,96]], [0.62,[110,220,110]],[0.74,[190,255,120]],
+      [0.86,[235,255,170]],[1.00,[250,255,230]],
+    ],
+  };
+  const THEME = {
+    amethyst: { core:[185,95,255], eye:[255,95,225], gem:[255,120,225], rim:[150,235,255], halo:[120,55,200] },
+    glacier:  { core:[95,205,255], eye:[150,235,255], gem:[150,240,255], rim:[200,250,255], halo:[60,130,210] },
+    venom:    { core:[110,255,150],eye:[170,255,110], gem:[200,255,120], rim:[210,255,170], halo:[60,170,90] },
+  };
+  function buildLUT(stops) {
+    const N = 64, lut = new Array(N);
+    for (let i = 0; i < N; i++) {
+      const t = i / (N - 1);
+      let a = stops[0], b = stops[stops.length - 1];
+      for (let s = 0; s < stops.length - 1; s++)
+        if (t >= stops[s][0] && t <= stops[s+1][0]) { a = stops[s]; b = stops[s+1]; break; }
+      const f = (t - a[0]) / Math.max(1e-6, b[0] - a[0]);
+      lut[i] = [
+        Math.round(a[1][0] + (b[1][0]-a[1][0])*f),
+        Math.round(a[1][1] + (b[1][1]-a[1][1])*f),
+        Math.round(a[1][2] + (b[1][2]-a[1][2])*f),
+      ];
+    }
+    return lut;
+  }
+  const LUTS = {};
+  for (const k in RAMP_STOPS) LUTS[k] = buildLUT(RAMP_STOPS[k]);
+
+  // 4×4 Bayer matrix for ordered (manual) dithering of gradients
+  const BAYER = [0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5];
+
+  // ── 2. STRICT BODY CHART ────────────────────────────────────────────
+  // The skull silhouette is charted as an explicit half-width profile,
+  // (modelY → half-width). Treated as a solid of revolution so the
+  // outline never drifts as the asset rotates. Rounded, organic — no
+  // geometric primitives.
+  const PROFILE = [
+    [4,3.0],[7,8.5],[10,13.5],[13,16.5],[16,18.2],[19,19.0],[22,19.2],
+    [25,18.9],[28,18.2],[31,17.6],[33,17.2],[35,16.6],[37,15.4],
+    [39,13.9],[41,12.7],[43,11.9],[45,11.6],[47,11.7],[49,11.4],
+    [51,10.4],[53,8.9],[55,7.0],[57,4.6],[59,2.0],
+  ];
+  function halfWidth(y) {
+    if (y <= PROFILE[0][0]) return 0;
+    if (y >= PROFILE[PROFILE.length-1][0]) return 0;
+    for (let i = 0; i < PROFILE.length-1; i++) {
+      const a = PROFILE[i], b = PROFILE[i+1];
+      if (y >= a[0] && y <= b[0]) {
+        const f = (y - a[0]) / (b[0] - a[0]);
+        return a[1] + (b[1]-a[1]) * f;
+      }
+    }
+    return 0;
+  }
+  const Y_TOP = PROFILE[0][0], Y_BOT = PROFILE[PROFILE.length-1][0];
+
+  // Charted feature anchors in skull longitude (0 = front centre) + model row
+  const FEAT = {
+    eyePhi: 0.52, eyeY: 26,
+    noseY: 33,
+    gemY: 14,
+    mouthY: 44, teethN: 9, teethSpread: 0.92,
+    foramenPhi: Math.PI, foramenY: 41,
+    lightDir: (() => { const x=-0.46,y=-0.66,z=0.6; const l=Math.hypot(x,y,z); return [x/l,y/l,z/l]; })(),
+    facets: 11,
+  };
+
+  function hsh(i){ i=(i*2654435761)>>>0; return ((i>>>8)&0xffff)/0xffff; }
+
+  // ── framebuffer helpers ─────────────────────────────────────────────
+  function makeOps(buf) {
+    return {
+      set(x, y, c) { x|=0; y|=0; if (x<0||x>=W||y<0||y>=H) return;
+        const i=(y*W+x)*4; buf[i]=c[0]; buf[i+1]=c[1]; buf[i+2]=c[2]; buf[i+3]=255; },
+      add(x, y, r, g, b) { x|=0; y|=0; if (x<0||x>=W||y<0||y>=H) return;
+        const i=(y*W+x)*4;
+        buf[i]=Math.min(255,buf[i]+r); buf[i+1]=Math.min(255,buf[i+1]+g); buf[i+2]=Math.min(255,buf[i+2]+b); buf[i+3]=255; },
+      get(x, y) { x|=0; y|=0; if (x<0||x>=W||y<0||y>=H) return null; return (y*W+x)*4; },
+    };
+  }
+
+  function create() {
+    return { angle: 0, bobT: 0, lastT: -1, parts: [], emit: 0 };
+  }
+
+  // ── 3. RENDER ONE FRAME ─────────────────────────────────────────────
+  function render(buf, st, timeMs, opts) {
+    opts = opts || {};
+    const theme = THEME[opts.theme] ? opts.theme : 'amethyst';
+    const LUT = LUTS[theme], TH = THEME[theme];
+    const speed = opts.speed == null ? 1 : opts.speed;
+    const dir = opts.dir || 1;
+
+    // time integration (pause-safe — angle accumulates only when running)
+    let dt = st.lastT < 0 ? 16 : (timeMs - st.lastT);
+    dt = clamp(dt, 0, 60); st.lastT = timeMs;
+    if (!opts.paused) { st.angle += dt * 0.00085 * speed * dir; st.bobT += dt; }
+    const theta = st.angle;
+    const bob = Math.round(Math.sin(st.bobT * 0.0016) * 2.4);
+    const pulse = 0.5 + 0.5 * Math.sin(st.bobT * 0.004);
+
+    const op = makeOps(buf);
+    const L = FEAT.lightDir, FA = TAU / FEAT.facets;
+
+    // ── background: deep gradient + breathing halo behind the skull ─────
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = (y*W+x)*4;
+      const t = y / H;
+      buf[i]   = 10 + t*8;  buf[i+1] = 5 + t*5;  buf[i+2] = 22 + t*14;  buf[i+3] = 255;
+    }
+    const haloCx = CX, haloCy = 30 + bob;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const dx=(x-haloCx)/26, dy=(y-haloCy)/30, d=dx*dx+dy*dy;
+      if (d > 1) continue;
+      const g = (1 - d) * (1 - d) * (0.5 + 0.5*pulse);
+      op.add(x, y, TH.halo[0]*0.20*g, TH.halo[1]*0.20*g, TH.halo[2]*0.22*g);
+    }
+
+    // ── back-of-head particles (occluded by the body) ───────────────────
+    drawParticles(op, st, false, theta, bob, TH, pulse);
+
+    // ── 3a. CRYSTAL BODY (faceted solid of revolution) ──────────────────
+    for (let my = Y_TOP; my <= Y_BOT; my++) {
+      const hw = halfWidth(my); if (hw < 0.5) continue;
+      const hwUp = halfWidth(my-1), hwDn = halfWidth(my+1);
+      const sy = my + bob;
+      const xi = Math.ceil(hw);
+      for (let dx = -xi; dx <= xi; dx++) {
+        const nxp = dx / hw; if (Math.abs(nxp) > 1.0001) continue;
+        const sx = CX + dx;
+        const nz = Math.sqrt(Math.max(0, 1 - nxp*nxp));   // front-hemisphere depth
+        const ang = Math.asin(clamp(nxp, -1, 1));
+        const phi = ang + theta;                          // world longitude (rotates)
+
+        // facet (flat-shaded panel) — gives a low-poly crystal read
+        const fpos = phi / FA;
+        const fi = Math.floor(fpos);
+        const frac = fpos - fi;
+        const cang = (fi + 0.5) * FA - theta;             // facet-centre camera angle
+        let fnx = Math.sin(cang), fnz = Math.max(0.05, Math.cos(cang));
+        let nyv = (hwUp - hwDn) * 0.5 * 0.22;             // vertical normal from slope
+        const nl = Math.hypot(fnx, nyv, fnz);
+        const diff = Math.max(0, (fnx*L[0] + nyv*L[1] + fnz*L[2]) / nl);
+        let shade = 0.15 + diff * 0.78 + (hsh(fi) - 0.5) * 0.10;
+
+        // facet seams (dark grooves between panels)
+        const seam = Math.min(frac, 1 - frac);
+        if (seam < 0.045) shade *= 0.5; else if (seam < 0.10) shade *= 0.78;
+
+        // a couple of latitude seams for extra crystalline structure
+        if (Math.abs(my - 19) < 0.6 || Math.abs(my - 38) < 0.6) shade *= 0.7;
+
+        shade = clamp(shade, 0, 1);
+
+        // dithered ramp lookup
+        const f = shade * (LUT.length - 1);
+        let li = Math.floor(f);
+        const thr = (BAYER[(sy & 3)*4 + (sx & 3)] + 0.5) / 16;
+        if (f - li > thr) li = Math.min(LUT.length - 1, li + 1);
+        let r = LUT[li][0], g = LUT[li][1], b = LUT[li][2];
+
+        // smooth normal for specular + rim
+        const sl = Math.hypot(nxp, nyv, nz) || 1;
+        const snx=nxp/sl, sny=nyv/sl, snz=nz/sl;
+        const hvx=L[0], hvy=L[1], hvz=L[2]+1, hl=Math.hypot(hvx,hvy,hvz);
+        const spec = Math.pow(Math.max(0, snx*hvx/hl + sny*hvy/hl + snz*hvz/hl), 22);
+        r += spec*210; g += spec*215; b += spec*220;
+
+        // neon Fresnel rim at grazing edges
+        const rim = Math.pow(1 - nz, 2.6);
+        r += (TH.rim[0]-r)*rim*0.55; g += (TH.rim[1]-g)*rim*0.55; b += (TH.rim[2]-b)*rim*0.55;
+
+        // translucent inner core glow (brightest through the centre)
+        const coreF = (1 - Math.abs(nxp)*0.9) * clamp(1 - Math.abs((my-30)/26), 0, 1);
+        const cg = coreF * coreF * (0.30 + 0.45*pulse);
+        r += TH.core[0]*0.22*cg; g += TH.core[1]*0.22*cg; b += TH.core[2]*0.22*cg;
+
+        op.set(sx, sy, [Math.min(255,r), Math.min(255,g), Math.min(255,b)]);
+      }
+    }
+
+    // ── 3b. FACE FEATURES (charted anchors, longitude-projected) ────────
+    drawBackFeatures(op, theta, bob, TH);   // foramen on the far/back side
+    drawEyes(op, theta, bob, TH, pulse);
+    drawNose(op, theta, bob);
+    drawTeeth(op, theta, bob, LUT);
+    drawGem(op, st, theta, bob, TH, pulse);
+
+    // ── front aura particles (in front of the body) ─────────────────────
+    updateParticles(st, dt, theta, bob, opts);
+    drawParticles(op, st, true, theta, bob, TH, pulse);
+  }
+
+  // project a feature longitude → screen, returns null if on the far side
+  function project(phi, my, theta, depthScale) {
+    const cang = phi - theta;
+    const facing = Math.cos(cang);
+    if (facing <= 0.08) return null;
+    const hw = halfWidth(my);
+    return { x: CX + Math.sin(cang) * hw * (depthScale==null?0.92:depthScale), facing, hw };
+  }
+
+  function drawEyes(op, theta, bob, TH, pulse) {
+    for (const side of [-1, 1]) {
+      const p = project(side * FEAT.eyePhi, FEAT.eyeY, theta);
+      if (!p) continue;
+      const sx = p.x, sy = FEAT.eyeY + bob;
+      const rx = 3.4 * p.facing + 1.1, ry = 4.0;
+      for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
+        const nd = (dx/rx)**2 + (dy/ry)**2; if (nd > 1) continue;
+        // recessed socket: cool near-black, faintly lit lower rim
+        let c = [12, 8, 26];
+        if (dy > 2 && nd > 0.55) c = [40, 26, 60];
+        op.set(sx + dx, sy + dy, c);
+      }
+      // glowing pupil — magical light from within
+      const gi = 0.55 + 0.45*pulse;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const d = dx*dx + dy*dy; if (d > 4) continue;
+        const a = (1 - d/5) * gi;
+        op.add(sx + dx, sy + dy + 0.5, TH.eye[0]*a, TH.eye[1]*a, TH.eye[2]*a);
+      }
+      op.add(sx, sy, 230*gi, 230*gi, 235*gi);
+    }
+  }
+
+  function drawNose(op, theta, bob) {
+    const p = project(0, FEAT.noseY, theta, 0.9);
+    if (!p) return;
+    const sx = p.x, top = FEAT.noseY + bob, h = 6, halfMax = 3.0 * Math.max(0.5, p.facing);
+    for (let dy = 0; dy <= h; dy++) {
+      const t = dy / h;
+      const hw = halfMax * (0.25 + t * 0.95);
+      for (let dx = -Math.round(hw); dx <= Math.round(hw); dx++) {
+        if (dy >= h-1 && Math.abs(dx) > hw-1.2) continue;   // round the bottom corners
+        let c = [16, 10, 30];
+        if (dy <= 1) c = [30, 18, 50];
+        op.set(sx + dx, top + dy, c);
+      }
+    }
+    op.set(sx-1, top+h, [6,4,16]); op.set(sx+1, top+h, [6,4,16]);  // nostril shadows
+  }
+
+  function drawTeeth(op, theta, bob, LUT) {
+    const my = FEAT.mouthY;
+    // dark mouth band first
+    for (let i = 0; i < FEAT.teethN; i++) {
+      const phi = (i/(FEAT.teethN-1) - 0.5) * 2 * FEAT.teethSpread;
+      const p = project(phi, my, theta, 0.9); if (!p) continue;
+      for (let dy = -1; dy <= 4; dy++) op.set(p.x, my + bob + dy, [10, 6, 20]);
+    }
+    // rounded ivory teeth with gaps + a lower row
+    for (const row of [0, 1]) {
+      const ry = my + row * 3;
+      for (let i = 0; i < FEAT.teethN; i++) {
+        const phi = (i/(FEAT.teethN-1) - 0.5) * 2 * FEAT.teethSpread + (row?0.05:0);
+        const p = project(phi, ry, theta, 0.9); if (!p) continue;
+        const sx = Math.round(p.x), sy = ry + bob + row;
+        const tw = p.facing > 0.4 ? 1 : 0;
+        const top = LUT[Math.round(LUT.length*0.86)], bot = LUT[Math.round(LUT.length*0.62)];
+        for (let dx = -tw; dx <= tw; dx++) {
+          op.set(sx + dx, sy,     top);
+          op.set(sx + dx, sy + 1, bot);
+          if (row === 0) op.set(sx + dx, sy + 2, [120,150,170]);
+        }
+      }
+    }
+  }
+
+  function drawGem(op, st, theta, bob, TH, pulse) {
+    const p = project(0, FEAT.gemY, theta, 0.9);
+    if (!p) return;
+    const sx = p.x, sy = FEAT.gemY + bob;
+    const rx = 2.7 * Math.max(0.4, p.facing) + 0.6, ry = 3.2;
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+      const nd = (dx/rx)**2 + (dy/ry)**2; if (nd > 1) continue;
+      // faceted rounded gem: dark cool edge → bright neon core
+      let c;
+      if (nd > 0.72) c = [Math.round(TH.gem[0]*0.30), Math.round(TH.gem[1]*0.28), Math.round(TH.gem[2]*0.40)];
+      else if (dy + dx < -1) c = [255, 255, 255];                 // upper-left facet glint
+      else if (nd < 0.30) c = [Math.min(255,TH.gem[0]+40), Math.min(255,TH.gem[1]+40), Math.min(255,TH.gem[2]+40)];
+      else c = TH.gem;
+      op.set(sx + dx, sy + dy, c);
+    }
+    // cycling specular sparkle + outward glow
+    const gx = sx + Math.round(Math.cos(st.bobT*0.006)*1.4) - 1;
+    const gy = sy + Math.round(Math.sin(st.bobT*0.006)*1.2) - 1;
+    op.set(gx, gy, [255,255,255]);
+    const gi = 0.4 + 0.4*pulse;
+    for (let dy=-3; dy<=3; dy++) for (let dx=-3; dx<=3; dx++) {
+      const d=dx*dx+dy*dy; if(d>9) continue; const a=(1-d/10)*gi;
+      op.add(sx+dx, sy+dy, TH.gem[0]*a*0.5, TH.gem[1]*a*0.5, TH.gem[2]*a*0.5);
+    }
+  }
+
+  function drawBackFeatures(op, theta, bob, TH) {
+    // foramen magnum — only visible while the skull faces away
+    const cang = FEAT.foramenPhi - theta;
+    if (Math.cos(cang) <= 0.15) return;
+    const hw = halfWidth(FEAT.foramenY);
+    const sx = CX + Math.sin(cang) * hw * 0.9, sy = FEAT.foramenY + bob;
+    for (let dy=-3; dy<=3; dy++) for (let dx=-3; dx<=3; dx++) {
+      if ((dx/3)**2 + (dy/3.4)**2 > 1) continue;
+      op.set(sx+dx, sy+dy, [10,6,22]);
+    }
+  }
+
+  // ── 4. PARTICLE SYSTEM (dense aura clustered at the source) ──────────
+  function updateParticles(st, dt, theta, bob, opts) {
+    const sec = dt / 1000;
+    for (let i = st.parts.length - 1; i >= 0; i--) {
+      const p = st.parts[i];
+      p.life -= sec;
+      if (p.life <= 0) { st.parts.splice(i, 1); continue; }
+      p.vy += 6 * sec;                 // gentle buoyant drift handled via negative vy
+      p.x += p.vx * sec + Math.sin(p.t + st.bobT*0.003) * 0.12;
+      p.y += p.vy * sec;
+      p.t += sec;
+    }
+    if (opts.paused) return;
+    st.emit += dt * (opts.density === false ? 0.04 : 0.085);
+    while (st.emit > 1 && st.parts.length < 90) {
+      st.emit -= 1;
+      // cluster near the skull silhouette — dense aura, not scattered
+      const a = Math.random() * TAU;
+      const rr = 12 + Math.random() * 12;
+      const cx = CX + Math.cos(a) * rr * 0.95;
+      const cy = 30 + Math.sin(a) * rr;
+      st.parts.push({
+        x: cx, y: cy,
+        vx: (Math.random()-0.5) * 6,
+        vy: -(7 + Math.random()*12),
+        life: 0.7 + Math.random()*1.1, maxLife: 1.0,
+        t: Math.random()*6,
+        size: Math.random() < 0.3 ? 1 : 0,
+        front: Math.random() < 0.55,
+        hot: Math.random() < 0.4,
+      });
+    }
+  }
+  function drawParticles(op, st, front, theta, bob, TH, pulse) {
+    for (const p of st.parts) {
+      if (!!p.front !== front) continue;
+      const f = clamp(p.life / 1.1, 0, 1);
+      const tw = (0.6 + 0.4*Math.sin(p.t*9 + p.x)) * f;
+      const col = p.hot ? [255*tw, 240*tw, 255*tw] : [TH.core[0]*tw, TH.core[1]*tw, TH.core[2]*tw];
+      op.add(p.x, p.y + bob, col[0], col[1], col[2]);
+      if (p.size) {
+        op.add(p.x+1, p.y+bob, col[0]*0.5, col[1]*0.5, col[2]*0.5);
+        op.add(p.x, p.y+bob-1, col[0]*0.5, col[1]*0.5, col[2]*0.5);
+      }
+    }
+  }
+
+  return { W, H, create, render, themes: Object.keys(THEME) };
+})();
+</script>
+
+<!-- ════════════════════════════════════════════════════════════════
+     REACT ARTIFACT LAYER
+════════════════════════════════════════════════════════════════════ -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const { useRef, useEffect, useState } = React;
+const E = window.CrystalSkullEngine;
+
+function CrystalSkull() {
+  const canvasRef = useRef(null);
+  const optsRef = useRef({ speed: 1, dir: 1, theme: 'amethyst', paused: false });
+  const [ui, setUi] = useState({ speed: 1, dir: 1, theme: 'amethyst', paused: false });
+
+  // keep the mutable opts the render loop reads in sync with UI state
+  useEffect(() => { optsRef.current = { ...ui }; }, [ui]);
+
+  useEffect(() => {
+    const cv = canvasRef.current;
+    cv.width = E.W; cv.height = E.H;
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = false;          // CRITICAL — crisp 16-bit pixels
+    const img = ctx.createImageData(E.W, E.H);
+    const st = E.create();
+    let raf;
+    const loop = (t) => {
+      E.render(img.data, st, t, optsRef.current);
+      ctx.putImageData(img, 0, 0);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const themes = E.themes;
+  const swatches = { amethyst: ['#3a1d6e','#ff6ed2','#9af0ff'],
+                     glacier:  ['#1c4e8c','#46c4e8','#f7ffff'],
+                     venom:    ['#186048','#6edc6e','#eaffaa'] };
+
+  return (
+    <div className="wrap">
+      <h1>CRYSTAL SKULL</h1>
+      <p className="sub">A floating, slowly rotating faceted crystal skull — solid-of-revolution body
+        charted from a strict half-width profile, dithered crystal facets, glowing eyes &amp; third-eye gem,
+        and a dense rising spark aura. 64×64 native, pixel-perfect.</p>
+      <div className="palette-strip">
+        {swatches[ui.theme].map((c,i) => <div key={i} className="swatch" style={{background:c}} />)}
+      </div>
+      <canvas ref={canvasRef} />
+      <div className="row">
+        <button data-on={ui.paused} onClick={() => setUi(s => ({...s, paused: !s.paused}))}>
+          {ui.paused ? 'Play' : 'Pause'}
+        </button>
+        <button data-on={ui.speed !== 1} onClick={() => setUi(s => ({...s, speed: s.speed === 1 ? 0.4 : s.speed === 0.4 ? 2 : 1}))}>
+          Speed ×{ui.speed}
+        </button>
+        <button data-on={ui.dir === -1} onClick={() => setUi(s => ({...s, dir: -s.dir}))}>
+          Reverse
+        </button>
+        {themes.map(th => (
+          <button key={th} data-on={ui.theme === th} onClick={() => setUi(s => ({...s, theme: th}))}>
+            {th[0].toUpperCase() + th.slice(1)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<CrystalSkull />);
+</script>
+</body>
+</html>
