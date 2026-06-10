@@ -35108,7 +35108,23 @@ const DLX_BUILD = 'v451W-LOMAX';
     pxFlameUpdate();
     ctx.save();
     ctx.imageSmoothingEnabled = false;
-    pxRoadkillFlame(ctx, pxFlameLevel, frame);
+    // LOMAX nozzle offset — translates the flame source from the
+    // Roadkill nozzle (rig-local -23, 6) to the Lomax engine port
+    // (sprite-local ~22, 40 → game-local -7, 14). Bronze/copper pixels
+    // in the sprite identify the engine pod at the bottom-center.
+    // Tune by feel if it lands off:
+    //   ↑ negative DY = up        ↓ positive DY = down
+    //   ← negative DX = left      → positive DX = right
+    const LOMAX_NOZZLE_DX = 16;
+    const LOMAX_NOZZLE_DY = 8;
+    if (lomaxFrames) {
+      ctx.save();
+      ctx.translate(LOMAX_NOZZLE_DX, LOMAX_NOZZLE_DY);
+      pxRoadkillFlame(ctx, pxFlameLevel, frame);
+      ctx.restore();
+    } else {
+      pxRoadkillFlame(ctx, pxFlameLevel, frame);
+    }
     // After a crash (STATE_OVER) draw the B-alt smashed front: grille
     // caved on the left half, right half disintegrated with embers +
     // exposed wires + scorch streaks.
@@ -35120,20 +35136,14 @@ const DLX_BUILD = 'v451W-LOMAX';
     // LOMAX SPRITE SWAP (only in dlx-garbage-hauler-pixel-lomax.html):
     // The procedural pxRoadkillRig is replaced by a blit of the active
     // Lomax frame from the loaded throttle.json. The sprite is centered
-    // at (0, 0) in rig-local coords — same anchor pxRoadkillFlame uses
-    // — so the flame's hardcoded nozzle position (-23, 6) lands at the
-    // correct pixel on the Lomax sprite's underside. Frame index is
-    // (frame / 10) % count so the 600ms loop plays at game speed.
+    // at (0, 0) in rig-local coords so the canvas center aligns with
+    // the bird origin; the flame anchor above has its own offset.
     //
     // Falls back to pxRoadkillRig if the JSON hasn't loaded yet, so the
     // first ~50ms of play before fetch resolves still renders SOMETHING
     // recognizable instead of a missing rig.
     if (lomaxFrames) {
       const fIdx = Math.floor(frame / 10) % lomaxFrameCount;
-      // Center the 58×52 sprite at (0,0) — matches the nozzle anchor in
-      // pxRoadkillFlame so the flame attaches to the back-left of the
-      // sprite. The whole rig tilts with the bird.vy tilt applied by
-      // drawBird's surrounding ctx.rotate(tilt).
       ctx.drawImage(lomaxFrames[fIdx], -(lomaxW >> 1), -(lomaxH >> 1));
     } else {
       pxRoadkillRig(ctx, -31, -38, frame, smashed, victory);
