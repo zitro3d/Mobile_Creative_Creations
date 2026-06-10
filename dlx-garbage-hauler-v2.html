@@ -2377,7 +2377,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v431';
+const DLX_BUILD = 'v432';
 
 (function() {
   // ---------- Device detection ----------
@@ -2404,6 +2404,46 @@ const DLX_BUILD = 'v431';
   // Wind shear gate: ?wind=1 enables the wind_shear hazard rotation for
   // dev preview. Future campaign Highwall (L22) will set this on per-level.
   const windShearEnabled = /(?:^|[?&])wind=1(?:&|$)/.test(window.location.search);
+
+  // v432 — Lomax rig swap: ?rig=lomax loads the artist's 6-frame throttle
+  // sprite (exported as Wondrous Grid v2 JSON) and uses it in place of the
+  // procedural Roadkill drawHaulerFront/drawHaulerBack render. Engine flame
+  // (drawDirtyFlame), cargo chain (drawCargoBond), cargo crate, shield
+  // bubble, ghost aura, stun arcs, magnet ring, force-field, and burst halo
+  // all keep running on top because they're keyed to bird.x / bird.y.
+  // The JSON loads asynchronously; until it resolves, the procedural rig
+  // draws. After resolution, every subsequent frame blits the sprite.
+  const useLomaxRig = /(?:^|[?&])rig=lomax(?:&|$)/.test(window.location.search);
+  let lomaxFrames = null;            // array of <canvas> elements once loaded
+  let lomaxW = 58, lomaxH = 52, lomaxFrameCount = 6;
+  if (useLomaxRig) {
+    fetch('art/vehicles/hero/lomax/throttle.json')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        lomaxW = data.width;
+        lomaxH = data.height;
+        lomaxFrameCount = data.frames.length;
+        lomaxFrames = data.frames.map(function(f) {
+          const cvs = document.createElement('canvas');
+          cvs.width = lomaxW; cvs.height = lomaxH;
+          const c = cvs.getContext('2d');
+          for (const layer of f.layerPixels) {
+            for (const k in layer) {
+              const parts = k.split(',');
+              c.fillStyle = layer[k];
+              c.fillRect(+parts[0], +parts[1], 1, 1);
+            }
+          }
+          return cvs;
+        });
+        console.log('Lomax rig sprite loaded:', lomaxFrameCount,
+                    'frames @', lomaxW + 'x' + lomaxH);
+      })
+      .catch(function(err) {
+        console.error('Lomax rig sprite load failed:', err);
+      });
+  }
+
   if (!IS_DEV_MODE) {
     // Remove the theme picker from the DOM entirely in public mode so it
     // can never be reached, and wipe any dev-mode leftover so the next
@@ -27581,18 +27621,38 @@ const DLX_BUILD = 'v431';
       tiltDisplay = tilt;                            // keep in sync for clean transitions
     }
 
-    // Front of the ship uses the base tilt
-    ctx.save();
-    ctx.rotate(tilt);
-    drawHaulerFront();
-    ctx.restore();
+    // v432 — When Lomax sprite is loaded (?rig=lomax), blit the artist's
+    // single 58×52 sprite frame in place of the procedural front+back.
+    // Engine flame still draws inside the back's extra-tilt rotation so
+    // the thrust burst keeps its mechanical hinge feel.
+    if (lomaxFrames) {
+      ctx.save();
+      ctx.rotate(tilt);
+      // 6 frames × 100ms each = 600ms loop. At 60fps that's 10 game frames
+      // per artist frame: floor(frame / 10) % frameCount.
+      const fIdx = Math.floor(frame / 10) % lomaxFrameCount;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(lomaxFrames[fIdx], -lomaxW / 2, -lomaxH / 2);
+      ctx.restore();
+      ctx.save();
+      ctx.rotate(tilt * 1.45);
+      if (thrusterFrames > 0) drawDirtyFlame();
+      ctx.restore();
+    } else {
+      // Procedural Roadkill rig (default).
+      // Front of the ship uses the base tilt
+      ctx.save();
+      ctx.rotate(tilt);
+      drawHaulerFront();
+      ctx.restore();
 
-    // Back / engine pivots slightly further — mechanical hinge
-    ctx.save();
-    ctx.rotate(tilt * 1.45);
-    drawHaulerBack();
-    if (thrusterFrames > 0) drawDirtyFlame();
-    ctx.restore();
+      // Back / engine pivots slightly further — mechanical hinge
+      ctx.save();
+      ctx.rotate(tilt * 1.45);
+      drawHaulerBack();
+      if (thrusterFrames > 0) drawDirtyFlame();
+      ctx.restore();
+    }
 
     // Bio-shielded retrofit overlay — only on organic-theme levels.
     // Draws a tarp over the cab + breather tube hooked into the side +
