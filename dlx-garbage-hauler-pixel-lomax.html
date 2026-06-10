@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451W-LOMAX-h4';
+const DLX_BUILD = 'v451W-LOMAX-h5';
 
 (function() {
   // ---------- Device detection ----------
@@ -35210,10 +35210,18 @@ const DLX_BUILD = 'v451W-LOMAX-h4';
     // the platform sprite. Tune by feel against the dispatch idle pose.
     const LOMAX_NOZZLE_DX = 16;
     const LOMAX_NOZZLE_DY = 8;
-    const LOMAX_RAISE_Y   = 8;       // pixels to lift the whole rig
+    const LOMAX_SCALE     = 1.15;    // size multiplier — ~9 px wider total
+    // LOMAX_RAISE_Y is in PRE-SCALE coords. To keep the visual bottom
+    // at the same platform Y as scale=1 / raise=8:
+    //   (26 - raise) * scale = 18   →   raise = 26 - 18/scale
+    //   for scale 1.15: raise ≈ 10
+    const LOMAX_RAISE_Y   = 10;
     const FLAME_DEBUG = /(?:^|[?&])fdebug=1(?:&|$)/.test(window.location.search);
     if (lomaxFrames) {
       ctx.save();
+      // Scale flame WITH the rig so they grow together; anchor stays
+      // attached at sprite-local (22, 40) in both coord systems.
+      ctx.scale(LOMAX_SCALE, LOMAX_SCALE);
       ctx.translate(LOMAX_NOZZLE_DX, LOMAX_NOZZLE_DY - LOMAX_RAISE_Y);
       pxRoadkillFlame(ctx, pxFlameLevel, frame);
       if (FLAME_DEBUG) {
@@ -35246,10 +35254,14 @@ const DLX_BUILD = 'v451W-LOMAX-h4';
     // recognizable instead of a missing rig.
     if (lomaxFrames) {
       const fIdx = Math.floor(frame / 10) % lomaxFrameCount;
-      // LOMAX_RAISE_Y shifts the sprite up by N px — keeps the engine pod
-      // above the dispatch platform on idle. Flame anchor above already
-      // applies the same offset so the trail stays attached.
+      // LOMAX_SCALE makes the rig ~15% bigger; LOMAX_RAISE_Y compensates
+      // so the engine pod still sits on the dispatch platform. Flame
+      // anchor above applies the same scale + raise so the trail stays
+      // attached at sprite-local (22, 40) regardless of scale.
+      ctx.save();
+      ctx.scale(LOMAX_SCALE, LOMAX_SCALE);
       ctx.drawImage(lomaxFrames[fIdx], -(lomaxW >> 1), -(lomaxH >> 1) - LOMAX_RAISE_Y);
+      ctx.restore();
     } else {
       pxRoadkillRig(ctx, -31, -38, frame, smashed, victory);
     }
