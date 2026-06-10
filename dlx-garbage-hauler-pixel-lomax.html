@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451W-LOMAX-h17';
+const DLX_BUILD = 'v451W-LOMAX-h18';
 
 (function() {
   // ---------- Device detection ----------
@@ -4330,6 +4330,7 @@ const DLX_BUILD = 'v451W-LOMAX-h17';
   //     snaps. Used by drawBird in organic-theme levels.
   let kickbackFrames = 0;
   let tiltDisplay = 0;
+  let lomaxRigTilt = 0;   // rendered rig tilt, exported by drawBird for chain pinning
   // Pro-tier hazard interaction (v330):
   //   tentacleFlashCooldown: gate the score-triggered bioluminescent
   //     flash so it can't fire every frame in the distance-based daily.
@@ -24843,13 +24844,18 @@ const DLX_BUILD = 'v451W-LOMAX-h17';
     //   round to (bird.x - 29, bird.y + 2)
     let x1, y1;
     if (lomaxFrames) {
-      // User clarified: "It's behind the car" — not the engine.
-      // Anchor at the very back edge of the scaled sprite (sprite-local
-      // x ≈ 0, which maps to visible -33 after LOMAX_SCALE 1.15) at a
-      // mid-upper Y so it hooks onto the back panel rather than at the
-      // bottom or the engine area.
-      x1 = bird.x - 33;
-      y1 = bird.y - 3;
+      // PINNED anchor — offset from rig center, ROTATED by the rig's
+      // rendered tilt so the chain stays glued to the same sprite pixel
+      // as the rig pitches up/down (was a fixed offset before, which
+      // visibly drifted off the bumper in flight).
+      //
+      // Offset = candidate B from the labeled audit sheet: mid back
+      // edge, sprite-local (2, 26) → visible (-31, -11.5). "Brought up
+      // a lot more" per user feedback.
+      const ox = -31, oy = -11.5;
+      const ct = Math.cos(lomaxRigTilt), st = Math.sin(lomaxRigTilt);
+      x1 = bird.x + ox * ct - oy * st;
+      y1 = bird.y + ox * st + oy * ct;
     } else {
       x1 = bird.x - 25;
       y1 = bird.y + 4;
@@ -35155,6 +35161,9 @@ const DLX_BUILD = 'v451W-LOMAX-h17';
     } else {
       tiltDisplay = tilt;                            // keep in sync for clean transitions
     }
+    // Export the rendered tilt so drawCargoBond can pin the chain
+    // anchor to the rotated sprite (LOMAX) instead of a fixed offset.
+    lomaxRigTilt = tilt;
 
     // Front of the ship uses the base tilt
     ctx.save();
