@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451W-LOMAX-h6';
+const DLX_BUILD = 'v451W-LOMAX-h7';
 
 (function() {
   // ---------- Device detection ----------
@@ -34628,16 +34628,26 @@ const DLX_BUILD = 'v451W-LOMAX-h6';
     for (let t = 0; t < 1; t += 0.04) {
       ctx.fillRect((x1 + (x2 - x1) * t) | 0, (y1 + (y2 - y1) * t) | 0, 1, 1);
     }
-    // Pulsing beads
+    // Pulsing beads — Lomax variant: ALL beads draw at the larger 5×5
+    // glow size, not just the ones currently at peak pulse. The pulse
+    // wave still rolls down the chain via the chainCore intensity
+    // (alpha) so it reads as a flowing energy current, but every bead
+    // shows a visible halo at all times instead of pulsing between
+    // halo-and-no-halo.
     for (let i = 0; i <= linkCount; i++) {
       const bx = (x1 + dx * i) | 0;
       const by = (y1 + dy * i) | 0;
       const pulse = (Math.sin(frame * 0.16 + i * 0.75) + 1) * 0.5;
-      const s = pulse > 0.6 ? 2 : 1;
+      // Halo size locked at 2 (= 5×5 rect) so every bead glows.
+      const s = 2;
       ctx.fillStyle = C.chainGlow;
       ctx.fillRect(bx - s, by - s, s * 2 + 1, s * 2 + 1);
+      // Core stays a single bright pixel; pulse modulates its alpha so
+      // the energy ripple still reads down the chain.
+      ctx.globalAlpha = 0.55 + pulse * 0.45;
       ctx.fillStyle = C.chainCore;
       ctx.fillRect(bx, by, 1, 1);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -35222,6 +35232,16 @@ const DLX_BUILD = 'v451W-LOMAX-h6';
     // hot / core widths + trail length + source flare size) scales
     // down proportionally. 0.90 trims the visible flame ~3 px at max.
     const LOMAX_FLAME_SCALE = 0.90;
+    // LOMAX_FLAME_CURVE: exponent applied to `level` BEFORE the flame
+    // draws. >1 makes low-and-mid throttle disproportionately narrower
+    // while peak (level=1.0) stays exactly the same width. Fixes the
+    // "flame at non-peak speeds is too wide and goes over the engine"
+    // feel without changing the punchy thrust at full tap.
+    //   pow(1.0, 1.3) = 1.0   ← peak unchanged
+    //   pow(0.7, 1.3) = 0.615 ← was 0.7 (12% narrower)
+    //   pow(0.5, 1.3) = 0.387 ← was 0.5 (23% narrower)
+    //   pow(0.3, 1.3) = 0.212 ← was 0.3 (30% narrower)
+    const LOMAX_FLAME_CURVE = 1.3;
     const FLAME_DEBUG = /(?:^|[?&])fdebug=1(?:&|$)/.test(window.location.search);
     if (lomaxFrames) {
       ctx.save();
@@ -35229,7 +35249,7 @@ const DLX_BUILD = 'v451W-LOMAX-h6';
       // attached at sprite-local (22, 40) in both coord systems.
       ctx.scale(LOMAX_SCALE, LOMAX_SCALE);
       ctx.translate(LOMAX_NOZZLE_DX, LOMAX_NOZZLE_DY - LOMAX_RAISE_Y);
-      pxRoadkillFlame(ctx, pxFlameLevel * LOMAX_FLAME_SCALE, frame);
+      pxRoadkillFlame(ctx, Math.pow(pxFlameLevel, LOMAX_FLAME_CURVE) * LOMAX_FLAME_SCALE, frame);
       if (FLAME_DEBUG) {
         // Magenta 3×3 at the flame anchor (rig-local -23, 6 translated).
         // Wherever this sits is where the horizontal flame's RIGHTMOST
