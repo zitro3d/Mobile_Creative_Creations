@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451W-LOMAX';
+const DLX_BUILD = 'v451W-LOMAX-jet';
 
 (function() {
   // ---------- Device detection ----------
@@ -34729,6 +34729,88 @@ const DLX_BUILD = 'v451W-LOMAX';
     }
   }
 
+  // LOMAX vertical jet — pxRoadkillFlame above draws a horizontal exhaust
+  // trail (correct for Roadkill's rear-mounted engine). Lomax has a
+  // jet-engine pod hanging BELOW the rig body, so the flame fires
+  // DOWNWARD instead. Same per-frame flicker + 4-band tapered cone +
+  // sparks structure, just axis-swapped. Anchored at the engine port
+  // (top of the jet column, where it meets the engine pod's underside),
+  // so the flame appears to PUSH OUT of the engine.
+  function pxLomaxJetFlame(ctx, level, frame) {
+    if (level < 0.04) return;
+    ctx.imageSmoothingEnabled = false;
+    const C = PXC;
+    // Anchor handled by ctx.translate at the call site so (0, 0) is
+    // the engine port — top of the jet plume.
+    const flick  = Math.floor(Math.sin(frame * 0.45) * 2 * level);
+    const flick2 = Math.floor(Math.cos(frame * 0.32) * 1.5 * level);
+
+    // Length of the jet plume (extends DOWNWARD). Same 50px peak at
+    // full throttle as pxRoadkillFlame so the visual mass matches.
+    const rows = Math.max(2, Math.floor(50 * level));
+    // Width at the engine port (widest) — tapers to a point at the tip.
+    const peakOuter = Math.max(2, Math.floor(14 * level));
+    const peakMid   = Math.max(2, Math.floor(10 * level));
+    const peakHot   = Math.max(2, Math.floor(7  * level));
+    const peakCore  = Math.max(1, Math.floor(4  * level));
+
+    // Outer band — deepest hue. Tapers as we go down + side-wobble.
+    ctx.fillStyle = C.flameDeep;
+    for (let i = 0; i < rows; i++) {
+      const w = Math.max(1, peakOuter - Math.floor(i * 0.5) + flick);
+      ctx.fillRect(-(w >> 1) + flick2, i, w, 1);
+    }
+    // Mid band — narrower, brighter.
+    ctx.fillStyle = C.flameMid;
+    const midRows = Math.floor(rows * 0.78);
+    for (let i = 0; i < midRows; i++) {
+      const w = Math.max(1, peakMid - Math.floor(i * 0.5) + (flick >> 1));
+      ctx.fillRect(-(w >> 1), i, w, 1);
+    }
+    // Hot band — narrower still.
+    ctx.fillStyle = C.flameHot;
+    const hotRows = Math.floor(rows * 0.56);
+    for (let i = 0; i < hotRows; i++) {
+      const w = Math.max(1, peakHot - Math.floor(i * 0.5));
+      ctx.fillRect(-(w >> 1), i, w, 1);
+    }
+    // Core band — narrowest, hottest pixel-strip.
+    ctx.fillStyle = C.flameCore;
+    const coreRows = Math.floor(rows * 0.34);
+    for (let i = 0; i < coreRows; i++) {
+      const w = Math.max(1, peakCore - Math.floor(i * 0.4));
+      ctx.fillRect(-(w >> 1), i, w, 1);
+    }
+    // Source flare at the engine port — small wide blob right at the
+    // nozzle so the jet visibly EXITS the engine, not floats below it.
+    const flareW = Math.max(1, Math.floor(9 * level));
+    const flareH = Math.max(1, Math.floor(6 * level));
+    ctx.fillRect(-(flareW >> 1), -1, flareW, flareH);
+
+    // Sparks trailing out the jet — same 12-mote phase-cycled swirl as
+    // pxRoadkillFlame, but motes scatter SIDEWAYS + DOWNWARD instead
+    // of sideways + leftward.
+    if (level > 0.20) {
+      const sparkCount = 12;
+      const phaseShift = (frame >> 2);
+      for (let i = 0; i < sparkCount; i++) {
+        const a = frame * 0.07 + i * 1.4;
+        const d = 7 + Math.sin(frame * 0.28 + i) * 4;
+        const sx = (Math.floor(Math.cos(a) * 8))                       | 0;
+        const sy = (14 + Math.floor(Math.abs(Math.sin(a)) * d * level)) | 0;
+        const phase = (i + phaseShift) & 3;
+        let color, sz;
+        if      (phase === 0) { color = '#ffffff';  sz = 2; }
+        else if (phase === 1) { color = '#dceeff';  sz = 2; }
+        else if (phase === 2) { color = '#bcecff';  sz = 2; }
+        else                  { color = '#7eddeb';  sz = 1; }
+        if (level > 0.7 && (i & 1)) sz += 1;
+        ctx.fillStyle = color;
+        ctx.fillRect(sx, sy, sz, sz);
+      }
+    }
+  }
+
 
   function pxRoadkillRig(ctx, ox, oy, frame, smashed, victory) {
       ctx.imageSmoothingEnabled = false;
@@ -35108,29 +35190,27 @@ const DLX_BUILD = 'v451W-LOMAX';
     pxFlameUpdate();
     ctx.save();
     ctx.imageSmoothingEnabled = false;
-    // LOMAX nozzle offset — translates the flame source from the
-    // Roadkill nozzle (rig-local -23, 6) to the Lomax engine port.
-    // Previous attempt (DX=16, DY=8) still left a gap visible between
-    // the flame source and the engine — pushing the source further
-    // right + slightly up so it lands ON the engine pod's back edge.
-    // Add ?fdebug=1 to the URL to overlay a magenta marker at the flame
-    // anchor for precise tuning ("nudge it N px right/up/down/left").
+    // LOMAX engine port — the jet pod hangs below the rig body. Engine
+    // port pixel sits at sprite-local (25, 45) → game-local (-4, 19)
+    // for the centered 58×52 sprite. pxLomaxJetFlame draws a DOWNWARD
+    // plume from this anchor (vs. pxRoadkillFlame's horizontal trail).
+    // Add ?fdebug=1 to overlay a magenta marker at the anchor for
+    // pixel-precise tuning.
     //   ↑ negative DY = up        ↓ positive DY = down
     //   ← negative DX = left      → positive DX = right
-    const LOMAX_NOZZLE_DX = 24;
-    const LOMAX_NOZZLE_DY = 4;
+    const LOMAX_ENGINE_X = -4;
+    const LOMAX_ENGINE_Y = 19;
     const FLAME_DEBUG = /(?:^|[?&])fdebug=1(?:&|$)/.test(window.location.search);
     if (lomaxFrames) {
       ctx.save();
-      ctx.translate(LOMAX_NOZZLE_DX, LOMAX_NOZZLE_DY);
-      pxRoadkillFlame(ctx, pxFlameLevel, frame);
+      ctx.translate(LOMAX_ENGINE_X, LOMAX_ENGINE_Y);
+      pxLomaxJetFlame(ctx, pxFlameLevel, frame);
       if (FLAME_DEBUG) {
-        // Magenta 3×3 square marks the flame source anchor (rig-local
-        // -23, 6 → translated). Use this to position the flame on the
-        // exact engine pixel you want, then nudge LOMAX_NOZZLE_DX/DY
-        // accordingly.
+        // Magenta 3×3 square marks the engine port anchor — wherever it
+        // sits is where the jet's source flare draws. Nudge
+        // LOMAX_ENGINE_X / Y until the marker covers the engine port.
         ctx.fillStyle = '#ff00ff';
-        ctx.fillRect(-23 - 1, 6 - 1, 3, 3);
+        ctx.fillRect(-1, -1, 3, 3);
       }
       ctx.restore();
     } else {
