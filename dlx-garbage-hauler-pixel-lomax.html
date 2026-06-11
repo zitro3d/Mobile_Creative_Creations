@@ -2384,7 +2384,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v451W-LOMAX-h20';
+const DLX_BUILD = 'v451W-LOMAX-h21-perf';
 
 (function() {
   // ---------- Device detection ----------
@@ -30414,19 +30414,22 @@ const DLX_BUILD = 'v451W-LOMAX-h20';
     const cgx = cargo.x;
     const cgy = cargo.y;
     const wobble = 0.5 + 0.5 * Math.sin(frame * 0.20);
+    // Pull shadowBlur + fillStyle OUT of the per-particle loop. Setting
+    // shadowBlur every iteration triggers a GPU blur reconfigure per
+    // particle — was costing 1-2ms/frame on mobile with 3 coats active.
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = 'rgba(140, 255, 180, 0.95)';
+    ctx.fillStyle = 'rgba(160, 255, 200, ' + (0.85 + wobble * 0.15) + ')';
     for (let s = 0; s < count; s++) {
       const ang = s * 0.79 + frame * 0.012;
       const r = 9 + Math.sin(s * 1.3 + frame * 0.04) * 2;
       const sx = cgx + Math.cos(ang) * r;
       const sy = cgy + Math.sin(ang) * r * 0.8;
-      ctx.shadowBlur = 4;
-      ctx.shadowColor = 'rgba(140, 255, 180, 0.95)';
-      ctx.fillStyle = 'rgba(160, 255, 200, ' + (0.85 + wobble * 0.15) + ')';
       ctx.beginPath();
       ctx.arc(sx, sy, 1.4, 0, Math.PI * 2);
       ctx.fill();
-      ctx.shadowBlur = 0;
     }
+    ctx.shadowBlur = 0;
   }
 
   // (Crystalline Spore Node renderer removed in v364 — replaced by
@@ -36122,6 +36125,26 @@ const DLX_BUILD = 'v451W-LOMAX-h20';
     if (tone === 'lime')   return '170, 255, 130';
     return '210, 130, 255';                          // violet (default)
   }
+  // Pre-rendered radial halo per tone — drawImage replaces a per-bat
+  // createRadialGradient + 3 addColorStop calls (was ~0.3-0.5ms/frame).
+  const _glowBatHaloCache = {};
+  function _glowBatHaloCanvas(tone) {
+    const cached = _glowBatHaloCache[tone];
+    if (cached) return cached;
+    const rgb = _glowBatToneRGB(tone);
+    const cvs = document.createElement('canvas');
+    const D = 36;            // 18px radius * 2
+    cvs.width = D; cvs.height = D;
+    const c = cvs.getContext('2d');
+    const g = c.createRadialGradient(D / 2, D / 2, 0, D / 2, D / 2, D / 2);
+    g.addColorStop(0,    'rgba(' + rgb + ', 0.45)');
+    g.addColorStop(0.6,  'rgba(' + rgb + ', 0.16)');
+    g.addColorStop(1,    'rgba(' + rgb + ', 0)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, D, D);
+    _glowBatHaloCache[tone] = cvs;
+    return cvs;
+  }
   // Single-pass additive bat — the silhouette IS the glow. Wing
   // membrane + body + ears are all painted with additive blending
   // after the flashlight mask, so the bat shape itself reads as
@@ -36139,15 +36162,9 @@ const DLX_BUILD = 'v451W-LOMAX-h20';
       const wingSpan = 16 + flap * 12;                     // 16..28 px (was 9..17)
       const wingDrop = 6 - flap * 7;                       // 6..-1
       // Soft halo backdrop — big and faint so the bat shape reads
-      // as glowing rather than just a dot.
-      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 18);
-      halo.addColorStop(0,    'rgba(' + rgb + ', 0.45)');
-      halo.addColorStop(0.6,  'rgba(' + rgb + ', 0.16)');
-      halo.addColorStop(1,    'rgba(' + rgb + ', 0)');
-      ctx.fillStyle = halo;
-      ctx.beginPath();
-      ctx.arc(0, 0, 18, 0, Math.PI * 2);
-      ctx.fill();
+      // as glowing rather than just a dot. Blit a pre-rendered halo
+      // canvas instead of building a gradient per bat per frame.
+      ctx.drawImage(_glowBatHaloCanvas(bt.glowTone), -18, -18);
       // WING MEMBRANES — bat-style sweep, BIG and clearly winged.
       // Drawn before the body so the body sits on top of the wings.
       ctx.fillStyle = 'rgba(' + rgb + ', 0.78)';
@@ -37023,6 +37040,24 @@ const DLX_BUILD = 'v451W-LOMAX-h20';
     ctx.stroke();
     ctx.lineCap = 'butt';
   }
+  // Pre-rendered gold radial halo for the PRIORITY crate so the
+  // rendering loop just does drawImage + globalAlpha pulse.
+  let _waterfallCrateHaloCanvas = null;
+  function _waterfallCrateHalo() {
+    if (_waterfallCrateHaloCanvas) return _waterfallCrateHaloCanvas;
+    const D = 52;
+    const cvs = document.createElement('canvas');
+    cvs.width = D; cvs.height = D;
+    const c = cvs.getContext('2d');
+    const g = c.createRadialGradient(D / 2, D / 2, 0, D / 2, D / 2, D / 2);
+    g.addColorStop(0,   'rgba(255, 220, 80, 0.65)');
+    g.addColorStop(0.5, 'rgba(255, 180, 100, 0.30)');
+    g.addColorStop(1,   'rgba(255, 220, 80, 0)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, D, D);
+    _waterfallCrateHaloCanvas = cvs;
+    return cvs;
+  }
   // ---------- Waterfalls + PRIORITY crates (Glow Chamber) ---------
   // Vertical streaming water column from cave ceiling to cave floor.
   // Behind each waterfall sits a gold-trim PRIORITY crate the player
@@ -37043,19 +37078,13 @@ const DLX_BUILD = 'v451W-LOMAX-h20';
       if (!wf.collected) {
         ctx.save();
         ctx.translate(sx, wf.crateY);
-        // Gold rainbow halo (additive)
+        // Gold rainbow halo (additive) — pre-rendered canvas blitted
+        // with a globalAlpha pulse so we avoid per-frame gradient
+        // construction (was ~0.4-0.6ms with 2-3 waterfalls onscreen).
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        const t = frame * 0.10;
-        const pulse = 0.85 + Math.sin(t) * 0.15;
-        const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 26);
-        halo.addColorStop(0,   'rgba(255, 220, 80, ' + (0.65 * pulse) + ')');
-        halo.addColorStop(0.5, 'rgba(255, 180, 100, ' + (0.30 * pulse) + ')');
-        halo.addColorStop(1,   'rgba(255, 220, 80, 0)');
-        ctx.fillStyle = halo;
-        ctx.beginPath();
-        ctx.arc(0, 0, 26, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.globalAlpha = 0.85 + Math.sin(frame * 0.10) * 0.15;
+        ctx.drawImage(_waterfallCrateHalo(), -26, -26);
         ctx.restore();
         // Crate body — gold chrome
         const cw = 26, ch = 22;
@@ -37277,18 +37306,31 @@ const DLX_BUILD = 'v451W-LOMAX-h20';
     ctx.drawImage(_flashMask, 0, 0);
 
     // Step 4 — warm headlight halo at the lamp source so the player
-    // can see where the beam is anchored on the rig.
+    // can see where the beam is anchored on the rig. Pre-rendered
+    // canvas blitted with flicker as globalAlpha — no per-frame
+    // gradient construction.
     ctx.save();
-    const halo = ctx.createRadialGradient(lightX, lightY, 0,
-                                          lightX, lightY, 18);
-    halo.addColorStop(0,   'rgba(255, 240, 200, ' + (0.55 * flicker) + ')');
-    halo.addColorStop(0.6, 'rgba(255, 220, 160, ' + (0.18 * flicker) + ')');
-    halo.addColorStop(1,   'rgba(255, 200, 120, 0)');
-    ctx.fillStyle = halo;
-    ctx.beginPath();
-    ctx.arc(lightX, lightY, 18, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.globalAlpha = flicker;
+    ctx.drawImage(_flashHeadlightHalo(), Math.round(lightX) - 18, Math.round(lightY) - 18);
     ctx.restore();
+  }
+  // Cached warm-tungsten halo used as the headlight source overlay
+  // on top of the flashlight cone mask. Built once on first use.
+  let _flashHeadlightHaloCanvas = null;
+  function _flashHeadlightHalo() {
+    if (_flashHeadlightHaloCanvas) return _flashHeadlightHaloCanvas;
+    const D = 36;
+    const cvs = document.createElement('canvas');
+    cvs.width = D; cvs.height = D;
+    const c = cvs.getContext('2d');
+    const g = c.createRadialGradient(D / 2, D / 2, 0, D / 2, D / 2, D / 2);
+    g.addColorStop(0,   'rgba(255, 240, 200, 0.55)');
+    g.addColorStop(0.6, 'rgba(255, 220, 160, 0.18)');
+    g.addColorStop(1,   'rgba(255, 200, 120, 0)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, D, D);
+    _flashHeadlightHaloCanvas = cvs;
+    return cvs;
   }
   function drawModifierHud() {
     if (state !== STATE_PLAY) return;
