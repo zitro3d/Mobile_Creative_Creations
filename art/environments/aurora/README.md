@@ -47,12 +47,34 @@ want them in the .gpl):
 - Shapes: small circle, streak, diamond, asteroid chunk
 - Movement: pure left scroll at fractional speed of PIPE_SPEED_BASE
 
+## Obstacles (pillars)
+Aurora-unique obstacle types — no more reusing sunset's cargo/junk
+crates. Both render entirely in code today; sprite hand-off later.
+
+- `engineorb` — tapered cosmic pylon with a brass-lit central seam,
+  rivet pips, and a glowing brass orb cap at the gap-facing tip
+  (radial gold halo). Echoes the horizon engine monoliths.
+- `monolithchunk` — jagged fractured monolith piece with a
+  brass-lit broken edge along the fracture, embedded star
+  pinpricks, and a half-broken brass ring fragment on taller
+  chunks.
+
+## Pickups (loose loot)
+Aurora-unique `debrisSet`. All render in code today.
+
+- `brass_shard` — pointed brass triangle, bright facet + pip
+- `gear_ring` — 6-notched brass gear with hollow violet centre
+- `plasma_shard` — vertical magenta-cyan plasma fragment on a dark
+  spine, soft halo
+- `engine_coil` — dark brass spring with 5 windings + end-cap pips
+
 ## What NOT to draw
-- Mountain silhouettes (this is the bug we just fixed — aurora was
-  falling through to sunset's mountains)
+- Mountain silhouettes (this was the v429 bug — aurora was falling
+  through to sunset's mountains; fixed in v434)
 - Aurora ribbons themselves — those are gradient-based and live in
   `bgCache.aurora` (computed at theme switch)
 - Star field — handled by the global theme stars
+- Generic cargo/junk crates — replaced by engineorb / monolithchunk
 - Boss — see `art/creatures/maker/`
 
 ## Procedural FX in code
