@@ -2377,7 +2377,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v433';
+const DLX_BUILD = 'v434';
 
 (function() {
   // ---------- Device detection ----------
@@ -2626,6 +2626,7 @@ const DLX_BUILD = 'v433';
     }
     bgCache.aurora = null;
     bgCache.iceSheen = null;
+    bgCache.auroraCore = null;
     if (selectedTheme === 'icecave') {
       // Aurora ribbon curtain up near the cave ceiling
       const au = ctx.createLinearGradient(0, PLAY_H * 0.08, 0, PLAY_H * 0.45);
@@ -2639,6 +2640,26 @@ const DLX_BUILD = 'v433';
       sh.addColorStop(0, 'rgba(220, 240, 255, 0)');
       sh.addColorStop(1, 'rgba(220, 240, 255, 0.5)');
       bgCache.iceSheen = sh;
+    }
+    if (selectedTheme === 'aurora') {
+      // Bigger, bolder magenta-cyan ribbon band — this is the namesake
+      // feature of THE AURORA ENGINE, not a re-used icecave accent.
+      const au = ctx.createLinearGradient(0, PLAY_H * 0.04, 0, PLAY_H * 0.55);
+      au.addColorStop(0,    'rgba(255, 120, 220, 0)');
+      au.addColorStop(0.30, 'rgba(255, 100, 200, 0.40)');
+      au.addColorStop(0.55, 'rgba(180, 120, 255, 0.34)');
+      au.addColorStop(0.80, 'rgba(100, 220, 255, 0.28)');
+      au.addColorStop(1,    'rgba(60, 180, 255, 0)');
+      bgCache.aurora = au;
+      // Distant brass core glow — soft sun-like radial low on the horizon
+      const coreR = Math.max(W, PLAY_H) * 0.45;
+      const cx = W * 0.5, cy = PLAY_H * 0.78;
+      const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR);
+      core.addColorStop(0,    'rgba(255, 224, 140, 0.55)');
+      core.addColorStop(0.25, 'rgba(255, 180, 120, 0.30)');
+      core.addColorStop(0.55, 'rgba(180, 90, 160, 0.16)');
+      core.addColorStop(1,    'rgba(20, 6, 30, 0)');
+      bgCache.auroraCore = core;
     }
 
     // Per-theme static horizon layout
@@ -2763,6 +2784,76 @@ const DLX_BUILD = 'v433';
         });
       }
       return { kind: 'underwater', baseY: baseY, kelp: kelp, shafts: shafts, wrecks: wrecks };
+    }
+    if (selectedTheme === 'aurora') {
+      // THE AURORA ENGINE — distinct cosmic silhouette. Floating engine
+      // monoliths (tall dark pylons with rotating brass rings) span the
+      // horizon, with drifting cosmic debris parallax and a bold ribbon
+      // band across the top. Designed so the level no longer reads as a
+      // sunset reskin.
+      const monoliths = [];
+      const monoSpec = [
+        { fx: 0.16, scale: 0.78, rings: 2, brass: 0.55 },
+        { fx: 0.38, scale: 1.10, rings: 3, brass: 0.85 },  // hero monolith
+        { fx: 0.58, scale: 0.92, rings: 2, brass: 0.70 },
+        { fx: 0.80, scale: 0.84, rings: 2, brass: 0.50 },
+      ];
+      for (const m of monoSpec) {
+        const h = 130 * m.scale;
+        const w = 14 * m.scale;
+        // Per-ring radius + tilt rate
+        const rings = [];
+        for (let i = 0; i < m.rings; i++) {
+          rings.push({
+            yOff: h * (0.18 + i * 0.32),
+            r:    18 * m.scale + i * 4 * m.scale,
+            spin: 0.012 + i * 0.004,
+            phase: (m.fx * 7 + i) % (Math.PI * 2),
+          });
+        }
+        monoliths.push({
+          x: W * m.fx, h: h, w: w,
+          brassA: m.brass,             // intensity of the brass-lit accent strip
+          rings: rings,
+          // Suspended anchor cable down to the floor
+          cable: true,
+        });
+      }
+      // Suspended cables between adjacent monoliths (catenary feel)
+      const cables = [];
+      for (let i = 0; i < monoliths.length - 1; i++) {
+        const a = monoliths[i], b = monoliths[i + 1];
+        cables.push({
+          x1: a.x + a.w * 0.4,  y1: baseY - a.h * 0.72,
+          x2: b.x - b.w * 0.4,  y2: baseY - b.h * 0.72,
+          sag: 18 + ((i * 11) % 9),
+        });
+      }
+      // Cosmic debris parallax — fragments drifting left at varied depths.
+      // depth 0 = far/small/dim, 1 = mid, 2 = near/bright. We seed positions
+      // here; drawAuroraHorizon advances them per frame.
+      const debris = [];
+      for (let i = 0; i < 22; i++) {
+        const depth = i % 3;
+        debris.push({
+          x: (W / 22) * i * 1.0 + ((i * 37) % 60),
+          y: PLAY_H * (0.18 + ((i * 23) % 50) / 100 * 0.55),
+          r: depth === 0 ? 0.7 : depth === 1 ? 1.2 : 1.8,
+          depth: depth,
+          spin: ((i * 41) % 100) / 100 * 0.05,
+          shape: i % 4,                // 0..3 — different debris silhouettes
+        });
+      }
+      // Aurora ribbon control points
+      const auroraPts = [];
+      for (let i = 0; i <= 12; i++) {
+        auroraPts.push({ x: (W / 12) * i, phase: i * 0.5 });
+      }
+      return {
+        kind: 'aurora', baseY: baseY,
+        monoliths: monoliths, cables: cables,
+        debris: debris, aurora: auroraPts,
+      };
     }
     if (selectedTheme === 'icecave') {
       // Jagged stalagmites rising from the floor + hanging stalactites
@@ -12092,9 +12183,174 @@ const DLX_BUILD = 'v433';
     if (selectedTheme === 'underwater') return drawUnderwaterHorizon();
     if (selectedTheme === 'neoncity')   return drawNeonCityHorizon();
     if (selectedTheme === 'icecave')    return drawIceCaveHorizon();
+    if (selectedTheme === 'aurora')     return drawAuroraHorizon();
     if (selectedTheme === 'highwall')   return drawHighwallHorizon();
     if (selectedTheme === 'bonepile')   return drawBonepileHorizon();
     return drawSunsetMountains();
+  }
+
+  // THE AURORA ENGINE horizon — engine monoliths, brass core, drifting
+  // cosmic debris, bold magenta-cyan ribbon. No mountains, no derricks;
+  // entirely a cosmic-machinery silhouette so the level reads unique.
+  function drawAuroraHorizon() {
+    const layout = bgCache.horizon;
+    if (!layout || layout.kind !== 'aurora') return;
+    const baseY = layout.baseY;
+    ctx.save();
+
+    // ---- Distant brass core (sun-like radial low on the horizon) ----
+    if (bgCache.auroraCore) {
+      const corePulse = 0.92 + Math.sin(frame * 0.018) * 0.08;
+      ctx.globalAlpha = corePulse;
+      ctx.fillStyle = bgCache.auroraCore;
+      ctx.fillRect(0, 0, W, PLAY_H);
+      ctx.globalAlpha = 1;
+    }
+
+    // ---- Bold aurora ribbon band across the upper third ----
+    if (bgCache.aurora) {
+      ctx.globalCompositeOperation = 'screen';
+      ctx.fillStyle = bgCache.aurora;
+      ctx.beginPath();
+      const topY = PLAY_H * 0.06;
+      ctx.moveTo(0, topY);
+      for (const p of layout.aurora) {
+        const y = topY + Math.sin(frame * 0.014 + p.phase) * 18;
+        ctx.lineTo(p.x, y);
+      }
+      ctx.lineTo(W, PLAY_H * 0.55);
+      ctx.lineTo(0, PLAY_H * 0.55);
+      ctx.closePath();
+      ctx.fill();
+      // Second offset pass for depth — different phase + tint
+      ctx.fillStyle = 'rgba(180, 130, 255, 0.18)';
+      ctx.beginPath();
+      const topY2 = PLAY_H * 0.10;
+      ctx.moveTo(0, topY2);
+      for (const p of layout.aurora) {
+        const y = topY2 + Math.sin(frame * 0.010 + p.phase + 1.7) * 12;
+        ctx.lineTo(p.x, y);
+      }
+      ctx.lineTo(W, PLAY_H * 0.50);
+      ctx.lineTo(0, PLAY_H * 0.50);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // ---- Cosmic debris parallax (back layer first) ----
+    // Scroll all debris left; wrap around to the right when off-screen.
+    const scroll = PIPE_SPEED_BASE * 0.18;
+    for (const d of layout.debris) {
+      d.x -= scroll * (0.4 + d.depth * 0.5);
+      if (d.x < -10) d.x = W + 10;
+    }
+    for (const d of layout.debris) {
+      const alpha = d.depth === 0 ? 0.35 : d.depth === 1 ? 0.55 : 0.78;
+      const tint  = d.depth === 2 ? 'rgba(255, 224, 140,' : 'rgba(200, 180, 220,';
+      ctx.fillStyle = tint + alpha + ')';
+      const rot = frame * d.spin;
+      if (d.shape === 0) {
+        // Small circle
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (d.shape === 1) {
+        // Streak
+        ctx.fillRect(d.x - d.r * 1.5, d.y - 0.5, d.r * 3, 1);
+      } else if (d.shape === 2) {
+        // Diamond
+        ctx.save();
+        ctx.translate(d.x, d.y);
+        ctx.rotate(rot);
+        ctx.beginPath();
+        ctx.moveTo(0, -d.r);
+        ctx.lineTo(d.r, 0);
+        ctx.lineTo(0, d.r);
+        ctx.lineTo(-d.r, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      } else {
+        // Asteroid chunk
+        ctx.save();
+        ctx.translate(d.x, d.y);
+        ctx.rotate(rot);
+        ctx.fillRect(-d.r, -d.r * 0.6, d.r * 2, d.r * 1.2);
+        ctx.restore();
+      }
+    }
+
+    // ---- Suspended anchor cables between monoliths (catenary) ----
+    ctx.strokeStyle = 'rgba(255, 208, 96, 0.28)';
+    ctx.lineWidth = 0.7;
+    for (const c of layout.cables) {
+      ctx.beginPath();
+      ctx.moveTo(c.x1, c.y1);
+      const midX = (c.x1 + c.x2) / 2;
+      const midY = ((c.y1 + c.y2) / 2) + c.sag;
+      ctx.quadraticCurveTo(midX, midY, c.x2, c.y2);
+      ctx.stroke();
+    }
+
+    // ---- Engine monoliths (dark silhouettes + brass-lit accent) ----
+    for (const m of layout.monoliths) {
+      const topY = baseY - m.h;
+      // Floor cable straight down (lighter than overhead cables)
+      ctx.strokeStyle = 'rgba(180, 140, 220, 0.18)';
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(m.x, baseY - 4);
+      ctx.lineTo(m.x, baseY + 10);
+      ctx.stroke();
+      // Monolith body — tapered pylon
+      ctx.fillStyle = 'rgba(6, 4, 14, 0.96)';
+      ctx.beginPath();
+      ctx.moveTo(m.x - m.w * 0.65, baseY);
+      ctx.lineTo(m.x - m.w * 0.35, topY);
+      ctx.lineTo(m.x + m.w * 0.35, topY);
+      ctx.lineTo(m.x + m.w * 0.65, baseY);
+      ctx.closePath();
+      ctx.fill();
+      // Brass-lit accent strip running the length of the pylon
+      ctx.strokeStyle = 'rgba(255, 208, 96,' + m.brassA + ')';
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(m.x + m.w * 0.18, topY + 4);
+      ctx.lineTo(m.x + m.w * 0.45, baseY - 6);
+      ctx.stroke();
+      // Cap blinker — brass dot at the top, slow pulse
+      const blink = 0.6 + Math.sin(frame * 0.05 + m.x * 0.01) * 0.4;
+      ctx.fillStyle = 'rgba(255, 224, 140,' + blink + ')';
+      ctx.beginPath();
+      ctx.arc(m.x, topY + 1, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Slow-rotating engine rings (tilted ellipses around the pylon)
+      for (const r of m.rings) {
+        const ry = topY + r.yOff;
+        const t = frame * r.spin + r.phase;
+        const tilt = Math.sin(t) * 0.6;            // ellipse "openness"
+        const minorR = Math.max(0.6, Math.abs(Math.cos(t)) * r.r * 0.45 + 1.5);
+        const majorR = r.r;
+        ctx.strokeStyle = 'rgba(255, 196, 80, 0.55)';
+        ctx.lineWidth = 1.0;
+        ctx.beginPath();
+        ctx.ellipse(m.x, ry, majorR, minorR, tilt * 0.3, 0, Math.PI * 2);
+        ctx.stroke();
+        // Inner brass thread
+        ctx.strokeStyle = 'rgba(255, 232, 160, 0.32)';
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.ellipse(m.x, ry, majorR * 0.65, Math.max(0.4, minorR * 0.65), tilt * 0.3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    // ---- Ground band — violet-to-black, no derrick scaffolds ----
+    ctx.fillStyle = theme().ridge;
+    ctx.fillRect(0, baseY, W, PLAY_H - baseY);
+
+    ctx.restore();
   }
 
   function drawIceCaveHorizon() {
