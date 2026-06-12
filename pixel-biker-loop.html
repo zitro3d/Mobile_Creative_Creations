@@ -19,7 +19,6 @@
     align-items: center;
     justify-content: center;
   }
-  /* Dark biome backdrop with a horizon glow to match the DLX vibe */
   .stage {
     position: relative;
     width: min(92vw, 720px);
@@ -97,28 +96,31 @@
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
 
-  // Internal logical canvas — matches the sprite's native scale so
-  // pixel-art stays crisp when the CSS scales the canvas up.
+  // Logical canvas — sprite drawn at native pixel res then CSS-scaled.
   const W = 320, H = 240;
   canvas.width = W; canvas.height = H;
 
-  // ---- Sprite + wheel positions (native sprite is 264x255) ----
-  // Wheel centers measured against the loaded sprite at its native
-  // pixel resolution — the sprite is drawn centered in the stage,
-  // so we offset them by the sprite's draw origin at runtime.
-  const SPRITE_W = 264;
-  const SPRITE_H = 255;
-  // Wheel coords in sprite-local space (origin = sprite top-left)
-  const REAR  = { cx: 78,  cy: 200, r: 24 };
-  const FRONT = { cx: 198, cy: 200, r: 24 };
+  // ---- Sprite + wheel constants (native 148x157, wheels masked out) ----
+  // Measured from the cropped sprite. Wheels are erased in the PNG so we
+  // can paint our own rotating wheels and they sync visually with feet.
+  const SPRITE_W = 148;
+  const SPRITE_H = 157;
+  const REAR  = { cx: 66,  cy: 130, r: 22 };
+  const FRONT = { cx: 125, cy: 130, r: 20 };
+  // Crank (pedal axis) sits between the two hubs.
+  const CRANK = { x: (REAR.cx + FRONT.cx) / 2 + 4,    // slight forward bias
+                  y: (REAR.cy + FRONT.cy) / 2 + 2 };
+  // Pivot point for body sway — saddle / pelvis area
+  const PIVOT = { x: 95, y: 80 };
+  // Pedal crank arm length in sprite-px
+  const PEDAL_R = 7;
 
   const sprite = new Image();
   sprite.src = 'assets/pixel-biker.png';
 
-  // ---- Background scrolling speed lines so the world feels like it
-  //      is rushing past the stationary rider.
+  // ---- Background scrolling speed lines
   const lines = [];
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < 26; i++) {
     lines.push({
       x: Math.random() * W,
       y: 30 + Math.random() * (H - 80),
@@ -127,8 +129,7 @@
       v:   1.0 + Math.random() * 2.0,
     });
   }
-
-  // ---- Dust motes that puff up behind the wheels.
+  // ---- Dust motes
   const dust = [];
   function spawnDust(x, y) {
     dust.push({
@@ -157,66 +158,142 @@
 
   let frame = 0;
 
-  function drawSpinningSpokes(cx, cy, r, t) {
-    // Draw 6 motion-blur radial lines rotating around the wheel
-    // center. Low alpha + lighter blend so they layer naturally on
-    // the spokes already painted in the sprite.
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = 'rgba(60, 60, 60, 0.55)';
-    ctx.lineWidth = 1.0;
-    ctx.lineCap = 'round';
-    const spokes = 6;
+  // Render a rotating wheel in place of the masked sprite wheel. Visible
+  // spokes turn with `t` so motion is unmistakable.
+  function drawWheel(cx, cy, r, t) {
+    // Tire (black ring) — outer rim
+    ctx.fillStyle = '#100604';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 1, 0, Math.PI * 2);
+    ctx.fill();
+    // Cream interior — the painted wheels were near-white inside
+    ctx.fillStyle = '#e8dcc4';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 1, 0, Math.PI * 2);
+    ctx.fill();
+    // Spokes — 8 dark radials from hub to rim, rotating with t.
+    // Two opposite spokes drawn thicker so the rotation reads clearly
+    // (a "keyspoke" the eye can lock onto).
+    ctx.strokeStyle = '#1a0a06';
+    ctx.lineCap = 'butt';
+    const spokes = 8;
     for (let i = 0; i < spokes; i++) {
       const a = t + (Math.PI * 2 / spokes) * i;
-      const x1 = Math.cos(a) * (r * 0.35);
-      const y1 = Math.sin(a) * (r * 0.35);
-      const x2 = Math.cos(a) * (r * 0.92);
-      const y2 = Math.sin(a) * (r * 0.92);
+      const isKey = (i === 0);
+      ctx.lineWidth = isKey ? 1.6 : 0.9;
       ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
+      ctx.moveTo(cx + Math.cos(a) * 2,
+                 cy + Math.sin(a) * 2);
+      ctx.lineTo(cx + Math.cos(a) * (r - 2),
+                 cy + Math.sin(a) * (r - 2));
       ctx.stroke();
     }
-    // Faint motion blur arc — sweeping rim highlight
-    ctx.strokeStyle = 'rgba(120, 100, 80, 0.18)';
-    ctx.lineWidth = 1.6;
+    // Hub
+    ctx.fillStyle = '#1a0a06';
     ctx.beginPath();
-    ctx.arc(0, 0, r * 0.78, t, t + Math.PI * 0.85);
+    ctx.arc(cx, cy, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    // Tiny highlight pip on the hub face so the rotation has a
+    // catch-light
+    ctx.fillStyle = '#ffd060';
+    ctx.beginPath();
+    ctx.arc(cx - 0.8, cy - 0.8, 0.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Draw the pedal crank + two feet orbiting opposite each other.
+  // Stylized as dark boots with brass-tinted toecaps so they read
+  // even at small scale.
+  function drawPedalsAndFeet(cx, cy, t) {
+    // Crank arm cross — two arms at 180° pointing through pedals
+    ctx.strokeStyle = '#3a2818';
+    ctx.lineWidth = 1.4;
+    ctx.lineCap = 'round';
+    const p1x = cx + Math.cos(t) * PEDAL_R;
+    const p1y = cy + Math.sin(t) * PEDAL_R;
+    const p2x = cx + Math.cos(t + Math.PI) * PEDAL_R;
+    const p2y = cy + Math.sin(t + Math.PI) * PEDAL_R;
+    ctx.beginPath();
+    ctx.moveTo(p1x, p1y);
+    ctx.lineTo(p2x, p2y);
     ctx.stroke();
+    // Hub plate at the crank
+    ctx.fillStyle = '#3a2818';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffd060';
+    ctx.beginPath();
+    ctx.arc(cx - 0.6, cy - 0.6, 0.6, 0, Math.PI * 2);
+    ctx.fill();
+    // Pedals + boots — front foot brighter (sunlit), rear foot dim
+    drawBoot(p1x, p1y, 1.0);
+    drawBoot(p2x, p2y, 0.6);
+  }
+
+  function drawBoot(x, y, brightness) {
+    // Dark boot rectangle + brass toecap; small enough to feel like
+    // a 16-bit foot pixel cluster.
+    ctx.fillStyle = brightness > 0.8 ? '#1a0a06' : '#0e0604';
+    ctx.fillRect(x - 3.5, y - 1.2, 7, 2.6);
+    // Toecap forward (right)
+    ctx.fillStyle = brightness > 0.8 ? '#ffd060' : '#a07028';
+    ctx.fillRect(x + 2, y - 0.8, 1.6, 1.8);
+    // Sole bottom edge
+    ctx.fillStyle = '#3a2818';
+    ctx.fillRect(x - 3.5, y + 1.0, 7, 0.6);
+  }
+
+  // Faint shadow / knee marker — a small dark blob over each thigh
+  // area that bobs with pedal phase. Sells leg motion without
+  // repainting the baked-in legs.
+  function drawKneeMarkers(spriteOX, spriteOY, scale, t) {
+    // Knees sit just above the crank. Phase opposite to give the
+    // up-down piston feel.
+    const knee1Phase = -Math.sin(t)         * 2.2;    // ±2 px
+    const knee2Phase = -Math.sin(t + Math.PI) * 2.2;
+    const KNEE_L = { x: 92, y: 110 };           // rear leg knee
+    const KNEE_R = { x: 108, y: 110 };          // front leg knee
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#0a0604';
+    // Rear knee
+    let kx = spriteOX + KNEE_L.x * scale;
+    let ky = spriteOY + (KNEE_L.y + knee1Phase) * scale;
+    ctx.beginPath();
+    ctx.ellipse(kx, ky, 3 * scale, 2.2 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Front knee
+    kx = spriteOX + KNEE_R.x * scale;
+    ky = spriteOY + (KNEE_R.y + knee2Phase) * scale;
+    ctx.beginPath();
+    ctx.ellipse(kx, ky, 3 * scale, 2.2 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
-  function drawGround(spriteY) {
-    // Ground line just below the wheels so the dust + bob have a
-    // surface to read against.
-    const groundY = spriteY + REAR.cy + REAR.r + 2;
+  function drawGround(groundY) {
     ctx.save();
-    // Soft horizon glow
     const g = ctx.createLinearGradient(0, groundY - 4, 0, H);
     g.addColorStop(0,   'rgba(255, 140, 60, 0.22)');
     g.addColorStop(0.4, 'rgba(120, 40, 20, 0.55)');
     g.addColorStop(1,   'rgba(10, 4, 2, 0.92)');
     ctx.fillStyle = g;
     ctx.fillRect(0, groundY - 4, W, H - groundY + 4);
-    // Pebble line
+    // Pebble line streaming past
     ctx.fillStyle = 'rgba(10, 4, 2, 0.85)';
     for (let i = 0; i < 18; i++) {
       const px = (i * 19 + (frame * speedMul * 1.4) % 19) % W;
       ctx.fillRect(Math.floor(px), Math.floor(groundY), 2, 1);
     }
     ctx.restore();
-    return groundY;
   }
 
   function loop() {
     frame++;
     ctx.clearRect(0, 0, W, H);
 
-    // ---- Speed lines first (background)
-    ctx.save();
-    ctx.fillStyle = 'rgba(255, 220, 160, 0.0)';
+    // ---- Speed lines (back layer) ----
     for (const ln of lines) {
       ln.x -= ln.v * speedMul;
       if (ln.x + ln.len < 0) {
@@ -226,53 +303,72 @@
       ctx.fillStyle = 'rgba(255, 220, 160, ' + ln.a + ')';
       ctx.fillRect(Math.round(ln.x), Math.round(ln.y), Math.round(ln.len), 1);
     }
-    ctx.restore();
 
-    // ---- Sprite draw origin (centered horizontally, near bottom)
-    const scale = 0.95;
-    const dw = Math.round(SPRITE_W * scale);
-    const dh = Math.round(SPRITE_H * scale);
-    const baseX = Math.round((W - dw) / 2);
-    const bob   = Math.round(Math.sin(frame * 0.32 * speedMul) * 1.2);
-    const baseY = Math.round(H - dh - 10 + bob);
+    // ---- Compose the sprite + procedural lower body together ----
+    // Use sprite native scale so canvas pixel-art stays crisp on the
+    // CSS upscale. Stage scale picked to land the sprite at a
+    // comfortable size in the stage.
+    const scale  = 1.45;
+    const dw     = SPRITE_W * scale;
+    const dh     = SPRITE_H * scale;
+    const baseX  = (W - dw) / 2;
+    const bob    = Math.sin(frame * 0.32 * speedMul) * 2.4;
+    const baseY  = H - dh - 16 + bob;
 
-    // ---- Ground band (uses the un-bobbed wheel position so the
-    //      surface stays put while the rider bobs above it)
-    const groundY = drawGround(H - dh - 10);
+    // Ground line just under the wheels (sprite-native cy=152 ≈
+    // wheel bottom). Use a stable groundY independent of bob so the
+    // surface doesn't slide.
+    const groundY = H - 14;
+    drawGround(groundY);
 
-    // ---- Sprite blit
+    // Pedal cycle phase — wheels and feet share it so they LOOK in
+    // sync. Higher gain than the bob so the wheels visibly turn.
+    const t = frame * 0.22 * speedMul;
+    // Body sway — rotate the WHOLE composition about the pivot,
+    // ±~2.3° per stroke, in phase with the bob.
+    const sway = Math.sin(frame * 0.32 * speedMul) * 0.04;
+
+    ctx.save();
+    // Translate to pivot in stage coords, rotate, translate back
+    const pivotSX = baseX + PIVOT.x * scale;
+    const pivotSY = baseY + PIVOT.y * scale;
+    ctx.translate(pivotSX, pivotSY);
+    ctx.rotate(sway);
+    ctx.translate(-pivotSX, -pivotSY);
+
+    // 1. Wheels first (so the bike frame in sprite overlays them
+    //    at the fork joints)
+    drawWheel(baseX + REAR.cx * scale,
+              baseY + REAR.cy * scale,
+              REAR.r * scale, t);
+    drawWheel(baseX + FRONT.cx * scale,
+              baseY + FRONT.cy * scale,
+              FRONT.r * scale, t);
+
+    // 2. The masked sprite (head + torso + arm + bike-frame partial)
     if (sprite.complete && sprite.naturalWidth) {
       ctx.drawImage(sprite, 0, 0, SPRITE_W, SPRITE_H,
                     baseX, baseY, dw, dh);
-    } else {
-      // Loading placeholder
-      ctx.fillStyle = '#3a1808';
-      ctx.fillRect(baseX, baseY, dw, dh);
     }
 
-    // ---- Spinning spoke overlay on each wheel (in screen coords)
-    const wheelScale = scale;
-    const t = frame * 0.36 * speedMul;
-    drawSpinningSpokes(
-      baseX + Math.round(REAR.cx  * wheelScale),
-      baseY + Math.round(REAR.cy  * wheelScale),
-      Math.round(REAR.r * wheelScale),
-      t
-    );
-    drawSpinningSpokes(
-      baseX + Math.round(FRONT.cx * wheelScale),
-      baseY + Math.round(FRONT.cy * wheelScale),
-      Math.round(FRONT.r * wheelScale),
-      -t * 0.97
-    );
+    // 3. Pedals + feet rotating around the crank — drawn on top so
+    //    the front pedal occludes the bike frame realistically.
+    drawPedalsAndFeet(baseX + CRANK.x * scale,
+                      baseY + CRANK.y * scale, t);
+
+    // 4. Knee markers — small dark blobs that bob with pedal phase
+    //    so the legs read as actively pumping (the painted legs
+    //    are static; this is the cheat that sells motion).
+    drawKneeMarkers(baseX, baseY, scale, t);
+
+    ctx.restore();
 
     // ---- Spawn dust behind the rear wheel
     if (frame % Math.max(2, Math.round(6 / speedMul)) === 0) {
-      const wx = baseX + Math.round(REAR.cx * wheelScale) - Math.round(REAR.r * wheelScale * 0.8);
+      const wx = baseX + (REAR.cx - REAR.r * 0.6) * scale;
       const wy = groundY - 1;
       spawnDust(wx, wy);
     }
-
     // ---- Update + draw dust
     for (let i = dust.length - 1; i >= 0; i--) {
       const d = dust[i];
@@ -290,11 +386,8 @@
     requestAnimationFrame(loop);
   }
 
-  // Start the loop as soon as the sprite loads. The placeholder
-  // draws meanwhile so the page isn't blank during fetch.
   sprite.addEventListener('load',  () => requestAnimationFrame(loop));
   sprite.addEventListener('error', () => requestAnimationFrame(loop));
-  // Kick off in case the image cached fast.
   requestAnimationFrame(loop);
 })();
 </script>
