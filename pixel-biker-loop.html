@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel Biker Loop</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0d0604;
+    color: #ffd83d;
+    font-family: "Impact", "Arial Black", sans-serif;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Dark biome backdrop with a horizon glow to match the DLX vibe */
+  .stage {
+    position: relative;
+    width: min(92vw, 720px);
+    aspect-ratio: 4 / 3;
+    background:
+      radial-gradient(ellipse at 50% 110%, #c52a18 0%, #5a1208 28%, #1a0a06 60%, #0d0604 100%);
+    border: 3px solid #1a0a06;
+    border-radius: 12px;
+    box-shadow:
+      inset 0 0 0 2px #2a1408,
+      0 12px 36px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+  }
+  canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+  .hud {
+    position: absolute;
+    top: 10px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #ffd83d;
+    letter-spacing: 6px;
+    font-size: 14px;
+    text-shadow: 2px 2px 0 #1a0a06;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .ctrls {
+    margin-top: 18px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    color: #d6c7b3;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    letter-spacing: 1px;
+    font-size: 12px;
+  }
+  button {
+    background: #1a0a06;
+    color: #ffd83d;
+    border: 2px solid #c52a18;
+    font-family: "Impact", "Arial Black", sans-serif;
+    font-size: 13px;
+    letter-spacing: 2px;
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  button:hover { background: #c52a18; color: #fff; }
+  input[type="range"] { width: 120px; accent-color: #ffd83d; }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="hud">NIGHTHAG ON WHEELS</div>
+    <canvas id="game"></canvas>
+  </div>
+  <div class="ctrls">
+    <button id="speedDown">- SLOWER</button>
+    <span>SPEED</span>
+    <input id="speed" type="range" min="0.3" max="2.5" step="0.1" value="1.1">
+    <button id="speedUp">+ FASTER</button>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  // Internal logical canvas — matches the sprite's native scale so
+  // pixel-art stays crisp when the CSS scales the canvas up.
+  const W = 320, H = 240;
+  canvas.width = W; canvas.height = H;
+
+  // ---- Sprite + wheel positions (native sprite is 264x255) ----
+  // Wheel centers measured against the loaded sprite at its native
+  // pixel resolution — the sprite is drawn centered in the stage,
+  // so we offset them by the sprite's draw origin at runtime.
+  const SPRITE_W = 264;
+  const SPRITE_H = 255;
+  // Wheel coords in sprite-local space (origin = sprite top-left)
+  const REAR  = { cx: 78,  cy: 200, r: 24 };
+  const FRONT = { cx: 198, cy: 200, r: 24 };
+
+  const sprite = new Image();
+  sprite.src = 'assets/pixel-biker.png';
+
+  // ---- Background scrolling speed lines so the world feels like it
+  //      is rushing past the stationary rider.
+  const lines = [];
+  for (let i = 0; i < 22; i++) {
+    lines.push({
+      x: Math.random() * W,
+      y: 30 + Math.random() * (H - 80),
+      len: 6 + Math.random() * 24,
+      a:   0.10 + Math.random() * 0.30,
+      v:   1.0 + Math.random() * 2.0,
+    });
+  }
+
+  // ---- Dust motes that puff up behind the wheels.
+  const dust = [];
+  function spawnDust(x, y) {
+    dust.push({
+      x, y,
+      vx: -0.4 - Math.random() * 0.5,
+      vy: -0.1 - Math.random() * 0.3,
+      r:  1 + Math.random() * 1.6,
+      a:  0.55 + Math.random() * 0.25,
+      life: 1.0,
+      decay: 0.018 + Math.random() * 0.012,
+    });
+  }
+
+  let speedMul = 1.1;
+  document.getElementById('speed').addEventListener('input', (e) => {
+    speedMul = parseFloat(e.target.value);
+  });
+  document.getElementById('speedUp').addEventListener('click', () => {
+    speedMul = Math.min(2.5, speedMul + 0.2);
+    document.getElementById('speed').value = speedMul.toFixed(1);
+  });
+  document.getElementById('speedDown').addEventListener('click', () => {
+    speedMul = Math.max(0.3, speedMul - 0.2);
+    document.getElementById('speed').value = speedMul.toFixed(1);
+  });
+
+  let frame = 0;
+
+  function drawSpinningSpokes(cx, cy, r, t) {
+    // Draw 6 motion-blur radial lines rotating around the wheel
+    // center. Low alpha + lighter blend so they layer naturally on
+    // the spokes already painted in the sprite.
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(60, 60, 60, 0.55)';
+    ctx.lineWidth = 1.0;
+    ctx.lineCap = 'round';
+    const spokes = 6;
+    for (let i = 0; i < spokes; i++) {
+      const a = t + (Math.PI * 2 / spokes) * i;
+      const x1 = Math.cos(a) * (r * 0.35);
+      const y1 = Math.sin(a) * (r * 0.35);
+      const x2 = Math.cos(a) * (r * 0.92);
+      const y2 = Math.sin(a) * (r * 0.92);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+    // Faint motion blur arc — sweeping rim highlight
+    ctx.strokeStyle = 'rgba(120, 100, 80, 0.18)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.78, t, t + Math.PI * 0.85);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawGround(spriteY) {
+    // Ground line just below the wheels so the dust + bob have a
+    // surface to read against.
+    const groundY = spriteY + REAR.cy + REAR.r + 2;
+    ctx.save();
+    // Soft horizon glow
+    const g = ctx.createLinearGradient(0, groundY - 4, 0, H);
+    g.addColorStop(0,   'rgba(255, 140, 60, 0.22)');
+    g.addColorStop(0.4, 'rgba(120, 40, 20, 0.55)');
+    g.addColorStop(1,   'rgba(10, 4, 2, 0.92)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, groundY - 4, W, H - groundY + 4);
+    // Pebble line
+    ctx.fillStyle = 'rgba(10, 4, 2, 0.85)';
+    for (let i = 0; i < 18; i++) {
+      const px = (i * 19 + (frame * speedMul * 1.4) % 19) % W;
+      ctx.fillRect(Math.floor(px), Math.floor(groundY), 2, 1);
+    }
+    ctx.restore();
+    return groundY;
+  }
+
+  function loop() {
+    frame++;
+    ctx.clearRect(0, 0, W, H);
+
+    // ---- Speed lines first (background)
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 220, 160, 0.0)';
+    for (const ln of lines) {
+      ln.x -= ln.v * speedMul;
+      if (ln.x + ln.len < 0) {
+        ln.x = W + Math.random() * 40;
+        ln.y = 30 + Math.random() * (H - 80);
+      }
+      ctx.fillStyle = 'rgba(255, 220, 160, ' + ln.a + ')';
+      ctx.fillRect(Math.round(ln.x), Math.round(ln.y), Math.round(ln.len), 1);
+    }
+    ctx.restore();
+
+    // ---- Sprite draw origin (centered horizontally, near bottom)
+    const scale = 0.95;
+    const dw = Math.round(SPRITE_W * scale);
+    const dh = Math.round(SPRITE_H * scale);
+    const baseX = Math.round((W - dw) / 2);
+    const bob   = Math.round(Math.sin(frame * 0.32 * speedMul) * 1.2);
+    const baseY = Math.round(H - dh - 10 + bob);
+
+    // ---- Ground band (uses the un-bobbed wheel position so the
+    //      surface stays put while the rider bobs above it)
+    const groundY = drawGround(H - dh - 10);
+
+    // ---- Sprite blit
+    if (sprite.complete && sprite.naturalWidth) {
+      ctx.drawImage(sprite, 0, 0, SPRITE_W, SPRITE_H,
+                    baseX, baseY, dw, dh);
+    } else {
+      // Loading placeholder
+      ctx.fillStyle = '#3a1808';
+      ctx.fillRect(baseX, baseY, dw, dh);
+    }
+
+    // ---- Spinning spoke overlay on each wheel (in screen coords)
+    const wheelScale = scale;
+    const t = frame * 0.36 * speedMul;
+    drawSpinningSpokes(
+      baseX + Math.round(REAR.cx  * wheelScale),
+      baseY + Math.round(REAR.cy  * wheelScale),
+      Math.round(REAR.r * wheelScale),
+      t
+    );
+    drawSpinningSpokes(
+      baseX + Math.round(FRONT.cx * wheelScale),
+      baseY + Math.round(FRONT.cy * wheelScale),
+      Math.round(FRONT.r * wheelScale),
+      -t * 0.97
+    );
+
+    // ---- Spawn dust behind the rear wheel
+    if (frame % Math.max(2, Math.round(6 / speedMul)) === 0) {
+      const wx = baseX + Math.round(REAR.cx * wheelScale) - Math.round(REAR.r * wheelScale * 0.8);
+      const wy = groundY - 1;
+      spawnDust(wx, wy);
+    }
+
+    // ---- Update + draw dust
+    for (let i = dust.length - 1; i >= 0; i--) {
+      const d = dust[i];
+      d.x += d.vx * speedMul;
+      d.y += d.vy;
+      d.vy += 0.012;
+      d.life -= d.decay;
+      if (d.life <= 0) { dust.splice(i, 1); continue; }
+      ctx.fillStyle = 'rgba(180, 140, 100, ' + (d.a * d.life) + ')';
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  // Start the loop as soon as the sprite loads. The placeholder
+  // draws meanwhile so the page isn't blank during fetch.
+  sprite.addEventListener('load',  () => requestAnimationFrame(loop));
+  sprite.addEventListener('error', () => requestAnimationFrame(loop));
+  // Kick off in case the image cached fast.
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
