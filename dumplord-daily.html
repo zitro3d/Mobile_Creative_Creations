@@ -1871,9 +1871,11 @@
     display: block;
   }
 
-  /* Hide ALL splash chrome — no logo, tagline, play button, help or
-     settings glyphs, build stamp. Just the poster. */
-  .dxpLogoSplash,
+  /* Splash chrome hidden by default - the new foreground stack only
+     surfaces the real logo, the animated Lomax rig canvas, and the
+     red-neon JOIN NOW button. Everything else (rig picker, theme
+     picker, build stamp, etc.) stays hidden for the marketing splash. */
+  .dxpLogoSplash,                       /* duplicate logo in hsTop */
   #title,
   .dlxBadge,
   #tagline,
@@ -1890,6 +1892,86 @@
   #resumeRow {
     display: none !important;
   }
+
+  /* ------ Foreground splash stack: rig / logo / JOIN NOW ------ */
+  /* Absolute-centered column above the splashScene canvas. */
+  #splashStack {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 24px;
+    pointer-events: none;              /* let JOIN NOW re-enable */
+  }
+  /* Lomax rig canvas - sits above the logo, idle-bobs in place.
+     Canvas is drawn at native rig size (~67 x 60) and CSS-scaled
+     up; image-rendering: pixelated keeps the chunks sharp.
+     The hover animation moves the canvas itself (not the rig
+     drawing) so the bob runs even if the per-frame rig redraw
+     pauses for any reason. */
+  #splashRig {
+    width: 220px;
+    height: auto;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    animation: rigHover 2.6s ease-in-out infinite alternate;
+    filter: drop-shadow(0 6px 10px rgba(0,0,0,0.55));
+  }
+  @keyframes rigHover {
+    0%   { transform: translateY(-5px) rotate(-1.2deg); }
+    50%  { transform: translateY(0)     rotate(0deg); }
+    100% { transform: translateY(5px)  rotate(1.2deg); }
+  }
+  /* Dumplord X-Press logo PNG (transparent, key-cropped from the
+     marketing render). #splashLogo is the splash-stack instance; the
+     legacy .dxpLogoSplash inside .hsTop stays hidden. */
+  #splashLogo {
+    display: block;
+    width: min(82vw, 380px);
+    height: auto;
+    margin: 0;
+    image-rendering: auto;
+    filter: drop-shadow(0 4px 10px rgba(0,0,0,0.7));
+  }
+
+  /* JOIN NOW button - red neon style matching the user's reference:
+     dark interior, thin red border, glowing red text, outer halo.
+     pointer-events re-enabled so the click registers. */
+  #joinNowBtn {
+    pointer-events: auto;
+    appearance: none;
+    -webkit-appearance: none;
+    background: rgba(20, 4, 4, 0.82);
+    color: #ff3838;
+    font: 800 italic 28px/1 "Impact","Arial Black","Helvetica Neue",sans-serif;
+    letter-spacing: 0.18em;
+    padding: 14px 38px 12px;
+    border: 3px solid #ff2828;
+    border-radius: 4px;
+    cursor: pointer;
+    text-shadow:
+      0 0 6px  #ff2020,
+      0 0 14px #ff1414,
+      0 0 24px rgba(255, 20, 20, 0.6);
+    box-shadow:
+      0 0 10px  rgba(255, 30, 30, 0.55),
+      0 0 28px  rgba(255, 20, 20, 0.35),
+      inset 0 0 18px rgba(255, 40, 40, 0.18);
+    transition: transform 80ms ease, box-shadow 180ms ease;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #joinNowBtn:active {
+    transform: translateY(1px) scale(0.98);
+    box-shadow:
+      0 0 16px rgba(255, 40, 40, 0.75),
+      0 0 36px rgba(255, 30, 30, 0.45),
+      inset 0 0 24px rgba(255, 60, 60, 0.32);
+  }
 </style>
 </head>
 <body>
@@ -1904,6 +1986,12 @@
   <div id="overlay" class="show">
     <div id="startScreen">
       <canvas id="splashScene"></canvas>
+      <div id="splashStack">
+        <canvas id="splashRig" width="220" height="200" aria-hidden="true"></canvas>
+        <img id="splashLogo" alt="DUMPLORD X-PRESS"
+             src="assets/dumplord-x-press-logo.png">
+        <button id="joinNowBtn" type="button">JOIN NOW</button>
+      </div>
       <button id="helpBtn" aria-label="Help">?</button>
       <button id="settingsBtn" aria-label="Settings">⚙</button>
       <div class="hsTop">
@@ -2419,7 +2507,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v6';
+const DLX_BUILD = 'DXP-DAILY-v7';
 
 // ============================================================
 //  DUMPLORD X-PRESS — procedural splash scene
@@ -2739,14 +2827,18 @@ const DLX_BUILD = 'DXP-DAILY-v6';
 
   function renderFrame(t){
     ctx.clearRect(0, 0, NW, NH);
+    // Environment-only render. The real Dumplord logo PNG and the
+    // animated Lomax rig are now stacked DOM elements on top of this
+    // canvas - so the procedural hero silhouette and the pixel-art
+    // wordmark below have been retired (drawHero / drawWordmark are
+    // still defined above as dead code in case we want to bring back
+    // a silhouette mode later, but they are intentionally not called).
     drawSky();
     drawSunDisc();
     drawDistantMountains();
     drawDistantDrones();
     drawMidDrones();
     drawForegroundWreckage();
-    drawHero();
-    drawWordmark();
   }
 
   // Stage 1: one-shot render. Stage 2 will replace this with a
@@ -38150,6 +38242,61 @@ const DLX_BUILD = 'DXP-DAILY-v6';
     }
   }
   drawShipThumbs();
+
+  // ----- Splash foreground: Lomax rig animation + JOIN NOW button -----
+  // Lives here (inside the main game IIFE) because it needs the same
+  // pxRoadkillRig draw function the gameplay uses. The Lomax rig is
+  // ~58 wide x 52 tall in its native pixel-art coords; we render it
+  // to #splashRig at native scale and let CSS pixelate-upscale to
+  // 220 px wide. Frame counter ticks every requestAnimationFrame so
+  // the antenna sway + warning light pulse the rig already does in
+  // gameplay also plays on the splash. CSS keyframes handle the
+  // body bob/tilt - the canvas itself is the moving element.
+  (function initSplashRigAnim(){
+    const rigCanvas = document.getElementById('splashRig');
+    if (!rigCanvas || typeof pxRoadkillRig !== 'function') return;
+    const RW = 67, RH = 60;            // native rig footprint w/ a little margin
+    rigCanvas.width  = RW;
+    rigCanvas.height = RH;
+    const rctx = rigCanvas.getContext('2d');
+    rctx.imageSmoothingEnabled = false;
+    let frame = 0;
+    let running = true;
+    function tick(){
+      // Only run while we're on the splash - no point burning frames
+      // when the player is in-game / paused / in a menu screen.
+      const onSplash = (typeof state === 'undefined') || (state === STATE_READY);
+      if (onSplash) {
+        rctx.clearRect(0, 0, RW, RH);
+        try {
+          pxRoadkillRig(rctx, 0, 0, frame, false, false);
+        } catch (e) {
+          // If the rig draw throws (missing palette or whatever),
+          // bail out of the loop instead of spamming the console.
+          running = false;
+          return;
+        }
+        frame++;
+      }
+      if (running) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  })();
+
+  (function initJoinNowButton(){
+    const btn = document.getElementById('joinNowBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function(ev){
+      ev.preventDefault();
+      ev.stopPropagation();
+      // Same entry point the daily-mode button calls - reads the
+      // ?level= URL param and starts the delivery course.
+      if (typeof startDailyChallenge === 'function') {
+        try { audio(); } catch (e) {}    // unlock WebAudio on user gesture
+        startDailyChallenge();
+      }
+    });
+  })();
 
   function setSelectedShip(key) {
     if (!SHIPS[key] || !ownsRig(key)) return false;
