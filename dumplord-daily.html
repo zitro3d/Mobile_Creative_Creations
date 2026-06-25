@@ -2439,7 +2439,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v11';
+const DLX_BUILD = 'DXP-DAILY-v12';
 
 (function() {
   // ---------- Device detection ----------
@@ -37963,7 +37963,7 @@ const DLX_BUILD = 'DXP-DAILY-v11';
     // Must come BEFORE initDailyDust(): the dust ember palette is sourced
     // from currentDeliveryLevel.
     const lvlParam = (/[?&]level=([a-zA-Z]+)/.exec(window.location.search) || [])[1];
-    currentDeliveryLevel = (lvlParam && DELIVERY_LEVELS[lvlParam]) || DELIVERY_LEVELS.sunsetWastes;
+    currentDeliveryLevel = (lvlParam && DELIVERY_LEVELS[lvlParam]) || DELIVERY_LEVELS.sunsetWastesPixel || DELIVERY_LEVELS.sunsetWastes;
     bgCache.dailySkyGrad = null;
     bgCache.dailyEarthGrad = null;
     initDailyDust();           // fresh atmospheric dust each daily run
@@ -38680,6 +38680,20 @@ const DLX_BUILD = 'DXP-DAILY-v11';
     } catch (e) {}
     return DELIVERY_LEVELS.sunsetWastesPixel || DELIVERY_LEVELS.sunsetWastes;
   })();
+  // Flip the daily-mode render gates ON at boot so the start screen
+  // backdrop shows the SAME sky / terrain the gameplay does. Every
+  // backdrop renderer (drawDailySky, drawDailyHorizon, drawDailyDust,
+  // ...) short-circuits on `if (!isDaily) return;` - without this the
+  // splash falls back to the campaign default, which is what made the
+  // start screen look nothing like the level you actually drop into.
+  // State stays at STATE_READY so no gameplay tick fires; spawn /
+  // scoring logic checks isDaily inside state-gated update branches
+  // that don't run on the start screen.
+  isDaily = true;
+  // initDailyDust uses currentDeliveryLevel's ember palette, so it
+  // must come AFTER the picker block above. Populates the atmospheric
+  // mote array the dust renderer iterates over.
+  initDailyDust();
   let dailyWasNewBest = false;     // set at finalize so over-screen can highlight
   let lastDailyRun = null;         // captured at finalize so Share can recall it
   let dailyTokenPayout = 0;        // tokens earned from the most recent daily (base + streak bonus)
