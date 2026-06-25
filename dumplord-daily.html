@@ -2439,7 +2439,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v12';
+const DLX_BUILD = 'DXP-DAILY-v13';
 
 (function() {
   // ---------- Device detection ----------
@@ -7767,6 +7767,15 @@ const DLX_BUILD = 'DXP-DAILY-v12';
   function update() {
     if (state === STATE_PAUSED || state === STATE_VICTORY) return;
     frame++;
+    // Dumplord-daily splash drift: while the player sits on the start
+    // screen (STATE_READY) with isDaily flipped on, give the parallax
+    // horizon a slow constant scroll so the background reads as alive,
+    // not frozen. updateDailyDust below already drifts dust motes on
+    // its own clock - this adds the citadel + dune parallax motion
+    // that's normally driven by the player's forward velocity.
+    if (state === STATE_READY && isDaily) {
+      dailyScrollX += 0.6;
+    }
 
     updateStars();
     updateDust();
@@ -36120,7 +36129,12 @@ const DLX_BUILD = 'DXP-DAILY-v12';
     } else {
       drawGround();
     }
-    if (isDaily) {
+    // On the Dumplord-daily splash (STATE_READY with isDaily flipped
+    // on at boot so the sky + horizon + dust render the live level),
+    // SKIP the dispatch hangar / truck-stop landmarks. The user wants
+    // only the moving environment behind the logo + JOIN NOW button -
+    // no station, no rig (rig skipped at drawBird below).
+    if (isDaily && state !== STATE_READY) {
       drawDailyLandmarks();
       drawDailyHazards();
       drawDailyGroundOps();
@@ -36168,7 +36182,10 @@ const DLX_BUILD = 'DXP-DAILY-v12';
     drawProjectiles();
     drawEmpStun();
     drawHazard();
-    drawBird();
+    // Dumplord-daily splash: keep the rig off the start screen too.
+    // Only the moving environment renders behind the JOIN NOW UI.
+    // (drawDailyLandmarks above is similarly skipped for STATE_READY.)
+    if (state !== STATE_READY) drawBird();
     // Fireballs render AFTER drawBird so they appear IN FRONT of
     // the rig (visible threat — the player needs to see the
     // incoming fireball, not have it hidden behind their own
