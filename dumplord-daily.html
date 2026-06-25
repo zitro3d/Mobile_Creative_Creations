@@ -2439,7 +2439,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v10';
+const DLX_BUILD = 'DXP-DAILY-v11';
 
 (function() {
   // ---------- Device detection ----------
@@ -14146,9 +14146,18 @@ const DLX_BUILD = 'DXP-DAILY-v10';
 
   // Pixel-aligned rect helper. Floors coords to integers so we never
   // get sub-pixel smearing across pixel boundaries.
+  // When `pxFillTarget` is non-null, every pxFill write goes to that
+  // context instead of the main canvas - lets us redirect a render
+  // pass onto an offscreen cache bitmap without touching any of the
+  // hundreds of pxFill call sites scattered through the pixel-art
+  // renderers. Always restore to null in a finally so a thrown error
+  // mid-render doesn't permanently redirect future frames into a
+  // dropped offscreen canvas.
+  let pxFillTarget = null;
   function pxFill(x, y, w, h, color) {
-    ctx.fillStyle = color;
-    ctx.fillRect(x | 0, y | 0, w | 0, h | 0);
+    const g = pxFillTarget || ctx;
+    g.fillStyle = color;
+    g.fillRect(x | 0, y | 0, w | 0, h | 0);
   }
 
   // Stable pseudo-hash → 0..7 (deterministic noise for dither patterns
@@ -14162,7 +14171,28 @@ const DLX_BUILD = 'DXP-DAILY-v10';
   // the transitions read as a soft gradient (not a hard line) while
   // staying chunky-pixel-art everywhere else.
   function drawPixelDailySky() {
-    ctx.imageSmoothingEnabled = false;
+    // PERF: the body below used to run every frame, doing ~10k+
+    // per-pixel pxFill calls (the dither bands alone loop 9 rows ×
+    // W cols × 3 seams) - that's the dominant cost in pixel-mode
+    // daily play. Everything it draws (4 sky bands, deterministic
+    // dither pattern via pxHash7, ground band, twin moons) is
+    // STATIC for the current level + canvas size. Cache to an
+    // offscreen bitmap keyed on (level × W × H × PLAY_H); on cache
+    // hit blit the bitmap and bail. Dynamic atmospherics (dust
+    // motes, haze stripes, heartbeat tint, scroll-coupled bits)
+    // are drawn by the caller AFTER this returns - they're not
+    // part of the cache.
+    const cacheKey = currentDeliveryLevel.label + ':' + W + 'x' + H + ':' + PLAY_H;
+    if (bgCache.pixelSky && bgCache.pixelSkyKey === cacheKey) {
+      ctx.drawImage(bgCache.pixelSky, 0, 0);
+      return;
+    }
+    const off = document.createElement('canvas');
+    off.width = W;
+    off.height = H;
+    pxFillTarget = off.getContext('2d');
+    pxFillTarget.imageSmoothingEnabled = false;
+    try {
     const h = PLAY_H;
     const b0 = 0;
     const b1 = (h * 0.30) | 0;
@@ -14273,6 +14303,12 @@ const DLX_BUILD = 'DXP-DAILY-v10';
       // Sun-facing limb glow
       pxFill(scx - 6, scy - 3, 1, 2, PX.moonMid);
     }
+    } finally {
+      pxFillTarget = null;
+    }
+    bgCache.pixelSky = off;
+    bgCache.pixelSkyKey = cacheKey;
+    ctx.drawImage(off, 0, 0);
   }
 
   // ── PIXEL SMOKE PUFF + COLUMN (animated) ─────────────────────────
