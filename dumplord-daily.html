@@ -1850,19 +1850,25 @@
      point. Lomax is the implicit rig. These rules sit at the end of the
      stylesheet so they win the cascade against the inherited rules. */
 
-  /* Splash backdrop — full-bleed Dumplord X-Press poster art,
-     re-rendered in pixel-art style (palette quantized to ~24 colors,
-     6x downscale + nearest-neighbor upscale) so the splash matches
-     the in-game pixel aesthetic. image-rendering: pixelated keeps the
-     pixel chunks crisp when CSS scales the PNG up for the viewport. */
+  /* Splash backdrop — procedural canvas2D scene drawn in the game's
+     pixel-art DNA (sunset-wastes palette, chunky silhouettes, hard
+     color bands). The PNG poster pixelation pass was just a filter;
+     this canvas is a true recreation, layered for stage-2 animation.
+     Each layer (sky / sun / mountains / drones / wreckage / hero /
+     wordmark) is its own draw function in dxp-splash-init.js. */
   #startScreen {
-    background-image: url('assets/dxp-splash-poster-pixel.png');
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-color: #0d0604;          /* fallback during fetch */
+    background: #0d0604;                /* dark base; canvas paints over */
+  }
+  #splashScene {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
+    z-index: 0;                         /* under any future UI chrome */
+    pointer-events: none;               /* taps fall through to stage */
+    display: block;
   }
 
   /* Hide ALL splash chrome — no logo, tagline, play button, help or
@@ -1897,6 +1903,7 @@
   <canvas id="game"></canvas>
   <div id="overlay" class="show">
     <div id="startScreen">
+      <canvas id="splashScene"></canvas>
       <button id="helpBtn" aria-label="Help">?</button>
       <button id="settingsBtn" aria-label="Settings">⚙</button>
       <div class="hsTop">
@@ -2412,7 +2419,341 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v5';
+const DLX_BUILD = 'DXP-DAILY-v6';
+
+// ============================================================
+//  DUMPLORD X-PRESS — procedural splash scene
+// ============================================================
+//  Canvas2D recreation of the promo poster in the gameplay's
+//  pixel-art style: chunky pixels, banded sunset palette,
+//  silhouette + warm-rim shading. Each scene element is a
+//  separate draw function so stage-2 animation (drone drift,
+//  sun pulse, hero idle bob, ember sparks) can wire in by
+//  swapping the one-shot render for a requestAnimationFrame
+//  tick that re-renders each layer with a time offset.
+//  Drawn at 144x256 native pixel-art res; CSS scales it up
+//  with image-rendering: pixelated so chunks stay crisp.
+// ============================================================
+(function initDxpSplashScene(){
+  const canvas = document.getElementById('splashScene');
+  if (!canvas) return;
+  const NW = 144, NH = 256;
+  canvas.width = NW;
+  canvas.height = NH;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  // Warm sunset-wastes palette - sibling of the in-game
+  // sunsetWastesPixel level so the splash reads as the same world.
+  const C = {
+    skyTop:     '#1a0608',
+    sky1:       '#2c0a0c',
+    sky2:       '#421214',
+    sky3:       '#5a1c14',
+    sky4:       '#7e2c18',
+    sky5:       '#a6441c',
+    sky6:       '#c85820',
+    sky7:       '#e07028',
+    skyHaze:    '#f4a040',
+    sunRim:     '#f4c060',
+    sunMid:     '#fde08a',
+    sunCore:    '#fff4d0',
+    sunWhite:   '#ffffff',
+    silhouette: '#0a0408',
+    droneShade: '#1c0c0a',
+    droneLite:  '#3a1c14',
+    droneWindow:'#f4b860',
+    groundDk:   '#2a1208',
+    groundMid:  '#4a200c',
+    groundSand: '#783c18',
+    groundHi:   '#a0541c',
+    wreckShade: '#3a1408',
+    wreckLite:  '#5a280e',
+    flameDk:    '#a8300c',
+    flameMid:   '#e85c1c',
+    flameLite:  '#ff9c30',
+    flameYel:   '#ffd864',
+    rimGlow:    '#f4d090',
+  };
+
+  const CX = NW / 2;            // 72
+  const HORIZON = 162;          // ~63% down (rule of thirds)
+
+  function rect(x, y, w, h, c){
+    ctx.fillStyle = c;
+    ctx.fillRect(x | 0, y | 0, Math.max(1, w | 0), Math.max(1, h | 0));
+  }
+
+  // Pixel-perfect filled disc via per-row spans. Avoids the soft
+  // antialiased edges that ctx.arc would leave on a curved boundary.
+  function pixelDisc(cx, cy, r, color){
+    ctx.fillStyle = color;
+    for (let y = -r; y <= r; y++) {
+      const w = Math.floor(Math.sqrt(r * r - y * y));
+      ctx.fillRect((cx - w) | 0, (cy + y) | 0, w * 2 + 1, 1);
+    }
+  }
+
+  // Deterministic PRNG so layout is stable build-to-build.
+  let rngS = 0x13579bdf;
+  function rseed(s){ rngS = s >>> 0; }
+  function rnd(){ rngS = (rngS * 1664525 + 1013904223) >>> 0; return rngS / 0xffffffff; }
+  function rndInt(a, b){ return (a + rnd() * (b - a)) | 0; }
+
+  // -------- Layer 1: SKY -------------------------------------
+  // Stacked solid color bands stepping from dark deep at the top
+  // through deep red into warm orange near the horizon. Hard
+  // boundaries between bands = signature pixel-art sunset.
+  function drawSky(){
+    const bands = [
+      [  0,  20, C.skyTop],
+      [ 20,  40, C.sky1],
+      [ 40,  60, C.sky2],
+      [ 60,  82, C.sky3],
+      [ 82, 104, C.sky4],
+      [104, 124, C.sky5],
+      [124, 144, C.sky6],
+      [144, HORIZON, C.sky7],
+    ];
+    for (const b of bands) rect(0, b[0], NW, b[1] - b[0], b[2]);
+    // Below horizon: dark ground base (wreckage layer paints on top)
+    rect(0, HORIZON, NW, NH - HORIZON, C.groundDk);
+  }
+
+  // -------- Layer 2: SUN DISC --------------------------------
+  // Concentric pixel-discs from outer haze to bright white core,
+  // sitting just behind the hero pedestal so its bottom edge meets
+  // the horizon line and the hero is silhouetted against it.
+  function drawSunDisc(){
+    const cx = CX, cy = HORIZON - 18;
+    pixelDisc(cx, cy, 44, C.sky7);
+    pixelDisc(cx, cy, 38, C.skyHaze);
+    pixelDisc(cx, cy, 32, C.sunRim);
+    pixelDisc(cx, cy, 26, C.sunMid);
+    pixelDisc(cx, cy, 18, C.sunCore);
+    pixelDisc(cx, cy, 10, C.sunWhite);
+  }
+
+  // -------- Layer 3: DISTANT MOUNTAINS -----------------------
+  // Jagged silhouette skyline along the horizon. Eye-socket dip
+  // mid-frame nods at the skull mountain in the poster without
+  // trying to render literal skull detail at this resolution.
+  function drawDistantMountains(){
+    rseed(0xaabbccdd);
+    ctx.fillStyle = C.silhouette;
+    ctx.beginPath();
+    ctx.moveTo(0, HORIZON);
+    let x = 0;
+    while (x < NW) {
+      const dx = rndInt(6, 14);
+      x += dx;
+      const inSocket = (x > 52 && x < 92);
+      const dh = inSocket ? rndInt(2, 6) : rndInt(10, 24);
+      ctx.lineTo(x, HORIZON - dh);
+    }
+    ctx.lineTo(NW, HORIZON);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // -------- Layer 4: DISTANT DRONES --------------------------
+  // Small dark hovercraft scattered around the upper sky. Each:
+  // shadow band below, body silhouette, underside warm rim, tiny
+  // lit cockpit window in the direction of travel.
+  function drawDistantDrones(){
+    const drones = [
+      {x: 14,  y: 48,  w: 18, h: 7,  face:  1},
+      {x:108,  y: 36,  w: 18, h: 8,  face: -1},
+      {x:  8,  y: 92,  w: 20, h: 8,  face:  1},
+      {x:118,  y: 80,  w: 18, h: 7,  face: -1},
+      {x: 50,  y: 22,  w: 14, h: 6,  face:  1},
+      {x: 88,  y: 14,  w: 12, h: 5,  face: -1},
+    ];
+    for (const d of drones) {
+      rect(d.x, d.y + d.h - 1, d.w, 2, C.droneShade);   // belly shadow
+      rect(d.x + 1, d.y, d.w - 2, d.h, C.silhouette);   // body
+      rect(d.x + 2, d.y + d.h - 1, d.w - 4, 1, C.droneLite); // rim
+      const wx = d.face > 0 ? d.x + d.w - 4 : d.x + 2;
+      rect(wx, d.y + 1, 2, 2, C.droneWindow);           // cockpit
+    }
+  }
+
+  // -------- Layer 5: MID-FRAME DRONES ------------------------
+  // Two larger ships flanking the hero. Headlight glow, side
+  // pods, faint warm underside reflection of the sun.
+  function drawMidDrones(){
+    function drawShip(x, y, face){
+      rect(x, y + 6, 30, 5, C.droneShade);              // shadow
+      rect(x + 2, y, 26, 10, C.silhouette);             // hull
+      rect(x, y + 6, 4, 5, C.silhouette);               // L pod
+      rect(x + 26, y + 6, 4, 5, C.silhouette);          // R pod
+      rect(x + 4, y + 8, 22, 2, C.droneLite);           // belly rim
+      const wx = face > 0 ? x + 18 : x + 6;
+      rect(wx, y + 2, 4, 3, C.droneWindow);             // cockpit
+      const lx = face > 0 ? x : x + 28;                 // headlight
+      rect(lx, y + 5, 2, 2, C.sunMid);
+    }
+    drawShip(6,  130,  1);
+    drawShip(108, 122, -1);
+  }
+
+  // -------- Layer 6: FOREGROUND WRECKAGE ---------------------
+  // Wasteland ground: 3 banded sand layers, junk mounds left/
+  // right, central rocky pedestal the hero stands on, scattered
+  // car wrecks, debris dots.
+  function drawForegroundWreckage(){
+    rseed(0x99887766);
+    rect(0, HORIZON, NW, 8, C.groundSand);
+    rect(0, HORIZON + 8, NW, 6, C.groundMid);
+    rect(0, HORIZON + 14, NW, NH - HORIZON - 14, C.groundDk);
+
+    polyShaded([[0,180],[12,168],[26,174],[40,168],[52,184],[54,210],[0,210]],
+               C.wreckShade, C.wreckLite);
+    polyShaded([[92,184],[106,170],[122,176],[134,168],[144,176],[144,210],[92,210]],
+               C.wreckShade, C.wreckLite);
+    polyShaded([[54,210],[58,188],[66,182],[74,180],[82,184],[90,194],[90,222],[54,222]],
+               '#3a1c0c', '#5a2c10');
+
+    const wrecks = [
+      {x:  4, y: 184, w: 14, h: 5},
+      {x: 28, y: 188, w: 12, h: 5},
+      {x:106, y: 184, w: 16, h: 6},
+      {x:128, y: 186, w: 12, h: 5},
+    ];
+    for (const w of wrecks) {
+      rect(w.x, w.y, w.w, w.h, C.silhouette);
+      rect(w.x + 2, w.y + 1, w.w - 4, 2, C.droneShade);
+      rect(w.x, w.y + w.h - 1, 3, 2, '#000000');
+      rect(w.x + w.w - 3, w.y + w.h - 1, 3, 2, '#000000');
+    }
+    // Debris dots
+    for (let i = 0; i < 22; i++) {
+      const x = rndInt(0, NW);
+      const y = rndInt(196, NH - 36);
+      rect(x, y, 2, 1, C.silhouette);
+    }
+  }
+
+  function polyShaded(pts, dark, light){
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.fill();
+    // Lay a 1px highlight along each upward-facing edge (b.y < a.y)
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      if (b[1] >= a[1]) continue;
+      const len = Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])) || 1;
+      for (let s = 0; s <= len; s++) {
+        const t = s / len;
+        rect(Math.round(a[0] + (b[0] - a[0]) * t),
+             Math.round(a[1] + (b[1] - a[1]) * t) - 1, 1, 1, light);
+      }
+    }
+  }
+
+  // -------- Layer 7: HERO ------------------------------------
+  // Central cyclist silhouette - bike below, rider above with
+  // arms raised triumphant against the sun. Backlit rim along
+  // the outer silhouette edges sells the "standing in front of
+  // the sun" composition.
+  function drawHero(){
+    const cx = CX;
+    const baseY = 180;
+    // ---- Motorcycle ----
+    rect(cx - 14, baseY - 14, 28, 6, C.silhouette);    // frame
+    rect(cx - 8,  baseY - 8,  16, 6, C.silhouette);    // engine
+    rect(cx - 22, baseY - 8,  6,  8, C.silhouette);    // rear wheel core
+    rect(cx - 24, baseY - 6,  10, 6, C.silhouette);    // rear wheel rim
+    rect(cx + 16, baseY - 8,  6,  8, C.silhouette);    // front wheel core
+    rect(cx + 14, baseY - 6,  10, 6, C.silhouette);    // front wheel rim
+    rect(cx + 14, baseY - 16, 2,  4, C.silhouette);    // fairing peak
+    rect(cx + 22, baseY - 4,  1,  2, C.sunMid);        // headlight glow
+    rect(cx - 24, baseY - 2,  2,  2, C.flameMid);      // exhaust glow
+    rect(cx - 26, baseY - 1,  2,  1, C.flameLite);
+
+    // ---- Rider ----
+    const ry = baseY - 14;
+    rect(cx - 4, ry - 12, 3, 12, C.silhouette);        // L leg
+    rect(cx + 1, ry - 12, 3, 12, C.silhouette);        // R leg
+    rect(cx - 5, ry - 22, 10, 10, C.silhouette);       // torso
+    rect(cx - 4, ry - 30, 8, 8, C.silhouette);         // helmet
+    rect(cx - 3, ry - 27, 6, 2, C.flameLite);          // visor reflection
+    // Arms raised
+    rect(cx - 9,  ry - 22, 4, 3, C.silhouette);        // L shoulder
+    rect(cx - 13, ry - 30, 4, 8, C.silhouette);        // L upper arm
+    rect(cx - 16, ry - 34, 4, 4, C.silhouette);        // L hand
+    rect(cx + 5,  ry - 22, 4, 3, C.silhouette);
+    rect(cx + 9,  ry - 30, 4, 8, C.silhouette);
+    rect(cx + 12, ry - 34, 4, 4, C.silhouette);
+
+    // ---- Backlight rim ----
+    rect(cx - 17, ry - 35, 1, 8, C.rimGlow);
+    rect(cx + 16, ry - 35, 1, 8, C.rimGlow);
+    rect(cx - 6,  ry - 31, 1, 7, C.rimGlow);
+    rect(cx + 5,  ry - 31, 1, 7, C.rimGlow);
+    rect(cx - 5,  ry - 22, 1, 9, C.rimGlow);
+    rect(cx + 4,  ry - 22, 1, 9, C.rimGlow);
+  }
+
+  // -------- Layer 8: WORDMARK --------------------------------
+  // "DUMPLORD / X-PRESS" stacked at the bottom in flame-banded
+  // pixel-art typography. Drawn 8x with dark outline offsets,
+  // then filled with three solid color bands clipped vertically
+  // (yellow top → orange mid → red bottom) to mimic the poster's
+  // flame gradient using only solid colors - no gradient blend.
+  function drawWordmark(){
+    const lines = [
+      {text: 'DUMPLORD', y: 230, h: 14},
+      {text: 'X-PRESS',  y: 244, h: 12},
+    ];
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const L of lines) {
+      ctx.font = 'bold ' + L.h + 'px "Impact","Arial Black",sans-serif';
+      // Outline pass
+      ctx.fillStyle = C.flameDk;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        if (!dx && !dy) continue;
+        ctx.fillText(L.text, CX + dx, L.y + dy);
+      }
+      // Three solid color bands using clip rects
+      const bands = [
+        {y0: L.y - L.h / 2,       y1: L.y - L.h / 6, c: C.flameYel},
+        {y0: L.y - L.h / 6,       y1: L.y + L.h / 6, c: C.flameLite},
+        {y0: L.y + L.h / 6,       y1: L.y + L.h / 2, c: C.flameMid},
+      ];
+      for (const b of bands) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, b.y0, NW, b.y1 - b.y0);
+        ctx.clip();
+        ctx.fillStyle = b.c;
+        ctx.fillText(L.text, CX, L.y);
+        ctx.restore();
+      }
+    }
+  }
+
+  function renderFrame(t){
+    ctx.clearRect(0, 0, NW, NH);
+    drawSky();
+    drawSunDisc();
+    drawDistantMountains();
+    drawDistantDrones();
+    drawMidDrones();
+    drawForegroundWreckage();
+    drawHero();
+    drawWordmark();
+  }
+
+  // Stage 1: one-shot render. Stage 2 will replace this with a
+  // requestAnimationFrame loop that passes elapsed time into each
+  // layer for drift / pulse / bob / ember motion.
+  renderFrame(0);
+})();
 
 (function() {
   // ---------- Device detection ----------
