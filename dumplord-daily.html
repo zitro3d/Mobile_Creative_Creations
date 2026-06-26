@@ -2189,6 +2189,12 @@
   .dxhBody::-webkit-scrollbar-thumb { background: #DC3A1E; border: 1px solid #7a1a0a; }
   .dxhP   { font-family: 'VT323', monospace; font-size: 17px; color: #cdbfa6; line-height: 1.3; }
   .dxhH   { font-family: 'Press Start 2P', monospace; font-size: 8px; color: #DC3A1E; letter-spacing: 1px; margin-bottom: 6px; }
+  /* labelled stat / tier box rows (campaign records, streak bonus) */
+  .dxhStatRow { display: flex; justify-content: space-between; align-items: center;
+    background: #120c08; border: 2px solid #4a3115; padding: 9px 11px; }
+  .dxhStatRow .l { font-family: 'VT323', monospace; font-size: 16px; color: #cdbfa6; }
+  .dxhStatRow .v { font-family: 'Press Start 2P', monospace; font-size: 9px; color: #E8DCC8; }
+  .dxhStatRow .v.gold { color: #F4C20D; }
   .dxhGotit {
     margin: 0 14px 14px; background: #F4C20D; border: 4px solid #000;
     box-shadow: 4px 4px 0 #8f1f0e; padding: 13px; text-align: center; cursor: pointer; flex: none;
@@ -2540,6 +2546,10 @@
         <div class="dxhBody" style="gap:13px">
           <div style="font-family:'Press Start 2P',monospace;font-size:8px;color:#8a7355;letter-spacing:1px"><span id="trophyCount">0 / 15</span> UNLOCKED · <span id="trophyTokens">0</span> 🔩 EARNED</div>
           <div id="trophyList" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px"></div>
+          <div class="dxhH" style="margin-top:2px;margin-bottom:0">CAMPAIGN RECORDS</div>
+          <div class="dxhStatRow"><span class="l">BEST SCORE</span><span class="v" id="recBest">0</span></div>
+          <div class="dxhStatRow"><span class="l">LONGEST STREAK</span><span class="v" id="recStreak">0</span></div>
+          <div class="dxhStatRow"><span class="l">DELIVERIES</span><span class="v" id="recDeliveries">0</span></div>
         </div>
         <button id="trophyCloseBtn" class="dxhGotit">DONE</button>
       </div>
@@ -2756,7 +2766,11 @@
           <div class="dxhH">THIS WEEK</div>
           <div id="dxhWeek" style="display:flex;gap:5px"></div>
           <div style="font-family:'VT323',monospace;font-size:15px;color:#8a7355">Play tomorrow to start a streak. Skip a day and it resets to 0.</div>
-          <div><div class="dxhH">BONUS TIERS</div><div class="dxhP" style="line-height:1.5">3 days +50 · 7 days +100<br>14 days +200 · 30 days +400 🔩</div></div>
+          <div class="dxhH" style="margin-top:2px;margin-bottom:0">STREAK BONUS</div>
+          <div class="dxhStatRow"><span class="l">3 DAYS</span><span class="v gold">+50 🔩</span></div>
+          <div class="dxhStatRow"><span class="l">7 DAYS</span><span class="v gold">+100 🔩</span></div>
+          <div class="dxhStatRow"><span class="l">14 DAYS</span><span class="v gold">+200 🔩</span></div>
+          <div class="dxhStatRow"><span class="l">30 DAYS</span><span class="v gold">+400 🔩</span></div>
         </div>
         <button id="historyCloseBtn" class="dxhGotit">DONE</button>
       </div>
@@ -2867,7 +2881,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v45';
+const DLX_BUILD = 'DXP-DAILY-v46';
 
 (function() {
   // ---------- Device detection ----------
@@ -39699,6 +39713,23 @@ const DLX_BUILD = 'DXP-DAILY-v45';
     if (s.lastDate === yesterdayStr(today)) return s.count;
     return 0;
   }
+  // Longest consecutive run of played days, computed from the daily
+  // history (we never stored a "longest" field, so derive it).
+  function longestStreakEver() {
+    try {
+      const days = loadDailyHistory().days.slice().sort();
+      if (!days.length) return 0;
+      let best = 1, run = 1;
+      for (let i = 1; i < days.length; i++) {
+        const prev = new Date(days[i - 1] + 'T12:00:00');
+        const cur  = new Date(days[i] + 'T12:00:00');
+        const diff = Math.round((cur - prev) / 86400000);
+        run = (diff === 1) ? run + 1 : 1;
+        if (run > best) best = run;
+      }
+      return Math.max(best, currentStreakCount());
+    } catch (e) { return currentStreakCount(); }
+  }
   function bumpStreakForToday(today) {
     const s = loadDailyStreak();
     if (s.lastDate === today) return;   // already counted today
@@ -40435,6 +40466,16 @@ const DLX_BUILD = 'DXP-DAILY-v45';
         }
         trophyListEl.appendChild(cell);
       }
+      // CAMPAIGN RECORDS rows (live data)
+      const rb = document.getElementById('recBest');
+      const rs = document.getElementById('recStreak');
+      const rd = document.getElementById('recDeliveries');
+      if (rb) rb.textContent = String(best || 0);
+      if (rs) rs.textContent = String(longestStreakEver());
+      if (rd) {
+        try { rd.textContent = String(loadDailyHistory().days.length); }
+        catch (e) { rd.textContent = '0'; }
+      }
       return;   // grid mode — skip the legacy list + medal grid
     }
     // Medal grid lives in this same panel now — refresh it whenever the
@@ -40516,14 +40557,14 @@ const DLX_BUILD = 'DXP-DAILY-v45';
   function refreshSettingsPanel() {
     if (setSoundToggle) {
       const on = !muted;
-      setSoundToggle.textContent = on ? 'ON' : 'OFF';
+      setSoundToggle.textContent = on ? '● ON' : '○ OFF';
       setSoundToggle.classList.toggle('on', on);
       setSoundToggle.classList.toggle('off', !on);
     }
     if (setVibrateToggle) {
       const supported = VIBRATE_API;
       const on = vibrateEnabled();
-      setVibrateToggle.textContent = supported ? (on ? 'ON' : 'OFF') : 'N/A';
+      setVibrateToggle.textContent = supported ? (on ? '● ON' : '○ OFF') : 'N/A';
       setVibrateToggle.classList.toggle('on', supported && on);
       setVibrateToggle.classList.toggle('off', supported && !on);
       setVibrateToggle.classList.toggle('disabled', !supported);
