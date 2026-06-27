@@ -2935,7 +2935,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v69';
+const DLX_BUILD = 'DXP-DAILY-v70';
 
 (function() {
   // ---------- Device detection ----------
@@ -4853,13 +4853,11 @@ const DLX_BUILD = 'DXP-DAILY-v69';
     // doesn't get blistering once cogs start pouring in. Campaign
     // keeps its original aggressive curve.
     if (isDaily) {
-      // Small "drives a bit faster" boost (~10%) per player feedback —
-      // lifts the cruise speed + cap together so the whole run feels a
-      // touch quicker without going blistering.
-      // Cruise stays gentle (2.1), but the ramp now climbs a bit harder
-      // with score so a long run gets genuinely tense toward the top.
-      const DAILY_SPEED_BOOST = 1.05;
-      return Math.min(3.6 * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.0085) * DAILY_SPEED_BOOST * blitzMul);
+      // Speed ramps by DISTANCE travelled (not pickup score), so it
+      // stretches smoothly across the whole long level: cruise 2.1 at the
+      // warehouse → ~3.5 near the final approach, then holds steady.
+      const t = Math.min(1, dailyScrollX / 14000);   // 0..1 over the run
+      return (2.1 + t * (3.5 - 2.1)) * blitzMul;
     }
     return Math.min(PIPE_SPEED_MAX * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.02) * d.speedMul * blitzMul);
   }
@@ -8728,10 +8726,12 @@ const DLX_BUILD = 'DXP-DAILY-v69';
         // sand patches, tentacles), but we no longer show a banner on
         // each transition — the player feels the progression through
         // the obstacles themselves.
-        const stageScore = score - levelScoreStart;
+        // Distance-driven so the stage cadence is predictable and
+        // stretches over the full level regardless of how many cogs the
+        // player grabs.
         while (
           dailyCurrentStage < DAILY_STAGES.length - 1 &&
-          stageScore >= DAILY_STAGES[dailyCurrentStage + 1].threshold
+          dailyScrollX >= DAILY_STAGES[dailyCurrentStage + 1].threshold
         ) {
           dailyCurrentStage++;
         }
@@ -9103,7 +9103,7 @@ const DLX_BUILD = 'DXP-DAILY-v69';
           // dock during the victory sequence.
           // v446m — truck stop pushed to 11000 (was 9400) for a
           // longer level. Approach gate pushed to 10200.
-          const inTruckStopApproach = dailyNextAirObstacleX > 10200;
+          const inTruckStopApproach = dailyNextAirObstacleX > 16200;
           // v446m — tunnel spawn rate dropped 0.40 → 0.25 per user
           // feedback ("remove one to two tunnels"). Result: noticeably
           // sparser tunnel sections, more open-air flying time.
@@ -9704,9 +9704,9 @@ const DLX_BUILD = 'DXP-DAILY-v69';
         // v446m — finish line moved 9200 → 10800 (truck stop is now
         // at 11000 instead of 9400). 200 px of approach before the
         // dock animation triggers.
-        if (!dailyDeliveredAtFinish && dailyScrollX >= 10800) {
+        if (!dailyDeliveredAtFinish && dailyScrollX >= 16800) {
           dailyDeliveredAtFinish = true;
-          const truckStopWX = 11000;
+          const truckStopWX = 17000;
           const dockScreenX = truckStopWX - dailyScrollX;
           dailyDockingFrames = 270;
           playSound('dock');
@@ -38385,6 +38385,11 @@ const DLX_BUILD = 'DXP-DAILY-v69';
   function drawLevelBanner() {
     if (levelBanner.life <= 0 || !levelBanner.text) return;
     levelBanner.life--;
+    // Player preference: no pop-over banners during active play. Let any
+    // banner set mid-run expire silently — the run result is still shown
+    // on the victory / game-over screens, and steal/combo feedback comes
+    // through the vignette flash, score, and sounds instead.
+    if (state === STATE_PLAY) return;
     const life = levelBanner.life;
     // Fade in/out
     let alpha = 1;
@@ -39626,7 +39631,7 @@ const DLX_BUILD = 'DXP-DAILY-v69';
     { kind: 'driveIn',         worldX: 5400 },
     { kind: 'sphinx',          worldX: 6900 },
     { kind: 'collapsedOffice', worldX: 8200 },
-    { kind: 'truckStop',       worldX: 11000 },
+    { kind: 'truckStop',       worldX: 17000 },
   ];
   // Ground-level rival haulers chasing on the dunes (Phase A4)
   let dailyGroundOps = [];         // [{ x, y, vx, state, stateFrames, hookY }]
@@ -39697,14 +39702,16 @@ const DLX_BUILD = 'DXP-DAILY-v69';
   // 600 px gap = ~2.5-3.3 sec at typical scroll speed — enough time for
   // any in-flight projectiles spawned just before the gate to clear off.
   // Backstopped by docking-invulnerability inside collide().
-  // v446m — level length extended (was 8800 → now 10400) so the
-  // run feels less rushed before the docking approach.
-  const TRUCK_STOP_NO_SPAWN_AFTER = 10400;
+  // v446m — level length extended (was 8800 → 10400). v70 — stretched
+  // again (+6000) for a longer, more gradual run (truck stop at 17000).
+  const TRUCK_STOP_NO_SPAWN_AFTER = 16400;
+  // Thresholds are DISTANCE (dailyScrollX), spread across the long level
+  // (truck stop ~17000) so obstacle escalation stretches out gradually.
   const DAILY_STAGES = [
-    { threshold: 0,    label: 'STAGE 1 — OPEN DUNES'           },
-    { threshold: 100,  label: 'STAGE 2 — DRONE ZONE'           },
-    { threshold: 200,  label: 'STAGE 3 — SCRAP FIELDS'         },
-    { threshold: 300,  label: 'STAGE 4 — FINAL APPROACH'       },
+    { threshold: 0,     label: 'STAGE 1 — OPEN DUNES'     },
+    { threshold: 4400,  label: 'STAGE 2 — DRONE ZONE'     },
+    { threshold: 8800,  label: 'STAGE 3 — SCRAP FIELDS'   },
+    { threshold: 13200, label: 'STAGE 4 — FINAL APPROACH' },
   ];
   // Procedural ground height for the delivery course. Multi-octave sine so
   // it rolls believably without a heightmap allocation.
