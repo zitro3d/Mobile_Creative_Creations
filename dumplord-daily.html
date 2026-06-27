@@ -2935,7 +2935,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v68';
+const DLX_BUILD = 'DXP-DAILY-v69';
 
 (function() {
   // ---------- Device detection ----------
@@ -3064,8 +3064,18 @@ const DLX_BUILD = 'DXP-DAILY-v68';
     ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
 
+    // Cache the device safe-area top (status bar / notch) in CSS px so
+    // the canvas HUD can sit BELOW it instead of under the battery icon.
+    try {
+      const ov = document.getElementById('overlay');
+      _safeTopPx = ov ? (parseFloat(getComputedStyle(ov).paddingTop) || 0) : 0;
+    } catch (e) { _safeTopPx = 0; }
+
     recalcLayout();
   }
+  let _safeTopPx = 0;
+  // Safe-area top expressed in the canvas's logical units (1 unit = `scale` CSS px).
+  function safeTopUnits() { return scale ? _safeTopPx / scale : 0; }
 
   let GROUND_H, PLAY_H;
   function recalcLayout() {
@@ -36700,9 +36710,10 @@ const DLX_BUILD = 'DXP-DAILY-v68';
     const chipW = accentW + padX * 2 + iconW + gap + tw;
     const chipH = Math.max(fs, iconH) + padY * 2;
     const x = Math.max(12, Math.round(W * 0.035));
-    const y = Math.max(48, Math.round(H * 0.085));
+    // Same top line as the SCORE panel — below the device status bar.
+    const y = Math.round(safeTopUnits()) + Math.max(8, Math.round(H * 0.012));
     // panel + border
-    ctx.fillStyle = '#120c08';
+    ctx.fillStyle = 'rgba(18,12,8,0.92)';
     ctx.fillRect(x, y, chipW, chipH);
     ctx.lineWidth = 2; ctx.strokeStyle = '#4a3115';
     ctx.strokeRect(x + 1, y + 1, chipW - 2, chipH - 2);
@@ -36724,37 +36735,61 @@ const DLX_BUILD = 'DXP-DAILY-v68';
   function drawScore() {
     if (state === STATE_OVER || state === STATE_READY) return;
     const text = String(score).padStart(3, '0');
-    // Score HUD per the design spec: Press Start 2P ~24px, gold fill,
-    // 2px dark outline + 3px red drop shadow (down-right) for the
-    // stamped look. Pinned top-right, right-aligned so it grows
-    // leftward, with a scale-pulse on each tick.
-    const size = Math.max(20, Math.round(H * 0.033));
-    const rx = W - Math.max(16, Math.round(W * 0.042));
-    const y = Math.max(34, H * 0.058);
-    const pulseScale = 1 + scorePulse * 0.18;   // 1 -> ~1.18 on a tick
+    // Top-right SCORE readout, housed in a worn-terminal panel that sits
+    // BELOW the device status bar (safe-area top) so the number never
+    // hides behind the battery / clock. A labelled panel reads as a
+    // proper dispatch gauge instead of a bare floating number.
+    const numSize = Math.max(19, Math.round(H * 0.030));
+    const lblSize = Math.max(6, Math.round(numSize * 0.36));
+    const pad = Math.round(numSize * 0.45);
+    const gap = Math.max(3, Math.round(lblSize * 0.5));
 
     ctx.save();
-    ctx.translate(rx, y);
-    ctx.scale(pulseScale, pulseScale);          // origin = right anchor
-    ctx.font = size + 'px "Press Start 2P", "Courier New", monospace';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'alphabetic';
-    // 3px red drop shadow (down-right)
-    ctx.fillStyle = '#8f1f0e';
-    ctx.fillText(text, 3, 3);
-    // 2px hard dark outline on all sides
-    ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1a120a';
-    ctx.strokeText(text, 0, 0);
-    // gold fill
-    ctx.fillStyle = '#F4C20D';
-    ctx.fillText(text, 0, 0);
+    ctx.font = numSize + 'px "Press Start 2P", "Courier New", monospace';
+    const numW = ctx.measureText(text).width;
+    ctx.font = lblSize + 'px "Press Start 2P", "Courier New", monospace';
+    const lblW = ctx.measureText('SCORE').width;
     ctx.restore();
 
-    // Run-token chip — a small boxed "[nut] +N" in cyan (this-run
-    // earnings, distinct from gold total scrap), right-aligned under
-    // the score. No emoji — the nut is drawn as pixels.
+    const innerW = Math.max(numW, lblW);
+    const panelW = innerW + pad * 2;
+    const panelH = pad + lblSize + gap + numSize + Math.round(pad * 0.7);
+    const margin = Math.max(10, Math.round(W * 0.03));
+    const px = W - margin - panelW;
+    const py = Math.round(safeTopUnits()) + Math.max(8, Math.round(H * 0.012));
+
+    ctx.save();
+    // panel + border
+    ctx.fillStyle = 'rgba(18,12,8,0.92)';
+    ctx.fillRect(px, py, panelW, panelH);
+    ctx.lineWidth = 2; ctx.strokeStyle = '#4a3115';
+    ctx.strokeRect(px + 1, py + 1, panelW - 2, panelH - 2);
+    // gold header accent bar (brand)
+    ctx.fillStyle = '#F4C20D';
+    ctx.fillRect(px + 2, py + 2, panelW - 4, 3);
+    // "SCORE" label
+    ctx.font = lblSize + 'px "Press Start 2P", "Courier New", monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#cdbfa6';
+    ctx.fillText('SCORE', px + pad, py + pad);
+    // the number — gold stamped, right-aligned, subtle pulse on each tick
+    const numBaseY = py + pad + lblSize + gap + numSize;
+    const numRightX = px + panelW - pad;
+    const pulse = 1 + scorePulse * 0.12;
+    ctx.translate(numRightX, numBaseY);
+    ctx.scale(pulse, pulse);
+    ctx.font = numSize + 'px "Press Start 2P", "Courier New", monospace';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#8f1f0e'; ctx.fillText(text, 3, 3);
+    ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1a120a';
+    ctx.strokeText(text, 0, 0);
+    ctx.fillStyle = '#F4C20D'; ctx.fillText(text, 0, 0);
+    ctx.restore();
+
+    // Run-token chip — boxed "[nut] +N" in cyan (this-run earnings),
+    // tucked under the panel, right edge aligned.
     if (state === STATE_PLAY && runTokens > 0) {
-      const cf = Math.max(8, Math.round(size * 0.40));
+      const cf = Math.max(8, Math.round(numSize * 0.42));
       ctx.save();
       ctx.font = cf + 'px "Press Start 2P", "Courier New", monospace';
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -36762,19 +36797,17 @@ const DLX_BUILD = 'DXP-DAILY-v68';
       const nutPx = Math.max(1, Math.round(cf / 6));
       const nutW = 5 * nutPx, nutH = 6 * nutPx;
       const tw = ctx.measureText(label).width;
-      const padX = 7, padY = 4, gap = 5;
-      const chipW = padX * 2 + nutW + gap + tw;
-      const chipH = Math.max(cf, nutH) + padY * 2;
-      const chipX = rx - chipW;
-      const chipY = (y + size * 0.45) | 0;
-      // box
-      ctx.fillStyle = '#120c08'; ctx.fillRect(chipX, chipY, chipW, chipH);
-      ctx.lineWidth = 2; ctx.strokeStyle = '#4a3115';
+      const cpadX = 7, cpadY = 4, cgap = 5;
+      const chipW = cpadX * 2 + nutW + cgap + tw;
+      const chipH = Math.max(cf, nutH) + cpadY * 2;
+      const chipX = px + panelW - chipW;
+      const chipY = py + panelH + 5;
+      ctx.fillStyle = 'rgba(18,12,8,0.92)'; ctx.fillRect(chipX, chipY, chipW, chipH);
+      ctx.lineWidth = 2; ctx.strokeStyle = '#2c4a55';
       ctx.strokeRect(chipX + 1, chipY + 1, chipW - 2, chipH - 2);
-      // nut + label (cyan)
-      drawHudNut(chipX + padX, chipY + (chipH - nutH) / 2, nutPx, '#6CB7E8');
+      drawHudNut(chipX + cpadX, chipY + (chipH - nutH) / 2, nutPx, '#6CB7E8');
       ctx.fillStyle = '#6CB7E8';
-      ctx.fillText(label, chipX + padX + nutW + gap, chipY + chipH / 2 + 1);
+      ctx.fillText(label, chipX + cpadX + nutW + cgap, chipY + chipH / 2 + 1);
       ctx.restore();
     }
   }
@@ -36787,7 +36820,8 @@ const DLX_BUILD = 'DXP-DAILY-v68';
     if (mul < 2) return;
     const label = 'COMBO x' + mul;
     const size = Math.max(11, Math.round(H * 0.016));
-    const x = W / 2, y = Math.max(62, Math.round(H * 0.12));
+    // Sits just below the top HUD chips, clear of the notch / status bar.
+    const x = W / 2, y = Math.round(safeTopUnits()) + Math.max(58, Math.round(H * 0.10));
     ctx.save();
     ctx.font = size + 'px "Press Start 2P", "Courier New", monospace';
     ctx.textAlign = 'center';
