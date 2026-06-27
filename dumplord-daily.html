@@ -2128,14 +2128,6 @@
   #helpScreen.hidden, #settingsScreen.hidden, #garageScreen.hidden,
   #trophyScreen.hidden, #dailyHistoryScreen.hidden,
   #gameOverScreen.hidden, #pauseScreen.hidden, #victoryScreen.hidden { display: none !important; }
-  /* share-result toast pinned to the top edge of a result card */
-  @keyframes dlxToast { 0%{opacity:0;transform:translateX(-50%) translateY(6px)} 12%{opacity:1;transform:translateX(-50%) translateY(0)} 80%{opacity:1} 100%{opacity:0} }
-  .dxhToast {
-    position:absolute; top:-13px; left:50%; transform:translateX(-50%); z-index:5;
-    font-family:'Press Start 2P',monospace; font-size:8px; color:#1a120a;
-    background:#F4C20D; border:2px solid #000; box-shadow:2px 2px 0 #8f1f0e;
-    padding:7px 10px; white-space:nowrap; animation:dlxToast 1.5s ease-out forwards;
-  }
   /* result-card stat cells / scrap chip / secondary buttons (spec) */
   .dxhCell { flex:1; background:#120c08; border:2px solid #4a3115; padding:8px 9px; }
   .dxhCell .cl { font-family:'Press Start 2P',monospace; font-size:6px; color:#8a7355; line-height:1.4; }
@@ -2179,9 +2171,9 @@
   .dxhBtnBail:hover { background:#3a1209 !important; }
 
   .dxhPanel {
-    position: relative;   /* offset parent for the absolute .dxhToast (else
-                             it anchors to the full-screen .dxhScreen and
-                             flies off the top of the viewport) */
+    position: relative;   /* positioning context for any absolutely-placed
+                             children (keeps them anchored to the panel, not
+                             the full-screen .dxhScreen) */
     width: 100%; max-width: 346px; max-height: 92%;
     display: flex; flex-direction: column;
     background: #1a120c; border: 4px solid #000;
@@ -2849,7 +2841,6 @@
     </div>
     <div id="gameOverScreen" class="hidden dxhScreen">
       <div class="dxhPanel" style="max-height:94%">
-        <div id="gameOverToast" class="dxhToast hidden">✓ RESULT COPIED</div>
         <div class="dxhHead">
           <span class="dxhTitle" style="color:#DC3A1E;text-shadow:1px 1px 0 #4a0f06">RIG TOTALED</span>
           <div class="dxhX" data-primary="restartBtn">X</div>
@@ -2906,7 +2897,6 @@
   <div id="victoryScreen" class="hidden dxhScreen">
     <div id="victoryFanfare"></div>
     <div class="dxhPanel" style="max-height:94%">
-      <div id="victoryToast" class="dxhToast hidden">✓ RESULT COPIED</div>
       <div class="dxhHead">
         <span class="dxhTitle" style="font-size:10px">PAID OUT</span>
         <div class="dxhX" data-primary="victoryBtn">X</div>
@@ -2985,7 +2975,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v52';
+const DLX_BUILD = 'DXP-DAILY-v53';
 
 (function() {
   // ---------- Device detection ----------
@@ -4893,7 +4883,11 @@ const DLX_BUILD = 'DXP-DAILY-v52';
     // doesn't get blistering once cogs start pouring in. Campaign
     // keeps its original aggressive curve.
     if (isDaily) {
-      return Math.min(3.4 * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.006) * blitzMul);
+      // Small "drives a bit faster" boost (~10%) per player feedback —
+      // lifts the cruise speed + cap together so the whole run feels a
+      // touch quicker without going blistering.
+      const DAILY_SPEED_BOOST = 1.1;
+      return Math.min(3.75 * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.006) * DAILY_SPEED_BOOST * blitzMul);
     }
     return Math.min(PIPE_SPEED_MAX * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.02) * d.speedMul * blitzMul);
   }
@@ -39923,12 +39917,17 @@ const DLX_BUILD = 'DXP-DAILY-v52';
     // a campaign run via launchWithSelected().
   }
   // Render a branded, dispatch-console share card. Keeps the viral
-  // Wordle-style biome grid, but wraps it in the game's own voice
-  // (SCRAP / RIG / SECTOR, the PAID OUT vs RIG TOTALED result titles):
-  //   📡 DLX HAULER · DAILY DROP — Apr 22
-  //   🟩🟩🟩🟥⬛⬛⬛⬛
-  //   💥 RIG TOTALED — scrapped in Sector 4/9
-  //   ▸ SCORE 487 · RIG: Hauler · 🔥 3d streak · ★ NEW BEST
+  // Wordle-style biome grid, but frames it with the game's signature
+  // yellow/black caution-hazard stripe and speaks in its own voice
+  // (RIG / SECTOR, the PAID OUT vs RIG TOTALED result titles):
+  //   🟨⬛🟨⬛🟨⬛🟨⬛🟨⬛
+  //   📡 DLX HAULER — DAILY DROP
+  //   Apr 22
+  //   🟩🟩🟩🟥⬛⬛⬛⬛⬛
+  //   💥 RIG TOTALED · Sector 4/9
+  //   ▸ SCORE 487 · RIG: Hauler
+  //   🔥 3-DAY STREAK · ★ NEW BEST
+  //   🟨⬛🟨⬛🟨⬛🟨⬛🟨⬛
   //   Out-haul that if you can. 👇
   //   <url>
   function buildDailyShareText(run) {
@@ -39942,30 +39941,38 @@ const DLX_BUILD = 'DXP-DAILY-v52';
       else                               cells.push('⬛');         // never reached
     }
     const sector = Math.min(total, (run.endLevelIndex || 0) + 1);
+    // The signature caution-hazard stripe (yellow/black) as a text
+    // border — the same motif that runs under every modal header.
+    const TAPE = '🟨⬛🟨⬛🟨⬛🟨⬛🟨⬛';
     // Verdict mirrors the in-game result-screen titles.
     const verdict = run.isVictory
-      ? '🏆 PAID OUT — ' + (run.cargoArrived ? 'full route, cargo intact' : 'delivered, cargo lost en route')
-      : '💥 RIG TOTALED — scrapped in Sector ' + sector + '/' + total;
+      ? '🏆 PAID OUT · ' + (run.cargoArrived ? 'full route, cargo intact' : 'cargo lost en route')
+      : '💥 RIG TOTALED · Sector ' + sector + '/' + total;
     // Stats in the dispatch console's vocabulary (SCORE is the run total,
     // distinct from SCRAP currency — don't conflate them).
-    let stats = '▸ SCORE ' + run.score + ' · RIG: ' + run.ship;
-    if (run.streak > 0) stats += ' · 🔥' + run.streak + 'd streak';
-    if (run.isNewBest)  stats += ' · ★ NEW BEST';
+    const lines = [];
+    lines.push(TAPE);
+    lines.push('📡 DLX HAULER — DAILY DROP');
+    lines.push(formatDailyDate(run.date));
+    lines.push(cells.join(''));
+    lines.push(verdict);
+    lines.push('▸ SCORE ' + run.score + ' · RIG: ' + run.ship);
+    // Streak + new-best get their own badge line when present.
+    let badges = '';
+    if (run.streak > 0) badges = '🔥 ' + run.streak + '-DAY STREAK';
+    if (run.isNewBest)  badges += (badges ? ' · ' : '') + '★ NEW BEST';
+    if (badges) lines.push(badges);
+    lines.push(TAPE);
     // A little swagger so the card has some bite (and varies by result).
-    const taunt = run.isVictory
+    lines.push(run.isVictory
       ? 'Full route cleared. Your move, hauler. 👇'
       : (run.score >= 300
           ? 'Out-haul that if you can. 👇'
-          : 'Dispatch needs a real driver. 👇');
-    const url = (typeof location !== 'undefined' && location.href)
+          : 'Dispatch needs a real driver. 👇'));
+    lines.push((typeof location !== 'undefined' && location.href)
       ? location.href.split('?')[0]
-      : 'zitro3d.github.io/Mobile_Creative_Creations/dlx-garbage-hauler-v2.html';
-    return '📡 DLX HAULER · DAILY DROP — ' + formatDailyDate(run.date) + '\n'
-         + cells.join('') + '\n'
-         + verdict + '\n'
-         + stats + '\n'
-         + taunt + '\n'
-         + url;
+      : 'zitro3d.github.io/Mobile_Creative_Creations/dlx-garbage-hauler-v2.html');
+    return lines.join('\n');
   }
   // Share the last daily run. Prefers the native share sheet (iOS
   // Safari 15+), then the clipboard, then a final prompt fallback.
@@ -40207,19 +40214,11 @@ const DLX_BUILD = 'DXP-DAILY-v52';
   const victoryShareBtn  = document.getElementById('victoryShareBtn');
   // Brief "✓ RESULT COPIED" toast pinned to the top of the result card
   // (matches the design's share feedback).
-  function flashResultToast(toastId) {
-    const t = document.getElementById(toastId);
-    if (!t) return;
-    t.classList.remove('hidden');
-    // restart the CSS animation
-    t.style.animation = 'none'; void t.offsetWidth; t.style.animation = '';
-    clearTimeout(t._toastTimer);
-    t._toastTimer = setTimeout(function () { t.classList.add('hidden'); }, 1500);
-  }
   function onShareBtnTap(e, btn) {
     if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    // The share button flashes its own COPIED ✓ / SHARED ✓ label as
+    // feedback (see shareDailyResult), so no separate toast is needed.
     shareDailyResult(btn);
-    flashResultToast(btn === victoryShareBtn ? 'victoryToast' : 'gameOverToast');
   }
   if (gameOverShareBtn) {
     gameOverShareBtn.addEventListener('touchend', function(e) { onShareBtnTap(e, gameOverShareBtn); }, { passive: false });
