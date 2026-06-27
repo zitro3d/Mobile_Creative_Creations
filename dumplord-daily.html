@@ -2935,7 +2935,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v66';
+const DLX_BUILD = 'DXP-DAILY-v67';
 
 (function() {
   // ---------- Device detection ----------
@@ -36590,12 +36590,21 @@ const DLX_BUILD = 'DXP-DAILY-v66';
     // --- Near-miss CLOSE CALL bonus ---
     checkNearMiss();
     // --- Speed streaks (spawn rate + length scale with speed) ---
+    // Keep them in the OPEN AIR only — never streaking across the dirt.
+    // Sample the terrain across the screen and use the highest surface
+    // (= smallest y) as the floor for spawning.
     const sf = dailySpeedFactor();
     if (sf > 0.18 && speedLines.length < 26 && (frame & 1) === 0) {
+      let skyFloor = PLAY_H;
+      for (let sxp = 0; sxp <= W; sxp += W / 8) {
+        const ty = terrainHeightAt(sxp + dailyScrollX);
+        if (ty < skyFloor) skyFloor = ty;
+      }
+      skyFloor = Math.max(40, skyFloor - 10);
       const n = 1 + (sf > 0.6 ? 1 : 0);
       for (let k = 0; k < n; k++) {
         speedLines.push({
-          x: W + 8, y: Math.random() * PLAY_H,
+          x: W + 8, y: Math.random() * skyFloor,
           len: 16 + Math.random() * 38 * sf,
           v: 9 + sf * 13 + Math.random() * 3,
           a: 0.10 + sf * 0.22,
@@ -36647,6 +36656,10 @@ const DLX_BUILD = 'DXP-DAILY-v66';
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1.5;
       for (const s of speedLines) {
+        // Skip any streak that has scrolled over the dirt — only show
+        // them in the open air above the terrain surface.
+        const groundY = terrainHeightAt(s.x + s.len * 0.5 + dailyScrollX);
+        if (s.y >= groundY - 4) continue;
         ctx.globalAlpha = s.a;
         ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + s.len, s.y); ctx.stroke();
       }
