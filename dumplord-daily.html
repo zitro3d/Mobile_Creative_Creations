@@ -2935,7 +2935,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v63';
+const DLX_BUILD = 'DXP-DAILY-v64';
 
 (function() {
   // ---------- Device detection ----------
@@ -5239,6 +5239,11 @@ const DLX_BUILD = 'DXP-DAILY-v63';
     if (hasBonus) {
       grantScore(200);
       setLevelBanner('★ PRIORITY DELIVERY · +200');
+    } else if (cargoIntact && cargoPayout > 0) {
+      // Bank the cargo-hold payout the player built up by protecting the
+      // crate the whole way — flat, so it matches the on-screen meter.
+      score += cargoPayout;
+      setLevelBanner('★ DELIVERY MADE! · CARGO +' + cargoPayout);
     } else {
       setLevelBanner(cargoIntact ? '★ DELIVERY MADE!' : '★ ARRIVED · CARGO LOST');
     }
@@ -11243,6 +11248,7 @@ const DLX_BUILD = 'DXP-DAILY-v63';
       updatePickupSparks();
       updateCrashEffects();
       updateScoreFloaters();
+      updateDailyIntensity();
       if (frame % 6 === 0) refreshHud();
 
       if (collide()) {
@@ -36536,6 +36542,148 @@ const DLX_BUILD = 'DXP-DAILY-v63';
     const P = [[1,0],[2,0],[3,0],[0,1],[4,1],[0,2],[2,2],[4,2],[0,3],[4,3],[0,4],[4,4],[1,5],[2,5],[3,5]];
     for (let i = 0; i < P.length; i++) ctx.fillRect((x + P[i][0]*px)|0, (y + P[i][1]*px)|0, px, px);
   }
+  // ---------- Intensity layer: near-miss bonus, speed juice, cargo
+  //            payout meter + steal consequence ----------
+  let cargoHoldFrames = 0;    // frames cargo has been continuously held
+  let cargoPayout = 0;        // pending cargo bonus — banked on delivery, lost if stolen
+  let cargoStealFlash = 0;    // red vignette timer fired when cargo is stolen
+  let cargoWasLost = false;   // edge-detect the steal moment
+  let speedLines = [];        // motion streaks for the speed-juice effect
+  function resetIntensity() {
+    cargoHoldFrames = 0; cargoPayout = 0; cargoStealFlash = 0;
+    cargoWasLost = false; speedLines.length = 0;
+  }
+  function dailySpeedFactor() {
+    // 0 at cruise (2.1), 1 at the daily cap (3.6).
+    const cur = currentPipeSpeed();
+    return Math.max(0, Math.min(1, (cur - 2.1) / (3.6 - 2.1)));
+  }
+  function updateDailyIntensity() {
+    if (!isDaily || state !== STATE_PLAY) return;
+    // --- Cargo hold meter / payout (rewards keeping the crate) ---
+    const held = cargo && cargo.attached && !cargo.lost && !dailyDelivered;
+    if (held) {
+      cargoHoldFrames++;
+      if (cargoHoldFrames % 30 === 0 && cargoPayout < 99) cargoPayout++;   // ~2/sec
+    }
+    // Steal consequence — fires the frame the cargo becomes truly lost:
+    // wipe the pending payout, dock points, red flash + banner.
+    const isLost = !!(cargo && cargo.lost);
+    if (isLost && !cargoWasLost && !dailyDelivered) {
+      if (cargoPayout > 0 || cargoHoldFrames > 0) {
+        score = Math.max(0, score - 5);
+        cargoStealFlash = 26;
+        shakeFrames = Math.max(shakeFrames, 9);
+        setShortBanner('CARGO STOLEN  -5');
+        breakCombo();
+        playSound('specialLost');
+        safeVibrate([20, 40, 20]);
+      }
+      cargoPayout = 0;
+      cargoHoldFrames = 0;
+    }
+    cargoWasLost = isLost;
+    if (cargoStealFlash > 0) cargoStealFlash--;
+    // --- Near-miss CLOSE CALL bonus ---
+    checkNearMiss();
+    // --- Speed streaks (spawn rate + length scale with speed) ---
+    const sf = dailySpeedFactor();
+    if (sf > 0.18 && speedLines.length < 26 && (frame & 1) === 0) {
+      const n = 1 + (sf > 0.6 ? 1 : 0);
+      for (let k = 0; k < n; k++) {
+        speedLines.push({
+          x: W + 8, y: Math.random() * PLAY_H,
+          len: 16 + Math.random() * 38 * sf,
+          v: 9 + sf * 13 + Math.random() * 3,
+          a: 0.10 + sf * 0.22,
+        });
+      }
+    }
+    for (let i = speedLines.length - 1; i >= 0; i--) {
+      const s = speedLines[i];
+      s.x -= s.v;
+      if (s.x + s.len < -10) speedLines.splice(i, 1);
+    }
+  }
+  function checkNearMiss() {
+    if (ghostFrames > 0 || forceFieldFrames > 0) return;   // not "skill" while protected
+    const r = BIRD_R - 3;
+    for (const o of dailyAirObstacles) {
+      if (o.nmDone) continue;
+      let width, gapTop, gapBot;
+      if (o.kind === 'scrapTower' || o.kind === 'carTower') {
+        width = 36; gapTop = o.top; gapBot = o.top + o.gap;
+      } else if (o.kind === 'caveColumn') {
+        width = o.colWidth || 36; gapTop = o.gapTopY; gapBot = o.gapTopY + o.gapH;
+      } else if (o.kind === 'tunnel' && o.isPipe) {
+        width = o.length; gapTop = o.centerY - PIPE_HALF_H; gapBot = o.centerY + PIPE_HALF_H;
+      } else { continue; }
+      const sx = o.worldX - dailyScrollX;
+      // Track the tightest clearance while the rig is inside the gap span.
+      if (bird.x + r > sx && bird.x - r < sx + width) {
+        const minClear = Math.min((bird.y - r) - gapTop, gapBot - (bird.y + r));
+        if (minClear > 0 && (o.nmClear == null || minClear < o.nmClear)) o.nmClear = minClear;
+      }
+      // Score the call once the obstacle fully clears the rig.
+      if (sx + width < bird.x - r) {
+        o.nmDone = true;
+        if (o.nmClear != null && o.nmClear < 13) {
+          grantScore(5);
+          emitScoreFloater(bird.x, bird.y - 26, 5, '#6CB7E8');
+          scorePulse = 1;
+          playSound('pickup');
+        }
+      }
+    }
+  }
+  function drawSpeedFx() {
+    if (!isDaily || state !== STATE_PLAY) return;
+    const sf = dailySpeedFactor();
+    if (speedLines.length) {
+      ctx.save();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      for (const s of speedLines) {
+        ctx.globalAlpha = s.a;
+        ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + s.len, s.y); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    if (sf > 0.05 || cargoStealFlash > 0) {
+      const g = ctx.createRadialGradient(W / 2, PLAY_H / 2, Math.min(W, PLAY_H) * 0.34,
+                                         W / 2, PLAY_H / 2, Math.max(W, PLAY_H) * 0.62);
+      if (cargoStealFlash > 0) {
+        const steal = cargoStealFlash / 26;
+        g.addColorStop(0, 'rgba(160,25,12,0)');
+        g.addColorStop(1, 'rgba(185,32,16,' + (0.22 + steal * 0.4).toFixed(3) + ')');
+      } else {
+        g.addColorStop(0, 'rgba(0,0,0,0)');
+        g.addColorStop(1, 'rgba(0,0,0,' + (sf * 0.28).toFixed(3) + ')');
+      }
+      ctx.save(); ctx.fillStyle = g; ctx.fillRect(0, 0, W, PLAY_H); ctx.restore();
+    }
+  }
+  function drawCargoMeter() {
+    if (!isDaily || state !== STATE_PLAY) return;
+    const held = cargo && cargo.attached && !cargo.lost && !dailyDelivered;
+    if (cargoPayout <= 0 && !held) return;
+    const x = Math.max(14, Math.round(W * 0.04));
+    const y = Math.max(52, Math.round(H * 0.092));
+    const danger = !held && cargoPayout > 0;   // detached & at risk of being lost
+    ctx.save();
+    // crate icon
+    ctx.fillStyle = danger ? '#DC3A1E' : '#A6E22E';
+    ctx.fillRect(x, y, 12, 11);
+    ctx.fillStyle = '#1a120a';
+    ctx.fillRect(x + 1, y + 4, 10, 2);          // hazard band
+    // "+N" pending payout in the score-HUD font
+    ctx.font = '10px "Press Start 2P", "Courier New", monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    const label = '+' + cargoPayout;
+    ctx.fillStyle = '#1a120a'; ctx.fillText(label, x + 18, y + 2);
+    ctx.fillStyle = danger ? '#DC3A1E' : '#F4C20D'; ctx.fillText(label, x + 17, y + 1);
+    ctx.restore();
+  }
   function drawScore() {
     if (state === STATE_OVER || state === STATE_READY) return;
     const text = String(score).padStart(3, '0');
@@ -36716,7 +36864,9 @@ const DLX_BUILD = 'DXP-DAILY-v63';
     // balls overlap the explosion at the rig's impact point.
     drawCrashEffects();
     drawFog();              // mutator vignette — over world, under HUD
+    drawSpeedFx();          // speed streaks + edge vignette / cargo-steal flash
     drawScore();
+    drawCargoMeter();       // cargo payout meter (top-left)
     drawComboHud();
     drawModifierHud();
     drawLevelBanner();
@@ -38575,6 +38725,7 @@ const DLX_BUILD = 'DXP-DAILY-v63';
     dailySporeClouds        = [];
     dailyNextSporeCloudAt   = frame + 720;  // first spore cloud ~12s in
     dailyDrones = [];
+    resetIntensity();                    // cargo meter / speed streaks / steal flash
     dailyNextDroneAt = frame + 1800;     // first drone enters during stage 2
     dailyCurrentStage = 0;
     cargoZapFrames = 0;
