@@ -2265,6 +2265,22 @@
     background: #120c08; border: 2px solid #4a3115; padding: 11px 12px; text-align: center;
   }
   .dxhGarageBody .garageBalanceSub { color: #8a7355; font-size: 8px; }
+  /* Tab bar — one row of five flat tiles; active = filled gold. The
+     selected pane shows; the rest are display:none so the body only
+     scrolls the active category. */
+  .dxhGarageBody .garageTabs {
+    display: flex; gap: 4px; background: #120c08; border: 2px solid #4a3115; padding: 4px;
+  }
+  .dxhGarageBody .garageTabBtn {
+    flex: 1; cursor: pointer; -webkit-appearance: none; appearance: none;
+    font-family: 'Press Start 2P', monospace; font-size: 6px; color: #8a7355;
+    background: transparent; border: none; padding: 8px 2px; letter-spacing: .5px;
+    transition: background .1s, color .1s;
+  }
+  .dxhGarageBody .garageTabBtn:hover { color: #cdbfa6; }
+  .dxhGarageBody .garageTabBtn.active { background: #F4C20D; color: #1a120a; }
+  .dxhGarageBody .garageTab { display: none; flex-direction: column; gap: 8px; }
+  .dxhGarageBody .garageTab.active { display: flex; }
   .dxhGarageBody .garageSectionHead {
     font-family: 'Press Start 2P', monospace; font-size: 8px; color: #DC3A1E;
     letter-spacing: 1px; margin: 4px 0 2px;
@@ -2599,7 +2615,14 @@
         <div class="dxhHazard"></div>
         <div class="dxhBody dxhGarageBody">
         <div class="garageBalance">🔩 <span id="garageBalanceLabel">0</span> <span class="garageBalanceSub">SCRAP</span></div>
-        <div class="garageSectionHead">RIGS · pick your hauler</div>
+        <div class="garageTabs" id="garageTabs">
+          <button class="garageTabBtn active" data-garagetab="rigs">RIGS</button>
+          <button class="garageTabBtn" data-garagetab="upgrades">UPGRADES</button>
+          <button class="garageTabBtn" data-garagetab="skins">SKINS</button>
+          <button class="garageTabBtn" data-garagetab="trails">TRAILS</button>
+          <button class="garageTabBtn" data-garagetab="hazards">HAZARDS</button>
+        </div>
+        <div class="garageTab active" data-garagepane="rigs">
         <div class="garageItems" id="garageRigs">
           <div class="garageItem" data-rig="scout">
             <div class="garageItemHead">
@@ -2666,7 +2689,8 @@
             <button class="garageItemBtn" data-rigaction="buy" data-rig="volt">BUY 5000 🔩</button>
           </div>
         </div>
-        <div class="garageSectionHead">RIG UPGRADES · permanent buffs</div>
+        </div>
+        <div class="garageTab" data-garagepane="upgrades">
         <div class="garageItems">
           <div class="garageItem" id="garageLevelCard">
             <div class="garageItemHead">
@@ -2678,7 +2702,8 @@
             <button class="garageItemBtn" id="garageLevelBuyBtn" data-action="buyLevel">BUY</button>
           </div>
         </div>
-        <div class="garageSectionHead">SHIP SKINS</div>
+        </div>
+        <div class="garageTab" data-garagepane="skins">
         <div class="garageItems" id="garageSkins">
           <div class="garageItem garageSkin" data-skin="default">
             <div class="garageItemHead">
@@ -2697,7 +2722,8 @@
             <button class="garageItemBtn" data-skinaction="equip" data-skin="hotrod" disabled>LOCKED</button>
           </div>
         </div>
-        <div class="garageSectionHead">EXHAUST TRAILS</div>
+        </div>
+        <div class="garageTab" data-garagepane="trails">
         <div class="garageItems">
           <div class="garageItem" data-trail="default">
             <div class="garageItemHead">
@@ -2732,7 +2758,8 @@
             <button class="garageItemBtn" data-action="buy" data-trail="void">BUY 2000 🔩</button>
           </div>
         </div>
-        <div class="garageSectionHead">ROUTE HAZARDS · score multiplier</div>
+        </div>
+        <div class="garageTab" data-garagepane="hazards">
         <div class="garageItems" id="garageMods">
           <div class="garageItem garageMod" data-mod="off">
             <div class="garageItemHead">
@@ -2775,7 +2802,7 @@
             <button class="garageItemBtn" data-modaction="buy" data-mod="hardcore">BUY 2500 🔩</button>
           </div>
         </div>
-        <div class="garageHint">More cosmetics &amp; perks coming soon.</div>
+        </div>
         </div>
         <button id="garageCloseBtn" class="dxhGotit">DONE</button>
       </div>
@@ -2955,7 +2982,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v49';
+const DLX_BUILD = 'DXP-DAILY-v50';
 
 (function() {
   // ---------- Device detection ----------
@@ -40943,10 +40970,35 @@ const DLX_BUILD = 'DXP-DAILY-v49';
       }
     });
   }
+  // ---------- Garage category tabs ----------
+  // Five tiles (RIGS / UPGRADES / SKINS / TRAILS / HAZARDS) swap which
+  // pane is visible; only the active pane scrolls.
+  function selectGarageTab(name) {
+    if (!garageScreen) return;
+    garageScreen.querySelectorAll('.garageTabBtn').forEach(function(b) {
+      b.classList.toggle('active', b.getAttribute('data-garagetab') === name);
+    });
+    garageScreen.querySelectorAll('.garageTab').forEach(function(p) {
+      p.classList.toggle('active', p.getAttribute('data-garagepane') === name);
+    });
+    var body = garageScreen.querySelector('.dxhGarageBody');
+    if (body) body.scrollTop = 0;
+  }
+  if (garageScreen) {
+    garageScreen.querySelectorAll('.garageTabBtn').forEach(function(btn) {
+      var onTab = function(e) {
+        if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+        selectGarageTab(btn.getAttribute('data-garagetab'));
+      };
+      btn.addEventListener('touchend', onTab, { passive: false });
+      btn.addEventListener('click', onTab);
+    });
+  }
   function openGarage(e) {
     if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
     if (!garageScreen) return;
     refreshGaragePanel();
+    selectGarageTab('rigs');
     garageScreen.classList.remove('hidden');
     garageScreen.scrollTop = 0;
   }
