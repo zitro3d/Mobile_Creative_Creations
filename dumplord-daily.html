@@ -2935,7 +2935,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v64';
+const DLX_BUILD = 'DXP-DAILY-v65';
 
 (function() {
   // ---------- Device detection ----------
@@ -8191,6 +8191,8 @@ const DLX_BUILD = 'DXP-DAILY-v64';
       bird.vy = FLAP * 0.4;
       thrusterFrames = 30;
       playSound('launch');
+      markRunStart();    // run timer + cargo meter start on the FIRST tap,
+                         // not while the rig is parked waiting to launch
       return;
     }
     if (state === STATE_PLAY) {
@@ -36560,6 +36562,7 @@ const DLX_BUILD = 'DXP-DAILY-v64';
   }
   function updateDailyIntensity() {
     if (!isDaily || state !== STATE_PLAY) return;
+    if (dailyAwaitingLaunch) return;   // rig still parked — nothing counts yet
     // --- Cargo hold meter / payout (rewards keeping the crate) ---
     const held = cargo && cargo.attached && !cargo.lost && !dailyDelivered;
     if (held) {
@@ -36666,7 +36669,7 @@ const DLX_BUILD = 'DXP-DAILY-v64';
   function drawCargoMeter() {
     if (!isDaily || state !== STATE_PLAY) return;
     const held = cargo && cargo.attached && !cargo.lost && !dailyDelivered;
-    if (cargoPayout <= 0 && !held) return;
+    if (cargoPayout <= 0) return;   // nothing earned yet (incl. parked) — hide it
     const x = Math.max(14, Math.round(W * 0.04));
     const y = Math.max(52, Math.round(H * 0.092));
     const danger = !held && cargoPayout > 0;   // detached & at risk of being lost
@@ -38786,7 +38789,9 @@ const DLX_BUILD = 'DXP-DAILY-v64';
     bird.x = Math.round(W * BIRD_X_FRAC);
     bird.vy = FLAP;
     thrusterFrames = 5;
-    markRunStart();
+    // NOTE: run timer is NOT started here — the rig is still parked
+    // awaiting the player's first tap. markRunStart() fires in flap()
+    // when dailyAwaitingLaunch flips false (see the launch branch).
     // (Route banner removed — players see the warehouse fly-out + truck
     //  stop arrival as the visible bookends of the run.)
     // (Dispatcher daily-boot greeting + Today's Haul will play as VO
