@@ -2985,7 +2985,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v51';
+const DLX_BUILD = 'DXP-DAILY-v52';
 
 (function() {
   // ---------- Device detection ----------
@@ -38301,6 +38301,11 @@ const DLX_BUILD = 'DXP-DAILY-v51';
     ctx.restore();
   }
 
+  // Fixed-timestep loop state (see the accumulator in loop()).
+  let _loopLastT = 0;
+  let _loopAcc = 0;
+  const LOOP_STEP = 1000 / 60;   // sim is tuned to 60fps
+  const LOOP_MAX_STEPS = 5;      // cap per-frame catch-up
   function loop(t) {
     if (_rigSheetMode) {
       frame++;
@@ -38316,8 +38321,27 @@ const DLX_BUILD = 'DXP-DAILY-v51';
         _fpsFrames = 0;
       }
     }
-    // Fixed-ish step to smooth iOS variable rAF
-    update();
+    // Fixed-timestep accumulator. The simulation is tuned to 60fps
+    // (frame++, `frame % N`, per-frame velocity constants), so calling
+    // update() exactly once per rAF made the game speed track the
+    // DISPLAY rate: a phone painting 30fps ran in slow-motion (the rig
+    // "drives slowly"), and a 120Hz ProMotion phone ran at 2x. Instead,
+    // advance the sim by however many 1/60s steps real elapsed time
+    // calls for, so it always runs at REAL speed regardless of how fast
+    // the device can paint. Catch-up is capped to avoid a spiral of
+    // death on a genuinely overloaded frame.
+    if (!_loopLastT) _loopLastT = t;
+    let _elapsed = t - _loopLastT;
+    _loopLastT = t;
+    if (_elapsed > 250) _elapsed = LOOP_STEP;   // backgrounded tab: don't fast-forward
+    _loopAcc += _elapsed;
+    let _steps = 0;
+    while (_loopAcc >= LOOP_STEP && _steps < LOOP_MAX_STEPS) {
+      update();
+      _loopAcc -= LOOP_STEP;
+      _steps++;
+    }
+    if (_steps === LOOP_MAX_STEPS) _loopAcc = 0;   // drop the unpayable backlog
     render();
     if (_fpsShow) {
       ctx.save();
@@ -39898,28 +39922,49 @@ const DLX_BUILD = 'DXP-DAILY-v51';
     // keep showing behind it. isDaily flips off when the player launches
     // a campaign run via launchWithSelected().
   }
-  // Render a Wordle-style share card:
-  //   DLX Hauler · Daily Apr 22 [🏆]
+  // Render a branded, dispatch-console share card. Keeps the viral
+  // Wordle-style biome grid, but wraps it in the game's own voice
+  // (SCRAP / RIG / SECTOR, the PAID OUT vs RIG TOTALED result titles):
+  //   📡 DLX HAULER · DAILY DROP — Apr 22
   //   🟩🟩🟩🟥⬛⬛⬛⬛
-  //   Score 487 · Hauler · 🔥 3-day streak
+  //   💥 RIG TOTALED — scrapped in Sector 4/9
+  //   ▸ SCORE 487 · RIG: Hauler · 🔥 3d streak · ★ NEW BEST
+  //   Out-haul that if you can. 👇
   //   <url>
   function buildDailyShareText(run) {
     if (!run) return '';
+    const total = LEVEL_ORDER.length;
     const cells = [];
-    for (let i = 0; i < LEVEL_ORDER.length; i++) {
-      if (run.isVictory)               cells.push('🟩');         // cleared everything
-      else if (i < run.endLevelIndex)  cells.push('🟩');         // cleared this biome
-      else if (i === run.endLevelIndex) cells.push('🟥');         // died here
-      else                              cells.push('⬛');         // never reached
+    for (let i = 0; i < total; i++) {
+      if (run.isVictory)                cells.push('🟩');         // cleared everything
+      else if (i < run.endLevelIndex)   cells.push('🟩');         // cleared this biome
+      else if (i === run.endLevelIndex)  cells.push('🟥');         // died here
+      else                               cells.push('⬛');         // never reached
     }
-    const trophy  = run.isVictory ? ' 🏆' : '';
-    const streakS = run.streak > 0 ? ' · 🔥 ' + run.streak + '-day streak' : '';
+    const sector = Math.min(total, (run.endLevelIndex || 0) + 1);
+    // Verdict mirrors the in-game result-screen titles.
+    const verdict = run.isVictory
+      ? '🏆 PAID OUT — ' + (run.cargoArrived ? 'full route, cargo intact' : 'delivered, cargo lost en route')
+      : '💥 RIG TOTALED — scrapped in Sector ' + sector + '/' + total;
+    // Stats in the dispatch console's vocabulary (SCORE is the run total,
+    // distinct from SCRAP currency — don't conflate them).
+    let stats = '▸ SCORE ' + run.score + ' · RIG: ' + run.ship;
+    if (run.streak > 0) stats += ' · 🔥' + run.streak + 'd streak';
+    if (run.isNewBest)  stats += ' · ★ NEW BEST';
+    // A little swagger so the card has some bite (and varies by result).
+    const taunt = run.isVictory
+      ? 'Full route cleared. Your move, hauler. 👇'
+      : (run.score >= 300
+          ? 'Out-haul that if you can. 👇'
+          : 'Dispatch needs a real driver. 👇');
     const url = (typeof location !== 'undefined' && location.href)
       ? location.href.split('?')[0]
       : 'zitro3d.github.io/Mobile_Creative_Creations/dlx-garbage-hauler-v2.html';
-    return 'DLX Hauler · Daily Drop ' + formatDailyDate(run.date) + trophy + '\n'
+    return '📡 DLX HAULER · DAILY DROP — ' + formatDailyDate(run.date) + '\n'
          + cells.join('') + '\n'
-         + 'Score ' + run.score + ' · ' + run.ship + streakS + '\n'
+         + verdict + '\n'
+         + stats + '\n'
+         + taunt + '\n'
          + url;
   }
   // Share the last daily run. Prefers the native share sheet (iOS
