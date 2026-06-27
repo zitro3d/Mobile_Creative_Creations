@@ -2935,7 +2935,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v61';
+const DLX_BUILD = 'DXP-DAILY-v62';
 
 (function() {
   // ---------- Device detection ----------
@@ -4846,8 +4846,10 @@ const DLX_BUILD = 'DXP-DAILY-v61';
       // Small "drives a bit faster" boost (~10%) per player feedback —
       // lifts the cruise speed + cap together so the whole run feels a
       // touch quicker without going blistering.
+      // Cruise stays gentle (2.1), but the ramp now climbs a bit harder
+      // with score so a long run gets genuinely tense toward the top.
       const DAILY_SPEED_BOOST = 1.05;
-      return Math.min(3.45 * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.006) * DAILY_SPEED_BOOST * blitzMul);
+      return Math.min(3.6 * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.0085) * DAILY_SPEED_BOOST * blitzMul);
     }
     return Math.min(PIPE_SPEED_MAX * blitzMul, (PIPE_SPEED_BASE + levelProgress() * 0.02) * d.speedMul * blitzMul);
   }
@@ -8770,6 +8772,24 @@ const DLX_BUILD = 'DXP-DAILY-v61';
               dr.stateFrames = 0;
               dr.beamLen = 0;
               playSound('droneZap');
+              // Toss a HARPOON at the rig: a fire-and-forget spear aimed
+              // at where the rig is right now. The 18-frame lock hover
+              // above is the telegraph — move and it sails past. Capped
+              // so a cluster of drones can't wall the screen with spears.
+              if (dailyHarpoons.length < 4) {
+                const hdx = bird.x - dr.x;
+                const hdy = (bird.y) - dr.y;
+                const hd  = Math.max(1, Math.hypot(hdx, hdy));
+                const HSPD = 5.4;
+                dailyHarpoons.push({
+                  x: dr.x, y: dr.y + 4,
+                  vx: (hdx / hd) * HSPD,
+                  vy: (hdy / hd) * HSPD,
+                  ang: Math.atan2(hdy, hdx),
+                  life: 150,
+                });
+                playSound('droneZap');
+              }
             }
           } else if (dr.state === 'fire') {
             // Beam extends downward but stops at the dune surface — was
@@ -8806,6 +8826,17 @@ const DLX_BUILD = 'DXP-DAILY-v61';
             // retreat — slowly drift left and away
             dr.x += dr.vx * 1.4;
             if (dr.x < -50) dailyDrones.splice(i, 1);
+          }
+        }
+        // ---- Drone harpoons in flight — straight-line projectiles ----
+        for (let i = dailyHarpoons.length - 1; i >= 0; i--) {
+          const hp = dailyHarpoons[i];
+          hp.x += hp.vx;
+          hp.y += hp.vy;
+          hp.life--;
+          if (hp.life <= 0 || hp.x < -40 || hp.x > W + 40
+              || hp.y < -40 || hp.y > PLAY_H + 60) {
+            dailyHarpoons.splice(i, 1);
           }
         }
         // ---- Ground-level rival haulers — enter from stage 3 onward ----
@@ -11763,6 +11794,10 @@ const DLX_BUILD = 'DXP-DAILY-v61';
         // DLX bandit sleds — ~30 wide, rider sits above the deck.
         for (const bd of dailyDlxBandits) {
           if (Math.abs(bird.x - bd.x) < r + 15 && Math.abs(bird.y - (bd.y + 1)) < r + 11) return true;
+        }
+        // Drone harpoons in flight — the spear TIP is the kill point.
+        for (const hp of dailyHarpoons) {
+          if (Math.abs(bird.x - hp.x) < r + 4 && Math.abs(bird.y - hp.y) < r + 4) return true;
         }
       }
       // Ground rival haulers — the truck CAB is solid (the dune floor
@@ -29860,6 +29895,34 @@ const DLX_BUILD = 'DXP-DAILY-v61';
   }
 
 
+  function drawDailyHarpoons() {
+    if (!isDaily || !dailyHarpoons.length) return;
+    for (const hp of dailyHarpoons) {
+      ctx.save();
+      ctx.translate(Math.round(hp.x), Math.round(hp.y));
+      ctx.rotate(hp.ang);
+      // Shaft (steel rod with a dark core) — drawn pointing +x (the
+      // travel direction), tip at the local origin.
+      ctx.fillStyle = '#8a8f98';
+      ctx.fillRect(-15, -1, 14, 2);
+      ctx.fillStyle = '#3a3e44';
+      ctx.fillRect(-15, 0, 14, 1);
+      // Barbed arrowhead at the tip (red-hot point).
+      ctx.fillStyle = '#DC3A1E';
+      ctx.beginPath();
+      ctx.moveTo(5, 0);
+      ctx.lineTo(-3, -4);
+      ctx.lineTo(-3, 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#ffd060';
+      ctx.fillRect(4, -0.5, 1.5, 1);   // hot glint on the point
+      // Fletching at the back.
+      ctx.fillStyle = '#1a0408';
+      ctx.fillRect(-16, -3, 3, 6);
+      ctx.restore();
+    }
+  }
   function drawDailyDrones() {
     if (!isDaily || !dailyDrones.length) return;
     if (isPixelHorizonLevel()) {
@@ -36667,6 +36730,7 @@ const DLX_BUILD = 'DXP-DAILY-v61';
       drawDailyPressureBubbles();
       drawDailySporeClouds();
       drawDailyDrones();
+      drawDailyHarpoons();
       // drawDailyLavaBalls moved AFTER drawBird so fireballs
       // render IN FRONT of the rig (the threat needs to be visible
       // when it's about to collide, not hidden behind the player).
@@ -38573,6 +38637,7 @@ const DLX_BUILD = 'DXP-DAILY-v61';
     dailySporeClouds        = [];
     dailyNextSporeCloudAt   = frame + 720;  // first spore cloud ~12s in
     dailyDrones = [];
+    dailyHarpoons = [];
     dailyNextDroneAt = frame + 1800;     // first drone enters during stage 2
     dailyCurrentStage = 0;
     cargoZapFrames = 0;
@@ -39377,6 +39442,7 @@ const DLX_BUILD = 'DXP-DAILY-v61';
   let dailyNextSporeCloudAt = 0;
   let dailyNextThiefAt = 0;        // frame index when next flying thief enters
   let dailyDrones = [];            // [{ x, y, vx, state, stateFrames, beam }] — anti-magnet drones (Phase A3)
+  let dailyHarpoons = [];          // [{ x, y, vx, vy, ang, life }] — drone harpoons fired at the rig
   let dailyNextDroneAt = 0;        // frame index when next drone enters
   let dailyCurrentStage = 0;       // 0..3, advances on score thresholds (DAILY_STAGES)
   let cargoZapFrames = 0;          // counts down while the magnet bond is suppressed by a drone zap
