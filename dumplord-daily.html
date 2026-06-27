@@ -2935,7 +2935,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v60';
+const DLX_BUILD = 'DXP-DAILY-v61';
 
 (function() {
   // ---------- Device detection ----------
@@ -9342,11 +9342,13 @@ const DLX_BUILD = 'DXP-DAILY-v60';
             o.alt = 80 + Math.random() * (PLAY_H * 0.55);
           }
           dailyAirObstacles.push(o);
-          // Spacing — wider early, tighter in later stages
-          const baseGap = dailyCurrentStage >= 3 ? 240
-                        : dailyCurrentStage >= 2 ? 300
-                        : dailyCurrentStage >= 1 ? 360
-                        : 480;
+          // Spacing — wider early, tighter in later stages.
+          // v61: tightened ~10% across the board for a touch more
+          // pressure (was 480/360/300/240) — "just a notch" harder.
+          const baseGap = dailyCurrentStage >= 3 ? 216
+                        : dailyCurrentStage >= 2 ? 270
+                        : dailyCurrentStage >= 1 ? 325
+                        : 435;
           // Tunnels are 560-660 px long. After clearing one, give the
           // player room to recover before the next obstacle so they
           // aren't slammed by a tower / wreck while gravity is still
@@ -11176,8 +11178,13 @@ const DLX_BUILD = 'DXP-DAILY-v60';
             // drone zap is suppressing the bond, AND not if the cargo
             // is already lost (would create an attached=true / lost=true
             // race that breaks recovery downstream).
+            // Catch radius was 30px CENTRE-to-centre, which is barely a
+            // sprite overlap — the rig (~58px) and crate could look like
+            // they're touching yet not re-grab. Widened to 48 so a near
+            // pass actually scoops it back up.
+            const CARGO_GRAB_R = 48;
             if (cargoZapFrames === 0
-                && dx * dx + dy * dy < 30 * 30
+                && dx * dx + dy * dy < CARGO_GRAB_R * CARGO_GRAB_R
                 && !cargo.lost) {
               cargo.attached = true;
               cargo.vy = 0;
@@ -11744,6 +11751,29 @@ const DLX_BUILD = 'DXP-DAILY-v60';
           const dy = bird.y - tf.y;
           if (Math.abs(dx) < r + 26 && Math.abs(dy) < r + 14) return true;
         }
+      }
+      // Enemy vehicles are solid — flying into one wrecks the rig (used
+      // to be phase-through; only their beams/hooks did anything). Pass
+      // through with the force field / tunnel zone, same as thieves.
+      if (!passThrough) {
+        // Hover drones — body ~24x14 centred on (x,y).
+        for (const dr of dailyDrones) {
+          if (Math.abs(bird.x - dr.x) < r + 12 && Math.abs(bird.y - dr.y) < r + 8) return true;
+        }
+        // DLX bandit sleds — ~30 wide, rider sits above the deck.
+        for (const bd of dailyDlxBandits) {
+          if (Math.abs(bird.x - bd.x) < r + 15 && Math.abs(bird.y - (bd.y + 1)) < r + 11) return true;
+        }
+      }
+      // Ground rival haulers — the truck CAB is solid (the dune floor
+      // already kills on contact; this adds the cab box that pokes
+      // ~18px above the surface so you can't skim straight over the
+      // truck). Treated like terrain, so the field doesn't bypass it.
+      for (const op of dailyGroundOps) {
+        const sx = op.worldX - dailyScrollX;
+        if (Math.abs(bird.x - sx) > r + 14) continue;
+        const gy = terrainHeightAt(op.worldX);
+        if (bird.y + r > gy - 18 && bird.y - r < gy - 2) return true;
       }
       // Lava balls — pass through with field. ANVIL perk: Heat Shield
       // absorbs the first lava-ball hit per run, then arms gravity normal
