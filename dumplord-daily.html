@@ -19,12 +19,11 @@
      PNG is full-bleed on purpose — do not pre-round. -->
 <link rel="apple-touch-icon" href="assets/dlx-hauler-icon-180.png">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/dlx-hauler-icon-180.png">
-<!-- Retro home-screen fonts (DLX dispatch terminal redesign). Press
-     Start 2P = blocky arcade caps, VT323 = CRT terminal numerals.
-     Both fall back to monospace gracefully if the device is offline. -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<!-- Retro fonts (Press Start 2P + VT323) are SELF-HOSTED via @font-face
+     in the stylesheet (fonts/*.woff2, precached by the SW) so they
+     render instantly + offline with no CDN flash. -->
+<link rel="preload" href="fonts/press-start-2p-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/vt323-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- Preload the Sunset ambient so the browser starts downloading it in
      parallel with the HTML/JS parse, not after the player taps. -->
 <link rel="preload" href="audio/DLX.m4a" as="audio" type="audio/mp4">
@@ -34,6 +33,17 @@
 <link rel="preload" href="audio/MXBX_v06.m4a" as="audio" type="audio/mp4">
 <title>DUMPLORD X-PRESS — Daily Drop</title>
 <style>
+  /* Self-hosted retro fonts (latin subset) so the worn-terminal type
+     renders instantly + offline, no CDN flash or monospace fallback.
+     Files precached by the service worker. */
+  @font-face {
+    font-family: 'Press Start 2P'; font-style: normal; font-weight: 400;
+    font-display: block; src: url('fonts/press-start-2p-latin.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'VT323'; font-style: normal; font-weight: 400;
+    font-display: block; src: url('fonts/vt323-latin.woff2') format('woff2');
+  }
   :root {
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -522,73 +532,32 @@
      buys so a stray scroll-tap on a BUY button can't drain tokens. The
      modal sits at the body level (outside the scrolling garage screen)
      so it stays anchored in viewport regardless of scroll position. */
+  /* CONFIRM PURCHASE — worn-terminal dialog (matches result screens).
+     Toggled by .visible (not .hidden) by the existing garage JS. */
   #buyConfirmModal {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.82);
-    z-index: 50;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-    pointer-events: auto;
+    position: fixed; inset: 0; z-index: 80; display: none;
+    align-items: center; justify-content: center;
+    padding: calc(var(--safe-top, 0px) + 16px) 16px calc(var(--safe-bottom, 0px) + 16px);
+    background: rgba(8,6,4,.82); pointer-events: auto;
+    font-family: 'VT323', monospace; animation: dlxFadeIn .15s ease-out;
   }
   #buyConfirmModal.visible { display: flex; }
-  #buyConfirmModal .panel {
-    background: rgba(8, 16, 24, 0.98);
-    border: 2px solid #ffd83d;
-    border-radius: 12px;
-    padding: 18px 20px;
-    max-width: 320px;
-    width: 100%;
-    box-shadow: 0 0 26px rgba(255, 200, 60, 0.35);
-    text-align: center;
-    color: #fff;
-    font-size: 13px;
-    line-height: 1.5;
+  #buyConfirmModal .bcRow { display: flex; justify-content: space-between; align-items: center; padding: 10px 2px; }
+  #buyConfirmModal .bcL { font-family: 'Press Start 2P', monospace; font-size: 8px; color: #8a7355; }
+  #buyConfirmModal .bcV { font-family: 'Press Start 2P', monospace; font-size: 10px; color: #E8DCC8; display: inline-flex; align-items: center; gap: 5px; }
+  #bcConfirmBtn.dxhGotit {
+    margin: 0 !important; background: #F4C20D !important; color: #1a120a !important;
+    border: 4px solid #000 !important; border-radius: 0 !important;
+    box-shadow: 4px 4px 0 #8f1f0e !important; padding: 13px 4px !important;
+    font-family: 'Press Start 2P', monospace !important; font-size: 11px !important;
+    letter-spacing: 1px !important; cursor: pointer;
   }
-  #buyConfirmModal .bcTitle {
-    font-family: "Courier New", monospace;
-    font-weight: 900;
-    font-size: 16px;
-    letter-spacing: 2px;
-    color: #ffd83d;
-    margin-bottom: 8px;
+  #bcConfirmBtn.dxhGotit:hover { background: #ffd23c !important; }
+  #bcConfirmBtn.dxhGotit:active { transform: translate(4px,4px) !important; box-shadow: 0 0 0 #8f1f0e !important; }
+  #bcConfirmBtn.disabled, #bcConfirmBtn:disabled {
+    background: #241a10 !important; color: #5a4a35 !important; box-shadow: none !important;
+    border-color: #4a3115 !important; cursor: default !important;
   }
-  #buyConfirmModal .bcItem { font-size: 18px; color: #fff; margin: 6px 0; }
-  #buyConfirmModal .bcLine { color: #cfe6ff; }
-  #buyConfirmModal .bcCost { color: #ffd83d; font-weight: 700; }
-  #buyConfirmModal .bcAfter { color: #a4d8ff; }
-  #buyConfirmModal .bcBtns {
-    display: flex;
-    gap: 12px;
-    margin-top: 14px;
-    justify-content: center;
-  }
-  #buyConfirmModal button {
-    flex: 1;
-    padding: 10px 14px;
-    border-radius: 8px;
-    border: 2px solid;
-    font-family: "Courier New", monospace;
-    font-weight: 900;
-    font-size: 14px;
-    letter-spacing: 1.5px;
-    cursor: pointer;
-    pointer-events: auto;
-  }
-  #bcCancelBtn {
-    background: rgba(60, 60, 70, 0.6);
-    border-color: #5a6a78;
-    color: #cfd8e0;
-  }
-  #bcConfirmBtn {
-    background: rgba(255, 180, 30, 0.18);
-    border-color: #ffd83d;
-    color: #ffd83d;
-  }
-  #bcConfirmBtn:active { transform: scale(0.96); }
-  #bcCancelBtn:active { transform: scale(0.96); }
   .garagePanel {
     background: rgba(6, 12, 20, 0.96);
     border: 2px solid #6ab8ff;
@@ -2812,15 +2781,18 @@
       </div>
     </div>
     <div id="buyConfirmModal">
-      <div class="panel">
-        <div class="bcTitle">CONFIRM PURCHASE</div>
-        <div class="bcItem" id="bcItem">—</div>
-        <div class="bcLine">Cost: <span class="bcCost" id="bcCost">0 🔩</span></div>
-        <div class="bcLine">You have: <span id="bcBalance">0 🔩</span></div>
-        <div class="bcAfter">After: <span id="bcAfter">0 🔩</span></div>
-        <div class="bcBtns">
-          <button id="bcCancelBtn">CANCEL</button>
-          <button id="bcConfirmBtn">CONFIRM</button>
+      <div class="dxhPanel" style="max-width:322px">
+        <div class="dxhHead"><span class="dxhTitle" style="font-size:9px">CONFIRM PURCHASE</span><div class="dxhX" data-bcclose>X</div></div>
+        <div class="dxhHazard" style="background:repeating-linear-gradient(45deg,#F4C20D 0 10px,#1a120c 10px 20px)"></div>
+        <div style="padding:16px 14px 14px">
+          <div id="bcItem" style="text-align:center;font-family:'Press Start 2P',monospace;font-size:11px;color:#F4C20D;text-shadow:2px 2px 0 #8f1f0e;margin-bottom:14px;line-height:1.4">—</div>
+          <div class="bcRow" style="border-bottom:2px solid #4a3115"><span class="bcL">COST</span><span class="bcV"><span id="bcCost">0</span><span class="dxhNut" style="color:#E8DCC8"></span></span></div>
+          <div class="bcRow" style="border-bottom:2px solid #4a3115"><span class="bcL">YOU HAVE</span><span class="bcV"><span id="bcBalance">0</span><span class="dxhNut" style="color:#E8DCC8"></span></span></div>
+          <div class="bcRow"><span class="bcL">AFTER</span><span class="bcV" id="bcAfterWrap" style="color:#A6E22E"><span id="bcAfter">0</span><span class="dxhNut"></span></span></div>
+          <div style="display:flex;gap:9px;margin-top:14px">
+            <button id="bcCancelBtn" class="dxhBtn2" style="flex:1">CANCEL</button>
+            <button id="bcConfirmBtn" class="dxhGotit" style="flex:1.3;margin:0">CONFIRM</button>
+          </div>
         </div>
       </div>
     </div>
@@ -2983,7 +2955,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v48';
+const DLX_BUILD = 'DXP-DAILY-v49';
 
 (function() {
   // ---------- Device detection ----------
@@ -36541,93 +36513,67 @@ const DLX_BUILD = 'DXP-DAILY-v48';
     ctx.restore();
   }
 
+  // Tiny 8-bit hex-nut sprite for the HUD token chip (mirrors the CSS
+  // .dxhNut). 5x6 pixel grid; px = pixel size; (x,y) = top-left.
+  function drawHudNut(x, y, px, color) {
+    ctx.fillStyle = color;
+    const P = [[1,0],[2,0],[3,0],[0,1],[4,1],[0,2],[2,2],[4,2],[0,3],[4,3],[0,4],[4,4],[1,5],[2,5],[3,5]];
+    for (let i = 0; i < P.length; i++) ctx.fillRect((x + P[i][0]*px)|0, (y + P[i][1]*px)|0, px, px);
+  }
   function drawScore() {
     if (state === STATE_OVER || state === STATE_READY) return;
     const text = String(score).padStart(3, '0');
-    // Score moved into the top-RIGHT corner where the old mute/pause
-    // HUD buttons were, and shrunk to take up that space. Right-aligned
-    // so it grows leftward as digits are added. rx = right anchor.
-    const size = Math.round(H * 0.038);
-    const rx = W - Math.max(14, Math.round(W * 0.04));
-    const y = Math.max(34, H * 0.06);
-    const pulseScale = 1 + scorePulse * 0.5;
-
-    // Per-theme score styling so the HUD belongs to the level.
-    // - 'crt' (organic): cyan outer glow + white flash pulse.
-    // - 'crystal' (cave): pale cyan crystal glow, thinner stroke, no
-    //   chunky bolt-emoji chip — replaces the "cube-like" Sunset look.
-    const crt = isDaily && currentDeliveryLevel
-                && currentDeliveryLevel.obstacleTheme === 'organic';
-    const crystal = isDaily && currentDeliveryLevel
-                && currentDeliveryLevel.obstacleTheme === 'cave';
+    // Score HUD per the design spec: Press Start 2P ~24px, gold fill,
+    // 2px dark outline + 3px red drop shadow (down-right) for the
+    // stamped look. Pinned top-right, right-aligned so it grows
+    // leftward, with a scale-pulse on each tick.
+    const size = Math.max(20, Math.round(H * 0.033));
+    const rx = W - Math.max(16, Math.round(W * 0.042));
+    const y = Math.max(34, H * 0.058);
+    const pulseScale = 1 + scorePulse * 0.18;   // 1 -> ~1.18 on a tick
 
     ctx.save();
     ctx.translate(rx, y);
-    ctx.scale(pulseScale, pulseScale);
-    // Pixel-art score font to match the home screen. Press Start 2P is
-    // chunkier + wider than the old Courier, so trim the size ~18% to
-    // keep a high score from overflowing on narrow phones. Falls back
-    // to monospace until the web font finishes loading.
-    ctx.font = Math.round(size * 0.82) + 'px "Press Start 2P", "Courier New", monospace';
+    ctx.scale(pulseScale, pulseScale);          // origin = right anchor
+    ctx.font = size + 'px "Press Start 2P", "Courier New", monospace';
     ctx.textAlign = 'right';
-    if (crt) {
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = 'rgba(120, 240, 220, 0.95)';
-    } else if (crystal) {
-      ctx.shadowBlur = 14;
-      ctx.shadowColor = 'rgba(140, 220, 255, 0.95)';
-    }
-    ctx.lineWidth = crystal ? 2 : 4;
-    ctx.strokeStyle = crystal ? 'rgba(8, 16, 28, 0.95)'
-                       : crt ? '#04181a'
-                             : '#3a1a05';
-    ctx.fillStyle = crystal ? '#d8f0ff'
-                     : crt   ? '#7ff8e0'
-                             : '#ffd280';
+    ctx.textBaseline = 'alphabetic';
+    // 3px red drop shadow (down-right)
+    ctx.fillStyle = '#8f1f0e';
+    ctx.fillText(text, 3, 3);
+    // 2px hard dark outline on all sides
+    ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1a120a';
     ctx.strokeText(text, 0, 0);
+    // gold fill
+    ctx.fillStyle = '#F4C20D';
     ctx.fillText(text, 0, 0);
-    ctx.shadowBlur = 0;
-    if (crt && scorePulse > 0.4) {
-      // Bright white flash overlay during the score-pulse window
-      ctx.globalAlpha = (scorePulse - 0.4) * 0.6;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(text, 0, 0);
-      ctx.globalAlpha = 1.0;
-    }
-    if (crystal && scorePulse > 0.3) {
-      // Cyan flash on score pulse — softer than the organic white flash
-      ctx.globalAlpha = (scorePulse - 0.3) * 0.55;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(text, 0, 0);
-      ctx.globalAlpha = 1.0;
-    }
     ctx.restore();
 
-    // Run-earnings chip — shows this run's pickup count just under
-    // the score. Hidden during boot ready-state and on game-over.
-    // Cave levels swap the bolt-cog emoji (which iOS renders as a
-    // chunky cube) for a 💎 diamond glyph and a crystal palette so
-    // the chip belongs to the cavern, not the wasteland.
+    // Run-token chip — a small boxed "[nut] +N" in cyan (this-run
+    // earnings, distinct from gold total scrap), right-aligned under
+    // the score. No emoji — the nut is drawn as pixels.
     if (state === STATE_PLAY && runTokens > 0) {
-      // Right-aligned under the relocated top-right score so the two
-      // read as one stacked HUD cluster.
-      const cy = y + size * 1.05;
-      const tokenSize = Math.max(11, Math.round(size * 0.42));
+      const cf = Math.max(8, Math.round(size * 0.40));
       ctx.save();
-      ctx.font = 'bold ' + tokenSize + 'px "Courier New", monospace';
-      ctx.textAlign = 'right';
-      ctx.lineWidth = crystal ? 2 : 3;
-      ctx.strokeStyle = crystal ? 'rgba(8, 16, 28, 0.95)' : '#1a0e05';
-      ctx.fillStyle   = crystal ? '#cfeeff' : '#a4d8ff';
-      if (crystal) {
-        ctx.shadowBlur = 8;
-        ctx.shadowColor = 'rgba(140, 220, 255, 0.85)';
-      }
-      const glyph = crystal ? '💎' : '🔩';
-      const t = glyph + ' +' + runTokens;
-      ctx.strokeText(t, rx, cy);
-      ctx.fillText(t, rx, cy);
-      ctx.shadowBlur = 0;
+      ctx.font = cf + 'px "Press Start 2P", "Courier New", monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      const label = '+' + runTokens;
+      const nutPx = Math.max(1, Math.round(cf / 6));
+      const nutW = 5 * nutPx, nutH = 6 * nutPx;
+      const tw = ctx.measureText(label).width;
+      const padX = 7, padY = 4, gap = 5;
+      const chipW = padX * 2 + nutW + gap + tw;
+      const chipH = Math.max(cf, nutH) + padY * 2;
+      const chipX = rx - chipW;
+      const chipY = (y + size * 0.45) | 0;
+      // box
+      ctx.fillStyle = '#120c08'; ctx.fillRect(chipX, chipY, chipW, chipH);
+      ctx.lineWidth = 2; ctx.strokeStyle = '#4a3115';
+      ctx.strokeRect(chipX + 1, chipY + 1, chipW - 2, chipH - 2);
+      // nut + label (cyan)
+      drawHudNut(chipX + padX, chipY + (chipH - nutH) / 2, nutPx, '#6CB7E8');
+      ctx.fillStyle = '#6CB7E8';
+      ctx.fillText(label, chipX + padX + nutW + gap, chipY + chipH / 2 + 1);
       ctx.restore();
     }
   }
@@ -41027,10 +40973,19 @@ const DLX_BUILD = 'DXP-DAILY-v48';
   function showBuyConfirm(opts) {
     if (!buyConfirmEl || !opts) return;
     pendingPurchase = opts;
+    // Numbers only — the 8-bit nut sprite next to each value lives in
+    // the markup (no 🔩 emoji per the design).
+    const after = tokensTotal - opts.cost;
     if (bcItemEl)    bcItemEl.textContent    = opts.label;
-    if (bcCostEl)    bcCostEl.textContent    = opts.cost + ' 🔩';
-    if (bcBalanceEl) bcBalanceEl.textContent = tokensTotal + ' 🔩';
-    if (bcAfterEl)   bcAfterEl.textContent   = (tokensTotal - opts.cost) + ' 🔩';
+    if (bcCostEl)    bcCostEl.textContent    = String(opts.cost);
+    if (bcBalanceEl) bcBalanceEl.textContent = String(tokensTotal);
+    if (bcAfterEl)   bcAfterEl.textContent   = String(after);
+    // AFTER goes green when affordable, red + CONFIRM disabled if it
+    // would push the balance negative.
+    const afterWrap = document.getElementById('bcAfterWrap');
+    const canAfford = after >= 0;
+    if (afterWrap) afterWrap.style.color = canAfford ? '#A6E22E' : '#DC3A1E';
+    if (bcConfirmEl) bcConfirmEl.classList.toggle('disabled', !canAfford);
     buyConfirmEl.classList.add('visible');
   }
   function hideBuyConfirm() {
@@ -41071,6 +41026,13 @@ const DLX_BUILD = 'DXP-DAILY-v48';
         hideBuyConfirm();
       }
     }, { passive: false });
+    // X close box in the header
+    const bcX = buyConfirmEl.querySelector('[data-bcclose]');
+    if (bcX) {
+      const onX = function(e){ if (e){ e.stopPropagation(); if (e.cancelable) e.preventDefault(); } hideBuyConfirm(); };
+      bcX.addEventListener('touchend', onX, { passive: false });
+      bcX.addEventListener('click', onX);
+    }
   }
 
   // ---------- Scroll-vs-tap guard for the garage screen ----------
