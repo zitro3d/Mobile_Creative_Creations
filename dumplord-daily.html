@@ -2935,7 +2935,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v65';
+const DLX_BUILD = 'DXP-DAILY-v66';
 
 (function() {
   // ---------- Device detection ----------
@@ -36668,23 +36668,44 @@ const DLX_BUILD = 'DXP-DAILY-v65';
   }
   function drawCargoMeter() {
     if (!isDaily || state !== STATE_PLAY) return;
-    const held = cargo && cargo.attached && !cargo.lost && !dailyDelivered;
     if (cargoPayout <= 0) return;   // nothing earned yet (incl. parked) — hide it
-    const x = Math.max(14, Math.round(W * 0.04));
-    const y = Math.max(52, Math.round(H * 0.092));
+    const held = cargo && cargo.attached && !cargo.lost && !dailyDelivered;
     const danger = !held && cargoPayout > 0;   // detached & at risk of being lost
+    const accent = danger ? '#DC3A1E' : '#A6E22E';
+    // Worn-terminal HUD chip — dark panel, brown border, hazard accent
+    // bar, crate glyph + "CARGO +N" in the pixel face, so it reads
+    // clearly over the busy desert and matches the menu UI.
+    const fs = Math.max(9, Math.round(H * 0.0135));
     ctx.save();
-    // crate icon
-    ctx.fillStyle = danger ? '#DC3A1E' : '#A6E22E';
-    ctx.fillRect(x, y, 12, 11);
-    ctx.fillStyle = '#1a120a';
-    ctx.fillRect(x + 1, y + 4, 10, 2);          // hazard band
-    // "+N" pending payout in the score-HUD font
-    ctx.font = '10px "Press Start 2P", "Courier New", monospace';
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    const label = '+' + cargoPayout;
-    ctx.fillStyle = '#1a120a'; ctx.fillText(label, x + 18, y + 2);
-    ctx.fillStyle = danger ? '#DC3A1E' : '#F4C20D'; ctx.fillText(label, x + 17, y + 1);
+    ctx.font = fs + 'px "Press Start 2P", "Courier New", monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    const label = 'CARGO +' + cargoPayout;
+    const tw = ctx.measureText(label).width;
+    const ipx = Math.max(2, Math.round(fs / 5));
+    const iconW = 4 * ipx, iconH = 4 * ipx;
+    const padX = 8, padY = 6, gap = 7, accentW = 3;
+    const chipW = accentW + padX * 2 + iconW + gap + tw;
+    const chipH = Math.max(fs, iconH) + padY * 2;
+    const x = Math.max(12, Math.round(W * 0.035));
+    const y = Math.max(48, Math.round(H * 0.085));
+    // panel + border
+    ctx.fillStyle = '#120c08';
+    ctx.fillRect(x, y, chipW, chipH);
+    ctx.lineWidth = 2; ctx.strokeStyle = '#4a3115';
+    ctx.strokeRect(x + 1, y + 1, chipW - 2, chipH - 2);
+    // hazard accent bar (green held / red at-risk)
+    ctx.fillStyle = accent;
+    ctx.fillRect(x, y, accentW, chipH);
+    // crate glyph
+    const ix = x + accentW + padX, iy = (y + chipH / 2 - iconH / 2) | 0;
+    ctx.fillStyle = accent;
+    ctx.fillRect(ix, iy, iconW, iconH);
+    ctx.fillStyle = '#120c08';
+    ctx.fillRect(ix, iy + (iconH * 0.42 | 0), iconW, Math.max(1, ipx));   // hazard band
+    // label — dark stamp shadow then bright fill
+    const tx = ix + iconW + gap, ty = y + chipH / 2 + 1;
+    ctx.fillStyle = '#1a0a06'; ctx.fillText(label, tx + 1, ty + 1);
+    ctx.fillStyle = danger ? '#ff5a3c' : '#F4C20D'; ctx.fillText(label, tx, ty);
     ctx.restore();
   }
   function drawScore() {
