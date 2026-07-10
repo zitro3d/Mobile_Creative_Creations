@@ -2377,7 +2377,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v436';
+const DLX_BUILD = 'v437';
 
 (function() {
   // ---------- Device detection ----------
@@ -29027,10 +29027,12 @@ const DLX_BUILD = 'v436';
     ctx.save();
     ctx.font = 'bold ' + size + 'px "Courier New", monospace';
     ctx.textAlign = 'center';
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = '#ffb347';
-    ctx.fillStyle = mul >= 3 ? '#ffe066' : '#ffd280';
     const y = Math.max(70, H * 0.14 - 10) + size + 6;
+    // Stamped offset shadow instead of a per-frame shadowBlur (blur is
+    // one of the most expensive canvas ops on mobile; this reads the same).
+    ctx.fillStyle = 'rgba(40, 22, 6, 0.85)';
+    ctx.fillText(text, W / 2 + 2, y + 2);
+    ctx.fillStyle = mul >= 3 ? '#ffe066' : '#ffd280';
     ctx.fillText(text, W / 2, y);
     ctx.restore();
   }
@@ -29118,19 +29120,27 @@ const DLX_BUILD = 'v436';
     drawFlash();
     ctx.restore();
   }
+  let _fogGrad = null, _fogKey = '';
   function drawFog() {
     if (!isMod('fog') || state !== STATE_PLAY) return;
-    const cx = bird.x;
-    const cy = bird.y;
-    const inner = BIRD_R * 3.5;
-    const outer = Math.max(W, PLAY_H) * 0.55;
-    const g = ctx.createRadialGradient(cx, cy, inner, cx, cy, outer);
-    g.addColorStop(0,    'rgba(20, 22, 32, 0)');
-    g.addColorStop(0.55, 'rgba(20, 22, 32, 0.58)');
-    g.addColorStop(1,    'rgba(8, 10, 18, 0.94)');
+    // Cache the radial gradient built at the origin and move it with the
+    // rig via translate — center + radii only change when the ship
+    // (BIRD_R) or viewport (W/PLAY_H) change, not every frame.
+    const key = BIRD_R + '|' + W + '|' + PLAY_H;
+    if (_fogKey !== key) {
+      const inner = BIRD_R * 3.5;
+      const outer = Math.max(W, PLAY_H) * 0.55;
+      _fogGrad = ctx.createRadialGradient(0, 0, inner, 0, 0, outer);
+      _fogGrad.addColorStop(0,    'rgba(20, 22, 32, 0)');
+      _fogGrad.addColorStop(0.55, 'rgba(20, 22, 32, 0.58)');
+      _fogGrad.addColorStop(1,    'rgba(8, 10, 18, 0.94)');
+      _fogKey = key;
+    }
+    const cx = bird.x, cy = bird.y;
     ctx.save();
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, PLAY_H);
+    ctx.translate(cx, cy);
+    ctx.fillStyle = _fogGrad;
+    ctx.fillRect(-cx, -cy, W, PLAY_H);
     ctx.restore();
   }
   // ---------- Glow-bats (Glow Chamber) ----------------------------
