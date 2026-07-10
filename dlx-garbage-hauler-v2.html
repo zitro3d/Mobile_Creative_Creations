@@ -2377,7 +2377,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v435';
+const DLX_BUILD = 'v436';
 
 (function() {
   // ---------- Device detection ----------
@@ -4920,7 +4920,6 @@ const DLX_BUILD = 'v435';
   // so existing call-sites compile without churn.)
   let scoreFloaters = [];
   function emitScoreFloater() { /* removed in v408 */ }
-  function updateScoreFloaters() { /* removed in v408 */ }
   function drawScoreFloaters() { /* removed in v408 */ }
 
   // ---------- The Dispatcher ----------
@@ -7782,6 +7781,21 @@ const DLX_BUILD = 'v435';
   function update() {
     if (state === STATE_PAUSED || state === STATE_VICTORY) return;
     frame++;
+    // Camera shake / kickback advance in the SIM (fixed 60fps) so their
+    // duration doesn't scale with display refresh rate. The offset is
+    // precomputed here and merely applied in render() (keeps render a
+    // pure function of state — no RNG, no counter decrements there).
+    if (shakeFrames > 0) {
+      shakeFrames--;
+      shakeOX = (Math.random() * 2 - 1) * 5;
+      shakeOY = (Math.random() * 2 - 1) * 5;
+    } else if (kickbackFrames > 0) {
+      kickbackFrames--;
+      shakeOX = (Math.random() * 2 - 1) * 2;
+      shakeOY = (Math.random() * 2 - 1) * 2;
+    } else {
+      shakeOX = 0; shakeOY = 0;
+    }
 
     updateStars();
     updateDust();
@@ -10719,7 +10733,6 @@ const DLX_BUILD = 'v435';
       updateHazard();
       updateSparks();
       updatePickupSparks();
-      updateScoreFloaters();
       if (frame % 6 === 0) refreshHud();
 
       if (collide()) {
@@ -29031,20 +29044,9 @@ const DLX_BUILD = 'v435';
 
   function render() {
     ctx.save();
-    if (shakeFrames > 0) {
-      // Offset by a random −5..+5 on each axis
-      const ox = (Math.random() * 2 - 1) * 5;
-      const oy = (Math.random() * 2 - 1) * 5;
-      ctx.translate(ox, oy);
-      shakeFrames--;
-    } else if (kickbackFrames > 0) {
-      // Pro-tier polish (v329): tiny 2px Freighter kickback shake when
-      // no bigger shake is already running. ~6 frames = ~100ms at 60fps.
-      const ox = (Math.random() * 2 - 1) * 2;
-      const oy = (Math.random() * 2 - 1) * 2;
-      ctx.translate(ox, oy);
-      kickbackFrames--;
-    }
+    // Apply the shake offset computed in update() (advanced at the fixed
+    // sim rate so its duration is refresh-rate independent).
+    if (shakeOX || shakeOY) ctx.translate(shakeOX, shakeOY);
     if (isDaily) drawDailySky();
     else drawBackground();
     if (isDaily) drawDailyDust();   // light atmospheric dust over the sky
@@ -30528,9 +30530,30 @@ const DLX_BUILD = 'v435';
   }
 
   let last = 0;
+  // Fixed-timestep loop state. The sim is tuned to 60fps (frame++,
+  // per-frame gravity/scroll/timers), so we advance it by however many
+  // 1/60s steps real elapsed time calls for. Calling update() once per
+  // rAF made game speed track the DISPLAY refresh rate — 2x on a 120Hz
+  // ProMotion phone, half on a 30fps drop. Catch-up is capped so a hitch
+  // can't trigger a spiral of death.
+  let _loopLastT = 0;
+  let _loopAcc = 0;
+  let shakeOX = 0, shakeOY = 0;   // camera-shake offset, computed in update()
+  const LOOP_STEP = 1000 / 60;
+  const LOOP_MAX_STEPS = 5;
   function loop(t) {
-    // Fixed-ish step to smooth iOS variable rAF
-    update();
+    if (!_loopLastT) _loopLastT = t;
+    let elapsed = t - _loopLastT;
+    _loopLastT = t;
+    if (elapsed > 250) elapsed = LOOP_STEP;   // backgrounded tab: don't fast-forward
+    _loopAcc += elapsed;
+    let steps = 0;
+    while (_loopAcc >= LOOP_STEP && steps < LOOP_MAX_STEPS) {
+      update();
+      _loopAcc -= LOOP_STEP;
+      steps++;
+    }
+    if (steps === LOOP_MAX_STEPS) _loopAcc = 0;   // drop unpayable backlog
     render();
     requestAnimationFrame(loop);
   }
