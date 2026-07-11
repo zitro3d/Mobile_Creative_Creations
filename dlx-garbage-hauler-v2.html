@@ -2394,7 +2394,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v438';
+const DLX_BUILD = 'v439';
 
 (function() {
   // ---------- Device detection ----------
@@ -24495,6 +24495,34 @@ const DLX_BUILD = 'v438';
   }
 
   // Floating garbage items in each gap — theme-specific debris set.
+  // Cached radial-gradient glow sprite — replaces per-frame ctx.shadowBlur
+  // (one of the most expensive canvas ops on mobile) with a pre-baked
+  // bitmap blit. Built once per (color,radius) and reused.
+  const _glowCache = {};
+  function glowSprite(color, radius) {
+    const r = Math.max(4, Math.round(radius));
+    const key = color + '|' + r;
+    if (_glowCache[key]) return _glowCache[key];
+    const size = r * 2 + 2;
+    const cvs = document.createElement('canvas');
+    cvs.width = size; cvs.height = size;
+    const g = cvs.getContext('2d');
+    const cxr = r + 1;
+    const grad = g.createRadialGradient(cxr, cxr, 0, cxr, cxr, r);
+    const hex6 = typeof color === 'string' && color[0] === '#' && color.length === 7;
+    grad.addColorStop(0,    hex6 ? color + 'cc' : color);
+    grad.addColorStop(0.45, hex6 ? color + '66' : color);
+    grad.addColorStop(1,    hex6 ? color + '00' : 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, size, size);
+    _glowCache[key] = cvs;
+    return cvs;
+  }
+  // Blit a cached glow centred on (cx,cy) in the CURRENT transform.
+  function blitGlow(color, radius, cx, cy) {
+    const r = Math.max(4, Math.round(radius));
+    ctx.drawImage(glowSprite(color, r), (cx - r - 1) | 0, (cy - r - 1) | 0);
+  }
   function drawAllDebris() {
     for (const p of pipes) {
       if (p.destroyed) continue;
@@ -24507,6 +24535,7 @@ const DLX_BUILD = 'v438';
         ctx.save();
         if (p.debris.gold) {
           // Per-tier glow halo so higher-tier crates pop loud at a glance.
+          // Cached-sprite glow instead of a per-frame shadowBlur pass.
           const haloByTier = {
             bronze: { color: '#ffae5c', blur: 10 },
             silver: { color: '#dde4ee', blur: 12 },
@@ -24514,8 +24543,7 @@ const DLX_BUILD = 'v438';
             mythic: { color: '#ff8af0', blur: 18 },
           };
           const halo = haloByTier[p.debris.tier] || haloByTier.gold;
-          ctx.shadowBlur = halo.blur;
-          ctx.shadowColor = halo.color;
+          blitGlow(halo.color, 15 + halo.blur, cx, cy + bob);
         }
         ctx.translate(cx, cy + bob);
         ctx.rotate(rot);
@@ -24538,8 +24566,8 @@ const DLX_BUILD = 'v438';
     const pulse = 1 + Math.sin(frame * 0.12) * 0.08;
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = color;
+    // Cached-sprite glow behind the capsule (was a per-frame shadowBlur).
+    blitGlow(color, 20, 0, 0);
     // Outer ring
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
@@ -24551,8 +24579,7 @@ const DLX_BUILD = 'v438';
     ctx.beginPath();
     ctx.arc(0, 0, 11, 0, Math.PI * 2);
     ctx.fill();
-    // Icon
-    ctx.shadowBlur = 6;
+    // Icon (glow already handled by the cached blit behind the capsule)
     ctx.fillStyle = color;
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
