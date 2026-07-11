@@ -1679,6 +1679,22 @@
     transform: translateY(4px);
     box-shadow: 0 1px 0 #b8860b;
   }
+  #gameOverHomeBtn {
+    margin-top: 10px;
+    padding: 9px 22px;
+    font-size: clamp(12px, 3vmin, 15px);
+    font-family: inherit;
+    font-weight: 800;
+    color: #ffd83d;
+    background: transparent;
+    border: 2px solid rgba(255, 216, 61, 0.45);
+    border-radius: 10px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    -webkit-appearance: none;
+    transition: transform 0.05s, background 0.1s;
+  }
+  #gameOverHomeBtn:active { transform: translateY(2px); background: rgba(255, 216, 61, 0.1); }
   .hidden { display: none !important; }
 
   #shipPicker {
@@ -2288,7 +2304,8 @@
         <div id="gameOverTokens" class="tokensChip hidden"></div>
         <div id="gameOverDaily" class="dailyChip hidden"></div>
         <button id="gameOverShareBtn" class="dailyShareBtn hidden">SHARE RESULT</button>
-        <button id="restartBtn">NEW DELIVERY</button>
+        <button id="restartBtn">RETRY ▶</button>
+        <button id="gameOverHomeBtn">HOME · GARAGE</button>
       </div>
     </div>
   </div>
@@ -2377,7 +2394,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v437';
+const DLX_BUILD = 'v438';
 
 (function() {
   // ---------- Device detection ----------
@@ -33482,15 +33499,21 @@ const DLX_BUILD = 'v437';
   }
 
   function restart() {
-    // If the run was a daily, NEW DELIVERY should restart the daily
-    // directly instead of dropping back into the campaign home.
+    // If the run was a daily, restart the daily directly.
     if (isDaily) {
       startDailyChallenge();
       return;
     }
-    // Returning to home — clear isDaily so the campaign home preview
-    // renders behind the start overlay (otherwise the dropped cargo +
-    // tether keep drawing on the wasteland scene under the home buttons).
+    // INSTANT RETRY (the flappy "one more" reflex): go straight back into
+    // a run at the resume biome with the current rig — no trip through the
+    // home menu. launchWithSelected() re-reads the resume level, rebuilds
+    // the biome, hides the overlay, and drops the player into STATE_PLAY
+    // with an initial upward kick. The Game Over screen's HOME button is
+    // for when they DO want the ship picker / garage.
+    launchWithSelected();
+  }
+  // Return to the home / ship-picker screen from the Game Over panel.
+  function goHomeFromGameOver() {
     isDaily = false;
     reset();
     state = STATE_READY;
@@ -33584,6 +33607,17 @@ const DLX_BUILD = 'v437';
     e.stopPropagation();
     restart();
   });
+  // Game Over → HOME · GARAGE (the deliberate "I want to change rigs /
+  // shop" path, separate from the instant RETRY).
+  const gameOverHomeBtn = document.getElementById('gameOverHomeBtn');
+  if (gameOverHomeBtn) {
+    const goHome = function(e) {
+      if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+      goHomeFromGameOver();
+    };
+    gameOverHomeBtn.addEventListener('touchend', goHome, { passive: false });
+    gameOverHomeBtn.addEventListener('click', goHome);
+  }
 
   // Prevent iOS gestures that disrupt gameplay
   document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
