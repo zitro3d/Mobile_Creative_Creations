@@ -2394,7 +2394,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v439';
+const DLX_BUILD = 'v440';
 
 (function() {
   // ---------- Device detection ----------
@@ -10766,7 +10766,10 @@ const DLX_BUILD = 'v439';
           shakeFrames = 12;
           breakCombo();
           emitDeathShards(bird.x, bird.y);
-          if (score > best) {
+          // Best score is a clean-run record: don't let a mutator run
+          // (Sandstorm/Outrun/Bare Metal etc. carry score multipliers up
+          // to ×3) inflate and pollute the shared high score.
+          if (score > best && !currentModifier()) {
             best = score;
             localStorage.setItem('flappy_best_ios_v2', String(best));
           }
@@ -28904,18 +28907,12 @@ const DLX_BUILD = 'v439';
     ctx.translate(bird.x, bird.y);
     const base = BIRD_R + 6;
     const r = base + Math.sin(frame * 0.18) * 2;
-    // Soft mint radial glow
-    const g = ctx.createRadialGradient(0, 0, 2, 0, 0, r + 5);
-    g.addColorStop(0,   'rgba(184, 255, 232, 0.40)');
-    g.addColorStop(0.55,'rgba(120, 240, 200, 0.22)');
-    g.addColorStop(1,   'rgba(80,  200, 160, 0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(0, 0, r + 5, 0, Math.PI * 2);
-    ctx.fill();
-    // Dashed spinning ring — the ethereal "you're phasing" cue
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = '#b8ffe8';
+    // Soft mint glow — cached glow sprite instead of a per-frame radial
+    // gradient + shadowBlur (both expensive when they run every frame the
+    // ghost power-up is active).
+    blitGlow('#8ff0d4', r + 8, 0, 0);
+    // Dashed spinning ring — the ethereal "you're phasing" cue. No
+    // shadowBlur; the glow blit behind supplies the halo.
     ctx.strokeStyle = 'rgba(184, 255, 232, 0.85)';
     ctx.lineWidth = 1.4;
     ctx.setLineDash([4, 5]);
@@ -28924,7 +28921,6 @@ const DLX_BUILD = 'v439';
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
