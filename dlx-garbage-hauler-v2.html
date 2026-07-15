@@ -2394,7 +2394,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'v440';
+const DLX_BUILD = 'v441';
 
 (function() {
   // ---------- Device detection ----------
@@ -4712,6 +4712,7 @@ const DLX_BUILD = 'v440';
   let comboMax      = 0;
   let missiles      = [];  // active missile shots
   let loot          = [];  // collectible items revealed by missile destruction
+  let closeCalls    = [];  // [{x,y,life,max}] — "CLOSE!" near-miss pops
 
   // ---------- Campaign progression ----------
   // Campaign rotation. 'bonepile' is the Chapter-1 echo level —
@@ -7236,6 +7237,7 @@ const DLX_BUILD = 'v440';
     comboMax = 0;
     missiles = [];
     loot = [];
+    closeCalls = [];
     initStars();
     initDust();
     initNebula();
@@ -10726,6 +10728,21 @@ const DLX_BUILD = 'v440';
         checkGapPickups(p);
       }
 
+      // Track the tightest clearance while threading each gap — drives
+      // the CLOSE CALL near-miss bonus. Skipped while phasing (ghost /
+      // force field), since that isn't a skill thread.
+      if (ghostFrames === 0 && forceFieldFrames === 0) {
+        const rr = BIRD_R - 3;
+        for (const p of pipes) {
+          if (p.passed || p.destroyed) continue;
+          if (bird.x + rr > p.x && bird.x - rr < p.x + PIPE_W) {
+            const dyy = p.driftY || 0;
+            const minClear = Math.min((bird.y - rr) - (p.top + dyy),
+                                      (p.top + p.gap + dyy) - (bird.y + rr));
+            if (minClear > 0 && (p.nmClear == null || minClear < p.nmClear)) p.nmClear = minClear;
+          }
+        }
+      }
       for (const p of pipes) {
         if (!p.passed && p.x + PIPE_W < bird.x) {
           p.passed = true;
@@ -10736,6 +10753,16 @@ const DLX_BUILD = 'v440';
           scorePulse = 1;
           emitScoreBurst(p.x + PIPE_W / 2, p.top + p.gap / 2);
           safeVibrate(12);
+          // CLOSE CALL — threaded the gap with < ~13px to spare. Bonus
+          // points + a rising "CLOSE!" pop + a brighter pulse.
+          if (p.nmClear != null && p.nmClear < 13) {
+            grantScore(2);
+            scorePulse = 1;
+            closeCalls.push({ x: bird.x + 16, y: bird.y - 24, life: 0, max: 42 });
+            emitPickupSparks(bird.x, bird.y, '#7ff0ff', 8);
+            playSound('powerup');
+            safeVibrate([8, 12, 8]);
+          }
         }
       }
 
@@ -10750,6 +10777,7 @@ const DLX_BUILD = 'v440';
       updateHazard();
       updateSparks();
       updatePickupSparks();
+      updateCloseCalls();
       if (frame % 6 === 0) refreshHud();
 
       if (collide()) {
@@ -10808,6 +10836,31 @@ const DLX_BUILD = 'v440';
     }
   }
 
+  // "CLOSE!" near-miss pops — rise + fade over their lifespan.
+  function updateCloseCalls() {
+    for (let i = closeCalls.length - 1; i >= 0; i--) {
+      const c = closeCalls[i];
+      c.life++;
+      if (c.life >= c.max) closeCalls.splice(i, 1);
+    }
+  }
+  function drawCloseCalls() {
+    if (!closeCalls.length) return;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold ' + Math.round(H * 0.028) + 'px "Courier New", monospace';
+    for (const c of closeCalls) {
+      const t = c.life / c.max;
+      const y = c.y - t * 26;              // rise
+      ctx.globalAlpha = 1 - t * t;          // ease-out fade
+      ctx.fillStyle = 'rgba(20, 30, 40, 0.85)';
+      ctx.fillText('CLOSE!', c.x + 2, y + 2);
+      ctx.fillStyle = '#7ff0ff';
+      ctx.fillText('CLOSE!', c.x, y);
+    }
+    ctx.restore();
+  }
   function emitScoreBurst(cx, cy) {
     const n = 12 + Math.floor(Math.random() * 4);
     for (let i = 0; i < n; i++) {
@@ -29153,6 +29206,7 @@ const DLX_BUILD = 'v440';
     drawHazard();
     drawBird();
     drawFog();              // mutator vignette — over world, under HUD
+    drawCloseCalls();       // near-miss "CLOSE!" pops (world-space, under HUD)
     drawScore();
     drawComboHud();
     drawModifierHud();
