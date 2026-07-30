@@ -28,6 +28,15 @@
   }
   window.addEventListener('resize', fit); fit();
 
+  // ---------- deterministic "poster mode" (for the build/critic loop) ----------
+  // ?shot=<piece> freezes a curated, reproducible showcase frame so an agent
+  // can render + judge one piece the same way every round. Randomness is
+  // seeded so successive rounds differ ONLY by code changes.
+  const SHOT = new URLSearchParams(location.search).get('shot');
+  let posterMode = false;
+  if (SHOT){ let seed = 987654321;
+    Math.random = () => { seed = (seed*1664525 + 1013904223) >>> 0; return seed/4294967296; }; }
+
   // ---------- palette (cute + spunky candy-sunset) ----------
   const INK = '#3a2233';          // universal chunky sticker outline
   const SKY0 = '#ffd97a', SKY1 = '#ff9e7d', SKY2 = '#ff6f91', SKY3 = '#a56ad6';
@@ -106,6 +115,7 @@
     for(let i=puffs.length-1;i>=0;i--){ const p=puffs[i]; p.life++; p.r+=0.6; if(p.life>=p.max) puffs.splice(i,1); }
     for(let i=parts.length-1;i>=0;i--){ const p=parts[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.25; p.vx*=0.96; p.life++; if(p.life>=p.max) parts.splice(i,1); }
     for(let i=pops.length-1;i>=0;i--){ const p=pops[i]; p.life++; p.y-=1.1; if(p.life>=p.max) pops.splice(i,1); }
+    if (posterMode) return;   // freeze gameplay; fx + frame still animate
 
     if (state===START){ hauler.y = H*0.45 + Math.sin(frame*0.06)*10; hauler.mouth = 0.2+Math.sin(frame*0.1)*0.15; return; }
     if (state!==PLAY) return;
@@ -363,6 +373,35 @@
     if (state===START) drawStart();
     if (state===OVER) drawOver();
   }
+
+  // ---------- poster scenes ----------
+  function setupPoster(){
+    posterMode = true; state = PLAY;
+    hauler.x = W*0.40; hauler.y = H*0.46; hauler.vy = 0; hauler.tilt = -0.10;
+    hauler.mouth = 1; hauler.chomp = 0.7; hauler.look = 0.3;
+    foods = []; parts = []; pops = []; puffs = [];
+    if (SHOT === 'hauler'){
+      // the money shot: a donut being chomped, more food incoming
+      foods.push({type:'donut',  x:hauler.x+34, y:hauler.y,   r:24, bob:0, spin:0, rot:0, eaten:0.30, hazard:false});
+      foods.push({type:'apple',  x:W-64,        y:H*0.28,     r:24, bob:0, spin:0, rot:0, eaten:0,    hazard:false});
+      foods.push({type:'cherry', x:W-42,        y:H*0.64,     r:22, bob:1, spin:0, rot:0, eaten:0,    hazard:false});
+      burst(hauler.x+30, hauler.y, '#ff8fd0');
+      pops.push({x:hauler.x+30, y:hauler.y-16, txt:'+1', life:6, max:34, big:false});
+    } else if (SHOT === 'food'){
+      // a tasting menu: every food type in a tidy grid + one mine
+      const t = FOODS; let i=0;
+      for(let gy=0; gy<3; gy++) for(let gx=0; gx<3; gx++){ if(i>=t.length) break;
+        foods.push({type:t[i], x:W*0.22+gx*W*0.28, y:H*0.24+gy*H*0.20, r:30, bob:i*0.7, spin:0, rot:0, eaten:0, hazard:false}); i++; }
+      foods.push({type:'mine', x:W*0.5, y:H*0.82, r:26, bob:0, spin:0, rot:0.3, eaten:0, hazard:true});
+      hauler.x = -100; // hide the truck for a pure food board
+    } else if (SHOT === 'world'){
+      // atmosphere: sky, parallax, ground/conveyor, hauler cruising
+      hauler.tilt = 0.02; hauler.mouth = 0.25;
+      foods.push({type:'burger', x:W*0.72, y:H*0.40, r:26, bob:0, spin:0, rot:0, eaten:0, hazard:false});
+      foods.push({type:'can',    x:W*0.90, y:H*0.62, r:22, bob:0, spin:0, rot:0, eaten:0, hazard:false});
+    }
+  }
+  if (SHOT) setupPoster();
 
   // ---------- fixed-timestep loop ----------
   let acc=0, last=performance.now();
