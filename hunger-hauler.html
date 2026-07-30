@@ -170,79 +170,480 @@
 
   // ---------- drawing: world ----------
   function drawSky(){
+    // ---- rich candy-sunset gradient (extra stops for creamy top + glow band) ----
     const g=ctx.createLinearGradient(0,0,0,H);
-    g.addColorStop(0,SKY0); g.addColorStop(0.42,SKY1); g.addColorStop(0.72,SKY2); g.addColorStop(1,SKY3);
+    g.addColorStop(0.00,'#ffe89c');
+    g.addColorStop(0.22,SKY0);
+    g.addColorStop(0.46,SKY1);
+    g.addColorStop(0.70,SKY2);
+    g.addColorStop(1.00,SKY3);
     ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-    // soft sun
-    ctx.save(); ctx.globalAlpha=0.5; ctx.fillStyle='#fff2c8';
-    circle(W*0.72, H*0.30, 70); ctx.fill(); ctx.restore();
-    // fluffy background clouds (parallax)
-    ctx.save(); ctx.globalAlpha=0.55; ctx.fillStyle='#ffe9e0';
-    for(let i=0;i<4;i++){ const cx=((i*160 - frame*0.4)%(W+220))+ -40; const cy=110+i*70;
-      cloud(cx, cy, 40+i*6); }
+
+    const sunX=W*0.72, sunY=H*0.28;
+
+    // ---- warm atmospheric bloom behind the sun ----
+    let bloom=ctx.createRadialGradient(sunX,sunY,8,sunX,sunY,300);
+    bloom.addColorStop(0,'rgba(255,247,205,0.9)');
+    bloom.addColorStop(0.35,'rgba(255,214,150,0.42)');
+    bloom.addColorStop(1,'rgba(255,170,150,0)');
+    ctx.fillStyle=bloom; ctx.fillRect(0,0,W,H*0.66);
+
+    // ---- soft god-rays fanning from the sun ----
+    ctx.save(); ctx.translate(sunX,sunY); ctx.rotate(frame*0.0015);
+    ctx.globalAlpha=0.12; ctx.fillStyle='#fff6cc';
+    for(let i=0;i<12;i++){ ctx.rotate(Math.PI/6);
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-15,340); ctx.lineTo(15,340); ctx.closePath(); ctx.fill(); }
+    ctx.restore();
+
+    // ---- glossy layered sun disc ----
+    ctx.save();
+    let sg=ctx.createRadialGradient(sunX-16,sunY-18,6,sunX,sunY,58);
+    sg.addColorStop(0,'#fffef4'); sg.addColorStop(0.5,'#fff0b6'); sg.addColorStop(1,'#ffcf7e');
+    ctx.fillStyle=sg; circle(sunX,sunY,54); ctx.fill();
+    ctx.globalAlpha=0.55; ctx.fillStyle='#fffdf0'; circle(sunX-16,sunY-18,17); ctx.fill();
+    ctx.restore();
+
+    // ---- distant parallax hill layers (horizon depth) ----
+    // traces the scalloped crest, optionally offset downward by `drop`, into the
+    // current path (left→right). Used for silhouette, fills, rims + tonal bands.
+    const crest=(hy,amp,step,off,drop)=>{
+      const d=drop||0;
+      ctx.moveTo(-step, hy+d);
+      for(let x=-step-off;x<W+step;x+=step){ ctx.quadraticCurveTo(x+step*0.5,hy-amp+d,x+step,hy+d); }
+    };
+    // FAR ridge — soft depth, shaded vertical gradient
+    {
+      const hy=H*0.665, amp=34, step=132, off=(frame*0.10)%(step*2);
+      let fg=ctx.createLinearGradient(0,hy-amp,0,H);
+      fg.addColorStop(0,'#e2aee4'); fg.addColorStop(0.5,'#c98cd2'); fg.addColorStop(1,'#9c5cbc');
+      ctx.fillStyle=fg;
+      ctx.beginPath(); ctx.moveTo(-step,H); ctx.lineTo(-step,hy);
+      for(let x=-step-off;x<W+step;x+=step){ ctx.quadraticCurveTo(x+step*0.5,hy-amp,x+step,hy); }
+      ctx.lineTo(W+step,H); ctx.closePath(); ctx.fill();
+      // warm sunlit crest rim
+      ctx.strokeStyle='rgba(255,228,196,0.75)'; ctx.lineWidth=2.6; ctx.globalAlpha=0.75;
+      ctx.beginPath(); crest(hy,amp,step,off,0); ctx.stroke(); ctx.globalAlpha=1;
+    }
+    // ---------------------------------------------------------------
+    //  NEAR GROUND MASS — the big lavender surface: richly shaded
+    //  vertical gradient + top-lit rim + scalloped tonal bands + dapple
+    // ---------------------------------------------------------------
+    {
+      const hy=H*0.735, amp=44, step=168, off=(frame*0.22)%(step*2);
+      ctx.save();
+      // build the silhouette once, use it for fill + as a clip for shading
+      ctx.beginPath(); ctx.moveTo(-step,H+4); ctx.lineTo(-step,hy);
+      for(let x=-step-off;x<W+step;x+=step){ ctx.quadraticCurveTo(x+step*0.5,hy-amp,x+step,hy); }
+      ctx.lineTo(W+step,H+4); ctx.closePath();
+      // rich vertical light→dark gradient
+      let mg=ctx.createLinearGradient(0,hy-amp,0,H);
+      mg.addColorStop(0.00,'#c98fd8');
+      mg.addColorStop(0.28,'#a866c6');
+      mg.addColorStop(0.62,'#8a4aab');
+      mg.addColorStop(1.00,'#5f2d82');
+      ctx.fillStyle=mg; ctx.fill();
+
+      // everything below stays inside the mass
+      ctx.clip();
+
+      // side-to-side sun warmth wash (brighter toward the sun on the right)
+      let warm=ctx.createLinearGradient(0,0,W,0);
+      warm.addColorStop(0,'rgba(120,70,150,0.16)');
+      warm.addColorStop(0.6,'rgba(255,190,170,0.0)');
+      warm.addColorStop(1,'rgba(255,196,150,0.20)');
+      ctx.fillStyle=warm; ctx.fillRect(0,hy-amp,W,H);
+
+      // scalloped tonal bands echoing the crest — soft light/dark ripples
+      const band=(drop,fill,a)=>{
+        ctx.globalAlpha=a; ctx.fillStyle=fill;
+        ctx.beginPath();
+        crest(hy,amp,step,off,drop);
+        ctx.lineTo(W+step,H+4); ctx.lineTo(-step,H+4); ctx.closePath(); ctx.fill();
+      };
+      band(amp*0.9,'rgba(60,26,86,0.22)',1);    // shadow trough below crest line
+      band(amp*1.9,'rgba(180,120,205,0.16)',1); // lighter mid rise
+      band(amp*3.0,'rgba(52,22,74,0.20)',1);    // deeper lower band
+      ctx.globalAlpha=1;
+
+      // dappled soft texture — light on top faces, dark in the hollows
+      const dap=(seed,n,cy0,cy1,col,rmin,rmax)=>{
+        ctx.fillStyle=col; let s=seed;
+        const rr2=()=>{ s=(s*1103515245+12345)&0x7fffffff; return s/0x7fffffff; };
+        for(let i=0;i<n;i++){
+          const px=rr2()*(W+80)-40;
+          const py=cy0+rr2()*(cy1-cy0);
+          const rd=rmin+rr2()*(rmax-rmin);
+          ctx.beginPath(); ctx.ellipse(px,py,rd,rd*0.62,0,0,7); ctx.fill();
+        }
+      };
+      ctx.globalAlpha=0.10; dap(9137, 26, hy+6, H-40, '#e6c4f0', 6, 15);  // light dapple
+      ctx.globalAlpha=0.12; dap(4421, 22, hy+30, H-6,  '#3d1a58', 7, 18); // dark dapple
+      ctx.globalAlpha=1;
+
+      // gentle ground contact darkening where the conveyor band will sit
+      let base=ctx.createLinearGradient(0,H-70,0,H);
+      base.addColorStop(0,'rgba(40,16,60,0)'); base.addColorStop(1,'rgba(40,16,60,0.42)');
+      ctx.fillStyle=base; ctx.fillRect(0,H-70,W,70);
+      ctx.restore();
+
+      // bright top-lit highlight rim along the upper edge of the mass
+      ctx.save();
+      ctx.strokeStyle='rgba(255,214,236,0.9)'; ctx.lineWidth=3.2; ctx.lineJoin='round';
+      ctx.beginPath(); crest(hy,amp,step,off,0); ctx.stroke();
+      // soft inner glow just under the rim
+      ctx.strokeStyle='rgba(255,236,250,0.35)'; ctx.lineWidth=6; ctx.globalAlpha=0.6;
+      ctx.beginPath(); crest(hy,amp,step,off,3); ctx.stroke();
+      ctx.restore();
+    }
+
+    // ---- parallax cloud layers (far small/faint, near big/bright) ----
+    ctx.save(); ctx.globalAlpha=0.5;
+    for(let i=0;i<4;i++){ const cx=(((i*150 - frame*0.35)%(W+260))+W+260)%(W+260)-90; cloud(cx, 92+i*46, 26+i*4); }
+    ctx.restore();
+    ctx.save(); ctx.globalAlpha=0.92;
+    for(let i=0;i<3;i++){ const cx=(((i*210 - frame*0.85)%(W+320))+W+320)%(W+320)-120; cloud(cx, 150+i*118, 46+ (i%2)*10); }
+    ctx.restore();
+
+    // ---- tiny drifting sparkles for a magical dusk feel ----
+    ctx.save(); ctx.fillStyle='#fff9e6';
+    for(let i=0;i<7;i++){
+      const sx=((i*97 + frame*0.2)%(W+30))-15;
+      const sy=70+ ((i*163)%320) + Math.sin(frame*0.03+i)*6;
+      const tw=0.35+0.35*Math.sin(frame*0.08+i*1.7);
+      ctx.globalAlpha=tw; const s=1.1+ (i%3)*0.5;
+      ctx.beginPath(); ctx.moveTo(sx,sy-s*2); ctx.lineTo(sx+s*0.7,sy); ctx.lineTo(sx,sy+s*2); ctx.lineTo(sx-s*0.7,sy); ctx.closePath(); ctx.fill();
+    }
     ctx.restore();
   }
-  function cloud(x,y,r){ circle(x,y,r); ctx.fill(); circle(x+r*0.9,y+6,r*0.75); ctx.fill(); circle(x-r*0.9,y+8,r*0.7); ctx.fill(); }
+  function cloud(x,y,r){
+    // chunky multi-lobe candy cloud: soft outline + top rim-light + under-shadow
+    ctx.save(); ctx.lineJoin='round';
+    const lobes=[[-r*1.2,r*0.16,r*0.60],[-r*0.6,-r*0.16,r*0.86],[0,-r*0.30,r*1.02],
+                 [r*0.62,-r*0.14,r*0.84],[r*1.2,r*0.18,r*0.58],[r*0.5,r*0.30,r*0.66],[-r*0.42,r*0.30,r*0.66]];
+    ctx.beginPath();
+    for(const l of lobes){ ctx.moveTo(x+l[0]+l[2], y+l[1]); ctx.arc(x+l[0],y+l[1],l[2],0,7); }
+    // body gradient: bright creamy top → soft pink-lavender base
+    let cg=ctx.createLinearGradient(0,y-r*1.25,0,y+r*0.95);
+    cg.addColorStop(0,'#fffdf7'); cg.addColorStop(0.52,'#ffe6ef'); cg.addColorStop(1,'#eeb4d4');
+    ctx.fillStyle=cg; ctx.fill();
+    // clip to silhouette for internal shading
+    ctx.save(); ctx.clip();
+    // warm top rim light
+    ctx.fillStyle='rgba(255,250,230,0.85)';
+    ctx.beginPath(); ctx.ellipse(x-r*0.1,y-r*0.62,r*1.05,r*0.42,0,0,7); ctx.fill();
+    // soft cool under-shadow
+    ctx.fillStyle='rgba(150,90,160,0.30)';
+    ctx.beginPath(); ctx.ellipse(x+r*0.15,y+r*0.55,r*1.15,r*0.44,0,0,7); ctx.fill();
+    // little scallop shadow line separating base puffs
+    ctx.strokeStyle='rgba(180,120,180,0.22)'; ctx.lineWidth=r*0.06;
+    ctx.beginPath(); ctx.moveTo(x-r*0.85,y+r*0.28); ctx.quadraticCurveTo(x-r*0.2,y+r*0.5,x+r*0.35,y+r*0.24); ctx.stroke();
+    ctx.restore();
+    ctx.restore();
+  }
   function drawGround(){
     const gy=H-56;
-    ctx.fillStyle='#7d4a86'; ctx.fillRect(0,gy,W,56);
-    ctx.fillStyle='#5f3568'; ctx.fillRect(0,gy,W,8);
-    // conveyor dashes
-    ctx.fillStyle='#ffd166';
-    const off = (frame*speed)% 44;
-    for(let x=-44; x<W+44; x+=44){ rr(x-off, gy+22, 26, 8, 4); ctx.fill(); }
+    ctx.save(); ctx.lineJoin='round';
+
+    // ---- soft cast shadow the band throws up onto the world ----
+    let sh=ctx.createLinearGradient(0,gy-16,0,gy+4);
+    sh.addColorStop(0,'rgba(40,14,44,0)'); sh.addColorStop(1,'rgba(40,14,44,0.30)');
+    ctx.fillStyle=sh; ctx.fillRect(0,gy-16,W,20);
+
+    // ---- main chassis body (rich vertical purple gradient) ----
+    let bg=ctx.createLinearGradient(0,gy,0,H);
+    bg.addColorStop(0,'#9a5aa4'); bg.addColorStop(0.30,'#7d4a86'); bg.addColorStop(1,'#4a2652');
+    ctx.fillStyle=bg; ctx.fillRect(0,gy,W,56);
+
+    // ---- sunlit rounded top lip ----
+    let lip=ctx.createLinearGradient(0,gy,0,gy+11);
+    lip.addColorStop(0,'#efb2e0'); lip.addColorStop(1,'#96569e');
+    ctx.fillStyle=lip; ctx.fillRect(0,gy,W,8);
+    ctx.fillStyle='rgba(255,236,248,0.75)'; ctx.fillRect(0,gy,W,2);
+
+    // bolt studs riveted along the lip
+    ctx.fillStyle='#5c3366';
+    for(let x=14;x<W;x+=52){ circle(x,gy+13,2.6); ctx.fill();
+      ctx.fillStyle='rgba(255,225,245,0.5)'; circle(x-0.8,gy+12,1); ctx.fill(); ctx.fillStyle='#5c3366'; }
+
+    // ---- recessed conveyor lane (dark inset channel) ----
+    const ly=gy+21, lh=24;
+    ctx.fillStyle='#331a3b'; ctx.fillRect(0,ly-3,W,lh+5);
+    // inner-shadow top edge of the channel
+    ctx.fillStyle='rgba(0,0,0,0.28)'; ctx.fillRect(0,ly-3,W,3);
+    // bright rail line under the lip
+    ctx.fillStyle='rgba(210,150,210,0.45)'; ctx.fillRect(0,ly-4,W,1.4);
+
+    // ---- moving chunky candy treads on the belt ----
+    const off=(frame*speed)%50;
+    for(let x=-50;x<W+50;x+=50){
+      const bx=x-off;
+      // gap shadow between blocks
+      ctx.fillStyle='rgba(0,0,0,0.30)'; rr(bx+1,ly+1,40,lh-2,6); ctx.fill();
+      // tread block, warm candy gradient
+      let tg=ctx.createLinearGradient(0,ly,0,ly+lh);
+      tg.addColorStop(0,'#ffe487'); tg.addColorStop(0.5,'#ffc23c'); tg.addColorStop(1,'#df8a1e');
+      ctx.fillStyle=tg; ctx.strokeStyle='#5a2f14'; ctx.lineWidth=2;
+      rr(bx+4,ly+2,34,lh-4,6); ctx.fill(); ctx.stroke();
+      // glossy top strip
+      ctx.fillStyle='rgba(255,255,255,0.55)'; rr(bx+7,ly+4,28,3.6,2); ctx.fill();
+      // little grip notch (extra chunk/character)
+      ctx.fillStyle='rgba(120,64,20,0.55)'; rr(bx+19,ly+8,3,lh-13,1.5); ctx.fill();
+    }
+
+    // ---- roller cap wheels peeking at the lane ends (3D anchors) ----
+    for(const rx of [-4,W+4]){
+      let wg=ctx.createRadialGradient(rx-4,ly+lh*0.4,2,rx,ly+lh*0.5,20);
+      wg.addColorStop(0,'#c98fce'); wg.addColorStop(1,'#5c3366');
+      ctx.fillStyle=wg; circle(rx,ly+lh*0.5,15); ctx.fill();
+      ctx.strokeStyle='#3a1f42'; ctx.lineWidth=2.5; circle(rx,ly+lh*0.5,15); ctx.stroke();
+    }
+
+    // ---- base grime shadow so the band grounds heavily ----
+    ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.fillRect(0,H-6,W,6);
+    ctx.restore();
   }
 
   // ---------- drawing: hauler ----------
   function drawHauler(){
     const x=hauler.x, y=hauler.y;
+    // shared mint palette (multi-tone sticker shading)
+    const MINT_HI='#a8f7e6', MINT='#45d8c7', MINT_MD='#26bcac', MINT_LO='#12a191', MINT_SH='#0c8477';
+    const rot=(px,py,a)=>[px*Math.cos(a)-py*Math.sin(a), px*Math.sin(a)+py*Math.cos(a)];
+
     ctx.save(); ctx.translate(x,y); ctx.rotate(hauler.tilt);
-    // hover glow
-    ctx.save(); ctx.globalAlpha=0.5; ctx.fillStyle='#8ef0ff';
-    ctx.filter='blur(4px)'; ctx.beginPath(); ctx.ellipse(0,30,34,10,0,0,7); ctx.fill(); ctx.restore();
-    // engine flame (rear = left)
-    const fl = 10 + Math.sin(frame*0.6)*4;
-    ctx.fillStyle='#ffd166';
-    ctx.beginPath(); ctx.moveTo(-34,4); ctx.lineTo(-34-fl,10); ctx.lineTo(-34,16); ctx.closePath(); ctx.fill();
-    ctx.fillStyle='#ff7a3c';
-    ctx.beginPath(); ctx.moveTo(-34,7); ctx.lineTo(-34-fl*0.6,10); ctx.lineTo(-34,13); ctx.closePath(); ctx.fill();
+    ctx.lineJoin='round'; ctx.lineCap='round';
 
-    ctx.lineJoin='round'; ctx.lineWidth=4; ctx.strokeStyle=INK;
-    // chassis
-    ctx.fillStyle='#3ad0c0';
-    rr(-34,-20,64,40,16); ctx.fill(); ctx.stroke();
-    // cream belly
-    ctx.fillStyle='#eafff8'; rr(-30,4,56,14,9); ctx.fill();
-    // nozzle housings
-    ctx.fillStyle='#2ea597'; rr(-36,10,12,12,5); ctx.fill(); ctx.stroke();
-    // cab window + cute eye
-    ctx.fillStyle='#0e2a3a'; rr(-16,-14,22,18,8); ctx.fill(); ctx.stroke();
-    ctx.fillStyle='#eafcff'; circle(-2+hauler.look*4,-6,6); ctx.fill();
-    ctx.fillStyle=INK; circle(0+hauler.look*5,-5,3); ctx.fill();
-    ctx.fillStyle='#fff'; circle(-1+hauler.look*4,-7,1.5); ctx.fill();
-    // antenna
-    ctx.strokeStyle=INK; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(-24,-20); ctx.lineTo(-30,-34); ctx.stroke();
-    ctx.fillStyle='#ff6f91'; circle(-30,-36,4); ctx.fill();
+    // ---- hover glow + ground shadow ----
+    ctx.save(); ctx.globalAlpha=0.55; ctx.fillStyle='#9bf6ff'; ctx.filter='blur(5px)';
+    ctx.beginPath(); ctx.ellipse(2,34,40,11,0,0,7); ctx.fill(); ctx.restore();
 
-    // ---- MOUTH (front = right), Pac-Man chomp ----
-    const m = hauler.mouth * (0.55 + hauler.chomp*0.5); // 0..~1 open
+    // ---- twin hover-jet plumes (underside) ----
+    const jf = 8 + Math.sin(frame*0.7)*3;
+    for(const jx of [-18,10]){
+      ctx.save(); ctx.globalAlpha=0.85;
+      const jg=ctx.createLinearGradient(0,20,0,30+jf);
+      jg.addColorStop(0,'#bff9ff'); jg.addColorStop(0.5,'#66d9ff'); jg.addColorStop(1,'rgba(120,200,255,0)');
+      ctx.fillStyle=jg;
+      ctx.beginPath(); ctx.moveTo(jx-7,20); ctx.quadraticCurveTo(jx,30+jf, jx,32+jf);
+      ctx.quadraticCurveTo(jx,30+jf, jx+7,20); ctx.closePath(); ctx.fill(); ctx.restore();
+    }
+
+    // ---- rear engine flame (rear = left) ----
+    const fl = 12 + Math.sin(frame*0.6)*5;
     ctx.save();
-    ctx.translate(30,0);
-    // mouth interior
-    ctx.fillStyle='#ff5c8a'; rr(-8,-16,16,32,8); ctx.fill();
-    ctx.fillStyle='#c23a63'; rr(-8,2,16,14,7); ctx.fill(); // tongue shadow
-    // upper + lower jaw open around interior
-    ctx.strokeStyle=INK; ctx.lineWidth=4; ctx.fillStyle='#3ad0c0';
-    const open = 18*m;
-    // upper jaw
-    ctx.beginPath(); ctx.moveTo(-10,-16-open*0.2); ctx.quadraticCurveTo(14,-14-open, 16,-open);
-    ctx.lineTo(-2,-2); ctx.lineTo(-10,-16-open*0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
-    // lower jaw
-    ctx.beginPath(); ctx.moveTo(-10,16+open*0.2); ctx.quadraticCurveTo(14,14+open, 16,open);
-    ctx.lineTo(-2,2); ctx.lineTo(-10,16+open*0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
+    const fg=ctx.createLinearGradient(-34,0,-40-fl,0);
+    fg.addColorStop(0,'#fff3b0'); fg.addColorStop(0.55,'#ffb14a'); fg.addColorStop(1,'rgba(255,90,60,0)');
+    ctx.fillStyle=fg;
+    ctx.beginPath(); ctx.moveTo(-32,-8); ctx.quadraticCurveTo(-40-fl,-2,-42-fl,3);
+    ctx.quadraticCurveTo(-40-fl,8,-32,12); ctx.quadraticCurveTo(-30,2,-32,-8); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#fff7cf'; ctx.beginPath(); ctx.moveTo(-32,-2); ctx.quadraticCurveTo(-36-fl*0.5,1,-37-fl*0.4,3);
+    ctx.quadraticCurveTo(-36-fl*0.5,5,-32,8); ctx.closePath(); ctx.fill();
     ctx.restore();
 
+    // ==================================================================
+    //  MOUTH JAWS (front = right) — drawn first, body overlaps the hinge
+    // ==================================================================
+    const m = clamp(hauler.mouth * (0.5 + hauler.chomp*0.55), 0, 1);
+    const a = 0.42 * m;                 // open angle
+    ctx.save(); ctx.translate(11,1);    // hinge just inside the body front
+
+    // dark throat behind the donut so the bite reads deep
+    ctx.fillStyle='#7d1330';
+    ctx.beginPath(); ctx.moveTo(-6,0);
+    { const [ux,uy]=rot(30,-4,-a), [lx,ly]=rot(30,4,a);
+      ctx.lineTo(ux,uy); ctx.lineTo(34,0); ctx.lineTo(lx,ly); }
+    ctx.closePath(); ctx.fill();
+
+    // --- jaw shape builder (snout that emerges from the body) ---
+    function jawPath(sign){ // sign -1 upper, +1 lower
+      ctx.beginPath();
+      ctx.moveTo(-10, sign*4);
+      ctx.lineTo(-10, sign*23);
+      ctx.quadraticCurveTo(6, sign*27, 22, sign*22);
+      ctx.quadraticCurveTo(32, sign*18, 33, sign*7);
+      ctx.lineTo(31, sign*4);
+      ctx.closePath();
+    }
+    // UPPER jaw (rotate up = -a)
+    ctx.save(); ctx.rotate(-a);
+    let jg=ctx.createLinearGradient(0,-24,0,4);
+    jg.addColorStop(0,MINT_HI); jg.addColorStop(0.5,MINT); jg.addColorStop(1,MINT_MD);
+    ctx.fillStyle=jg; ctx.lineWidth=4.5; ctx.strokeStyle=INK; jawPath(-1); ctx.fill(); ctx.stroke();
+    // glossy top highlight
+    ctx.fillStyle='rgba(255,255,255,0.4)';
+    ctx.beginPath(); ctx.moveTo(-4,-20); ctx.quadraticCurveTo(10,-24,22,-19);
+    ctx.quadraticCurveTo(12,-17,-4,-16); ctx.closePath(); ctx.fill();
+    // upper teeth
+    ctx.fillStyle='#fff'; ctx.strokeStyle=INK; ctx.lineWidth=2;
+    for(const tx of [4,15,25]){ rr(tx-3.2,-4.5,6.4,7,2.2); ctx.fill(); ctx.stroke(); }
     ctx.restore();
+
+    // LOWER jaw (rotate down = +a)
+    ctx.save(); ctx.rotate(a);
+    jg=ctx.createLinearGradient(0,-4,0,24);
+    jg.addColorStop(0,MINT); jg.addColorStop(0.55,MINT_LO); jg.addColorStop(1,MINT_SH);
+    ctx.fillStyle=jg; ctx.lineWidth=4.5; ctx.strokeStyle=INK; jawPath(1); ctx.fill(); ctx.stroke();
+    // tongue nestled on the lower jaw
+    ctx.fillStyle='#ff5c86'; ctx.strokeStyle='#a52347'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.ellipse(8,9,12,6,0,0,7); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='#a52347'; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(8,4); ctx.lineTo(8,13); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.beginPath(); ctx.ellipse(4,7,5,2.2,0,0,7); ctx.fill();
+    // lower teeth
+    ctx.fillStyle='#fff'; ctx.strokeStyle=INK; ctx.lineWidth=2;
+    for(const tx of [8,20]){ rr(tx-3,-2.5,6,7,2.2); ctx.fill(); ctx.stroke(); }
+    ctx.restore();
+
+    ctx.restore(); // end mouth
+
+    // ==================================================================
+    //  THE STAR: an OVERSIZED strawberry-glazed donut, mid-chomp
+    //  Nestled in the open mouth (~40% of the hero's width).
+    // ==================================================================
+    if (hauler.chomp > 0.1) {           // food shows in-mouth ONLY while chomping
+      const DX=41, DY=1, R=19;          // ~38px = ~40% of hero width
+      const cs = clamp(hauler.chomp*1.5, 0, 1);   // pops in on the bite, shrinks as swallowed
+      ctx.save(); ctx.translate(DX,DY); ctx.scale(cs,cs); ctx.rotate(-0.16);
+      ctx.lineJoin='round'; ctx.lineCap='round';
+
+      // soft contact shadow where it sits in the mouth
+      ctx.save(); ctx.globalAlpha=0.28; ctx.fillStyle='#3a0a1a';
+      ctx.beginPath(); ctx.ellipse(-R*0.35,R*0.2,R*0.95,R*0.85,0,0,7); ctx.fill(); ctx.restore();
+
+      // ---- DOUGH RING (warm tan, shaded underside) ----
+      let dg=ctx.createLinearGradient(-R*0.7,-R,R*0.7,R);
+      dg.addColorStop(0,'#f7ce93'); dg.addColorStop(0.5,'#e4a45f'); dg.addColorStop(1,'#bd7838');
+      ctx.fillStyle=dg; ctx.strokeStyle=INK; ctx.lineWidth=4;
+      circle(0,0,R); ctx.fill(); ctx.stroke();
+      // darker fried underside crescent
+      ctx.save(); circle(0,0,R-1); ctx.clip();
+      ctx.fillStyle='rgba(140,80,34,0.55)';
+      ctx.beginPath(); ctx.ellipse(R*0.15,R*0.62,R*1.15,R*0.72,0,0,7); ctx.fill();
+      ctx.restore();
+
+      // ---- PINK STRAWBERRY GLAZE with drippy scalloped edge ----
+      ctx.beginPath();
+      const Rg=R*0.9;
+      for(let i=0;i<=56;i++){
+        const t=i/56*Math.PI*2;
+        const bottom=Math.max(0,Math.sin(t));                 // 0 at sides → 1 at bottom
+        const rad=Rg + bottom*bottom*(0.55+0.45*Math.cos(t*9))*R*0.17;
+        const px=Math.cos(t)*rad, py=Math.sin(t)*rad - R*0.07;
+        i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+      }
+      ctx.closePath();
+      let gg=ctx.createLinearGradient(0,-R,0,R);
+      gg.addColorStop(0,'#ffd6ee'); gg.addColorStop(0.42,'#ff93d4'); gg.addColorStop(1,'#e858a9');
+      ctx.fillStyle=gg; ctx.fill();
+      ctx.strokeStyle=INK; ctx.lineWidth=3; ctx.stroke();
+
+      // glossy highlight arc across the glaze
+      ctx.strokeStyle='rgba(255,255,255,0.8)'; ctx.lineWidth=3.6;
+      ctx.beginPath(); ctx.arc(0,-R*0.05,R*0.6,Math.PI*1.06,Math.PI*1.52); ctx.stroke();
+      ctx.strokeStyle='rgba(255,255,255,0.32)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(0,-R*0.05,R*0.72,Math.PI*1.12,Math.PI*1.46); ctx.stroke();
+
+      // ---- HOLE (dark centre, showing the mouth behind) ----
+      ctx.fillStyle='#5c0f22';
+      circle(0,0,R*0.34); ctx.fill();
+      ctx.strokeStyle='rgba(196,126,66,0.9)'; ctx.lineWidth=2; circle(0,0,R*0.4); ctx.stroke();
+      ctx.strokeStyle='rgba(255,255,255,0.28)'; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.arc(0,0,R*0.34,Math.PI*1.1,Math.PI*1.7); ctx.stroke();
+
+      // ---- CHUNKY MULTI-COLOUR SPRINKLES ----
+      const spr=[
+        [-0.42,-0.5 ,-0.7,'#6fd8ff'],
+        [ 0.34,-0.5 , 0.5,'#ffe14d'],
+        [ 0.58, 0.12, 1.15,'#ff5a6e'],
+        [-0.14, 0.56, 0.15,'#8affc0'],
+        [-0.6 , 0.16,-1.2 ,'#c58bff'],
+      ];
+      for(const s of spr){
+        ctx.save();
+        ctx.translate(s[0]*R, s[1]*R); ctx.rotate(s[2]);
+        ctx.fillStyle=INK;                 rr(-2.3,-5.4,4.6,10.8,2.3); ctx.fill();
+        ctx.fillStyle=s[3];                rr(-1.5,-4.6,3.0,9.2,1.5);  ctx.fill();
+        ctx.fillStyle='rgba(255,255,255,0.7)'; rr(-0.8,-3.6,1.2,3.4,0.8); ctx.fill();
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    // ==================================================================
+    //  MAIN BODY (fixed shell) — covers jaw hinges, holds the face
+    // ==================================================================
+    // soft underside cast shadow inside silhouette
+    ctx.save();
+    // body base
+    let bg=ctx.createLinearGradient(0,-24,0,24);
+    bg.addColorStop(0,MINT_HI); bg.addColorStop(0.32,MINT); bg.addColorStop(0.7,MINT_MD); bg.addColorStop(1,MINT_LO);
+    ctx.fillStyle=bg; ctx.lineWidth=5; ctx.strokeStyle=INK;
+    rr(-36,-23,54,46,19); ctx.fill(); ctx.stroke();
+
+    // cream underbelly band
+    ctx.fillStyle='#eafff8';
+    ctx.beginPath(); rr(-31,7,46,15,10); ctx.fill();
+    ctx.fillStyle='rgba(18,161,145,0.25)'; rr(-31,7,46,5,4); ctx.fill(); // soft crease shadow
+
+    // big glossy top highlight sweep
+    ctx.fillStyle='rgba(255,255,255,0.42)';
+    ctx.beginPath(); ctx.moveTo(-30,-16); ctx.quadraticCurveTo(-14,-25,6,-19);
+    ctx.quadraticCurveTo(-10,-14,-30,-11); ctx.closePath(); ctx.fill();
+
+    // side panel seam + rivets
+    ctx.strokeStyle='rgba(12,132,119,0.55)'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(-30,2); ctx.lineTo(12,2); ctx.stroke();
+    ctx.fillStyle='rgba(12,132,119,0.55)';
+    for(const rx of [-26,-16,-6]){ circle(rx,-1,1.4); ctx.fill(); }
+    ctx.restore();
+
+    // ---- rear hover-thruster nozzle ----
+    ctx.fillStyle=MINT_SH; ctx.strokeStyle=INK; ctx.lineWidth=4;
+    rr(-40,4,10,14,5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#0c8477'; rr(-40,8,10,6,3); ctx.fill();
+
+    // ---- little dorsal fin / beacon ----
+    ctx.save();
+    ctx.fillStyle=MINT_LO; ctx.strokeStyle=INK; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.moveTo(-24,-21); ctx.quadraticCurveTo(-20,-34,-10,-30);
+    ctx.quadraticCurveTo(-12,-24,-8,-22); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#ff7aa8'; ctx.strokeStyle=INK; ctx.lineWidth=3; circle(-9,-31,4.5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.8)'; circle(-10.5,-32.5,1.6); ctx.fill();
+    ctx.restore();
+
+    // ==================================================================
+    //  FACE — porthole windshield + big cute eye + blush
+    // ==================================================================
+    const lk=hauler.look;
+    // windshield goggle
+    ctx.save();
+    let wg=ctx.createLinearGradient(0,-16,0,4);
+    wg.addColorStop(0,'#0f3a4a'); wg.addColorStop(1,'#1d6f80');
+    ctx.fillStyle=wg; ctx.strokeStyle=INK; ctx.lineWidth=4.5;
+    circle(-6,-6,12.5); ctx.fill(); ctx.stroke();
+    // eye white
+    ctx.fillStyle='#f6ffff'; circle(-6+lk*3,-6,8.6); ctx.fill();
+    // iris + pupil
+    ctx.fillStyle='#1a8fb0'; circle(-4+lk*5,-5,5.4); ctx.fill();
+    ctx.fillStyle=INK; circle(-3+lk*6,-5,3.4); ctx.fill();
+    // sparkle highlights
+    ctx.fillStyle='#fff'; circle(-5+lk*5,-8,2.4); ctx.fill();
+    ctx.globalAlpha=0.8; circle(-1+lk*5,-2.5,1.3); ctx.fill(); ctx.globalAlpha=1;
+    // glass shine streak over goggle
+    ctx.fillStyle='rgba(255,255,255,0.28)';
+    ctx.beginPath(); ctx.ellipse(-11,-11,3.2,6,-0.6,0,7); ctx.fill();
+    ctx.restore();
+
+    // chunky eyebrow (eager expression)
+    ctx.strokeStyle=INK; ctx.lineWidth=4; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(-14,-18); ctx.quadraticCurveTo(-5,-21,2,-17); ctx.stroke();
+
+    // rosy cheek blush
+    ctx.save(); ctx.globalAlpha=0.6; ctx.fillStyle='#ff7ba6';
+    ctx.beginPath(); ctx.ellipse(-19,2,6,4,0,0,7); ctx.fill();
+    ctx.globalAlpha=0.35; ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(-20,0.5,2.4,1.4,0,0,7); ctx.fill();
+    ctx.restore();
+
+    ctx.restore(); // end hauler
   }
 
   // ---------- drawing: food ----------
@@ -254,65 +655,227 @@
     // soft shadow
     ctx.save(); ctx.globalAlpha=0.18*(f.eaten>0?0:1); ctx.fillStyle='#000';
     ctx.beginPath(); ctx.ellipse(0,f.r+8,f.r*0.8,6,0,0,7); ctx.fill(); ctx.restore();
-    ctx.lineJoin='round'; ctx.lineWidth=3.5; ctx.strokeStyle=INK;
     const r=f.r;
+    const OW=r*0.13;                 // outline weight, scales with size
+    ctx.lineJoin='round'; ctx.lineCap='round'; ctx.lineWidth=OW; ctx.strokeStyle=INK;
+    // ---- local shading helpers ----
+    const radial=(hx,hy,hr,cx,cy,cr,stops)=>{ const g=ctx.createRadialGradient(hx,hy,hr,cx,cy,cr); for(const s of stops) g.addColorStop(s[0],s[1]); return g; };
+    const linear=(x0,y0,x1,y1,stops)=>{ const g=ctx.createLinearGradient(x0,y0,x1,y1); for(const s of stops) g.addColorStop(s[0],s[1]); return g; };
+    const shine=(x,y,rx,ry,rot,alpha)=>{ ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(x,y,rx,ry,rot,0,7); ctx.fill(); ctx.restore(); };
+    const capsule=(px,py,ang,len,col)=>{ ctx.save(); ctx.translate(px,py); ctx.rotate(ang); ctx.fillStyle=col; rr(-len/2,-r*0.075,len,r*0.15,r*0.075); ctx.fill(); ctx.strokeStyle='rgba(58,34,51,.25)'; ctx.lineWidth=r*0.03; ctx.stroke(); ctx.restore(); };
     switch(f.type){
-      case 'donut':
-        ctx.fillStyle='#e6a86b'; circle(0,0,r); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='#ff8fd0'; circle(0,0,r*0.92); ctx.fill();
-        ctx.fillStyle='#2a1830'; circle(0,0,r*0.34); ctx.fill();
-        ['#7ce0ff','#ffe14d','#ff5a52','#8affc0'].forEach((c,i)=>{ ctx.strokeStyle=c; ctx.lineWidth=3;
-          const a=i*1.4; ctx.beginPath(); ctx.moveTo(Math.cos(a)*r*0.55,Math.sin(a)*r*0.55); ctx.lineTo(Math.cos(a+0.5)*r*0.7,Math.sin(a+0.5)*r*0.7); ctx.stroke(); });
+      case 'donut': {
+        // dough body (chunky torus)
+        ctx.lineWidth=OW; ctx.strokeStyle=INK;
+        ctx.fillStyle=radial(-r*0.35,-r*0.4,r*0.15, 0,0,r, [[0,'#f6cd92'],[0.6,'#e0a05c'],[1,'#b9773c']]);
+        circle(0,0,r); ctx.fill(); ctx.stroke();
+        // frosting: wavy-edged glossy cap
+        ctx.beginPath();
+        const wob=r*0.07, fr=r*0.9;
+        for(let i=0;i<=24;i++){ const a=i/24*Math.PI*2; const rad=fr+Math.sin(a*7)*wob*0.5+wob*0.5; const x=Math.cos(a)*rad, y=Math.sin(a)*rad; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+        ctx.closePath();
+        ctx.fillStyle=radial(-r*0.3,-r*0.4,r*0.1, 0,0,fr, [[0,'#ffd0ec'],[0.5,'#ff8fd0'],[1,'#ef5fb0']]);
+        ctx.fill(); ctx.strokeStyle='#e24fa0'; ctx.lineWidth=OW*0.55; ctx.stroke();
+        // frosting sheen band
+        ctx.save(); ctx.clip(); shine(-r*0.15,-r*0.45,r*0.62,r*0.22,-0.35,0.5); ctx.restore();
+        // hole (reveals dough interior, shaded)
+        ctx.fillStyle=radial(0,-r*0.1,r*0.05, 0,0,r*0.4, [[0,'#c98a4e'],[1,'#8a5a2e']]);
+        circle(0,0,r*0.36); ctx.fill(); ctx.strokeStyle=INK; ctx.lineWidth=OW*0.8; ctx.stroke();
+        ctx.fillStyle='rgba(58,34,51,.35)'; ctx.beginPath(); ctx.arc(0,0,r*0.36,Math.PI*0.9,Math.PI*1.9); ctx.arc(0,-r*0.03,r*0.3,Math.PI*1.9,Math.PI*0.9,true); ctx.closePath(); ctx.fill();
+        // sprinkles
+        const sc=['#7ce0ff','#ffe14d','#ff5a72','#8affc0','#c48bff','#fff'];
+        const sp=[[0.62,-0.9],[0.66,-0.1],[0.6,0.7],[0.63,1.5],[0.6,2.3],[0.64,3.0],[0.61,3.8],[0.65,4.6],[0.6,5.4]];
+        sp.forEach((s,i)=>{ const rad=r*s[0], a=s[1]; capsule(Math.cos(a)*rad,Math.sin(a)*rad,a+1.2+i,r*0.34,sc[i%sc.length]); });
         break;
-      case 'apple':
-        ctx.fillStyle='#ff5a52'; circle(-r*0.3,0,r*0.7); ctx.fill(); circle(r*0.3,0,r*0.7); ctx.fill();
-        ctx.strokeStyle=INK; ctx.lineWidth=3.5; circle(0,0,r*0.92); ctx.stroke();
-        ctx.fillStyle='#8a5a2a'; ctx.fillRect(-2,-r-4,4,8);
-        ctx.fillStyle='#5fd06a'; ctx.beginPath(); ctx.ellipse(8,-r,7,4,0.6,0,7); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='rgba(255,255,255,.5)'; circle(-r*0.4,-r*0.3,r*0.18); ctx.fill();
+      }
+      case 'apple': {
+        ctx.lineWidth=OW; ctx.strokeStyle=INK;
+        // glossy leaf + stem behind
+        ctx.fillStyle='#7a4a24'; ctx.lineWidth=OW*0.9; ctx.beginPath(); ctx.moveTo(-r*0.02,-r*0.55); ctx.quadraticCurveTo(r*0.14,-r*1.0,r*0.05,-r*1.18); ctx.lineWidth=OW*1.1; ctx.strokeStyle='#7a4a24'; ctx.stroke();
+        ctx.strokeStyle=INK; ctx.lineWidth=OW*0.5; ctx.stroke();
+        // apple body (dimpled bezier)
+        ctx.beginPath();
+        ctx.moveTo(0,-r*0.58);
+        ctx.bezierCurveTo(-r*0.5,-r*1.02,-r*1.08,-r*0.42,-r*0.9,r*0.12);
+        ctx.bezierCurveTo(-r*0.78,r*0.86,-r*0.26,r*1.0,0,r*0.74);
+        ctx.bezierCurveTo(r*0.26,r*1.0,r*0.78,r*0.86,r*0.9,r*0.12);
+        ctx.bezierCurveTo(r*1.08,-r*0.42,r*0.5,-r*1.02,0,-r*0.58);
+        ctx.closePath();
+        ctx.fillStyle=radial(-r*0.35,-r*0.35,r*0.1, 0,r*0.1,r*1.15, [[0,'#ff8a7a'],[0.4,'#ff5a52'],[0.8,'#e23444'],[1,'#b31f3a']]);
+        ctx.fill(); ctx.strokeStyle=INK; ctx.lineWidth=OW; ctx.stroke();
+        // vertical sheen down one side
+        ctx.save(); ctx.clip();
+        ctx.fillStyle='rgba(255,220,210,.55)'; ctx.beginPath(); ctx.ellipse(-r*0.42,-r*0.05,r*0.2,r*0.62,-0.15,0,7); ctx.fill();
+        ctx.fillStyle='rgba(120,20,40,.35)'; ctx.beginPath(); ctx.ellipse(r*0.5,r*0.35,r*0.4,r*0.7,0.2,0,7); ctx.fill();
+        ctx.restore();
+        // leaf
+        ctx.fillStyle=radial(r*0.28,-r*0.9,r*0.02, r*0.34,-r*0.82,r*0.4,[[0,'#a8ef7a'],[1,'#4fb84e']]);
+        ctx.beginPath(); ctx.ellipse(r*0.34,-r*0.86,r*0.32,r*0.15,-0.5,0,7); ctx.fill(); ctx.strokeStyle=INK; ctx.lineWidth=OW*0.7; ctx.stroke();
+        ctx.strokeStyle='rgba(30,90,40,.7)'; ctx.lineWidth=OW*0.35; ctx.beginPath(); ctx.moveTo(r*0.12,-r*0.78); ctx.lineTo(r*0.56,-r*0.94); ctx.stroke();
+        shine(-r*0.4,-r*0.34,r*0.15,r*0.09,-0.5,0.85);
         break;
-      case 'candy':
-        ctx.fillStyle='#7ce0ff'; rr(-r*0.7,-r*0.5,r*1.4,r,8); ctx.fill(); ctx.stroke();
-        ctx.strokeStyle='#fff'; ctx.lineWidth=3; for(let i=-1;i<2;i++){ ctx.beginPath(); ctx.moveTo(i*8,-r*0.5); ctx.lineTo(i*8+4,r*0.5); ctx.stroke(); }
-        ctx.fillStyle='#7ce0ff'; ctx.strokeStyle=INK; ctx.lineWidth=3.5;
-        ctx.beginPath(); ctx.moveTo(-r*0.7,0); ctx.lineTo(-r*1.1,-r*0.5); ctx.lineTo(-r*1.1,r*0.5); ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(r*0.7,0); ctx.lineTo(r*1.1,-r*0.5); ctx.lineTo(r*1.1,r*0.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+      case 'candy': {
+        ctx.lineWidth=OW; ctx.strokeStyle=INK;
+        const bw=r*1.5, bh=r*1.02;
+        // wrapper twists
+        const twist=(dir)=>{ ctx.save(); ctx.scale(dir,1);
+          ctx.fillStyle=linear(r*0.6,-r*0.5,r*1.2,r*0.5,[[0,'#8fe6ff'],[1,'#3fb0e6']]);
+          ctx.beginPath(); ctx.moveTo(r*0.66,-r*0.12); ctx.lineTo(r*1.18,-r*0.62); ctx.lineTo(r*1.05,-r*0.12);
+          ctx.lineTo(r*1.22,r*0.06); ctx.lineTo(r*1.18,r*0.62); ctx.lineTo(r*0.66,r*0.12); ctx.closePath(); ctx.fill(); ctx.stroke();
+          ctx.strokeStyle='rgba(58,34,51,.4)'; ctx.lineWidth=OW*0.5;
+          ctx.beginPath(); ctx.moveTo(r*0.86,-r*0.34); ctx.lineTo(r*0.78,r*0.3); ctx.moveTo(r*1.06,-r*0.36); ctx.lineTo(r*1.0,r*0.34); ctx.stroke();
+          ctx.restore(); };
+        twist(1); twist(-1);
+        // candy body
+        ctx.fillStyle=radial(-r*0.3,-r*0.35,r*0.1,0,0,r,[[0,'#c8f4ff'],[0.5,'#63d3f7'],[1,'#2f9fd6']]);
+        ctx.lineWidth=OW; ctx.strokeStyle=INK; rr(-bw/2,-bh/2,bw,bh,r*0.42); ctx.fill(); ctx.stroke();
+        // diagonal candy stripes
+        ctx.save(); rr(-bw/2,-bh/2,bw,bh,r*0.42); ctx.clip();
+        ['#fff','#ffd94d','#ff5a72'].forEach((c,i)=>{ ctx.strokeStyle=c; ctx.globalAlpha=c==='#fff'?0.85:0.9; ctx.lineWidth=r*0.16;
+          ctx.beginPath(); ctx.moveTo(-r*0.5+i*r*0.42,-bh); ctx.lineTo(-r*0.5+i*r*0.42-r*0.5,bh); ctx.stroke(); });
+        ctx.globalAlpha=1; shine(-r*0.2,-r*0.28,r*0.5,r*0.16,-0.3,0.55);
+        ctx.restore();
         break;
-      case 'can':
-        ctx.fillStyle='#ff7a3c'; rr(-r*0.6,-r,r*1.2,r*2,7); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='#ffe9d0'; rr(-r*0.6,-r*0.2,r*1.2,r*0.5,3); ctx.fill();
-        ctx.fillStyle='#c9c9d6'; rr(-r*0.6,-r,r*1.2,5,3); ctx.fill();
+      }
+      case 'can': {
+        ctx.lineWidth=OW; ctx.strokeStyle=INK;
+        const cw=r*1.2, ch=r*2;
+        // metal body
+        ctx.fillStyle=linear(-cw/2,0,cw/2,0,[[0,'#b0b6c4'],[0.18,'#eef1f6'],[0.4,'#d3d8e2'],[0.6,'#f4f6fa'],[0.85,'#aeb4c2'],[1,'#8b90a0']]);
+        rr(-cw/2,-ch/2,cw,ch,r*0.32); ctx.fill(); ctx.stroke();
+        // label band (colorful)
+        ctx.save(); rr(-cw/2,-ch/2,cw,ch,r*0.32); ctx.clip();
+        ctx.fillStyle=linear(0,-r*0.55,0,r*0.6,[[0,'#ff8a3c'],[0.5,'#ff5a72'],[1,'#e23a86']]);
+        ctx.fillRect(-cw/2,-r*0.55,cw,r*1.15);
+        ctx.fillStyle='rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(0,0,r*0.3,0,7); ctx.fill();
+        ctx.fillStyle='#ff5a72'; ctx.beginPath(); ctx.arc(0,0,r*0.16,0,7); ctx.fill();
+        // fizz bubbles
+        ctx.fillStyle='rgba(255,255,255,.7)'; [[-r*0.4,-r*0.35,r*0.06],[r*0.42,-r*0.2,r*0.05],[r*0.3,r*0.4,r*0.045]].forEach(b=>{ ctx.beginPath(); ctx.arc(b[0],b[1],b[2],0,7); ctx.fill(); });
+        // vertical metal sheen
+        ctx.fillStyle='rgba(255,255,255,.45)'; ctx.fillRect(-cw*0.22,-ch/2,r*0.14,ch);
+        ctx.restore();
+        // top rim + pull tab
+        ctx.fillStyle=linear(-cw/2,0,cw/2,0,[[0,'#9fa4b4'],[0.5,'#e9ecf2'],[1,'#8b90a0']]);
+        rr(-cw/2,-ch/2,cw,r*0.28,r*0.14); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle='#8b90a0'; ctx.lineWidth=OW*0.5; ctx.beginPath(); ctx.ellipse(r*0.12,-ch/2+r*0.14,r*0.16,r*0.08,0,0,7); ctx.stroke();
         break;
-      case 'burger':
-        ctx.fillStyle='#ffb454'; rr(-r,-r*0.9,r*2,r*0.9,10); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='#8fd66a'; rr(-r,-r*0.2,r*2,6,3); ctx.fill();
-        ctx.fillStyle='#8a4a2a'; rr(-r,r*0.05,r*2,r*0.4,4); ctx.fill();
-        ctx.fillStyle='#ffcf6b'; rr(-r,r*0.4,r*2,r*0.5,9); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='#fff'; [-r*0.5,0,r*0.5].forEach(sx=>{ circle(sx,-r*0.55,2); ctx.fill(); });
+      }
+      case 'burger': {
+        ctx.lineWidth=OW; ctx.strokeStyle=INK;
+        const bw=r*2;
+        // bottom bun
+        ctx.fillStyle=radial(0,r*0.5,r*0.2,0,r*0.7,r*1.3,[[0,'#ffcf7a'],[1,'#e0973f']]);
+        ctx.beginPath(); ctx.moveTo(-bw/2,r*0.42); ctx.lineTo(bw/2,r*0.42); ctx.quadraticCurveTo(bw/2,r*0.98,r*0.72,r*0.98); ctx.lineTo(-r*0.72,r*0.98); ctx.quadraticCurveTo(-bw/2,r*0.98,-bw/2,r*0.42); ctx.closePath(); ctx.fill(); ctx.stroke();
+        // patty
+        ctx.fillStyle=radial(-r*0.3,r*0.1,r*0.1,0,r*0.25,r*1.1,[[0,'#7a4326'],[1,'#4e2814']]);
+        rr(-bw/2-r*0.04,r*0.14,bw+r*0.08,r*0.42,r*0.2); ctx.fill(); ctx.stroke();
+        // cheese with drips
+        ctx.fillStyle=linear(0,-r*0.1,0,r*0.35,[[0,'#ffdf5a'],[1,'#f7b52e']]);
+        ctx.beginPath(); ctx.moveTo(-bw/2,-r*0.02); ctx.lineTo(bw/2,-r*0.02);
+        ctx.lineTo(bw/2,r*0.14); ctx.lineTo(r*0.5,r*0.14); ctx.lineTo(r*0.34,r*0.34); ctx.lineTo(r*0.16,r*0.14);
+        ctx.lineTo(-r*0.2,r*0.14); ctx.lineTo(-r*0.4,r*0.36); ctx.lineTo(-r*0.58,r*0.14); ctx.lineTo(-bw/2,r*0.14); ctx.closePath(); ctx.fill(); ctx.stroke();
+        // lettuce ruffle
+        ctx.fillStyle=radial(0,-r*0.2,r*0.1,0,-r*0.1,r*1.1,[[0,'#b6ef7e'],[1,'#6fbf3e']]);
+        ctx.beginPath(); ctx.moveTo(-bw/2-r*0.05,-r*0.08);
+        for(let i=0;i<=8;i++){ const x=-bw/2-r*0.05+i*(bw+r*0.1)/8; ctx.lineTo(x,-r*0.08-(i%2?r*0.16:0)); }
+        ctx.lineTo(bw/2+r*0.05,r*0.02); ctx.lineTo(-bw/2-r*0.05,r*0.02); ctx.closePath(); ctx.fill(); ctx.stroke();
+        // top bun dome
+        ctx.fillStyle=radial(-r*0.3,-r*0.6,r*0.15,0,-r*0.2,r*1.25,[[0,'#ffd98a'],[0.6,'#f2a94e'],[1,'#d9852f']]);
+        ctx.beginPath(); ctx.moveTo(-bw/2,-r*0.12); ctx.quadraticCurveTo(-bw/2,-r*1.0,0,-r*1.0); ctx.quadraticCurveTo(bw/2,-r*1.0,bw/2,-r*0.12); ctx.closePath(); ctx.fill(); ctx.stroke();
+        // sesame seeds
+        ctx.fillStyle='#fff4dd'; ctx.strokeStyle='rgba(150,90,30,.5)'; ctx.lineWidth=OW*0.35;
+        [[-r*0.55,-r*0.5,0.3],[-r*0.1,-r*0.66,-0.2],[r*0.4,-r*0.52,0.4],[r*0.05,-r*0.38,0.1],[-r*0.75,-r*0.3,-0.4],[r*0.7,-r*0.32,0.2]].forEach(s=>{ ctx.save(); ctx.translate(s[0],s[1]); ctx.rotate(s[2]); ctx.beginPath(); ctx.ellipse(0,0,r*0.11,r*0.055,0,0,7); ctx.fill(); ctx.stroke(); ctx.restore(); });
+        shine(-r*0.3,-r*0.62,r*0.28,r*0.12,-0.4,0.4);
         break;
-      case 'cupcake':
-        ctx.fillStyle='#ffcf6b'; ctx.beginPath(); ctx.moveTo(-r*0.7,0); ctx.lineTo(r*0.7,0); ctx.lineTo(r*0.5,r); ctx.lineTo(-r*0.5,r); ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='#ff9ecf'; ctx.beginPath(); ctx.arc(0,0,r*0.8,Math.PI,0); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='#ff466e'; circle(0,-r*0.75,4); ctx.fill();
+      }
+      case 'cupcake': {
+        ctx.lineWidth=OW; ctx.strokeStyle=INK;
+        // wrapper
+        ctx.fillStyle=linear(-r*0.7,0,r*0.7,0,[[0,'#e88a4a'],[0.15,'#ffcf6b'],[0.35,'#ffd97a'],[0.55,'#ffbf55'],[0.75,'#ffd97a'],[1,'#e0913f']]);
+        ctx.beginPath(); ctx.moveTo(-r*0.78,-r*0.05); ctx.lineTo(r*0.78,-r*0.05); ctx.lineTo(r*0.52,r*1.02); ctx.quadraticCurveTo(0,r*1.16,-r*0.52,r*1.02); ctx.closePath(); ctx.fill(); ctx.stroke();
+        // wrapper ridges
+        ctx.strokeStyle='rgba(150,80,20,.35)'; ctx.lineWidth=OW*0.45;
+        for(let i=-2;i<=2;i++){ ctx.beginPath(); ctx.moveTo(i*r*0.28,0); ctx.lineTo(i*r*0.19,r*1.0); ctx.stroke(); }
+        // frosting swirl (stacked bulges)
+        ctx.strokeStyle=INK; ctx.lineWidth=OW;
+        const fg=radial(-r*0.25,-r*0.6,r*0.1,0,-r*0.2,r*1.1,[[0,'#ffd6ec'],[0.55,'#ff9ecf'],[1,'#f76ab6']]);
+        ctx.fillStyle=fg;
+        ctx.beginPath(); ctx.moveTo(-r*0.82,-r*0.02); ctx.quadraticCurveTo(-r*0.9,-r*0.5,-r*0.4,-r*0.5); ctx.quadraticCurveTo(-r*0.55,-r*0.9,0,-r*0.88); ctx.quadraticCurveTo(r*0.55,-r*0.9,r*0.4,-r*0.5); ctx.quadraticCurveTo(r*0.9,-r*0.5,r*0.82,-r*0.02); ctx.closePath(); ctx.fill(); ctx.stroke();
+        // swirl lines
+        ctx.strokeStyle='rgba(220,80,150,.5)'; ctx.lineWidth=OW*0.5;
+        ctx.beginPath(); ctx.moveTo(-r*0.5,-r*0.1); ctx.quadraticCurveTo(-r*0.2,-r*0.45,r*0.2,-r*0.35); ctx.moveTo(-r*0.25,-r*0.4); ctx.quadraticCurveTo(0,-r*0.7,r*0.28,-r*0.55); ctx.stroke();
+        ctx.fillStyle='rgba(255,255,255,.4)'; ctx.beginPath(); ctx.ellipse(-r*0.3,-r*0.35,r*0.22,r*0.1,-0.4,0,7); ctx.fill();
+        // sprinkles
+        const sc=['#7ce0ff','#ffe14d','#8affc0','#c48bff'];
+        [[-r*0.35,-r*0.2,0.5],[r*0.1,-r*0.35,-0.4],[r*0.35,-r*0.15,0.8],[-r*0.05,-r*0.12,-0.6]].forEach((s,i)=>capsule(s[0],s[1],s[2],r*0.28,sc[i]));
+        // cherry
+        ctx.fillStyle=radial(-r*0.06,-r*0.95,r*0.02,0,-r*0.85,r*0.28,[[0,'#ff8aa0'],[0.6,'#ff466e'],[1,'#c81f4a']]);
+        circle(0,-r*0.82,r*0.2); ctx.fill(); ctx.strokeStyle=INK; ctx.lineWidth=OW*0.7; ctx.stroke();
+        shine(-r*0.06,-r*0.9,r*0.06,r*0.04,-0.4,0.9);
         break;
-      case 'banana':
-        ctx.fillStyle='#ffe14d'; ctx.beginPath(); ctx.arc(0,-r*0.3,r*1.1,0.5,2.4); ctx.arc(0,-r*0.3,r*0.6,2.4,0.5,true); ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='#8a6a2a'; circle(-r*0.75,r*0.2,3); ctx.fill();
+      }
+      case 'banana': {
+        ctx.lineWidth=OW; ctx.strokeStyle=INK;
+        ctx.beginPath();
+        ctx.arc(0,-r*0.35,r*1.12,0.52,2.42);
+        ctx.lineTo(Math.cos(2.42)*r*0.55,-r*0.35+Math.sin(2.42)*r*0.55);
+        ctx.arc(0,-r*0.35,r*0.55,2.42,0.52,true);
+        ctx.closePath();
+        ctx.fillStyle=linear(-r*0.6,-r*0.9,r*0.5,r*0.7,[[0,'#fff2a0'],[0.4,'#ffe14d'],[0.8,'#f7c22e'],[1,'#e0a020']]);
+        ctx.fill(); ctx.stroke();
+        // facet ridges
+        ctx.strokeStyle='rgba(180,130,20,.4)'; ctx.lineWidth=OW*0.4;
+        ctx.beginPath(); ctx.arc(0,-r*0.35,r*0.82,0.6,2.34); ctx.stroke();
+        // brown tips
+        ctx.fillStyle='#6e4a1e'; ctx.strokeStyle=INK; ctx.lineWidth=OW*0.7;
+        circle(Math.cos(0.52)*r*0.83,-r*0.35+Math.sin(0.52)*r*0.83,r*0.11); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(Math.cos(2.42)*r*0.83,-r*0.35+Math.sin(2.42)*r*0.83); ctx.lineTo(Math.cos(2.42)*r*1.06-r*0.06,-r*0.35+Math.sin(2.42)*r*1.06-r*0.04); ctx.lineWidth=OW*0.9; ctx.strokeStyle='#6e4a1e'; ctx.stroke();
+        // highlight
+        ctx.strokeStyle='rgba(255,255,255,.65)'; ctx.lineWidth=OW*0.7; ctx.beginPath(); ctx.arc(0,-r*0.35,r*0.96,0.75,2.1); ctx.stroke();
         break;
-      case 'cherry':
-        ctx.strokeStyle='#5a8a3a'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(-r*0.4,-r); ctx.quadraticCurveTo(0,-r*1.4,r*0.4,-r); ctx.stroke();
-        ctx.fillStyle='#ff466e'; ctx.strokeStyle=INK; ctx.lineWidth=3.5;
-        circle(-r*0.4,r*0.2,r*0.6); ctx.fill(); ctx.stroke();
-        circle(r*0.4,r*0.2,r*0.6); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='rgba(255,255,255,.6)'; circle(-r*0.55,0,r*0.18); ctx.fill();
+      }
+      case 'cherry': {
+        ctx.lineWidth=OW*0.8; ctx.strokeStyle='#4f7a2e';
+        // stems
+        ctx.beginPath(); ctx.moveTo(-r*0.38,r*0.15); ctx.quadraticCurveTo(-r*0.15,-r*0.9,r*0.05,-r*1.02); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(r*0.4,r*0.15); ctx.quadraticCurveTo(r*0.28,-r*0.7,r*0.08,-r*1.0); ctx.stroke();
+        // leaf
+        ctx.fillStyle=radial(r*0.25,-r*1.0,r*0.02,r*0.35,-r*0.95,r*0.4,[[0,'#a8ef7a'],[1,'#4fb84e']]);
+        ctx.beginPath(); ctx.ellipse(r*0.34,-r*0.98,r*0.3,r*0.14,-0.5,0,7); ctx.fill(); ctx.strokeStyle=INK; ctx.lineWidth=OW*0.6; ctx.stroke();
+        // cherries
+        ctx.strokeStyle=INK; ctx.lineWidth=OW;
+        [[-r*0.4,r*0.28],[r*0.42,r*0.28]].forEach((c,i)=>{
+          ctx.fillStyle=radial(c[0]-r*0.2,c[1]-r*0.2,r*0.03,c[0],c[1],r*0.62,[[0,'#ff7a94'],[0.5,'#ff466e'],[0.85,'#d81f4a'],[1,'#a01234']]);
+          circle(c[0],c[1],r*0.6); ctx.fill(); ctx.stroke();
+          shine(c[0]-r*0.22,c[1]-r*0.24,r*0.14,r*0.09,-0.5,0.85);
+        });
         break;
-      case 'mine':
-        ctx.fillStyle='#5a5a6e'; circle(0,0,r*0.8); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='#40404e';
+      }
+      case 'mine': {
+        ctx.lineWidth=OW; ctx.strokeStyle=INK;
+        // spikes
+        ctx.fillStyle='#4a4a5c';
         for(let i=0;i<8;i++){ const a=i*0.785+f.rot; ctx.save(); ctx.rotate(a);
-          ctx.beginPath(); ctx.moveTo(r*0.7,-4); ctx.lineTo(r*1.15,0); ctx.lineTo(r*0.7,4); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); }
-        ctx.fillStyle='#ff466e'; circle(-r*0.25,-r*0.25,3); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(r*0.68,-r*0.18); ctx.lineTo(r*1.2,0); ctx.lineTo(r*0.68,r*0.18); ctx.closePath();
+          ctx.fillStyle=linear(r*0.68,-r*0.18,r*1.2,0,[[0,'#6a6a7e'],[1,'#3a3a48']]); ctx.fill(); ctx.stroke();
+          ctx.fillStyle='rgba(255,255,255,.25)'; ctx.beginPath(); ctx.moveTo(r*0.7,-r*0.15); ctx.lineTo(r*1.15,-r*0.02); ctx.lineTo(r*0.7,-r*0.02); ctx.closePath(); ctx.fill();
+          ctx.restore(); }
+        // metal body
+        ctx.fillStyle=radial(-r*0.3,-r*0.35,r*0.1,0,0,r*0.82,[[0,'#8a8aa0'],[0.5,'#5a5a70'],[1,'#31313e']]);
+        circle(0,0,r*0.8); ctx.fill(); ctx.stroke();
+        // rivet ring
+        ctx.fillStyle='#2a2a36';
+        for(let i=0;i<8;i++){ const a=i*0.785; const x=Math.cos(a)*r*0.55,y=Math.sin(a)*r*0.55; circle(x,y,r*0.06); ctx.fill(); }
+        // glossy sheen
+        shine(-r*0.28,-r*0.32,r*0.24,r*0.14,-0.4,0.45);
+        // warning light (blinks)
+        const blink=0.55+0.45*Math.sin(frame*0.18);
+        ctx.save(); ctx.globalAlpha=blink*0.6; ctx.fillStyle='#ff466e'; circle(-r*0.22,-r*0.22,r*0.28); ctx.fill(); ctx.restore();
+        ctx.fillStyle='#ff5a72'; circle(-r*0.22,-r*0.22,r*0.14); ctx.fill(); ctx.strokeStyle=INK; ctx.lineWidth=OW*0.6; ctx.stroke();
+        ctx.fillStyle='rgba(255,255,255,.9)'; circle(-r*0.27,-r*0.27,r*0.05); ctx.fill();
         break;
+      }
     }
     ctx.restore();
   }
@@ -381,8 +944,7 @@
     hauler.mouth = 1; hauler.chomp = 0.7; hauler.look = 0.3;
     foods = []; parts = []; pops = []; puffs = [];
     if (SHOT === 'hauler'){
-      // the money shot: a donut being chomped, more food incoming
-      foods.push({type:'donut',  x:hauler.x+34, y:hauler.y,   r:24, bob:0, spin:0, rot:0, eaten:0.30, hazard:false});
+      // the money shot: hero mid-chomp (donut renders in-mouth via chomp), food incoming
       foods.push({type:'apple',  x:W-64,        y:H*0.28,     r:24, bob:0, spin:0, rot:0, eaten:0,    hazard:false});
       foods.push({type:'cherry', x:W-42,        y:H*0.64,     r:22, bob:1, spin:0, rot:0, eaten:0,    hazard:false});
       burst(hauler.x+30, hauler.y, '#ff8fd0');
