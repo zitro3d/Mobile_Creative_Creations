@@ -1,0 +1,219 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Hunger Hauler — Dragon Style Study</title>
+<style>
+  html,body{margin:0;height:100%;background:#1a1620;overflow:hidden;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{box-shadow:0 20px 60px rgba(0,0,0,.5);border-radius:22px;}
+</style>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+(() => {
+  const W=390,H=844, DPR=2;
+  const cv=document.getElementById('c'); const ctx=cv.getContext('2d');
+  cv.width=W*DPR; cv.height=H*DPR; ctx.scale(DPR,DPR);
+  function fit(){ const s=Math.min(innerWidth/W,innerHeight/H); cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px'; }
+  addEventListener('resize',fit); fit();
+
+  // ---------- sophisticated, harmonious palette ----------
+  const C = {
+    body:'#5f9e8a', bodyHi:'#8cc3ad', bodySh:'#3f7a68', bodyDeep:'#2f5e50',
+    belly:'#efe4cf', bellySh:'#dcc9ad',
+    wing:'#c98b93', wingHi:'#e6b0b5', wingSh:'#a86b74', wingMem:'#d99aa1',
+    bone:'#ece0c6', boneSh:'#cდ', gold:'#d9b25a', goldHi:'#f0d089',
+    ink:'#26313a', line:'#2c4a41', rim:'#bfe6d6',
+  };
+  C.boneSh='#cbb897';
+
+  const circle=(x,y,r)=>{ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.closePath();};
+  const ell=(x,y,rx,ry,rot)=>{ctx.beginPath();ctx.ellipse(x,y,rx,ry,rot||0,0,7);ctx.closePath();};
+
+  // ---- shared REFINED dragon silhouette (profile, facing right) ----
+  function pathBody(){
+    ctx.beginPath();
+    ctx.moveTo(-30,2);
+    ctx.bezierCurveTo(-34,-14,-20,-20,-4,-19);      // back / shoulders
+    ctx.bezierCurveTo(10,-18,16,-24,24,-22);        // neck rise
+    ctx.bezierCurveTo(34,-20,42,-15,44,-7);         // head crown -> brow
+    ctx.bezierCurveTo(45,-2,42,3,36,4);             // face front
+    ctx.bezierCurveTo(40,7,38,12,32,12);            // jaw
+    ctx.bezierCurveTo(30,17,22,20,14,19);           // throat/chest
+    ctx.bezierCurveTo(2,24,-14,23,-22,16);          // belly
+    ctx.bezierCurveTo(-30,11,-28,7,-30,2);          // hip back to tail
+    ctx.closePath();
+  }
+  function pathBelly(){
+    ctx.beginPath();
+    ctx.moveTo(30,11); ctx.bezierCurveTo(24,19,10,22,-6,21);
+    ctx.bezierCurveTo(-18,20,-24,15,-24,10);
+    ctx.bezierCurveTo(-16,15,0,15,14,12);
+    ctx.bezierCurveTo(22,10,27,8,30,11); ctx.closePath();
+  }
+  function pathWing(){ // elegant swept wing, up and back
+    ctx.beginPath();
+    ctx.moveTo(2,-14);
+    ctx.bezierCurveTo(-6,-46,-26,-58,-46,-56);      // leading edge to tip
+    ctx.bezierCurveTo(-34,-44,-36,-40,-28,-34);     // scallop 1
+    ctx.bezierCurveTo(-20,-30,-22,-26,-14,-22);     // scallop 2
+    ctx.bezierCurveTo(-8,-19,-8,-16,2,-14);
+    ctx.closePath();
+  }
+  function pathTail(){
+    ctx.beginPath();
+    ctx.moveTo(-24,6);
+    ctx.bezierCurveTo(-44,10,-58,4,-62,-10);
+    ctx.bezierCurveTo(-54,0,-40,2,-24,0);
+    ctx.closePath();
+  }
+  function tailFin(){ // elegant leaf tip
+    ctx.beginPath();
+    ctx.moveTo(-60,-8);
+    ctx.bezierCurveTo(-72,-16,-78,-10,-74,-2);
+    ctx.bezierCurveTo(-70,-6,-66,-4,-62,-9);
+    ctx.closePath();
+  }
+  function horn(){ ctx.beginPath();
+    ctx.moveTo(30,-20); ctx.bezierCurveTo(26,-34,16,-40,8,-40);
+    ctx.bezierCurveTo(16,-34,20,-28,24,-19); ctx.closePath();
+  }
+  // designed almond eye
+  function almondEye(x,y,s,style){
+    ctx.save(); ctx.translate(x,y);
+    // eyelid almond
+    ctx.fillStyle = style==='lined' ? '#fff' : '#f7f2ea';
+    ctx.beginPath(); ctx.moveTo(-s,0); ctx.quadraticCurveTo(0,-s*0.85,s,0); ctx.quadraticCurveTo(0,s*0.7,-s,0); ctx.closePath(); ctx.fill();
+    if(style==='lined'){ ctx.strokeStyle=C.line; ctx.lineWidth=1.6; ctx.stroke(); }
+    // iris
+    ctx.fillStyle=C.ink; ell(s*0.18,-s*0.02,s*0.5,s*0.62); ctx.fill();
+    ctx.fillStyle=C.gold; ell(s*0.18,s*0.05,s*0.34,s*0.44); ctx.fill();
+    ctx.fillStyle=C.ink; circle(s*0.2,0,s*0.24); ctx.fill();
+    ctx.fillStyle='#fff'; circle(s*0.05,-s*0.2,s*0.14); ctx.fill();
+    // upper lash line
+    ctx.strokeStyle=C.ink; ctx.lineWidth=s*0.16; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(-s*0.9,-s*0.05); ctx.quadraticCurveTo(0,-s*0.9,s*0.95,-s*0.02); ctx.stroke();
+    ctx.restore();
+  }
+  function brow(x,y){ ctx.strokeStyle=C.bodyDeep; ctx.lineWidth=2; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(x-5,y-6); ctx.quadraticCurveTo(x+2,y-9,x+8,y-6); ctx.stroke(); }
+  function nostril(x,y){ ctx.fillStyle=C.bodyDeep; ell(x,y,1.4,1); ctx.fill(); }
+  function mouthCalm(){ ctx.strokeStyle=C.bodyDeep; ctx.lineWidth=1.8; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(36,5); ctx.quadraticCurveTo(41,7,43,4); ctx.stroke(); }
+
+  // ======================= STYLE A — FLAT EDITORIAL =======================
+  function dragonFlat(){ ctx.save();
+    // tail
+    ctx.fillStyle=C.bodySh; pathTail(); ctx.fill();
+    ctx.fillStyle=C.wing; tailFin(); ctx.fill();
+    // far wing (tone down)
+    ctx.save(); ctx.globalAlpha=.5; ctx.translate(6,4); ctx.fillStyle=C.wingSh; pathWing(); ctx.fill(); ctx.restore();
+    // body flat
+    ctx.fillStyle=C.body; pathBody(); ctx.fill();
+    // belly flat panel
+    ctx.fillStyle=C.belly; pathBelly(); ctx.fill();
+    // single flat shadow shape (cel) on lower/back
+    ctx.save(); pathBody(); ctx.clip(); ctx.fillStyle=C.bodySh;
+    ctx.beginPath(); ctx.moveTo(-32,4); ctx.bezierCurveTo(-20,10,0,10,-6,24); ctx.lineTo(-34,24); ctx.closePath(); ctx.fill(); ctx.restore();
+    // horn flat
+    ctx.fillStyle=C.bone; horn(); ctx.fill();
+    // spine ridge (small triangles, tonal not outlined)
+    ctx.fillStyle=C.bodyDeep; for(const sx of[-14,-6,2]){ ctx.beginPath(); ctx.moveTo(sx,-18); ctx.lineTo(sx+4,-25); ctx.lineTo(sx+8,-17); ctx.closePath(); ctx.fill(); }
+    // near wing flat, two-tone
+    ctx.fillStyle=C.wing; pathWing(); ctx.fill();
+    ctx.save(); pathWing(); ctx.clip(); ctx.fillStyle=C.wingSh;
+    ctx.beginPath(); ctx.moveTo(2,-14); ctx.lineTo(-14,-22); ctx.lineTo(-8,-14); ctx.closePath(); ctx.fill(); ctx.restore();
+    // face
+    brow(38,-8); nostril(42,-2); mouthCalm();
+    almondEye(35,-6,6,'flat');
+    ctx.restore();
+  }
+
+  // ==================== STYLE B — SOFT GRADIENT (premium) ====================
+  function dragonSoft(){ ctx.save();
+    // ambient glow
+    ctx.save(); ctx.globalAlpha=.35; ctx.filter='blur(12px)'; ctx.fillStyle=C.body; ell(0,-2,40,32); ctx.fill(); ctx.restore();
+    // tail
+    let tg=ctx.createLinearGradient(-62,0,-24,0); tg.addColorStop(0,C.bodyDeep); tg.addColorStop(1,C.body);
+    ctx.fillStyle=tg; pathTail(); ctx.fill();
+    let fg=ctx.createLinearGradient(-78,-10,-60,0); fg.addColorStop(0,C.wingHi); fg.addColorStop(1,C.wing);
+    ctx.fillStyle=fg; tailFin(); ctx.fill();
+    // far wing
+    ctx.save(); ctx.globalAlpha=.55; ctx.translate(7,5); ctx.fillStyle=C.wingSh; pathWing(); ctx.fill(); ctx.restore();
+    // body gradient
+    let bg=ctx.createLinearGradient(0,-22,0,22); bg.addColorStop(0,C.bodyHi); bg.addColorStop(.55,C.body); bg.addColorStop(1,C.bodyDeep);
+    ctx.fillStyle=bg; pathBody(); ctx.fill();
+    // soft belly gradient
+    let yg=ctx.createLinearGradient(0,4,0,22); yg.addColorStop(0,C.belly); yg.addColorStop(1,C.bellySh);
+    ctx.fillStyle=yg; pathBelly(); ctx.fill();
+    // form shadow under (soft)
+    ctx.save(); pathBody(); ctx.clip();
+    let sg=ctx.createLinearGradient(0,6,0,24); sg.addColorStop(0,'rgba(47,94,80,0)'); sg.addColorStop(1,'rgba(47,94,80,.55)');
+    ctx.fillStyle=sg; ctx.fillRect(-34,4,90,22); ctx.restore();
+    // rim light along top edge
+    ctx.save(); pathBody(); ctx.clip(); ctx.strokeStyle=C.rim; ctx.lineWidth=3; ctx.globalAlpha=.9;
+    ctx.beginPath(); ctx.moveTo(-24,-16); ctx.bezierCurveTo(-6,-20,14,-22,24,-21); ctx.bezierCurveTo(36,-19,43,-14,44,-8); ctx.stroke(); ctx.restore();
+    // horn gradient
+    let hg=ctx.createLinearGradient(8,-40,30,-18); hg.addColorStop(0,C.bone); hg.addColorStop(1,C.boneSh);
+    ctx.fillStyle=hg; horn(); ctx.fill();
+    // spine ridge soft
+    ctx.fillStyle=C.bodyDeep; for(const sx of[-14,-6,2]){ ctx.beginPath(); ctx.moveTo(sx,-18); ctx.quadraticCurveTo(sx+4,-26,sx+8,-17); ctx.closePath(); ctx.fill(); }
+    // near wing gradient + membrane rim
+    let wg=ctx.createLinearGradient(-46,-56,2,-14); wg.addColorStop(0,C.wingHi); wg.addColorStop(1,C.wingSh);
+    ctx.fillStyle=wg; pathWing(); ctx.fill();
+    ctx.save(); pathWing(); ctx.clip(); ctx.strokeStyle=C.wingHi; ctx.globalAlpha=.7; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(2,-14); ctx.bezierCurveTo(-6,-46,-26,-58,-46,-56); ctx.stroke(); ctx.restore();
+    // face
+    brow(38,-8); nostril(42,-2); mouthCalm();
+    almondEye(35,-6,6,'soft');
+    ctx.restore();
+  }
+
+  // ================= STYLE C — MODERN MASCOT (slim colored line) =================
+  function dragonLined(){ ctx.save();
+    const LW=2.6; const line=(fn,w)=>{ ctx.strokeStyle=C.line; ctx.lineJoin='round'; ctx.lineWidth=w||LW; fn(); ctx.stroke(); };
+    // tail
+    ctx.fillStyle=C.body; pathTail(); ctx.fill(); line(pathTail);
+    ctx.fillStyle=C.wing; tailFin(); ctx.fill(); line(tailFin,2);
+    // far wing
+    ctx.save(); ctx.globalAlpha=.5; ctx.translate(7,5); ctx.fillStyle=C.wingSh; pathWing(); ctx.fill(); ctx.restore();
+    // body cel: base + shadow + highlight
+    ctx.fillStyle=C.body; pathBody(); ctx.fill();
+    ctx.save(); pathBody(); ctx.clip();
+    ctx.fillStyle=C.bodySh; ctx.beginPath(); ctx.moveTo(-34,3); ctx.bezierCurveTo(-16,9,4,9,-4,24); ctx.lineTo(-36,24); ctx.closePath(); ctx.fill();
+    ctx.fillStyle=C.bodyHi; ctx.globalAlpha=.8; ctx.beginPath(); ctx.moveTo(-18,-16); ctx.bezierCurveTo(0,-20,18,-21,28,-19); ctx.bezierCurveTo(14,-14,-4,-13,-18,-12); ctx.closePath(); ctx.fill(); ctx.restore();
+    line(pathBody, 3);
+    // belly
+    ctx.fillStyle=C.belly; pathBelly(); ctx.fill(); line(pathBelly,2);
+    // horn with gold ring accent
+    ctx.fillStyle=C.bone; horn(); ctx.fill(); line(horn,2);
+    ctx.strokeStyle=C.gold; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(18,-28); ctx.lineTo(24,-24); ctx.stroke();
+    // spine ridge
+    ctx.fillStyle=C.wing; for(const sx of[-14,-6,2]){ ctx.beginPath(); ctx.moveTo(sx,-17); ctx.lineTo(sx+4,-26); ctx.lineTo(sx+8,-16); ctx.closePath(); ctx.fill(); ctx.strokeStyle=C.line; ctx.lineWidth=1.6; ctx.stroke(); }
+    // near wing cel + line
+    ctx.fillStyle=C.wingMem; pathWing(); ctx.fill();
+    ctx.save(); pathWing(); ctx.clip(); ctx.fillStyle=C.wingSh; ctx.beginPath(); ctx.moveTo(2,-14); ctx.lineTo(-16,-24); ctx.lineTo(-8,-13); ctx.closePath(); ctx.fill(); ctx.restore();
+    line(pathWing,2.6);
+    // small gold collar accent
+    ctx.strokeStyle=C.gold; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(18,10); ctx.quadraticCurveTo(26,14,32,9); ctx.stroke();
+    ctx.fillStyle=C.goldHi; circle(26,13,2.2); ctx.fill();
+    // face
+    brow(38,-8); nostril(42,-2); mouthCalm();
+    almondEye(35,-6,6,'lined');
+    ctx.restore();
+  }
+
+  // ---------- board ----------
+  function bg(){ const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#f3ece2'); g.addColorStop(1,'#e4d2d4'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
+  function title(){ ctx.save(); ctx.textAlign='center'; ctx.fillStyle='#33303a';
+    ctx.font='700 26px "Trebuchet MS",sans-serif'; ctx.fillText('DRAGON · STYLE STUDY',W/2,48);
+    ctx.font='400 13px "Trebuchet MS",sans-serif'; ctx.fillStyle='#7a6f76'; ctx.fillText('same creature · three levels of finish · which reads "designed"?',W/2,70); ctx.restore(); }
+  function row(fn,cy,name,desc){ ctx.save(); ctx.translate(W*0.34,cy); ctx.scale(1.7,1.7); fn(); ctx.restore();
+    ctx.save(); ctx.textAlign='left'; ctx.fillStyle='#33303a'; ctx.font='700 19px "Trebuchet MS",sans-serif'; ctx.fillText(name, W*0.60, cy-6);
+    ctx.fillStyle='#7a6f76'; ctx.font='400 12.5px "Trebuchet MS",sans-serif';
+    let yy=cy+14; for(const d of desc){ ctx.fillText(d, W*0.60, yy); yy+=16; } ctx.restore(); }
+
+  bg(); title();
+  row(dragonFlat, 200, 'A · FLAT', ['editorial, cel-flat','muted palette, no line','confident minimal shapes']);
+  row(dragonSoft, 430, 'B · SOFT', ['gradient form + rim light','painterly, atmospheric','Alto / Sky elegance']);
+  row(dragonLined,660,'C · LINED', ['slim colored line (not black)','cel shading + gold accents','modern Apple-Arcade mascot']);
+  ctx.save(); ctx.textAlign='center'; ctx.fillStyle='#7a6f76'; ctx.font='400 12px "Trebuchet MS",sans-serif';
+  ctx.fillText('palette: sage-teal · cream · dusty rose · antique gold', W/2, 792); ctx.restore();
+})();
+</script>
