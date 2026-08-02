@@ -73,17 +73,28 @@
   const sHurt =()=>blip(200,.25,'triangle',.09);
 
   // ---------- input ----------
-  function flap(){
-    if(state===START){ state=PLAY; player.vy=-6; return; }
+  // ---------- feel modes: 1 FLOAT (soft taps) · 2 GLIDE (hold) · 3 CLOUDS (glide + bounce) ----------
+  let mode = Math.min(3,Math.max(1, +(localStorage.getItem('ksr_mode')||2)));
+  const MODE_NAMES = ['','☁ FLOAT','☁ GLIDE','☁ CLOUDS'];
+  let holding=false, platforms=[], platT=90, overFrame=0;
+  const MBTN = { x:W-102, y:12, w:90, h:30 };
+  const inMBtn=(px,py)=> px>=MBTN.x&&px<=MBTN.x+MBTN.w&&py>=MBTN.y&&py<=MBTN.y+MBTN.h;
+  function cycleMode(){ mode=mode%3+1; localStorage.setItem('ksr_mode',mode); reset(); state=START; }
+  function press(px,py){
+    if(px>=0 && inMBtn(px,py)){ cycleMode(); return; }         // top-right toggle (dead-zone)
+    if(state===START){ reset(); state=PLAY; player.vy=-4; holding=(mode>=2); return; }
     if(state===OVER){ if(frame-overFrame>16) reset(); return; }
-    player.vy=-6.4; player.flap=1;
+    if(mode===1){ player.vy=-5.6; player.flap=1; } else { holding=true; }
   }
-  let overFrame=0;
-  addEventListener('pointerdown',e=>{e.preventDefault();flap();},{passive:false});
-  addEventListener('keydown',e=>{ if(e.code==='Space'){e.preventDefault();flap();} });
+  function release(){ holding=false; }
+  function evXY(e){ const r=cv.getBoundingClientRect(); return [(e.clientX-r.left)/r.width*W,(e.clientY-r.top)/r.height*H]; }
+  addEventListener('pointerdown',e=>{e.preventDefault(); const xy=evXY(e); press(xy[0],xy[1]);},{passive:false});
+  addEventListener('pointerup',release); addEventListener('pointercancel',release);
+  addEventListener('keydown',e=>{ if(e.code==='Space'){e.preventDefault(); if(!e.repeat) press(-1,-1); holding=(mode>=2 && state===PLAY);} });
+  addEventListener('keyup',e=>{ if(e.code==='Space') release(); });
 
   function reset(){ state=PLAY; frame=0; score=0; munch=0; health=6; speed=2.4; spawnT=50;
-    invuln=90; combo=0; player.y=H*0.42; player.vy=0; player.flap=0; foods=[]; parts=[]; pops=[]; }
+    invuln=90; combo=0; player.y=H*0.42; player.vy=0; player.flap=0; foods=[]; parts=[]; pops=[]; platforms=[]; holding=false; platT=90; }
 
   // ---------- fx ----------
   function burst(x,y,cols){ for(let i=0;i<12;i++){ const a=rnd(0,6.28),sp=rnd(1.5,5);
@@ -106,10 +117,12 @@
     if(state!==PLAY) return;
 
     speed+=0.0006;
-    // physics
-    player.vy=clamp(player.vy+0.42,-9,11); player.y+=player.vy;
+    // physics per feel-mode
+    if(mode===1){ player.vy=clamp(player.vy+0.30,-8,9); player.y+=player.vy; }                 // FLOAT: soft gravity, gentle taps
+    else { player.vy += holding?-0.55:0.34; player.vy*=0.985; player.vy=clamp(player.vy,-6.5,7.8); player.y+=player.vy; }  // GLIDE: hold to rise
+    if(mode===3) updatePlatforms();                                                            // CLOUDS: bounce platforms
     // floor / ceiling
-    if(player.y<44){ player.y=44; player.vy=1; hurt(); }
+    if(player.y<44){ player.y=44; player.vy=Math.abs(player.vy)*0.3; hurt(); }
     if(player.y>H-70){ player.y=H-70; player.vy=-3; hurt(); }
     // spawns
     if(--spawnT<=0){ spawnFood(); spawnT=Math.max(46,86-frame*0.02); }
@@ -129,6 +142,35 @@
     }
   }
   function foodCols(t){ return ({donut:['#ff9ecf','#8ee0d0','#ffe14d'],boba:['#e6b78a','#4a3226','#fff'],dango:['#ff9ecf','#fff3e0','#a3e0b0'],macaron:['#ffd6ea','#a3e0b0','#a9d0ff','#ffe08a'],star:['#ffe08a','#ffcf6b','#fff'],wingdonut:['#ff9ecf','#8ee0d0','#a9d0ff','#ffe14d','#c9a6e0']})[t]||['#fff']; }
+
+  // ---------- CLOUDS mode: bounce platforms ----------
+  function updatePlatforms(){
+    if(--platT<=0){ platforms.push({x:W+60,y:rnd(H*0.42,H*0.80),r:rnd(32,44),pop:0}); platT=rnd(74,120); }
+    const px=player.x, py=player.y, pr=30;
+    for(let i=platforms.length-1;i>=0;i--){ const c=platforms[i]; c.x-=speed; if(c.pop>0)c.pop*=0.85;
+      // bounce when descending onto the cloud top
+      if(player.vy>0 && Math.abs(c.x-px)<c.r*0.85 && py+pr>c.y-c.r*0.45 && py+pr<c.y+c.r*0.75){
+        player.vy=-8.4; c.pop=1; player.flap=0.7; safeBounce(); burst(c.x,c.y-c.r*0.3,['#ffffff','#f3e6f7','#e7d6f0']);
+      }
+      if(c.x<-70) platforms.splice(i,1);
+    }
+  }
+  function safeBounce(){ try{ if(typeof sMunch==='function') blip(360,.14,'sine',.05); }catch(e){} }
+  function drawPlatforms(){
+    for(const c of platforms){ const sq=1+(c.pop||0)*0.18;
+      ctx.save(); ctx.translate(c.x,c.y); ctx.scale(1,1/sq); ctx.globalAlpha=0.97;
+      ctx.fillStyle='#efe0ef'; circle(0,c.r*0.42,c.r*0.95); ctx.fill();
+      ctx.fillStyle='#ffffff';
+      circle(0,-c.r*0.2,c.r*0.72); ctx.fill(); circle(c.r*0.74,c.r*0.12,c.r*0.62); ctx.fill();
+      circle(-c.r*0.74,c.r*0.14,c.r*0.58); ctx.fill(); circle(c.r*0.32,-c.r*0.46,c.r*0.5); ctx.fill();
+      ctx.restore(); }
+  }
+  function drawModeBtn(){
+    const b=MBTN; ctx.save(); ctx.fillStyle='rgba(255,255,255,.85)'; rr(b.x,b.y,b.w,b.h,b.h/2); ctx.fill();
+    ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font='700 12.5px "Trebuchet MS"'; ctx.fillStyle='#7a5a8a';
+    ctx.fillText(MODE_NAMES[mode], b.x+b.w/2, b.y+b.h/2+1); ctx.restore();
+  }
 
   // ---------- draw: world ----------
   function drawSky(){
@@ -277,9 +319,12 @@
   function drawStart(){
     if(logoReady){ const lw=Math.min(330,W-30), lh=lw*(468.52/788.31); ctx.drawImage(logo,(W-lw)/2,H*0.05,lw,lh); }
     else drawLogo(W/2, H*0.20);
-    ctx.globalAlpha=.6+.4*Math.sin(frame*.1); centerText('TAP HERE TO FLY!',H*0.63,24,'#ff7a9c',5); ctx.globalAlpha=1;
-    centerText('catch the treats · keep your hearts',H*0.63+28,14,'#9a7f88',3);
-    if(best>0) centerText('BEST '+best,H*0.70,16,'#9a7f88',3); }
+    const prompt = mode===1?'TAP TO FLY!':'HOLD TO FLY!';
+    ctx.globalAlpha=.6+.4*Math.sin(frame*.1); centerText(prompt,H*0.61,24,'#ff7a9c',5); ctx.globalAlpha=1;
+    const hint = mode===3?'hold to glide · bounce off the clouds':(mode===2?'hold to glide up · release to drift':'tap to float · soft & gentle');
+    centerText(hint,H*0.61+28,14,'#9a7f88',3);
+    centerText('FEEL: '+MODE_NAMES[mode].replace('☁ ','')+'   ·   tap ☁ (top-right) to switch',H*0.69,13,'#9a82b0',3);
+    if(best>0) centerText('BEST '+best,H*0.74,15,'#9a7f88',3); }
   function drawOver(){ ctx.save(); ctx.fillStyle='rgba(122,90,99,.4)'; ctx.fillRect(0,0,W,H);
     centerText('ALL FULL!',H*0.36,42,'#fff'); centerText('SCORE '+score,H*0.45,30,'#ffe14d');
     centerText('🍩 '+munch+' munched',H*0.51,20,'#fff',4); centerText('BEST '+best,H*0.56,18,'#fff',4);
@@ -290,12 +335,14 @@
     ctx.save(); if(shake>0) ctx.translate(rnd(-shake,shake)*.4,rnd(-shake,shake)*.4);
     drawSky(); drawGround();
     for(const f of foods) drawFood(f);
+    if(mode===3) drawPlatforms();
     drawHero(); drawFx();
     ctx.restore();
     if(flash>0){ ctx.fillStyle='rgba('+flashCol+','+(flash/16)+')'; ctx.fillRect(0,0,W,H); }
     if(state!==START) drawHud();   // title screen shows the logo instead
     if(state===START) drawStart();
     if(state===OVER) drawOver();
+    drawModeBtn();                 // feel-mode toggle (all states)
   }
 
   // ---------- fixed-timestep loop ----------
