@@ -73,28 +73,20 @@
   const sHurt =()=>blip(200,.25,'triangle',.09);
 
   // ---------- input ----------
-  // ---------- feel modes: 1 FLOAT (soft taps) · 2 GLIDE (hold) · 3 CLOUDS (glide + bounce) ----------
-  let mode = Math.min(3,Math.max(1, +(localStorage.getItem('ksr_mode')||2)));
-  const MODE_NAMES = ['','☁ FLOAT','☁ GLIDE','☁ CLOUDS'];
-  let holding=false, platforms=[], platT=90, overFrame=0;
-  const MBTN = { x:W-102, y:12, w:90, h:30 };
-  const inMBtn=(px,py)=> px>=MBTN.x&&px<=MBTN.x+MBTN.w&&py>=MBTN.y&&py<=MBTN.y+MBTN.h;
-  function cycleMode(){ mode=mode%3+1; localStorage.setItem('ksr_mode',mode); reset(); state=START; }
-  function press(px,py){
-    if(px>=0 && inMBtn(px,py)){ cycleMode(); return; }         // top-right toggle (dead-zone)
-    if(state===START){ reset(); state=PLAY; player.vy=-4; holding=(mode>=2); return; }
+  // ---------- input: one dead-simple TAP to fly (touch + mouse + Space) ----------
+  let platforms=[], platT=90, overFrame=0;
+  function press(){
+    if(state===START){ reset(); state=PLAY; player.vy=-5; return; }   // first tap starts
     if(state===OVER){ if(frame-overFrame>16) reset(); return; }
-    if(mode===1){ player.vy=-5.6; player.flap=1; } else { holding=true; }
+    player.vy=-6.2; player.flap=1;                                    // gentle tap-to-rise
   }
-  function release(){ holding=false; }
-  function evXY(e){ const r=cv.getBoundingClientRect(); return [(e.clientX-r.left)/r.width*W,(e.clientY-r.top)/r.height*H]; }
-  addEventListener('pointerdown',e=>{e.preventDefault(); const xy=evXY(e); press(xy[0],xy[1]);},{passive:false});
-  addEventListener('pointerup',release); addEventListener('pointercancel',release);
-  addEventListener('keydown',e=>{ if(e.code==='Space'){e.preventDefault(); if(!e.repeat) press(-1,-1); holding=(mode>=2 && state===PLAY);} });
-  addEventListener('keyup',e=>{ if(e.code==='Space') release(); });
+  function onDown(e){ if(e && e.cancelable) e.preventDefault(); press(); }
+  addEventListener('touchstart', onDown, {passive:false});           // mobile (suppresses ghost click)
+  addEventListener('mousedown', onDown);                             // desktop
+  addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); press(); } });
 
   function reset(){ state=PLAY; frame=0; score=0; munch=0; health=6; speed=2.4; spawnT=50;
-    invuln=90; combo=0; player.y=H*0.42; player.vy=0; player.flap=0; foods=[]; parts=[]; pops=[]; platforms=[]; holding=false; platT=90; }
+    invuln=90; combo=0; player.y=H*0.42; player.vy=0; player.flap=0; foods=[]; parts=[]; pops=[]; platforms=[]; platT=90; }
 
   // ---------- fx ----------
   function burst(x,y,cols){ for(let i=0;i<12;i++){ const a=rnd(0,6.28),sp=rnd(1.5,5);
@@ -117,10 +109,8 @@
     if(state!==PLAY) return;
 
     speed+=0.0006;
-    // physics per feel-mode
-    if(mode===1){ player.vy=clamp(player.vy+0.30,-8,9); player.y+=player.vy; }                 // FLOAT: soft gravity, gentle taps
-    else { player.vy += holding?-0.55:0.34; player.vy*=0.985; player.vy=clamp(player.vy,-6.5,7.8); player.y+=player.vy; }  // GLIDE: hold to rise
-    if(mode===3) updatePlatforms();                                                            // CLOUDS: bounce platforms
+    player.vy=clamp(player.vy+0.36,-8,10); player.y+=player.vy;    // gentle tap-float physics
+    updatePlatforms();                                            // bounce-clouds always on
     // floor / ceiling
     if(player.y<44){ player.y=44; player.vy=Math.abs(player.vy)*0.3; hurt(); }
     if(player.y>H-70){ player.y=H-70; player.vy=-3; hurt(); }
@@ -165,12 +155,6 @@
       circle(0,-c.r*0.2,c.r*0.72); ctx.fill(); circle(c.r*0.74,c.r*0.12,c.r*0.62); ctx.fill();
       circle(-c.r*0.74,c.r*0.14,c.r*0.58); ctx.fill(); circle(c.r*0.32,-c.r*0.46,c.r*0.5); ctx.fill();
       ctx.restore(); }
-  }
-  function drawModeBtn(){
-    const b=MBTN; ctx.save(); ctx.fillStyle='rgba(255,255,255,.85)'; rr(b.x,b.y,b.w,b.h,b.h/2); ctx.fill();
-    ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.lineWidth=1.5; ctx.stroke();
-    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font='700 12.5px "Trebuchet MS"'; ctx.fillStyle='#7a5a8a';
-    ctx.fillText(MODE_NAMES[mode], b.x+b.w/2, b.y+b.h/2+1); ctx.restore();
   }
 
   // ---------- draw: world ----------
@@ -322,12 +306,9 @@
   function drawStart(){
     if(logoReady){ const lw=Math.min(330,W-30), lh=lw*(468.52/788.31); ctx.drawImage(logo,(W-lw)/2,H*0.05,lw,lh); }
     else drawLogo(W/2, H*0.20);
-    const prompt = mode===1?'TAP TO FLY!':'HOLD TO FLY!';
-    ctx.globalAlpha=.6+.4*Math.sin(frame*.1); centerText(prompt,H*0.61,24,'#ff7a9c',5); ctx.globalAlpha=1;
-    const hint = mode===3?'hold to glide · bounce off the clouds':(mode===2?'hold to glide up · release to drift':'tap to float · soft & gentle');
-    centerText(hint,H*0.61+28,14,'#9a7f88',3);
-    centerText('FEEL: '+MODE_NAMES[mode].replace('☁ ','')+'   ·   tap ☁ (top-right) to switch',H*0.69,13,'#9a82b0',3);
-    if(best>0) centerText('BEST '+best,H*0.74,15,'#9a7f88',3); }
+    ctx.globalAlpha=.6+.4*Math.sin(frame*.1); centerText('TAP TO FLY!',H*0.62,26,'#ff7a9c',5); ctx.globalAlpha=1;
+    centerText('tap to rise · eat the snacks · bounce the clouds',H*0.62+30,14,'#9a7f88',3);
+    if(best>0) centerText('BEST '+best,H*0.70,16,'#9a7f88',3); }
   function drawOver(){ ctx.save(); ctx.fillStyle='rgba(122,90,99,.4)'; ctx.fillRect(0,0,W,H);
     centerText('ALL FULL!',H*0.36,42,'#fff'); centerText('SCORE '+score,H*0.45,30,'#ffe14d');
     centerText('🍩 '+munch+' munched',H*0.51,20,'#fff',4); centerText('BEST '+best,H*0.56,18,'#fff',4);
@@ -338,18 +319,17 @@
     ctx.save(); if(shake>0) ctx.translate(rnd(-shake,shake)*.4,rnd(-shake,shake)*.4);
     drawSky(); drawGround();
     for(const f of foods) drawFood(f);
-    if(mode===3) drawPlatforms();
+    drawPlatforms();
     drawHero(); drawFx();
     ctx.restore();
     if(flash>0){ ctx.fillStyle='rgba('+flashCol+','+(flash/16)+')'; ctx.fillRect(0,0,W,H); }
     if(state!==START) drawHud();   // title screen shows the logo instead
     if(state===START) drawStart();
     if(state===OVER) drawOver();
-    if(state===PLAY && frame<160){ ctx.save(); ctx.globalAlpha=Math.max(0,1-frame/160); ctx.textAlign='center';
+    if(state===PLAY && frame<150){ ctx.save(); ctx.globalAlpha=Math.max(0,1-frame/150); ctx.textAlign='center';
       ctx.font='700 16px "Trebuchet MS"'; ctx.lineWidth=4; ctx.lineJoin='round'; ctx.strokeStyle='#fff'; ctx.fillStyle='#7a5a8a';
-      const t = mode===1?'TAP to float up ✨':(mode===3?'HOLD to glide · land on clouds to BOUNCE ☁':'HOLD to glide up · release to drift');
+      const t='TAP to fly up ✨ bounce off the clouds';
       ctx.strokeText(t,W/2,H-58); ctx.fillText(t,W/2,H-58); ctx.restore(); }
-    drawModeBtn();                 // feel-mode toggle (all states)
   }
 
   // ---------- fixed-timestep loop ----------
