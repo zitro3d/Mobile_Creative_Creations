@@ -14,13 +14,23 @@
 (() => {
   'use strict';
   // ---------- setup ----------
-  const W = 390, H = 780;
+  // Orientation-aware play field: the SHORT screen side maps to REF logical
+  // units, the long side flexes — so portrait is tall & narrow, landscape is
+  // wide & short. Rotate the phone to try both.
+  let W = 390, H = 780;
   const cv = document.getElementById('game'), ctx = cv.getContext('2d');
   const DPR = Math.min(3, window.devicePixelRatio || 1);
-  cv.width = W * DPR; cv.height = H * DPR; ctx.scale(DPR, DPR);
-  function fit(){ const s = Math.min(innerWidth / W, innerHeight / H);
-    cv.style.width = (W*s)+'px'; cv.style.height = (H*s)+'px'; }
-  addEventListener('resize', fit); fit();
+  function computeSize(){
+    const ww=Math.max(1,innerWidth), wh=Math.max(1,innerHeight), REF=430;
+    if(wh>=ww){ W=REF; H=Math.round(REF*Math.min(2.3,Math.max(1.3, wh/ww))); }   // portrait
+    else { H=REF; W=Math.round(REF*Math.min(2.4,Math.max(1.3, ww/wh))); }         // landscape
+  }
+  function sizeCanvas(){ cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+    const s=Math.min(innerWidth/W, innerHeight/H); cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px'; }
+  computeSize(); sizeCanvas();
+  function onResize(){ computeSize(); sizeCanvas(); if(typeof reset==='function'){ reset(); state=START; } }
+  addEventListener('resize', onResize);
+  addEventListener('orientationchange', ()=>setTimeout(onResize,160));
 
   // ---------- hero sprite (embedded, background pre-knocked-out) ----------
   const hero = new Image(); let heroReady = false;
@@ -87,7 +97,7 @@
   addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); press(); } });
 
   function reset(){ state=PLAY; frame=0; score=0; munch=0; health=6; speed=2.4; spawnT=50;
-    invuln=90; combo=0; player.y=H*0.42; player.vy=0; player.flap=0; foods=[]; parts=[]; pops=[]; platforms=[]; platT=90; hazards=[]; hazT=210; }
+    invuln=90; combo=0; player.x=W*0.30; player.y=H*0.42; player.vy=0; player.flap=0; foods=[]; parts=[]; pops=[]; platforms=[]; platT=90; hazards=[]; hazT=210; }
 
   // ---------- fx ----------
   function burst(x,y,cols){ for(let i=0;i<12;i++){ const a=rnd(0,6.28),sp=rnd(1.5,5);
