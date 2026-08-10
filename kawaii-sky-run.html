@@ -85,10 +85,12 @@
   const TYPES=['donut','boba','dango','macaron','star'];
   const MACS=[['#ff9ecf','#ffe1ef'],['#a3e0b0','#dcf3e2'],['#a9d0ff','#e0eeff'],['#ffe08a','#fff2c8'],['#c9a6e0','#ecdcf7']];
   function spawnFood(){
-    let type, bonus=false;
-    if(Math.random()<0.11){ type='wingdonut'; bonus=true; }            // rainbow winged donut — worth 3x
+    let type, bonus=false, bad=false;
+    const r=Math.random();
+    if(r<0.16){ type='yucky'; bad=true; }                              // spoiled treat — DON'T eat it!
+    else if(r<0.27){ type='wingdonut'; bonus=true; }                   // rainbow winged donut — worth 3x
     else type=TYPES[(Math.random()*TYPES.length)|0];
-    foods.push({ type, bonus, x:W+40, y:rnd(H*0.16,H*0.74), r:bonus?26:23, bob:rnd(0,6.28), rot:rnd(-.14,.14), got:0, mc:MACS[(Math.random()*MACS.length)|0] });
+    foods.push({ type, bonus, bad, x:W+40, y:rnd(H*0.16,H*0.74), r:bad?22:(bonus?26:23), bob:rnd(0,6.28), rot:rnd(-.14,.14), got:0, mc:MACS[(Math.random()*MACS.length)|0] });
   }
   function initClouds(){ clouds=[]; for(let i=0;i<5;i++) clouds.push({x:rnd(0,W),y:rnd(40,H*0.5),s:rnd(26,46),v:rnd(.15,.4)}); }
   initClouds();
@@ -170,15 +172,14 @@
     const DW=140, hbx=player.x+DW*0.13, hby=player.y, hw=40, hh=40;
     for(let i=foods.length-1;i>=0;i--){ const f=foods[i]; f.x-=speed; f.bob+=0.08;
       if(f.got>0){ f.got+=0.14; if(f.got>=1) foods.splice(i,1); continue; }
-      if(magnet>0){ const dx=hbx-f.x,dy=hby-f.y,d=Math.hypot(dx,dy)||1; if(d<230){ f.x+=dx/d*5; f.y+=dy/d*5; } }   // magnet pull
+      if(magnet>0 && !f.bad){ const dx=hbx-f.x,dy=hby-f.y,d=Math.hypot(dx,dy)||1; if(d<230){ f.x+=dx/d*5; f.y+=dy/d*5; } }   // magnet pulls GOOD snacks only
       // AABB collision
       if(Math.abs(f.x-hbx)<hw*0.5+f.r && Math.abs(f.y+Math.sin(f.bob)*3-hby)<hh*0.5+f.r){
-        f.got=0.001; combo++; let g=10*(1+Math.floor(combo/5)); if(f.bonus) g*=3; if(starMode>0) g*=2;   // star = 2x
-        score+=g; munch++; runCoins++; player.flap=0.5; player.squash=0.55;   // cute 'nom' pop (+1 coin)
-        flash=4; flashCol='255,255,255';
-        pop(f.x,f.y-12,'+'+g, combo%5===0);
-        burst(f.x,f.y, foodCols(f.type)); sMunch();
-        if(munch%10===0 && health<MAXH){ health++; pop(player.x,player.y-46,'+♥',true); }
+        if(f.bad){ f.got=0.001; pop(f.x,f.y-12,'YUCK!',true); burst(f.x,f.y,['#8a9a5a','#6f7a44','#b7c07a']); hurt(); }   // ate a spoiled treat!
+        else { f.got=0.001; combo++; let g=10*(1+Math.floor(combo/5)); if(f.bonus) g*=3; if(starMode>0) g*=2;   // star = 2x
+          score+=g; munch++; runCoins++; player.flap=0.5; player.squash=0.55;
+          flash=4; flashCol='255,255,255'; pop(f.x,f.y-12,'+'+g, combo%5===0);
+          burst(f.x,f.y, foodCols(f.type)); sMunch(); }
       } else if(f.x<-40){ foods.splice(i,1); combo=0; }   // missed snack = just lose your combo (no damage)
     }
   }
@@ -207,7 +208,7 @@
   // ---------- power-ups ----------
   const POWS=['magnet','shield','star'];
   function updatePowerups(){
-    if(--powT<=0){ powerups.push({x:W+44,y:rnd(H*0.24,H*0.70),kind:POWS[(Math.random()*POWS.length)|0],bob:rnd(0,6.28),got:0,r:20}); powT=rnd(320,540); }
+    if(--powT<=0){ const roll=Math.random(); const kind = roll<0.22?'heart':POWS[(Math.random()*POWS.length)|0]; powerups.push({x:W+44,y:rnd(H*0.24,H*0.70),kind,bob:rnd(0,6.28),got:0,r:20}); powT=rnd(360,600); }
     const px=player.x+16, py=player.y;
     for(let i=powerups.length-1;i>=0;i--){ const z=powerups[i]; z.x-=speed; z.bob+=0.06;
       if(z.got>0){ z.got+=0.1; if(z.got>=1) powerups.splice(i,1); continue; }
@@ -218,6 +219,7 @@
   function activatePow(kind){
     if(kind==='magnet'){ magnet=440; pop(player.x,player.y-48,'MAGNET!',true); }
     else if(kind==='shield'){ shield=1; pop(player.x,player.y-48,'SHIELD!',true); }
+    else if(kind==='heart'){ if(health<MAXH){ health++; pop(player.x,player.y-48,'+1 HEART',true); } else { runCoins+=25; pop(player.x,player.y-48,'+25',true); } }
     else { starMode=380; pop(player.x,player.y-48,'STAR TIME!',true); }
     flash=6; flashCol='255,255,255'; player.squash=0.6; sPow(); burst(player.x,player.y,['#ffd6f5','#c9a6ff','#a9d0ff','#ffe08a']);
   }
@@ -229,12 +231,14 @@
     else if(kind==='shield'){ ctx.fillStyle='#7fc8ff'; ctx.strokeStyle='#3f8fd0'; ctx.lineWidth=2;
       ctx.beginPath(); ctx.moveTo(0,-s); ctx.quadraticCurveTo(s,-s*0.8,s,0); ctx.quadraticCurveTo(s,s*0.85,0,s*1.05); ctx.quadraticCurveTo(-s,s*0.85,-s,0); ctx.quadraticCurveTo(-s,-s*0.8,0,-s); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle='#fff'; heartPath(0,-s*0.04,s*0.38); ctx.fill(); }
+    else if(kind==='heart'){ ctx.fillStyle='#ff6f91'; heartPath(0,-s*0.06,s*0.95); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='#e0466a'; ctx.stroke();
+      ctx.fillStyle='rgba(255,255,255,.85)'; circle(-s*0.32,-s*0.28,s*0.2); ctx.fill(); }
     else { star(0,0,s,'#ffcf3a'); ctx.lineWidth=2; ctx.strokeStyle='#e0a41e'; ctx.stroke(); }
   }
   function drawPowerups(){
     for(const z of powerups){ const y=z.y+Math.sin(z.bob)*4, r=z.r, s=z.got>0?1-z.got:1;
       ctx.save(); ctx.translate(z.x,y); ctx.scale(s,s);
-      ctx.globalAlpha=0.35+0.15*Math.sin(frame*0.2); ctx.fillStyle= z.kind==='magnet'?'#ffd0d8':(z.kind==='shield'?'#bfe6ff':'#ffe8b0'); circle(0,0,r+7); ctx.fill(); ctx.globalAlpha=1;
+      ctx.globalAlpha=0.35+0.15*Math.sin(frame*0.2); ctx.fillStyle= z.kind==='magnet'?'#ffd0d8':(z.kind==='shield'?'#bfe6ff':(z.kind==='heart'?'#ffc4d4':'#ffe8b0')); circle(0,0,r+7); ctx.fill(); ctx.globalAlpha=1;
       ctx.fillStyle='rgba(255,255,255,.9)'; circle(0,0,r); ctx.fill(); ctx.lineWidth=2.5; ctx.strokeStyle='rgba(122,90,138,.4)'; ctx.stroke();
       powIcon(z.kind, r*0.6);
       ctx.restore(); }
@@ -243,8 +247,8 @@
   // ---------- hazards (cute-but-grumpy things to DODGE) ----------
   function updateHazards(){
     if(--hazT<=0){ const kind=Math.random()<0.5?'storm':'chili';
-      hazards.push({x:W+40,y:rnd(H*0.16,H*0.80),r:kind==='storm'?26:19,kind,bob:rnd(0,6.28),hit:0});
-      hazT=rnd(150,240) - Math.min(60,frame*0.01); }               // slowly more frequent
+      hazards.push({x:W+40,y:rnd(H*0.14,H*0.82),r:kind==='storm'?rnd(32,44):22,kind,bob:rnd(0,6.28),hit:0});
+      hazT=rnd(110,185) - Math.min(80,frame*0.014); }              // bigger storms, ramps up faster
     const hbx=player.x+18, hby=player.y;
     for(let i=hazards.length-1;i>=0;i--){ const z=hazards[i]; z.x-=speed*1.03; z.bob+=0.08; if(z.hit>0)z.hit--;
       if(invuln<=0 && Math.hypot(z.x-hbx, z.y+Math.sin(z.bob)*3-hby) < z.r*0.85+20){ hurt(); z.hit=12; }
@@ -370,6 +374,25 @@
       ctx.fillStyle=c[0]; ctx.beginPath(); ctx.arc(0,r*.34,r*.96,Math.PI*.02,Math.PI*.98); ctx.lineTo(-r*.72,r*.24); ctx.lineTo(r*.72,r*.24); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle='rgba(255,255,255,.35)'; circle(-r*.35,-r*.42,r*.28); ctx.fill();
       kawaiiFace(0,-r*.42,fs*0.9);
+    } else if(f.type==='yucky'){ // spoiled treat — cute but gross, DON'T eat
+      // wobbly moldy blob body
+      ctx.fillStyle='#8f9a54'; ctx.lineWidth=2.5; ctx.strokeStyle='#5c6435';
+      ctx.beginPath(); ctx.moveTo(0,-r); ctx.bezierCurveTo(r*1.05,-r*.9,r*1.05,r*.6,r*.5,r*.95);
+      ctx.bezierCurveTo(r*.15,r*1.15,-r*.2,r*1.15,-r*.5,r*.95);
+      ctx.bezierCurveTo(-r*1.05,r*.6,-r*1.05,-r*.9,0,-r); ctx.closePath(); ctx.fill(); ctx.stroke();
+      // mold spots
+      ctx.fillStyle='#6f7a3e'; circle(-r*.4,r*.32,r*.2); ctx.fill(); circle(r*.46,-r*.1,r*.15); ctx.fill(); circle(r*.1,r*.52,r*.13); ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,.22)'; circle(-r*.32,-r*.42,r*.3); ctx.fill();
+      // drippy ooze
+      ctx.fillStyle='#b7c07a'; ctx.beginPath(); ctx.moveTo(-r*.55,r*.55); ctx.quadraticCurveTo(-r*.62,r*1.0,-r*.42,r*1.15); ctx.quadraticCurveTo(-r*.28,r*.9,-r*.3,r*.55); ctx.closePath(); ctx.fill();
+      // queasy face — X eye + dizzy swirl eye + wavy mouth
+      ctx.strokeStyle='#3f4426'; ctx.lineWidth=1.8*fs; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(-r*.5,-r*.28); ctx.lineTo(-r*.26,-r*.06); ctx.moveTo(-r*.26,-r*.28); ctx.lineTo(-r*.5,-r*.06); ctx.stroke();
+      ctx.beginPath(); ctx.arc(r*.36,-r*.16,r*.16,0,5.2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-r*.3,r*.36); ctx.quadraticCurveTo(-r*.12,r*.2,0,r*.36); ctx.quadraticCurveTo(r*.12,r*.52,r*.3,r*.36); ctx.stroke();
+      // green sick blush + little stink squiggle
+      ctx.fillStyle='rgba(120,150,70,.5)'; circle(-r*.6,r*.14,2*fs); ctx.fill(); circle(r*.62,r*.14,2*fs); ctx.fill();
+      ctx.strokeStyle='#9aa864'; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(r*.5,-r*1.05); ctx.quadraticCurveTo(r*.75,-r*1.25,r*.55,-r*1.45); ctx.stroke();
     } else { // star cookie
       ctx.fillStyle='#ffcf6b'; ctx.lineWidth=2.5; ctx.strokeStyle=INK; starPath(r*1.15); ctx.fill(); ctx.stroke();
       ctx.fillStyle='#ffdf9a'; starPath(r*.78); ctx.fill();
