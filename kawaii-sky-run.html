@@ -54,6 +54,10 @@
   let unlocked = (()=>{ try{ const u=JSON.parse(localStorage.getItem('ksr_unlocked')||'null'); return Array.isArray(u)?u:[true,false,false]; }catch(e){ return [true,false,false]; } })();
   while(unlocked.length<charImgs.length) unlocked.push(false); unlocked[0]=true;
   if(!unlocked[currentChar]) currentChar=0;
+  // ---------- daily bonus: coins for coming back each day ----------
+  let dailyMsg=0, dailyAmt=0;
+  try{ const today=new Date().toDateString(); if(localStorage.getItem('ksr_lastDaily')!==today){
+    dailyAmt=50; coins+=dailyAmt; localStorage.setItem('ksr_lastDaily',today); localStorage.setItem('ksr_coins',coins); dailyMsg=1; } }catch(e){}
   let runCoins=0, coinItems=[], coinT=90;                   // coins earned this run + floating pickups
   let powerups=[], powT=280;                                // power-up pickups
   let magnet=0, shield=0, starMode=0, denyShake=0;          // active power-ups + 'no coins' feedback
@@ -109,7 +113,7 @@
   let speed=2.4, spawnT=60, invuln=0, shake=0, flash=0, flashCol='255,120,120';
   const player={ x:W*0.30, y:H*0.42, vy:0, flap:0, tilt:0, squash:0 };
   let foods=[], parts=[], pops=[], clouds=[], combo=0;
-  let zoneIdx=0, shownZone=0, zoneBannerT=0, comboT=0;   // zone tracking + feast-combo decay timer
+  let zoneIdx=0, shownZone=0, zoneBannerT=0, comboT=0, feastShown=1;   // zone tracking + feast-combo decay + celebration tier
 
   // ---------- food catalogue (kawaii) ----------
   const TYPES=['donut','boba','dango','macaron','star'];
@@ -126,17 +130,37 @@
   initClouds();
 
   // ---------- audio ----------
-  let ac=null;
-  function blip(f,d,t,v){ try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();
-    const o=ac.createOscillator(),g=ac.createGain(); o.type=t||'sine'; o.frequency.value=f;
-    g.gain.value=v||.06; o.connect(g); g.connect(ac.destination); const n=ac.currentTime; o.start(n);
+  let ac=null, muted = localStorage.getItem('ksr_muted')==='1';
+  function audioOn(){ try{ ac=ac||new (window.AudioContext||window.webkitAudioContext)(); if(ac.state==='suspended') ac.resume(); }catch(e){} return ac; }
+  function blip(f,d,t,v){ if(muted) return; try{ const a=audioOn(); if(!a) return;
+    const o=a.createOscillator(),g=a.createGain(); o.type=t||'sine'; o.frequency.value=f;
+    g.gain.value=v||.06; o.connect(g); g.connect(a.destination); const n=a.currentTime; o.start(n);
     o.frequency.exponentialRampToValueAtTime(f*1.6,n+d); g.gain.exponentialRampToValueAtTime(.0001,n+d); o.stop(n+d);}catch(e){} }
-  const sMunch=()=>blip(560+Math.random()*140,.12,'sine',.07);
-  const sHurt =()=>blip(200,.25,'triangle',.09);
-  const sCoin =()=>blip(880+Math.random()*120,.09,'square',.05);
-  const sPow  =()=>{ blip(520,.10,'square',.06); setTimeout(()=>blip(780,.12,'square',.06),70); };
-  const sZone =()=>{ blip(660,.12,'sine',.06); setTimeout(()=>blip(990,.18,'sine',.06),90); };
-  const sNear =()=>blip(700,.06,'sine',.045);
+  // soft musical note with a gentle attack/release — melody + nicer SFX
+  function tone(f,d,v,type){ if(muted) return; try{ const a=audioOn(); if(!a) return;
+    const o=a.createOscillator(),g=a.createGain(); o.type=type||'sine'; o.frequency.value=f;
+    const n=a.currentTime; g.gain.setValueAtTime(0,n); g.gain.linearRampToValueAtTime(v,n+0.015); g.gain.exponentialRampToValueAtTime(0.0001,n+d);
+    o.connect(g); g.connect(a.destination); o.start(n); o.stop(n+d+0.03); }catch(e){} }
+  const SCH=s=>261.63*Math.pow(2,s/12);              // semitone -> Hz (C4 root)
+  const PENTA=[0,2,4,7,9,12,14,16];                  // major pentatonic — cute & always consonant
+  const chord=(ss,d,v,t)=>ss.forEach(s=>tone(SCH(s),d,v,t));
+  function buzz(p){ if(muted) return; try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
+  const sMunch=()=>tone(SCH(12+PENTA[(combo||0)%8]),.13,.055,'triangle');   // pitch climbs with your combo
+  const sHurt =()=>{ tone(110,.28,.10,'sawtooth'); tone(146,.22,.05,'triangle'); buzz(90); };
+  const sCoin =()=>tone(SCH(19+((Math.random()*3)|0)),.10,.05,'sine');
+  const sPow  =()=>{ chord([12,16,19],.18,.05,'triangle'); buzz([0,20,40,20]); };
+  const sZone =()=>{ [0,4,7,12].forEach((s,i)=>setTimeout(()=>tone(SCH(s+12),.3,.05,'sine'),i*90)); buzz([0,30,30,30]); };
+  const sNear =()=>tone(SCH(21),.07,.04,'sine');
+  const sFeast=(m)=>{ [0,4,7,12,16].slice(0,Math.max(2,m)).forEach((s,i)=>setTimeout(()=>tone(SCH(s+12),.2,.055,'triangle'),i*55)); buzz(40); };
+  // ---------- gentle procedural music (advances only during play) ----------
+  let musicT=0, musicI=0;
+  function musicStep(){ if(muted) return; if(--musicT>0) return;
+    const tier=Math.min(9,zoneIdx); musicT=Math.max(11,20-tier);      // a touch faster in later zones
+    const root=(tier%5)*2, oct=(zoneIdx>=5)?0:12;                     // key rises gently per world
+    tone(SCH(root+PENTA[musicI%PENTA.length]+oct),.34,.026,'sine');   // melody
+    if(musicI%4===0) tone(SCH(root-12),.6,.03,'sine');                // soft bass pulse per phrase
+    if(musicI%8===0) chord([root,root+7],.8,.011,'triangle');         // faint pad
+    musicI++; }
 
   // ---------- input ----------
   // ---------- input: one dead-simple TAP to fly (touch + mouse + Space) ----------
@@ -144,6 +168,8 @@
   let hazards=[], hazT=210;
   function charSlot(i){ const gap=Math.min(90, W*0.26), n=charImgs.length; return { x: W/2 + (i-(n-1)/2)*gap, y: H*0.82, r: 31 }; }
   function press(px,py){
+    audioOn();                                                       // warm up audio on the user's tap gesture
+    if(state!==PLAY && px>=0 && Math.hypot(px-(W-30),py-34)<26){ muted=!muted; localStorage.setItem('ksr_muted',muted?'1':'0'); if(!muted){ audioOn(); sPow(); } return; }   // sound toggle
     if(state===START){
       for(let i=0;i<charImgs.length;i++){ const s=charSlot(i); if(px>=0 && Math.hypot(px-s.x,py-s.y)<s.r+8){
         if(unlocked[i]){ currentChar=i; saveMeta(); }
@@ -162,7 +188,7 @@
   addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); press(-1,-1); } });
 
   function reset(){ state=PLAY; frame=0; score=0; munch=0; health=6; speed=2.4; spawnT=50;
-    invuln=90; combo=0; comboT=0; zoneIdx=0; shownZone=0; zoneBannerT=0; ziInit();
+    invuln=90; combo=0; comboT=0; feastShown=1; musicI=0; musicT=0; dailyMsg=0; zoneIdx=0; shownZone=0; zoneBannerT=0; ziInit();
     player.x=W*0.30; player.y=H*0.42; player.vy=0; player.flap=0; foods=[]; parts=[]; pops=[]; platforms=[]; platT=90; hazards=[]; hazT=210;
     runCoins=0; coinItems=[]; coinT=90; powerups=[]; powT=280; magnet=0; shield=0; starMode=0; }
 
@@ -173,7 +199,7 @@
   function pop(x,y,txt,big){ pops.push({x,y,txt,life:0,max:36,big}); }
   function hurt(){ if(invuln>0 || starMode>0) return;                         // star = invincible
     if(shield>0){ shield=0; invuln=45; flash=8; flashCol='170,220,255'; player.squash=0.7; sPow(); burst(player.x,player.y,['#bfe6ff','#fff','#7fc8ff']); return; }  // shield absorbs
-    health--; invuln=80; shake=10; flash=9; flashCol='255,120,120'; combo=0; player.squash=0.8; sHurt();
+    health--; invuln=80; shake=10; flash=9; flashCol='255,120,120'; combo=0; comboT=0; feastShown=1; player.squash=0.8; sHurt();
     if(health<=0){ coins+=runCoins; saveMeta(); state=OVER; overFrame=frame; best=Math.max(best,score); localStorage.setItem('hh_best',best); } }
 
   // ---------- update ----------
@@ -195,7 +221,8 @@
     if(zoneIdx>shownZone){ shownZone=zoneIdx; zoneBannerT=150; sZone(); flash=6; flashCol='255,255,255'; }
     eArr(skyC, ZONES[zoneIdx].sky); eArr(sunC, [ZONES[zoneIdx].sun]); eArr(grC, ZONES[zoneIdx].ground);
     if(zoneBannerT>0) zoneBannerT--;
-    if(combo>0 && --comboT<=0){ combo=Math.max(0, combo-3); comboT=70; }   // feast bleeds if you idle
+    if(combo>0 && --comboT<=0){ combo=Math.max(0, combo-3); comboT=70; feastShown=Math.min(feastShown,feastMult()); }   // feast bleeds if you idle
+    musicStep();                                                   // gentle background melody
     speed=Math.min(speed+0.0007, speedTopNow());                   // ramp toward this zone's top speed
     player.vy=clamp(player.vy+0.36,-8,10); player.y+=player.vy;    // gentle tap-float physics
     player.tilt += (clamp(player.vy*0.045,-0.42,0.60) - player.tilt)*0.18;   // eased nose tilt (no snapping)
@@ -218,7 +245,10 @@
         else { f.got=0.001; combo++; comboT=150; let g=10*feastMult(); if(f.bonus) g*=3; if(starMode>0) g*=2;   // feast x1..x5 · bonus x3 · star x2
           score+=g; munch++; runCoins++; player.flap=0.5; player.squash=0.55;
           flash=4; flashCol='255,255,255'; pop(f.x,f.y-12,'+'+g, combo%5===0);
-          burst(f.x,f.y, foodCols(f.type)); sMunch(); }
+          burst(f.x,f.y, foodCols(f.type)); sMunch();
+          const fm=feastMult(); if(fm>feastShown){ feastShown=fm; sFeast(fm); pop(player.x,player.y-62,'FEAST x'+fm+'!',true);
+            burst(player.x,player.y,['#ff5a8a','#ffd166','#a9d0ff','#fff','#c9a6ff']); flash=7; flashCol='255,220,120'; player.squash=0.65; }   // milestone celebration
+        }
       } else if(f.x<-40){ foods.splice(i,1); combo=0; }   // missed snack = just lose your combo (no damage)
     }
   }
@@ -653,12 +683,20 @@
     puffyText('Snack Dash',cx,cy+96,19,'#eab98f','#ffe3c8');
     ctx.fillStyle='#d7a271'; circle(cx-72,cy+96,2.4); ctx.fill(); circle(cx+72,cy+96,2.4); ctx.fill();
   }
+  function drawSoundBtn(){ const x=W-30, y=34; ctx.save(); ctx.translate(x,y);
+    ctx.fillStyle='rgba(255,255,255,.72)'; circle(0,0,17); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.stroke();
+    ctx.fillStyle='#7a5a8a'; ctx.beginPath(); ctx.moveTo(-8,-3.5); ctx.lineTo(-3,-3.5); ctx.lineTo(2,-8); ctx.lineTo(2,8); ctx.lineTo(-3,3.5); ctx.lineTo(-8,3.5); ctx.closePath(); ctx.fill();  // speaker
+    if(!muted){ ctx.strokeStyle='#7a5a8a'; ctx.lineWidth=1.8; ctx.lineCap='round'; ctx.beginPath(); ctx.arc(3,0,4.5,-0.9,0.9); ctx.stroke(); ctx.beginPath(); ctx.arc(3,0,8,-0.9,0.9); ctx.stroke(); }   // sound waves
+    else { ctx.strokeStyle='#d05a6a'; ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(4,-6); ctx.lineTo(12,6); ctx.moveTo(12,-6); ctx.lineTo(4,6); ctx.stroke(); }   // muted X
+    ctx.restore(); }
   function drawStart(){
     if(logoReady){ const lw=Math.min(330,W-30), lh=lw*(468.52/788.31); ctx.drawImage(logo,(W-lw)/2,H*0.05,lw,lh); }
     else drawLogo(W/2, H*0.20);
     ctx.globalAlpha=.6+.4*Math.sin(frame*.1); centerText('TAP TO FLY!',H*0.60,26,'#ff7a9c',5); ctx.globalAlpha=1;
     centerText('tap to rise · eat the snacks · bounce the clouds',H*0.60+28,14,'#9a7f88',3);
     if(best>0) centerText('BEST '+best,H*0.66,15,'#9a7f88',3);
+    if(dailyMsg){ ctx.globalAlpha=.7+.3*Math.sin(frame*.14); centerText('🎁 DAILY BONUS +'+dailyAmt+'!',H*0.70,18,'#3fae7a',4); ctx.globalAlpha=1; }
+    drawSoundBtn();
     // ---- character select + coin bank ----
     centerText('🪙 '+coins+' coins',H*0.82-66,16,'#c99a2e',3);
     centerText('CHOOSE YOUR FLYER',H*0.82-46,13,'#9a82b0',3);
@@ -683,7 +721,7 @@
     centerText('🍩 '+munch+' munched',H*0.51,20,'#fff',4);
     centerText('🪙 +'+runCoins+' coins  (total '+coins+')',H*0.56,17,'#ffe14d',4);
     centerText('BEST '+best,H*0.60,17,'#fff',4);
-    if(frame-overFrame>16){ ctx.globalAlpha=.6+.4*Math.sin(frame*.1); centerText('TAP TO RETRY',H*0.66,22,'#fff'); ctx.globalAlpha=1; } ctx.restore(); }
+    if(frame-overFrame>16){ ctx.globalAlpha=.6+.4*Math.sin(frame*.1); centerText('TAP TO RETRY',H*0.66,22,'#fff'); ctx.globalAlpha=1; } ctx.restore(); drawSoundBtn(); }
 
   // ---------- render ----------
   function render(){
