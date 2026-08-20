@@ -165,6 +165,8 @@
   // ---------- state ----------
   const START=0, PLAY=1, OVER=2, SHOP=3, MISSION=4, LEVELS=5;
   let state=START, frame=0, score=0, munch=0, best=+(localStorage.getItem('hh_best')||0);
+  let paused=false;                                         // pause during play
+  let tutDone = localStorage.getItem('ksr_tut')==='1';      // first-run tutorial hint shown?
   let health=6; const MAXH=6;   // start with a full bar (no stray broken heart)
   let speed=2.4, spawnT=60, invuln=0, shake=0, flash=0, flashCol='255,120,120';
   const player={ x:W*0.30, y:H*0.42, vy:0, flap:0, tilt:0, squash:0 };
@@ -210,6 +212,7 @@
   const sZone =()=>{ [0,4,7,12].forEach((s,i)=>setTimeout(()=>tone(SCH(s+12),.3,.05,'sine'),i*90)); buzz([0,30,30,30]); };
   const sNear =()=>tone(SCH(21),.07,.04,'sine');
   const sFeast=(m)=>{ [0,4,7,12,16].slice(0,Math.max(2,m)).forEach((s,i)=>setTimeout(()=>tone(SCH(s+12),.2,.055,'triangle'),i*55)); buzz(40); };
+  const sOver =()=>{ [12,7,4,0].forEach((s,i)=>setTimeout(()=>tone(SCH(s),.34,.06,'triangle'),i*130)); };   // soft descending game-over
   // ---------- gentle procedural music (advances only during play) ----------
   let musicT=0, musicI=0;
   function musicStep(){ if(muted) return; if(--musicT>0) return;
@@ -258,6 +261,13 @@
       return;
     }
     if(state===MISSION){ if(px>=0 && Math.hypot(px-30,py-34)<26){ state=START; sPow(); } return; }   // back
+    // ---- PLAY ----
+    if(paused){ const h=pauseMenuHit(px,py);
+      if(h===0){ paused=false; sPow(); }                              // resume
+      else if(h===1){ paused=false; reset(); player.vy=-5; sPow(); }  // restart (same mode/level)
+      else if(h===2){ paused=false; state=levelMode?LEVELS:START; sPow(); }   // menu
+      return; }
+    if(px>=0 && Math.hypot(px-(W-28),py-30)<24){ paused=true; sPow(); return; }   // pause button
     player.vy=-6.2; player.flap=1;                                    // gentle tap-to-rise
   }
   function evXY(e){ const r=cv.getBoundingClientRect(); const t=(e.touches&&e.touches[0])||(e.changedTouches&&e.changedTouches[0])||e; return [(t.clientX-r.left)/r.width*W,(t.clientY-r.top)/r.height*H]; }
@@ -271,7 +281,8 @@
     if(levelMode){ zoneIdx=levelZone; shownZone=levelZone; skyC=ZONES[levelZone].sky.map(hexRgb); sunC=[hexRgb(ZONES[levelZone].sun)]; grC=ZONES[levelZone].ground.map(hexRgb); }
     player.x=W*0.30; player.y=H*0.42; player.vy=0; player.flap=0; foods=[]; parts=[]; pops=[]; trail=[]; platforms=[]; platT=90; hazards=[]; hazT=210;
     runCoins=0; coinItems=[]; coinT=90; powerups=[]; powT=280; magnet=0; shield=0; starMode=0;
-    runBounces=0; runNears=0; runZoneMax=0; runFeastMax=1; missionsJustDone=[]; }
+    runBounces=0; runNears=0; runZoneMax=0; runFeastMax=1; missionsJustDone=[]; paused=false; }
+  function pauseMenuHit(px,py){ const ys=[0.44,0.54,0.64]; for(let i=0;i<3;i++){ if(Math.abs(py-H*ys[i])<24 && Math.abs(px-W/2)<W*0.28) return i; } return -1; }
 
   // ---------- fx ----------
   function burst(x,y,cols){ for(let i=0;i<12;i++){ const a=rnd(0,6.28),sp=rnd(1.5,5);
@@ -283,7 +294,9 @@
     health--; invuln=80; shake=10; flash=9; flashCol='255,120,120'; combo=0; comboT=0; feastShown=1; player.squash=0.8; sHurt();
     if(health<=0){ coins+=runCoins; missionsJustDone=checkMissions();
       if(levelMode){ const st=starsFor(levelZone,score); if(st>levelStars[levelZone]){ levelStars[levelZone]=st; saveLevelStars(); } }
-      saveMeta(); state=OVER; overFrame=frame; best=Math.max(best,score); localStorage.setItem('hh_best',best); } }
+      shake=16; burst(player.x,player.y-6,['#ff8fb0','#ffd166','#a9d0ff','#fff','#c9a6ff']); burst(player.x,player.y-6,['#ff6f91','#c9a6ff','#fff']); sOver();
+      saveMeta(); state=OVER; overFrame=frame; best=Math.max(best,score); localStorage.setItem('hh_best',best);
+      if(!tutDone){ tutDone=true; try{ localStorage.setItem('ksr_tut','1'); }catch(e){} } } }
 
   // ---------- update ----------
   function update(){
@@ -298,7 +311,7 @@
     player.flap*=.88; player.squash*=.85;
 
     if(state===START){ player.y=H*0.42+Math.sin(frame*0.06)*10; player.tilt*=0.9; return; }
-    if(state!==PLAY) return;
+    if(state!==PLAY || paused) return;
 
     // --- zone progression: sky shifts, speed & hazard density climb ---
     if(levelMode){ zoneIdx=levelZone; runZoneMax=levelZone; }
@@ -802,6 +815,8 @@
     ctx.strokeStyle='#a98fb0'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(x,y-s*.5); ctx.lineTo(x-s*.24,y-s*.08); ctx.lineTo(x+s*.18,y+s*.12); ctx.lineTo(x-s*.06,y+s*.32); ctx.stroke(); }
   function drawHud(){
     ctx.save(); ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+    // soft top scrim keeps the HUD legible on any sky (esp. the dark worlds)
+    const sg=ctx.createLinearGradient(0,0,0,118); sg.addColorStop(0,'rgba(255,255,255,.30)'); sg.addColorStop(1,'rgba(255,255,255,0)'); ctx.fillStyle=sg; ctx.fillRect(0,0,W,118);
     const tx=(t,x,yy,size,col)=>{ ctx.font='700 '+size+'px "Trebuchet MS"'; ctx.lineWidth=3.5; ctx.lineJoin='round';
       ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.strokeText(t,x,yy); ctx.fillStyle=col; ctx.fillText(t,x,yy); };
     // Health
@@ -814,17 +829,17 @@
     tx('Score',18,80,17,'#9a82b0');
     tx('Munch Points: '+score,18,100,16,'#7a5a8a');
     if(levelMode){ const g0=levelGoal(levelZone), st=starsFor(levelZone,score);
-      ctx.textAlign='right'; tx('LVL '+(levelZone+1)+' · goal '+g0, W-16, 56, 13, score>=g0?'#3fae7a':'#9a82b0'); ctx.textAlign='left';
-      for(let s=0;s<3;s++){ star(W-58+s*18, 70, 6, s<st?'#ffd85a':'rgba(160,130,176,.5)'); } }
+      tx('LVL '+(levelZone+1)+' · goal '+g0, 18, 152, 13, score>=g0?'#3fae7a':'#9a82b0');
+      for(let s=0;s<3;s++){ star(28+s*16, 165, 6, s<st?'#ffd85a':'rgba(160,130,176,.5)'); } }
     // Feast multiplier (grows as you chain snacks & thread hazards; bleeds if you idle)
     if(combo>0){ const m=feastMult(); const col=m>=4?'#ff3d7a':(m>=3?'#ff5a8a':(m>=2?'#ff8f4a':'#e0954a'));
       tx('FEAST  x'+m,18,124,18,col);
       ctx.fillStyle='rgba(255,255,255,.55)'; rr(20,131,96,7,3.5); ctx.fill();
       ctx.fillStyle=col; rr(20,131,96*clamp(comboT/150,0,1),7,3.5); ctx.fill(); }
-    // coins (top-right)
-    ctx.textAlign='right'; tx('🪙 '+runCoins, W-16, 32, 18, '#c99a2e'); ctx.textAlign='left';
-    // active power-up timers (top-right, under coins)
-    let py=58;
+    // coins (top-right, left of the pause button)
+    ctx.textAlign='right'; tx('🪙 '+runCoins, W-56, 33, 16, '#c99a2e'); ctx.textAlign='left';
+    // active power-up timers (top-right, under the pause button)
+    let py=70;
     const timer=(kind,frac)=>{ ctx.save(); ctx.translate(W-26,py);
       ctx.fillStyle='rgba(255,255,255,.85)'; circle(0,0,12); ctx.fill();
       ctx.save(); ctx.scale(0.55,0.55); powIcon(kind, 12); ctx.restore();
@@ -897,7 +912,8 @@
     }
     ctx.textBaseline='alphabetic';
   }
-  function drawOver(){ ctx.save(); ctx.fillStyle='rgba(122,90,99,.4)'; ctx.fillRect(0,0,W,H);
+  function drawOver(){ ctx.save(); const ov=Math.min(1,(frame-overFrame)/22); ctx.globalAlpha=ov;   // gentle fade-in, less abrupt
+    ctx.fillStyle='rgba(122,90,99,.4)'; ctx.fillRect(0,0,W,H);
     if(levelMode){ const st=starsFor(levelZone,score);
       centerText(st>0?'LEVEL CLEAR!':'TRY AGAIN', H*0.28, 34, st>0?'#fff':'#ffd0a0');
       for(let s=0;s<3;s++){ star(W/2+(s-1)*38, H*0.355, 18, s<st?'#ffd85a':'rgba(255,255,255,.35)'); if(s<st){ ctx.lineWidth=1.5; ctx.strokeStyle='#e0a41e'; ctx.stroke(); } }
@@ -934,11 +950,22 @@
     if(state===MISSION) drawMissions();
     if(state===LEVELS) drawLevels();
     if(state===OVER) drawOver();
-    if(state===PLAY && frame<150){ ctx.save(); ctx.globalAlpha=Math.max(0,1-frame/150); ctx.textAlign='center';
+    if(state===PLAY && !paused) drawPauseBtn();
+    if(state===PLAY && paused) drawPauseMenu();
+    if(state===PLAY && !paused && !tutDone && frame<150){ ctx.save(); ctx.globalAlpha=Math.max(0,1-frame/150); ctx.textAlign='center';
       ctx.font='700 16px "Trebuchet MS"'; ctx.lineWidth=4; ctx.lineJoin='round'; ctx.strokeStyle='#fff'; ctx.fillStyle='#7a5a8a';
       const t='TAP to fly up ✨ bounce off the clouds';
       ctx.strokeText(t,W/2,H-58); ctx.fillText(t,W/2,H-58); ctx.restore(); }
   }
+  function drawPauseBtn(){ ctx.save(); ctx.translate(W-28,30); ctx.fillStyle='rgba(255,255,255,.55)'; circle(0,0,15); ctx.fill(); ctx.lineWidth=1.8; ctx.strokeStyle='rgba(122,90,138,.4)'; ctx.stroke();
+    ctx.fillStyle='#7a5a8a'; rr(-5,-6,3.4,12,1.4); ctx.fill(); rr(1.6,-6,3.4,12,1.4); ctx.fill(); ctx.restore(); }
+  function drawPauseMenu(){ ctx.save(); ctx.fillStyle='rgba(58,38,64,.62)'; ctx.fillRect(0,0,W,H);
+    centerText('PAUSED', H*0.30, 40, '#fff', 6);
+    const labels=['RESUME','RESTART', levelMode?'WORLD MAP':'MAIN MENU'], ys=[0.44,0.54,0.64], cols=['#ff7a9c','#ffb454','#8fb0e0'];
+    for(let i=0;i<3;i++){ const cy=H*ys[i], bw=W*0.56, bx=(W-bw)/2, bh=46;
+      ctx.fillStyle='rgba(255,255,255,.94)'; rr(bx,cy-bh/2,bw,bh,14); ctx.fill(); ctx.lineWidth=3; ctx.strokeStyle=cols[i]; ctx.stroke();
+      ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle=cols[i]; ctx.font='800 19px "Trebuchet MS"'; ctx.fillText(labels[i], W/2, cy+1); }
+    ctx.textBaseline='alphabetic'; ctx.restore(); }
 
   // ---------- fixed-timestep loop ----------
   let acc=0,last=performance.now(); const STEP=1000/60;
