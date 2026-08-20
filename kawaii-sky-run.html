@@ -19,9 +19,9 @@
 (() => {
   'use strict';
   // ---------- setup ----------
-  // Orientation-aware play field: the SHORT screen side maps to REF logical
-  // units, the long side flexes — so portrait is tall & narrow, landscape is
-  // wide & short. Rotate the phone to try both.
+  // Portrait-only vertical arcade: the SHORT screen side maps to REF logical
+  // units, the long side flexes to fit any phone. In landscape (W>H) the game
+  // shows a "rotate to portrait" screen and auto-pauses — never wiping a run.
   let W = 390, H = 780;
   const cv = document.getElementById('game'), ctx = cv.getContext('2d');
   const DPR = Math.min(3, window.devicePixelRatio || 1);
@@ -33,7 +33,7 @@
   function sizeCanvas(){ cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
     const s=Math.min(innerWidth/W, innerHeight/H); cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px'; }
   computeSize(); sizeCanvas();
-  function onResize(){ computeSize(); sizeCanvas(); if(typeof reset==='function'){ reset(); state=START; } }
+  function onResize(){ computeSize(); sizeCanvas(); if(W>H && typeof state!=='undefined' && state===1){ paused=true; } }   // rotate = pause, never wipe the run
   addEventListener('resize', onResize);
   addEventListener('orientationchange', ()=>setTimeout(onResize,160));
 
@@ -301,6 +301,7 @@
   // ---------- update ----------
   function update(){
     frame++;
+    if(W>H){ if(state===PLAY) paused=true; return; }   // landscape: freeze (rotate screen shown)
     if(flash>0)flash--; if(shake>0)shake--; if(invuln>0)invuln--;
     if(magnet>0)magnet--; if(starMode>0)starMode--; if(denyShake>0)denyShake--;
     if(starMode>0 && (frame&1)) parts.push({x:player.x-10,y:player.y+rnd(-14,14),vx:-1.5,vy:rnd(-1,1),life:0,max:24,r:rnd(2,4),col:['#ff9ecf','#ffd18a','#a3e0b0','#a9d0ff','#c9a6ff'][frame%5],heart:frame%4===0});
@@ -929,7 +930,18 @@
     ctx.restore(); drawSoundBtn(); if(levelMode) drawBackBtn(); }
 
   // ---------- render ----------
+  function drawRotate(){
+    const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#bff0e0'); g.addColorStop(.5,'#ffd0dd'); g.addColorStop(1,'#d9c4ef'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    ctx.save(); ctx.translate(W/2,H/2-8); ctx.rotate(-0.35+Math.sin(frame*0.05)*0.32);
+    ctx.fillStyle='#fff'; ctx.strokeStyle='#7a5a8a'; ctx.lineWidth=4; ctx.lineJoin='round'; rr(-26,-44,52,88,10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#e9d6ef'; rr(-20,-33,40,60,4); ctx.fill();
+    ctx.fillStyle='#7a5a8a'; circle(0,33,3.4); ctx.fill();
+    ctx.restore();
+    centerText('Please rotate', H/2+72, 23, '#7a5a8a', 5);
+    centerText('to portrait 🌸', H/2+102, 23, '#ff7a9c', 5);
+  }
   function render(){
+    if(W>H){ drawRotate(); return; }   // portrait-only game — show rotate prompt in landscape
     ctx.save(); if(shake>0) ctx.translate(rnd(-shake,shake)*.4,rnd(-shake,shake)*.4);
     drawSky(); drawGround();
     for(const f of foods) drawFood(f);
