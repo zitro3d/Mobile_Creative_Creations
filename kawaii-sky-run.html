@@ -29,13 +29,19 @@
   let W = 390, H = 780;
   const cv = document.getElementById('game'), ctx = cv.getContext('2d');
   const DPR = Math.min(3, window.devicePixelRatio || 1);
+  // read the device's safe-area top inset (notch / status bar) in CSS px
+  const safeProbe = document.createElement('div');
+  safeProbe.style.cssText = 'position:fixed;top:0;left:0;width:0;pointer-events:none;height:env(safe-area-inset-top,0px);';
+  document.body.appendChild(safeProbe);
+  let padTop = 0;   // safe-area top, in logical units (0 on non-notched devices)
   function computeSize(){
     const ww=Math.max(1,innerWidth), wh=Math.max(1,innerHeight), REF=430;
     if(wh>=ww){ W=REF; H=Math.round(REF*Math.min(2.3,Math.max(1.3, wh/ww))); }   // portrait
     else { H=REF; W=Math.round(REF*Math.min(2.4,Math.max(1.3, ww/wh))); }         // landscape
   }
   function sizeCanvas(){ cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
-    const s=Math.min(innerWidth/W, innerHeight/H); cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px'; }
+    const s=Math.min(innerWidth/W, innerHeight/H); cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px';
+    padTop = Math.min(64, (safeProbe.getBoundingClientRect().height||0) / s); }   // notch inset -> logical units
   computeSize(); sizeCanvas();
   function onResize(){ computeSize(); sizeCanvas(); if(W>H && typeof state!=='undefined' && state===1){ paused=true; } }   // rotate = pause, never wipe the run
   addEventListener('resize', onResize);
@@ -234,11 +240,11 @@
   function charSlot(i){ const gap=Math.min(90, W*0.26), n=charImgs.length; return { x: W/2 + (i-(n-1)/2)*gap, y: H*0.82, r: 31 }; }
   function press(px,py){
     audioOn();                                                       // warm up audio on the user's tap gesture
-    if(state!==PLAY && px>=0 && Math.hypot(px-(W-30),py-34)<26){ muted=!muted; localStorage.setItem('ksr_muted',muted?'1':'0'); if(!muted){ audioOn(); sPow(); } return; }   // sound toggle
+    if(state!==PLAY && px>=0 && Math.hypot(px-(W-30),py-(34+padTop))<26){ muted=!muted; localStorage.setItem('ksr_muted',muted?'1':'0'); if(!muted){ audioOn(); sPow(); } return; }   // sound toggle
     if(state===START){
-      if(px>=0 && Math.hypot(px-30,py-34)<26){ state=SHOP; sPow(); return; }   // open trail shop
-      if(px>=0 && Math.hypot(px-72,py-34)<24){ state=MISSION; sPow(); return; }   // open daily goals
-      if(px>=0 && Math.hypot(px-114,py-34)<24){ state=LEVELS; sPow(); return; }   // open world map
+      if(px>=0 && Math.hypot(px-30,py-(34+padTop))<26){ state=SHOP; sPow(); return; }   // open trail shop
+      if(px>=0 && Math.hypot(px-72,py-(34+padTop))<24){ state=MISSION; sPow(); return; }   // open daily goals
+      if(px>=0 && Math.hypot(px-114,py-(34+padTop))<24){ state=LEVELS; sPow(); return; }   // open world map
       for(let i=0;i<charImgs.length;i++){ const s=charSlot(i); if(px>=0 && Math.hypot(px-s.x,py-s.y)<s.r+8){
         if(unlocked[i]){ currentChar=i; saveMeta(); }
         else if(coins>=CHAR_COST[i]){ coins-=CHAR_COST[i]; unlocked[i]=true; currentChar=i; saveMeta(); sPow(); }   // buy!
@@ -247,16 +253,16 @@
       levelMode=false; reset(); state=PLAY; player.vy=-5; return;      // tap elsewhere = ENDLESS run
     }
     if(state===OVER){
-      if(levelMode && px>=0 && Math.hypot(px-30,py-34)<26){ state=LEVELS; sPow(); return; }   // back to map
+      if(levelMode && px>=0 && Math.hypot(px-30,py-(34+padTop))<26){ state=LEVELS; sPow(); return; }   // back to map
       if(frame-overFrame>16) reset(); return; }
     if(state===LEVELS){
-      if(px>=0 && Math.hypot(px-30,py-34)<26){ state=START; sPow(); return; }   // back
+      if(px>=0 && Math.hypot(px-30,py-(34+padTop))<26){ state=START; sPow(); return; }   // back
       for(let i=0;i<ZONES.length;i++){ const c=levelCard(i); if(px>=c.x&&px<=c.x+c.w&&py>=c.y&&py<=c.y+c.h){
         if(levelUnlocked(i)){ startLevel(i); } else { denyShake=16; sHurt(); } return; } }
       return;
     }
     if(state===SHOP){
-      if(px>=0 && Math.hypot(px-30,py-34)<26){ state=START; sPow(); return; }   // back
+      if(px>=0 && Math.hypot(px-30,py-(34+padTop))<26){ state=START; sPow(); return; }   // back
       for(let i=0;i<TRAILS.length;i++){ const c=shopCard(i); if(px>=c.x&&px<=c.x+c.w&&py>=c.y&&py<=c.y+c.h){
         if(trailUnlocked[i]){ currentTrail=i; saveTrails(); sPow(); }
         else if(coins>=TRAILS[i].cost){ coins-=TRAILS[i].cost; trailUnlocked[i]=true; currentTrail=i; saveMeta(); saveTrails(); sPow(); burst(c.x+c.w/2,c.y+c.h/2,['#ffd85a','#fff','#ff9ecf']); }
@@ -264,14 +270,14 @@
         return; } }
       return;
     }
-    if(state===MISSION){ if(px>=0 && Math.hypot(px-30,py-34)<26){ state=START; sPow(); } return; }   // back
+    if(state===MISSION){ if(px>=0 && Math.hypot(px-30,py-(34+padTop))<26){ state=START; sPow(); } return; }   // back
     // ---- PLAY ----
     if(paused){ const h=pauseMenuHit(px,py);
       if(h===0){ paused=false; sPow(); }                              // resume
       else if(h===1){ paused=false; reset(); player.vy=-5; sPow(); }  // restart (same mode/level)
       else if(h===2){ paused=false; state=levelMode?LEVELS:START; sPow(); }   // menu
       return; }
-    if(px>=0 && Math.hypot(px-(W-28),py-30)<24){ paused=true; sPow(); return; }   // pause button
+    if(px>=0 && Math.hypot(px-(W-28),py-(30+padTop))<24){ paused=true; sPow(); return; }   // pause button
     player.vy=-6.2; player.flap=1;                                    // gentle tap-to-rise
   }
   function evXY(e){ const r=cv.getBoundingClientRect(); const t=(e.touches&&e.touches[0])||(e.changedTouches&&e.changedTouches[0])||e; return [(t.clientX-r.left)/r.width*W,(t.clientY-r.top)/r.height*H]; }
@@ -379,9 +385,9 @@
   // ---------- shop UI ----------
   function shopCard(i){ const cols=2, cw=W*0.42, ch=H*0.125, gx=W*0.05, gy=H*0.022, tot=cols*cw+(cols-1)*gx, x0=(W-tot)/2;
     return { x:x0+(i%cols)*(cw+gx), y:H*0.205+((i/cols)|0)*(ch+gy), w:cw, h:ch }; }
-  function drawBackBtn(){ ctx.save(); ctx.translate(30,34); ctx.fillStyle='rgba(255,255,255,.82)'; circle(0,0,17); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.stroke();
+  function drawBackBtn(){ ctx.save(); ctx.translate(30,34+padTop); ctx.fillStyle='rgba(255,255,255,.82)'; circle(0,0,17); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.stroke();
     ctx.strokeStyle='#7a5a8a'; ctx.lineWidth=2.6; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.beginPath(); ctx.moveTo(3,-6); ctx.lineTo(-5,0); ctx.lineTo(3,6); ctx.stroke(); ctx.restore(); }
-  function drawShopBtn(){ ctx.save(); ctx.translate(30,34); ctx.fillStyle='rgba(255,255,255,.72)'; circle(0,0,17); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.stroke();
+  function drawShopBtn(){ ctx.save(); ctx.translate(30,34+padTop); ctx.fillStyle='rgba(255,255,255,.72)'; circle(0,0,17); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.stroke();
     ctx.fillStyle='#ff9ab8'; ctx.strokeStyle='#e0709a'; ctx.lineWidth=1.8; rr(-7,-3,14,11,3); ctx.fill(); ctx.stroke();          // bag
     ctx.beginPath(); ctx.arc(0,-3,5,Math.PI,0); ctx.stroke();                                                                    // handle
     star(0,3,3,'#fff'); ctx.restore(); }
@@ -401,7 +407,7 @@
     }
     drawBackBtn(); ctx.restore(); }
   // ---------- missions UI ----------
-  function drawMissionBtn(){ ctx.save(); ctx.translate(72,34); ctx.fillStyle='rgba(255,255,255,.72)'; circle(0,0,17); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.stroke();
+  function drawMissionBtn(){ ctx.save(); ctx.translate(72,34+padTop); ctx.fillStyle='rgba(255,255,255,.72)'; circle(0,0,17); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.stroke();
     ctx.fillStyle='#a9d8c0'; ctx.strokeStyle='#6fae8f'; ctx.lineWidth=1.6; rr(-6,-7,12,14,2); ctx.fill(); ctx.stroke();     // clipboard
     ctx.fillStyle='#6fae8f'; rr(-3,-9.5,6,3,1); ctx.fill();                                                               // clip
     ctx.strokeStyle='#4f8f6f'; ctx.lineWidth=1.8; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.beginPath(); ctx.moveTo(-3.5,-1); ctx.lineTo(-1.2,1.3); ctx.lineTo(3,-3.2); ctx.stroke();   // check
@@ -427,7 +433,7 @@
     }
     drawBackBtn(); ctx.restore(); }
   // ---------- level map UI ----------
-  function drawLevelBtn(){ ctx.save(); ctx.translate(114,34); ctx.fillStyle='rgba(255,255,255,.72)'; circle(0,0,17); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.stroke();
+  function drawLevelBtn(){ ctx.save(); ctx.translate(114,34+padTop); ctx.fillStyle='rgba(255,255,255,.72)'; circle(0,0,17); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.stroke();
     ctx.fillStyle='#ff8fb0'; ctx.strokeStyle='#e0709a'; ctx.lineWidth=1.6; ctx.lineJoin='round'; ctx.beginPath(); ctx.arc(0,-4,5.5,Math.PI*0.82,Math.PI*0.18); ctx.lineTo(0,8); ctx.closePath(); ctx.fill(); ctx.stroke();   // map pin
     ctx.fillStyle='#fff'; circle(0,-4,2.3); ctx.fill(); ctx.restore(); }
   function levelCard(i){ const cols=2, cw=W*0.42, ch=H*0.108, gx=W*0.05, gy=H*0.014, tot=cols*cw+(cols-1)*gx, x0=(W-tot)/2;
@@ -821,7 +827,8 @@
   function drawHud(){
     ctx.save(); ctx.textAlign='left'; ctx.textBaseline='alphabetic';
     // soft top scrim keeps the HUD legible on any sky (esp. the dark worlds)
-    const sg=ctx.createLinearGradient(0,0,0,118); sg.addColorStop(0,'rgba(255,255,255,.30)'); sg.addColorStop(1,'rgba(255,255,255,0)'); ctx.fillStyle=sg; ctx.fillRect(0,0,W,118);
+    const sg=ctx.createLinearGradient(0,0,0,118+padTop); sg.addColorStop(0,'rgba(255,255,255,.30)'); sg.addColorStop(1,'rgba(255,255,255,0)'); ctx.fillStyle=sg; ctx.fillRect(0,0,W,118+padTop);
+    ctx.translate(0,padTop);   // keep the whole HUD below the notch / status bar
     const tx=(t,x,yy,size,col)=>{ ctx.font='700 '+size+'px "Trebuchet MS"'; ctx.lineWidth=3.5; ctx.lineJoin='round';
       ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.strokeText(t,x,yy); ctx.fillStyle=col; ctx.fillText(t,x,yy); };
     // hearts (self-explanatory — no label needed)
@@ -882,7 +889,7 @@
     puffyText('Snack Dash',cx,cy+96,19,'#eab98f','#ffe3c8');
     ctx.fillStyle='#d7a271'; circle(cx-72,cy+96,2.4); ctx.fill(); circle(cx+72,cy+96,2.4); ctx.fill();
   }
-  function drawSoundBtn(){ const x=W-30, y=34; ctx.save(); ctx.translate(x,y);
+  function drawSoundBtn(){ const x=W-30, y=34+padTop; ctx.save(); ctx.translate(x,y);
     ctx.fillStyle='rgba(255,255,255,.72)'; circle(0,0,17); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='rgba(122,90,138,.35)'; ctx.stroke();
     ctx.fillStyle='#7a5a8a'; ctx.beginPath(); ctx.moveTo(-8,-3.5); ctx.lineTo(-3,-3.5); ctx.lineTo(2,-8); ctx.lineTo(2,8); ctx.lineTo(-3,3.5); ctx.lineTo(-8,3.5); ctx.closePath(); ctx.fill();  // speaker
     if(!muted){ ctx.strokeStyle='#7a5a8a'; ctx.lineWidth=1.8; ctx.lineCap='round'; ctx.beginPath(); ctx.arc(3,0,4.5,-0.9,0.9); ctx.stroke(); ctx.beginPath(); ctx.arc(3,0,8,-0.9,0.9); ctx.stroke(); }   // sound waves
@@ -896,7 +903,7 @@
     if(best>0) centerText('BEST '+best,H*0.66,15,'#9a7f88',3);
     if(dailyMsg){ ctx.globalAlpha=.7+.3*Math.sin(frame*.14); centerText('🎁 DAILY BONUS +'+dailyAmt+'!',H*0.70,18,'#3fae7a',4); ctx.globalAlpha=1; }
     drawSoundBtn(); drawShopBtn(); drawMissionBtn(); drawLevelBtn();
-    ctx.textAlign='center'; ctx.textBaseline='alphabetic'; ctx.fillStyle='#9a82b0'; ctx.font='700 10px "Trebuchet MS"'; ctx.fillText('SHOP', 30, 60); ctx.fillText('GOALS', 72, 60); ctx.fillText('MAP', 114, 60);
+    ctx.textAlign='center'; ctx.textBaseline='alphabetic'; ctx.fillStyle='#9a82b0'; ctx.font='700 10px "Trebuchet MS"'; ctx.fillText('SHOP', 30, 60+padTop); ctx.fillText('GOALS', 72, 60+padTop); ctx.fillText('MAP', 114, 60+padTop);
     // ---- character select + coin bank ----
     centerText('🪙 '+coins+' coins',H*0.82-66,16,'#c99a2e',3);
     centerText('CHOOSE YOUR FLYER',H*0.82-46,13,'#9a82b0',3);
@@ -972,7 +979,7 @@
       const t='TAP to fly up ✨ bounce off the clouds';
       ctx.strokeText(t,W/2,H-58); ctx.fillText(t,W/2,H-58); ctx.restore(); }
   }
-  function drawPauseBtn(){ ctx.save(); ctx.translate(W-28,30); ctx.fillStyle='rgba(255,255,255,.55)'; circle(0,0,15); ctx.fill(); ctx.lineWidth=1.8; ctx.strokeStyle='rgba(122,90,138,.4)'; ctx.stroke();
+  function drawPauseBtn(){ ctx.save(); ctx.translate(W-28,30+padTop); ctx.fillStyle='rgba(255,255,255,.55)'; circle(0,0,15); ctx.fill(); ctx.lineWidth=1.8; ctx.strokeStyle='rgba(122,90,138,.4)'; ctx.stroke();
     ctx.fillStyle='#7a5a8a'; rr(-5,-6,3.4,12,1.4); ctx.fill(); rr(1.6,-6,3.4,12,1.4); ctx.fill(); ctx.restore(); }
   function drawPauseMenu(){ ctx.save(); ctx.fillStyle='rgba(58,38,64,.62)'; ctx.fillRect(0,0,W,H);
     centerText('PAUSED', H*0.30, 40, '#fff', 6);
