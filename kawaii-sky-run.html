@@ -70,6 +70,7 @@
     dailyAmt=50; coins+=dailyAmt; localStorage.setItem('ksr_lastDaily',today); localStorage.setItem('ksr_coins',coins); dailyMsg=1; } }catch(e){}
   let runCoins=0, coinItems=[], coinT=90;                   // coins earned this run + floating pickups
   let runBounces=0, runNears=0, runZoneMax=0, runFeastMax=1;   // per-run stats for missions
+  let waveT=420;                                               // snack-wave event timer
   let powerups=[], powT=280;                                // power-up pickups
   let magnet=0, shield=0, starMode=0, denyShake=0;          // active power-ups + 'no coins' feedback
   function saveMeta(){ try{ localStorage.setItem('ksr_coins',coins); localStorage.setItem('ksr_unlocked',JSON.stringify(unlocked)); localStorage.setItem('ksr_char',currentChar); }catch(e){} }
@@ -196,6 +197,12 @@
     else { const fav=ZONES[zoneIdx].fav; type=(fav && Math.random()<0.45) ? fav : TYPES[(Math.random()*TYPES.length)|0]; }   // each zone favors its signature snack
     foods.push({ type, bonus, bad, x:W+40, y:rnd(H*0.16,H*0.74), r:bad?22:(bonus?26:23), bob:rnd(0,6.28), rot:rnd(-.14,.14), got:0, mc:MACS[(Math.random()*MACS.length)|0] });
   }
+  function spawnSnackWave(){                                          // a graceful arc of treats to swoop through
+    const n=6+((Math.random()*3)|0), baseY=rnd(H*0.32,H*0.60), amp=rnd(H*0.12,H*0.19), ph=rnd(0,6.28), fav=ZONES[zoneIdx].fav;
+    for(let i=0;i<n;i++){ const t=i/(n-1);
+      foods.push({ type:(fav&&Math.random()<0.6)?fav:TYPES[(Math.random()*TYPES.length)|0], bonus:false, bad:false,
+        x:W+40+i*44, y:clamp(baseY+Math.sin(ph+t*3.1)*amp, H*0.16, H*0.72), r:22, bob:rnd(0,6.28), rot:rnd(-.1,.1), got:0, mc:MACS[(Math.random()*MACS.length)|0] }); }
+  }
   function initClouds(){ clouds=[]; for(let i=0;i<5;i++) clouds.push({x:rnd(0,W),y:rnd(40,H*0.5),s:rnd(26,46),v:rnd(.15,.4)}); }
   initClouds();
 
@@ -278,7 +285,7 @@
       else if(h===2){ paused=false; state=levelMode?LEVELS:START; sPow(); }   // menu
       return; }
     if(px>=0 && Math.hypot(px-(W-28),py-(30+padTop))<24){ paused=true; sPow(); return; }   // pause button
-    player.vy=-6.2; player.flap=1;                                    // gentle tap-to-rise
+    player.vy=-6.2; player.flap=1; puff();                            // gentle tap-to-rise + air puff
   }
   function evXY(e){ const r=cv.getBoundingClientRect(); const t=(e.touches&&e.touches[0])||(e.changedTouches&&e.changedTouches[0])||e; return [(t.clientX-r.left)/r.width*W,(t.clientY-r.top)/r.height*H]; }
   function onDown(e){ if(e && e.cancelable) e.preventDefault(); const xy=evXY(e); press(xy[0],xy[1]); }
@@ -291,7 +298,7 @@
     if(levelMode){ zoneIdx=levelZone; shownZone=levelZone; skyC=ZONES[levelZone].sky.map(hexRgb); sunC=[hexRgb(ZONES[levelZone].sun)]; grC=ZONES[levelZone].ground.map(hexRgb); }
     player.x=W*0.30; player.y=H*0.42; player.vy=0; player.flap=0; foods=[]; parts=[]; pops=[]; trail=[]; platforms=[]; platT=90; hazards=[]; hazT=210;
     runCoins=0; coinItems=[]; coinT=90; powerups=[]; powT=280; magnet=0; shield=0; starMode=0;
-    runBounces=0; runNears=0; runZoneMax=0; runFeastMax=1; missionsJustDone=[]; paused=false; }
+    runBounces=0; runNears=0; runZoneMax=0; runFeastMax=1; missionsJustDone=[]; paused=false; waveT=rnd(300,480); }
   function pauseMenuHit(px,py){ const ys=[0.44,0.54,0.64]; for(let i=0;i<3;i++){ if(Math.abs(py-H*ys[i])<24 && Math.abs(px-W/2)<W*0.28) return i; } return -1; }
 
   // ---------- fx ----------
@@ -299,6 +306,8 @@
     parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-1,life:0,max:rnd(20,36),r:rnd(2,4.5),
       col:cols[(Math.random()*cols.length)|0], heart:Math.random()<.4}); } }
   function pop(x,y,txt,big){ pops.push({x,y,txt,life:0,max:36,big}); }
+  function puff(){ for(let i=0;i<3;i++){ parts.push({x:player.x-6+rnd(-6,6), y:player.y+18+rnd(-3,9), vx:-rnd(0.6,1.9), vy:rnd(-0.2,0.7), life:0, max:rnd(13,20), r:rnd(3.5,6.5), col:'rgba(255,255,255,.85)'}); } }   // air puff on flap
+  function heartPop(n){ for(let i=0;i<(n||1);i++){ parts.push({x:player.x+rnd(-10,10), y:player.y-24, vx:rnd(-0.6,0.6), vy:-rnd(1.1,2.1), life:0, max:rnd(26,38), r:rnd(3.5,5), col:['#ff8fb0','#ff6f91','#ffd0dd'][i%3], heart:true}); } }   // joy hearts on eat
   function hurt(){ if(invuln>0 || starMode>0) return;                         // star = invincible
     if(shield>0){ shield=0; invuln=45; flash=8; flashCol='170,220,255'; player.squash=0.7; sPow(); burst(player.x,player.y,['#bfe6ff','#fff','#7fc8ff']); return; }  // shield absorbs
     health--; invuln=80; shake=10; flash=9; flashCol='255,120,120'; combo=0; comboT=0; feastShown=1; player.squash=0.8; sHurt();
@@ -345,6 +354,7 @@
     if(player.y>H-66){ player.y=H-66; player.vy=-4; hurt(); }         // floor = the only danger (don't fall!)
     // spawns
     if(--spawnT<=0){ spawnFood(); spawnT=Math.max(40,86-frame*0.02) / (ZONES[zoneIdx].food||1); }
+    if(--waveT<=0){ spawnSnackWave(); waveT=rnd(620,1000); }      // occasional swoopable snack arc
     // hitbox around head/body (right-center of sprite)
     const DW=140, hbx=player.x+DW*0.13, hby=player.y, hw=40, hh=40;
     for(let i=foods.length-1;i>=0;i--){ const f=foods[i]; f.x-=speed; f.bob+=0.08;
@@ -356,7 +366,7 @@
         else { f.got=0.001; combo++; comboT=150; let g=foodBase(f.type)*feastMult(); if(starMode>0) g*=2;   // per-treat value × feast (x1..x5) × star (x2)
           score+=g; munch++; runCoins++; player.flap=0.5; player.squash=0.55;
           flash=4; flashCol='255,255,255'; pop(f.x,f.y-12,'+'+g, combo%5===0);
-          burst(f.x,f.y, foodCols(f.type)); sMunch();
+          burst(f.x,f.y, foodCols(f.type)); sMunch(); heartPop(1);
           const fm=feastMult(); if(fm>runFeastMax) runFeastMax=fm;
           if(fm>feastShown){ feastShown=fm; sFeast(fm); pop(player.x,player.y-62,'FEAST x'+fm+'!',true);
             burst(player.x,player.y,['#ff5a8a','#ffd166','#a9d0ff','#fff','#c9a6ff']); flash=7; flashCol='255,220,120'; player.squash=0.65; }   // milestone celebration
@@ -580,7 +590,7 @@
     for(let i=platforms.length-1;i>=0;i--){ const c=platforms[i]; c.x-=speed; if(c.pop>0)c.pop*=0.85;
       if(player.vy>-1.5 && Math.abs(c.x-px)<c.r*1.05 && foot>c.y-c.r*0.65 && foot<c.y+c.r*0.95 && (c.cool|0)<=0){
         const power = c.kind==='mini'? -6.8 : c.kind==='super'? -12.6 : -9.0;   // soft / normal / SUPER launch
-        player.vy=power; c.pop=1; c.cool=12; player.squash=1; player.flap=0.9; runBounces++; safeBounce();   // squish-then-spring
+        player.vy=power; c.pop=1; c.cool=12; player.squash=1; player.flap=0.9; runBounces++; puff(); puff(); safeBounce();   // squish-then-spring + poof
         const col = c.kind==='super'?['#ffd6f5','#c9a6ff','#a9d0ff','#fff']:['#ffffff','#f3e6f7','#e7d6f0'];
         burst(c.x,c.y-c.r*0.3,col);
         if(c.kind==='super'){ for(let s=0;s<9;s++) parts.push({x:c.x,y:c.y,vx:rnd(-3.2,3.2),vy:rnd(-4.5,-1),life:0,max:rnd(26,42),r:rnd(2,4.2),col:['#ffd6f5','#c9a6ff','#a9d0ff','#ffe08a'][s%4],heart:s%3===0});
@@ -802,6 +812,7 @@
       const cols=['#ff9ecf','#ffd18a','#fbf08a','#a3e0b0','#a9d0ff','#c9a6ff'];
       for(let k=0;k<6;k++){ ctx.fillStyle=cols[k]; const a=frame*0.08+k*1.047; star(Math.cos(a)*58,Math.sin(a)*52,6,cols[k]); }
       ctx.restore(); }
+    if(ready && player.vy<-3.5 && state===PLAY){ ctx.save(); ctx.globalAlpha=0.15; ctx.rotate(player.tilt); ctx.scale(1/sq,sq); ctx.drawImage(cimg,-DW*0.5,-DH*0.5+11,DW,DH); ctx.restore(); }   // motion smear when flapping up
     ctx.rotate(player.tilt);                          // eased tilt (smoothed in update)
     if(invuln>0 && starMode<=0 && state===PLAY) ctx.globalAlpha = 0.45 + 0.45*Math.abs(Math.sin(frame*0.32));   // soft hurt pulse
     ctx.scale(1/sq, sq);
