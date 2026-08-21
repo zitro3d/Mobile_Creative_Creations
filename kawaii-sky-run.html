@@ -178,6 +178,7 @@
   let state=START, frame=0, score=0, munch=0, best=+(localStorage.getItem('hh_best')||0);
   let paused=false;                                         // pause during play
   let tutDone = localStorage.getItem('ksr_tut')==='1';      // first-run tutorial hint shown?
+  let overStarSnd=0, newBest=false;                         // game-over celebration state
   let health=6; const MAXH=6;   // start with a full bar (no stray broken heart)
   let speed=2.4, spawnT=60, invuln=0, shake=0, flash=0, flashCol='255,120,120';
   const player={ x:W*0.30, y:H*0.42, vy:0, flap:0, tilt:0, squash:0 };
@@ -315,6 +316,7 @@
     if(health<=0){ coins+=runCoins; missionsJustDone=checkMissions();
       if(levelMode){ const st=starsFor(levelZone,score); if(st>levelStars[levelZone]){ levelStars[levelZone]=st; saveLevelStars(); } }
       shake=16; burst(player.x,player.y-6,['#ff8fb0','#ffd166','#a9d0ff','#fff','#c9a6ff']); burst(player.x,player.y-6,['#ff6f91','#c9a6ff','#fff']); sOver();
+      overStarSnd=0; newBest = score>best && score>0;
       saveMeta(); state=OVER; overFrame=frame; best=Math.max(best,score); localStorage.setItem('hh_best',best);
       if(!tutDone){ tutDone=true; try{ localStorage.setItem('ksr_tut','1'); }catch(e){} } } }
 
@@ -971,13 +973,24 @@
     }
     ctx.textBaseline='alphabetic';
   }
+  function drawConfetti(t){ const cols=['#ff8fb0','#ffd166','#a9d0ff','#b8ecc0','#c9a6ff','#fff']; ctx.save();
+    for(let i=0;i<32;i++){ const sx=(i*137)%W, sy=((i*53 + t*(2.4+(i%3)*0.8)) % (H+40))-20;
+      ctx.save(); ctx.translate(sx,sy); ctx.rotate(t*0.08+i); ctx.globalAlpha=0.85; ctx.fillStyle=cols[i%cols.length]; ctx.fillRect(-3,-5,6,10); ctx.restore(); }
+    ctx.restore(); }
   function drawOver(){ ctx.save(); const ov=Math.min(1,(frame-overFrame)/22); ctx.globalAlpha=ov;   // gentle fade-in, less abrupt
     ctx.fillStyle='rgba(122,90,99,.4)'; ctx.fillRect(0,0,W,H);
+    const t=frame-overFrame;
     if(levelMode){ const st=starsFor(levelZone,score);
+      if(st>0) drawConfetti(t);
       centerText(st>0?'LEVEL CLEAR!':'TRY AGAIN', H*0.28, 34, st>0?'#fff':'#ffd0a0');
-      for(let s=0;s<3;s++){ star(W/2+(s-1)*38, H*0.355, 18, s<st?'#ffd85a':'rgba(255,255,255,.35)'); if(s<st){ ctx.lineWidth=1.5; ctx.strokeStyle='#e0a41e'; ctx.stroke(); } }
-      centerText(ZONES[levelZone].name, H*0.40, 18, '#ffe08a', 3);
-    } else centerText('ALL FULL!',H*0.36,42,'#fff');
+      const vis=Math.max(0,Math.floor((t-16)/20));           // reveal earned stars one-by-one
+      if(Math.min(st,vis)>overStarSnd){ overStarSnd=Math.min(st,vis); tone(SCH([0,4,7][Math.min(2,overStarSnd-1)]+12),.32,.06,'triangle'); }
+      for(let s=0;s<3;s++){ const earned=s<st, shown=s<vis; let sc=1;
+        if(earned){ if(!shown) continue; const p=clamp((t-16-s*20)/9,0,1); sc=1+(1-p)*0.9; }   // pop-in bounce
+        ctx.save(); ctx.translate(W/2+(s-1)*40, H*0.355); ctx.scale(sc,sc);
+        star(0,0,18, earned?'#ffd85a':'rgba(255,255,255,.32)'); if(earned){ ctx.lineWidth=1.5/sc; ctx.strokeStyle='#e0a41e'; ctx.stroke(); } ctx.restore(); }
+      centerText(ZONES[levelZone].name, H*0.41, 18, '#ffe08a', 3);
+    } else { centerText('ALL FULL!',H*0.36,42,'#fff'); if(newBest){ drawConfetti(t); ctx.globalAlpha=ov*(.7+.3*Math.sin(frame*.2)); centerText('★ NEW BEST! ★',H*0.30,22,'#ffd85a',5); ctx.globalAlpha=ov; } }
     centerText('SCORE '+score,H*0.45,30,'#ffe14d');
     centerText('🍩 '+munch+' munched',H*0.51,20,'#fff',4);
     centerText('🪙 +'+runCoins+' coins  (total '+coins+')',H*0.56,17,'#ffe14d',4);
