@@ -529,9 +529,11 @@
   }
 
   // ---------- hazards (cute-but-grumpy things to DODGE) ----------
-  function newHaz(x,y,r,kind){ return {x,y,r,kind,bob:rnd(0,6.28),hit:0,minGap:1e9,scored:0,didHit:0,sc:(ZONES[zoneIdx].stormCol||STORM_DEF)}; }
-  function spawnSingle(){ const kind=Math.random()<0.5?'storm':'chili';
-    hazards.push(newHaz(W+40, rnd(H*0.14,H*0.82), kind==='storm'?rnd(32,44):22, kind)); }
+  function newHaz(x,y,r,kind){ return {x,y,r,kind,bob:rnd(0,6.28),hit:0,minGap:1e9,scored:0,didHit:0,sc:(ZONES[zoneIdx].stormCol||STORM_DEF),
+    amp:(kind==='bee'?rnd(H*0.07,H*0.10):3), bspd:(kind==='bee'?0.11:0.08), wobz:rnd(0,6.28)}; }
+  function spawnSingle(){ let kind=Math.random()<0.5?'storm':'chili';
+    if(zoneIdx>=2 && Math.random()<0.34) kind='bee';                 // buzzing bee joins from world 3+
+    hazards.push(newHaz(W+40, rnd(H*0.18,H*0.72), kind==='storm'?rnd(32,44):(kind==='bee'?18:22), kind)); }
   function spawnStormWall(){                                        // a wall of storms with ONE gap to thread
     const top=H*0.12, bot=H-70, gapH=142, gy=rnd(top+gapH*0.6, bot-gapH*0.6), x=W+50;
     for(let y=top; y<=bot; y+=56){ if(Math.abs(y-gy)<gapH*0.5) continue; hazards.push(newHaz(x,y,26,'storm')); } }
@@ -548,8 +550,8 @@
       else spawnSingle();
       hazT=Math.max(38, (rnd(112,185) - Math.min(80,frame*0.014)) / hazMulNow()); }   // denser in later zones
     const hbx=player.x+18, hby=player.y;
-    for(let i=hazards.length-1;i>=0;i--){ const z=hazards[i]; z.x-=speed*1.03; z.bob+=0.08; if(z.hit>0)z.hit--;
-      const hy=z.y+Math.sin(z.bob)*3, dist=Math.hypot(z.x-hbx, hy-hby), hitR=z.r*0.85+20;
+    for(let i=hazards.length-1;i>=0;i--){ const z=hazards[i]; z.x-=speed*1.03; z.bob+=(z.bspd||0.08); if(z.hit>0)z.hit--;
+      const hy=z.y+Math.sin(z.bob)*(z.amp||3), dist=Math.hypot(z.x-hbx, hy-hby), hitR=z.r*0.85+20;
       if(Math.abs(z.x-hbx)<70 && dist<z.minGap) z.minGap=dist;                 // track closest approach
       if(invuln<=0 && dist<hitR){ hurt(); z.hit=12; z.didHit=1; z.scored=1; }
       if(!z.scored && z.x<hbx-6){ z.scored=1; if(!z.didHit && z.minGap<hitR+40) nearMiss(z.x,hby); }   // squeaked past!
@@ -557,7 +559,7 @@
     }
   }
   function drawHazards(){
-    for(const z of hazards){ const y=z.y+Math.sin(z.bob)*3, r=z.r; ctx.save(); ctx.translate(z.x,y);
+    for(const z of hazards){ const y=z.y+Math.sin(z.bob)*(z.amp||3), r=z.r; ctx.save(); ctx.translate(z.x,y);
       if(z.hit) ctx.globalAlpha=0.45; ctx.lineJoin='round'; ctx.lineCap='round';
       if(z.kind==='storm'){
         const sc=z.sc||STORM_DEF;
@@ -569,13 +571,24 @@
         ctx.beginPath(); ctx.moveTo(-r*0.42,-r*0.16); ctx.lineTo(-r*0.14,-r*0.02); ctx.moveTo(r*0.14,-r*0.02); ctx.lineTo(r*0.42,-r*0.16); ctx.stroke();
         ctx.fillStyle='#3c3556'; circle(-r*0.26,r*0.08,r*0.11); ctx.fill(); circle(r*0.26,r*0.08,r*0.11); ctx.fill();
         ctx.beginPath(); ctx.arc(0,r*0.42,r*0.2,1.15*Math.PI,1.85*Math.PI); ctx.stroke();   // frown
-      } else {
+      } else if(z.kind==='chili'){
         ctx.strokeStyle='#5f9e4a'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(0,-r*0.95); ctx.quadraticCurveTo(r*0.4,-r*1.5,r*0.7,-r*1.2); ctx.stroke();
         ctx.fillStyle='#ff5a52'; ctx.strokeStyle='#8a2f2a'; ctx.lineWidth=2.5;
         ctx.beginPath(); ctx.moveTo(0,-r); ctx.quadraticCurveTo(r*0.95,-r*0.5,r*0.5,r*0.7); ctx.quadraticCurveTo(0,r*1.25,-r*0.5,r*0.7); ctx.quadraticCurveTo(-r*0.95,-r*0.5,0,-r); ctx.closePath(); ctx.fill(); ctx.stroke();
         ctx.fillStyle='rgba(255,255,255,.4)'; ctx.beginPath(); ctx.ellipse(-r*0.28,-r*0.2,r*0.14,r*0.4,-0.3,0,7); ctx.fill();
         ctx.fillStyle='#3a1a18'; circle(-r*0.24,-r*0.15,r*0.11); ctx.fill(); circle(r*0.24,-r*0.15,r*0.11); ctx.fill();
         ctx.strokeStyle='#3a1a18'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(0,r*0.12,r*0.16,1.15*Math.PI,1.85*Math.PI); ctx.stroke();
+      } else { // grumpy bee — bobs up & down, so you have to TIME the dodge
+        const fl=Math.sin(frame*0.6)*2;
+        ctx.fillStyle='rgba(255,255,255,.72)'; ctx.strokeStyle='rgba(170,170,195,.55)'; ctx.lineWidth=1.3;   // fluttering wings
+        ctx.beginPath(); ctx.ellipse(r*0.1,-r*0.72+fl,r*0.5,r*0.26,-0.4,0,7); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(r*0.55,-r*0.66-fl,r*0.42,r*0.22,-0.2,0,7); ctx.fill(); ctx.stroke();
+        ctx.fillStyle='#6a4a20'; ctx.beginPath(); ctx.moveTo(r*1.0,0); ctx.lineTo(r*1.5,-r*0.14); ctx.lineTo(r*1.5,r*0.14); ctx.closePath(); ctx.fill();   // stinger
+        ctx.fillStyle='#ffd24d'; ctx.strokeStyle='#6a4a20'; ctx.lineWidth=2.4; ctx.beginPath(); ctx.ellipse(0,0,r*1.1,r*0.9,0,0,7); ctx.fill(); ctx.stroke();   // striped body
+        ctx.fillStyle='#3a2a18'; ctx.beginPath(); ctx.ellipse(r*0.1,0,r*0.13,r*0.74,0,0,7); ctx.fill(); ctx.beginPath(); ctx.ellipse(r*0.5,0,r*0.11,r*0.58,0,0,7); ctx.fill();
+        ctx.strokeStyle='#3a2a18'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(-r*0.72,-r*0.34); ctx.lineTo(-r*0.44,-r*0.18); ctx.moveTo(-r*0.4,-r*0.34); ctx.lineTo(-r*0.68,-r*0.18); ctx.stroke();   // angry brows
+        ctx.fillStyle='#3a2a18'; circle(-r*0.58,-r*0.03,r*0.1); ctx.fill(); circle(-r*0.32,-r*0.03,r*0.1); ctx.fill();
+        ctx.strokeStyle='#3a2a18'; ctx.beginPath(); ctx.arc(-r*0.45,r*0.22,r*0.13,1.15*Math.PI,1.85*Math.PI); ctx.stroke();   // frown
       }
       ctx.restore(); }
   }
