@@ -300,7 +300,7 @@
     invuln=90; combo=0; comboT=0; feastShown=1; musicI=0; musicT=0; dailyMsg=0; zoneIdx=0; shownZone=0; zoneBannerT=0; ziInit();
     if(levelMode){ zoneIdx=levelZone; shownZone=levelZone; skyC=ZONES[levelZone].sky.map(hexRgb); sunC=[hexRgb(ZONES[levelZone].sun)]; grC=ZONES[levelZone].ground.map(hexRgb); }
     player.x=W*0.30; player.y=H*0.42; player.vy=0; player.flap=0; foods=[]; parts=[]; pops=[]; trail=[]; platforms=[]; platT=90; hazards=[]; hazT=210;
-    runCoins=0; coinItems=[]; coinT=90; powerups=[]; powT=280; magnet=0; shield=0; starMode=0;
+    runCoins=0; coinItems=[]; coinT=90; powerups=[]; powT=280; magnet=0; shield=0; starMode=0; rushT=0;
     runBounces=0; runNears=0; runZoneMax=0; runFeastMax=1; missionsJustDone=[]; paused=false; waveT=rnd(300,480); }
   function pauseMenuHit(px,py){ const ys=[0.44,0.54,0.64]; for(let i=0;i<3;i++){ if(Math.abs(py-H*ys[i])<24 && Math.abs(px-W/2)<W*0.28) return i; } return -1; }
 
@@ -359,6 +359,7 @@
     // spawns
     if(--spawnT<=0){ spawnFood(); spawnT=Math.max(40,86-frame*0.02) / (ZONES[zoneIdx].food||1); }
     if(--waveT<=0){ spawnSnackWave(); waveT=rnd(620,1000); }      // occasional swoopable snack arc
+    if(rushT>0){ rushT--; if(rushT%5===0){ const fav=ZONES[zoneIdx].fav; foods.push({type:(fav&&Math.random()<0.5)?fav:TYPES[(Math.random()*TYPES.length)|0], bonus:false, bad:false, x:W+30, y:rnd(H*0.2,H*0.7), r:23, bob:rnd(0,6.28), rot:rnd(-.1,.1), got:0, mc:MACS[(Math.random()*MACS.length)|0]}); } }   // SUGAR RUSH candy cascade
     // hitbox around head/body (right-center of sprite)
     const DW=140, hbx=player.x+DW*0.13, hby=player.y, hw=40, hh=40;
     for(let i=foods.length-1;i>=0;i--){ const f=foods[i]; f.x-=speed; f.bob+=0.08;
@@ -493,7 +494,8 @@
       ctx.restore(); }
   }
   // ---------- power-ups ----------
-  const POWS=['magnet','shield','star'];
+  const POWS=['magnet','shield','star','rush'];
+  let rushT=0;   // SUGAR RUSH: dense snack stream
   function updatePowerups(){
     if(--powT<=0){ const roll=Math.random(); const kind = roll<0.22?'heart':POWS[(Math.random()*POWS.length)|0]; powerups.push({x:W+44,y:rnd(H*0.24,H*0.70),kind,bob:rnd(0,6.28),got:0,r:20}); powT=rnd(360,600); }
     const px=player.x+16, py=player.y;
@@ -511,6 +513,8 @@
       tone(SCH(0),.1,.05,'sine'); setTimeout(()=>tone(SCH(7),.24,.05,'sine'),60); }   // protective bwoop
     else if(kind==='heart'){ if(health<MAXH){ health++; pop(player.x,player.y-48,'+1 HEART',true); } else { runCoins+=25; pop(player.x,player.y-48,'+25 🪙',true); } cols=['#ff8fb0','#ff6f91','#ffd0dd']; flashCol='255,180,200'; heartPop(3);
       chord([0,4,9],.26,.05,'triangle'); }                                     // warm chime
+    else if(kind==='rush'){ rushT=140; pop(player.x,player.y-48,'SUGAR RUSH!',true); cols=['#ff9ecf','#ffd166','#a3e0b0','#a9d0ff','#ffb3d9']; flashCol='255,200,225';
+      [12,16,19,24].forEach((n,i)=>setTimeout(()=>tone(SCH(n),.16,.05,'triangle'),i*45)); }   // candy cascade
     else { starMode=380; pop(player.x,player.y-48,'STAR TIME!',true); cols=['#ff9ecf','#ffd18a','#a3e0b0','#a9d0ff','#c9a6ff']; flashCol='255,240,180';
       [0,4,7,12,16].forEach((s,i)=>setTimeout(()=>tone(SCH(s+12),.2,.055,'triangle'),i*55)); }   // rainbow fanfare
     flash=8; player.squash=0.62; buzz([0,20,40,20]); burst(player.x,player.y,cols); burst(player.x,player.y-10,cols);
@@ -525,12 +529,15 @@
       ctx.fillStyle='#fff'; heartPath(0,-s*0.04,s*0.38); ctx.fill(); }
     else if(kind==='heart'){ ctx.fillStyle='#ff6f91'; heartPath(0,-s*0.06,s*0.95); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='#e0466a'; ctx.stroke();
       ctx.fillStyle='rgba(255,255,255,.85)'; circle(-s*0.32,-s*0.28,s*0.2); ctx.fill(); }
+    else if(kind==='rush'){ ctx.fillStyle='#ff8fc0'; ctx.strokeStyle='#e0709a'; ctx.lineWidth=1.6; circle(0,-s*0.22,s*0.72); ctx.fill(); ctx.stroke();   // lollipop
+      ctx.strokeStyle='#fff'; ctx.lineWidth=s*0.15; ctx.beginPath(); ctx.arc(0,-s*0.22,s*0.42,0.4,4.2); ctx.stroke();
+      ctx.strokeStyle='#d8a0b8'; ctx.lineWidth=s*0.22; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(0,s*0.44); ctx.lineTo(0,s*0.96); ctx.stroke(); }
     else { star(0,0,s,'#ffcf3a'); ctx.lineWidth=2; ctx.strokeStyle='#e0a41e'; ctx.stroke(); }
   }
   function drawPowerups(){
     for(const z of powerups){ const y=z.y+Math.sin(z.bob)*4, r=z.r, s=z.got>0?1-z.got:1;
       ctx.save(); ctx.translate(z.x,y); ctx.scale(s,s);
-      ctx.globalAlpha=0.35+0.15*Math.sin(frame*0.2); ctx.fillStyle= z.kind==='magnet'?'#ffd0d8':(z.kind==='shield'?'#bfe6ff':(z.kind==='heart'?'#ffc4d4':'#ffe8b0')); circle(0,0,r+7); ctx.fill(); ctx.globalAlpha=1;
+      ctx.globalAlpha=0.35+0.15*Math.sin(frame*0.2); ctx.fillStyle= z.kind==='magnet'?'#ffd0d8':(z.kind==='shield'?'#bfe6ff':(z.kind==='heart'?'#ffc4d4':(z.kind==='rush'?'#ffd0ea':'#ffe8b0'))); circle(0,0,r+7); ctx.fill(); ctx.globalAlpha=1;
       ctx.fillStyle='rgba(255,255,255,.9)'; circle(0,0,r); ctx.fill(); ctx.lineWidth=2.5; ctx.strokeStyle='rgba(122,90,138,.4)'; ctx.stroke();
       powIcon(z.kind, r*0.6);
       ctx.restore(); }
@@ -916,10 +923,11 @@
     const timer=(kind,frac)=>{ ctx.save(); ctx.translate(W-26,py);
       ctx.fillStyle='rgba(255,255,255,.85)'; circle(0,0,12); ctx.fill();
       ctx.save(); ctx.scale(0.55,0.55); powIcon(kind, 12); ctx.restore();
-      ctx.strokeStyle= kind==='star'?'#ffcf3a':(kind==='magnet'?'#e8556a':'#7fc8ff'); ctx.lineWidth=2.6;
+      ctx.strokeStyle= kind==='star'?'#ffcf3a':(kind==='magnet'?'#e8556a':(kind==='rush'?'#ff8fc0':'#7fc8ff')); ctx.lineWidth=2.6;
       ctx.beginPath(); ctx.arc(0,0,15,-Math.PI/2,-Math.PI/2+Math.max(0.02,frac)*6.283); ctx.stroke(); ctx.restore(); py+=32; };
     if(starMode>0) timer('star', starMode/380);
     if(magnet>0)   timer('magnet', magnet/440);
+    if(rushT>0)    timer('rush', rushT/140);
     if(shield>0)   timer('shield', 1);
     ctx.restore();
   }
