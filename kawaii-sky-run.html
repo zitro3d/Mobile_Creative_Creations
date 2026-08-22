@@ -179,6 +179,7 @@
   let paused=false;                                         // pause during play
   let tutDone = localStorage.getItem('ksr_tut')==='1';      // first-run tutorial hint shown?
   let overStarSnd=0, newBest=false;                         // game-over celebration state
+  let alertT=0;                                             // "!" emote when a hazard is bearing down
   let health=6; const MAXH=6;   // start with a full bar (no stray broken heart)
   let speed=2.4, spawnT=60, invuln=0, shake=0, flash=0, flashCol='255,120,120';
   const player={ x:W*0.30, y:H*0.42, vy:0, flap:0, tilt:0, squash:0 };
@@ -324,7 +325,7 @@
   function update(){
     frame++;
     if(W>H){ if(state===PLAY) paused=true; return; }   // landscape: freeze (rotate screen shown)
-    if(flash>0)flash--; if(shake>0)shake--; if(invuln>0)invuln--;
+    if(flash>0)flash--; if(shake>0)shake--; if(invuln>0)invuln--; if(alertT>0)alertT--;
     if(magnet>0)magnet--; if(starMode>0)starMode--; if(denyShake>0)denyShake--;
     if(starMode>0 && (frame&1)) parts.push({x:player.x-10,y:player.y+rnd(-14,14),vx:-1.5,vy:rnd(-1,1),life:0,max:24,r:rnd(2,4),col:['#ff9ecf','#ffd18a','#a3e0b0','#a9d0ff','#c9a6ff'][frame%5],heart:frame%4===0});
     for(const c of clouds){ c.x-=c.v*(state===PLAY?1:.4); if(c.x<-60){c.x=W+40;c.y=rnd(40,H*0.5);} }
@@ -559,6 +560,7 @@
     const hbx=player.x+18, hby=player.y;
     for(let i=hazards.length-1;i>=0;i--){ const z=hazards[i]; z.x-=speed*1.03; z.bob+=(z.bspd||0.08); if(z.hit>0)z.hit--;
       const hy=z.y+Math.sin(z.bob)*(z.amp||3), dist=Math.hypot(z.x-hbx, hy-hby), hitR=z.r*0.85+20;
+      if(invuln<=0 && starMode<=0 && z.x>hbx+8 && z.x<hbx+135 && Math.abs(hy-hby)<z.r+52) alertT=6;   // danger bearing down → "!"
       if(Math.abs(z.x-hbx)<70 && dist<z.minGap) z.minGap=dist;                 // track closest approach
       if(invuln<=0 && dist<hitR){ hurt(); z.hit=12; z.didHit=1; z.scored=1; }
       if(!z.scored && z.x<hbx-6){ z.scored=1; if(!z.didHit && z.minGap<hitR+40) nearMiss(z.x,hby); }   // squeaked past!
@@ -866,6 +868,11 @@
     if(shield>0){ ctx.globalAlpha=0.4+0.15*Math.sin(frame*0.2); ctx.fillStyle='rgba(150,210,255,.16)'; circle(0,0,DW*0.52); ctx.fill();
       ctx.globalAlpha=0.7; ctx.strokeStyle='#8fd0ff'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(0,0,DW*0.52,0,7); ctx.stroke(); }
     ctx.restore();
+    if(alertT>0 && state===PLAY){ const bx=player.x+22, by=player.y-52+Math.sin(frame*0.6)*2;   // "!" the flyer spots danger
+      ctx.save(); ctx.fillStyle='#fff'; ctx.strokeStyle='#ff6f6f'; ctx.lineWidth=2.4; ctx.lineJoin='round';
+      ctx.beginPath(); ctx.moveTo(bx-8,by+7); ctx.lineTo(bx-3,by+16); ctx.lineTo(bx+3,by+9); ctx.closePath(); ctx.fill();
+      circle(bx,by,12); ctx.fill(); ctx.stroke();
+      ctx.fillStyle='#ff4d4d'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font='900 16px "Trebuchet MS"'; ctx.fillText('!',bx,by+1); ctx.restore(); }
   }
 
   // ---------- draw: fx + hud ----------
