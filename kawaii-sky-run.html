@@ -252,6 +252,7 @@
   // ---------- input: one dead-simple TAP to fly (touch + mouse + Space) ----------
   let platforms=[], platT=90, overFrame=0;
   let hazards=[], hazT=210;
+  let boss=null, nextBoss=700, bossLevelDone=false;   // THE BIG GRUMP encounter
   function charSlot(i){ const gap=Math.min(90, W*0.26), n=charImgs.length; return { x: W/2 + (i-(n-1)/2)*gap, y: H*0.82, r: 31 }; }
   function press(px,py){
     audioOn();                                                       // warm up audio on the user's tap gesture
@@ -306,8 +307,9 @@
     if(levelMode){ zoneIdx=levelZone; shownZone=levelZone; skyC=ZONES[levelZone].sky.map(hexRgb); sunC=[hexRgb(ZONES[levelZone].sun)]; grC=ZONES[levelZone].ground.map(hexRgb); }
     player.x=W*0.30; player.y=H*0.42; player.vy=0; player.flap=0; foods=[]; parts=[]; pops=[]; trail=[]; platforms=[]; platT=90; hazards=[]; hazT=210;
     runCoins=0; coinItems=[]; coinT=90; powerups=[]; powT=280; magnet=0; shield=0; starMode=0; rushT=0;
-    runBounces=0; runNears=0; runZoneMax=0; runFeastMax=1; missionsJustDone=[]; paused=false; waveT=rnd(300,480); }
-  function pauseMenuHit(px,py){ const ys=[0.44,0.54,0.64]; for(let i=0;i<3;i++){ if(Math.abs(py-H*ys[i])<24 && Math.abs(px-W/2)<W*0.28) return i; } return -1; }
+    runBounces=0; runNears=0; runZoneMax=0; runFeastMax=1; missionsJustDone=[]; paused=false; waveT=rnd(300,480);
+    boss=null; nextBoss=700; bossLevelDone=false; }
+  function pauseMenuHit(px,py){ const ys=[0.44,0.545,0.65]; for(let i=0;i<3;i++){ if(Math.abs(py-H*ys[i])<26 && Math.abs(px-W/2)<W*0.32) return i; } return -1; }
 
   // ---------- fx ----------
   function burst(x,y,cols){ for(let i=0;i<12;i++){ const a=rnd(0,6.28),sp=rnd(1.5,5);
@@ -564,8 +566,31 @@
     hazards.push(newHaz(x, laneY+gap*0.5+28, rnd(30,40), 'storm')); }
   function nearMiss(x,y){ runNears++; const g=Math.round(10*feastMult()); score+=g; comboT=Math.max(comboT,120);   // dodging keeps your feast alive
     pop(x,y-20,'CLOSE! +'+g,false); burst(x,y,['#fff','#ffe08a','#a9d0ff']); sNear(); }
+  // ---------- THE BIG GRUMP (boss encounter) ----------
+  function startBoss(){ const waves=levelMode?5:Math.min(8,4+((zoneIdx/2)|0));
+    boss={ x:W+90, y:H*0.28, r:56, teleg:96, wavesLeft:waves, maxWaves:waves, cadence:0, hit:0, bob:rnd(0,6.28), sc:(ZONES[zoneIdx].stormCol||STORM_DEF) };
+    zoneBannerT=0; sZone(); flash=8; flashCol='120,90,150'; shake=6; }
+  function spawnBossWall(){                                          // its signature attack — a wall with one gap to thread
+    const top=H*0.12, bot=H-70, gapH=158, gy=rnd(top+gapH*0.6, bot-gapH*0.6), x=W+50;
+    for(let y=top; y<=bot; y+=56){ if(Math.abs(y-gy)<gapH*0.5) continue; const h=newHaz(x,y,26,'storm'); h.sc=boss.sc; h.boss=1; hazards.push(h); } }
+  function calmBoss(){ const bonus=44+zoneIdx*7; runCoins+=bonus; score+=bonus*4;
+    for(let k=0;k<3;k++) burst(boss.x-k*20, boss.y+rnd(-16,16), ['#ffd85a','#ff8fb0','#a9d0ff','#fff','#c9a6ff']);
+    pop(W/2, H*0.34, 'GRUMP CALMED!  +'+bonus+'🪙', true); flash=8; flashCol='255,225,120'; shake=8; sZone();
+    if(levelMode) bossLevelDone=true; else nextBoss=score+900+zoneIdx*120;
+    boss=null; }
+  function updateBoss(){ if(!boss) return; const b=boss; b.bob+=0.06; if(b.hit>0)b.hit--;
+    b.x += ((b.teleg>0? W-64 : W-58) - b.x)*0.10;                    // slide in and hover at the right
+    if(b.teleg>0){ b.teleg--; return; }
+    if(b.wavesLeft>0){ if(--b.cadence<=0){ spawnBossWall(); b.wavesLeft--; b.hit=10;
+        b.cadence=Math.max(46, 78 - zoneIdx*3); } }
+    else if(!hazards.some(h=>h.boss)) calmBoss();                    // all waves threaded → calmed
+  }
+  function bossTrigger(){ if(boss) return;
+    if(levelMode){ if(!bossLevelDone && score>=levelThresholds(levelZone)[1]) startBoss(); }
+    else if(score>=nextBoss) startBoss(); }
   function updateHazards(){
-    if(--hazT<=0){ const z=ZONES[zoneIdx], roll=Math.random();
+    bossTrigger(); updateBoss();
+    if(!boss && --hazT<=0){ const z=ZONES[zoneIdx], roll=Math.random();
       if(roll < z.wall*0.5) spawnStormWall();
       else if(roll < z.wall*0.5+0.22) spawnPinch();
       else spawnSingle();
@@ -614,6 +639,30 @@
       }
       ctx.restore(); }
   }
+  function drawBoss(){ if(!boss) return; const b=boss, r=b.r, y=b.y+Math.sin(b.bob)*5, sc=b.sc||STORM_DEF;
+    ctx.save(); ctx.translate(b.x + (b.hit>0?rnd(-3,3):0), y); ctx.lineJoin='round'; ctx.lineCap='round';
+    const g=ctx.createRadialGradient(0,0,r*0.4,0,0,r*1.7); g.addColorStop(0,'rgba(120,90,150,.32)'); g.addColorStop(1,'rgba(120,90,150,0)'); ctx.fillStyle=g; circle(0,0,r*1.7); ctx.fill();
+    ctx.fillStyle=sc[0]; circle(0,r*0.28,r*0.98); ctx.fill(); circle(r*0.74,r*0.06,r*0.66); ctx.fill(); circle(-r*0.74,r*0.08,r*0.62); ctx.fill(); circle(r*0.3,-r*0.5,r*0.56); ctx.fill(); circle(-r*0.34,-r*0.44,r*0.5); ctx.fill();
+    ctx.fillStyle=sc[1]; circle(0,r*0.52,r*0.88); ctx.fill();
+    ctx.fillStyle=sc[2]; for(const bx of [-r*0.5,0,r*0.5]){ ctx.beginPath(); ctx.moveTo(bx-3,r*0.66); ctx.lineTo(bx+6,r*1.02); ctx.lineTo(bx,r*1.02); ctx.lineTo(bx+8,r*1.5); ctx.lineTo(bx-8,r*0.98); ctx.lineTo(bx-1,r*0.98); ctx.closePath(); ctx.fill(); }
+    ctx.strokeStyle='#2e2848'; ctx.lineWidth=4.2; ctx.beginPath(); ctx.moveTo(-r*0.5,-r*0.18); ctx.lineTo(-r*0.16,-r*0.02); ctx.moveTo(r*0.16,-r*0.02); ctx.lineTo(r*0.5,-r*0.18); ctx.stroke();   // fierce brows
+    glossyEye(-r*0.28,r*0.08,r*0.17,r*0.22); glossyEye(r*0.28,r*0.08,r*0.17,r*0.22);
+    ctx.fillStyle='#2e2848'; ctx.beginPath(); ctx.arc(0,r*0.62,r*0.26,1.1*Math.PI,1.9*Math.PI); ctx.arc(0,r*0.62,r*0.26,1.9*Math.PI,1.1*Math.PI,true); ctx.closePath();   // open grumpy mouth
+    ctx.beginPath(); ctx.moveTo(-r*0.24,r*0.44); ctx.quadraticCurveTo(0,r*0.36,r*0.24,r*0.44); ctx.quadraticCurveTo(r*0.22,r*0.74,0,r*0.78); ctx.quadraticCurveTo(-r*0.22,r*0.74,-r*0.24,r*0.44); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.moveTo(-r*0.14,r*0.46); ctx.lineTo(-r*0.06,r*0.56); ctx.lineTo(-r*0.2,r*0.55); ctx.closePath(); ctx.fill();   // fang
+    ctx.beginPath(); ctx.moveTo(r*0.14,r*0.46); ctx.lineTo(r*0.06,r*0.56); ctx.lineTo(r*0.2,r*0.55); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='rgba(255,140,165,.4)'; circle(-r*0.52,r*0.24,r*0.14); ctx.fill(); circle(r*0.52,r*0.24,r*0.14); ctx.fill();   // even grumps blush
+    ctx.restore(); }
+  function drawBossHud(){ if(!boss) return; const b=boss;
+    if(b.teleg>0){ ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(frame*0.35); centerText('⚡ THE BIG GRUMP! ⚡', H*0.2, 26, '#ffe14d', 5); ctx.restore(); return; }
+    const bw=W*0.52, bx=(W-bw)/2, by=86+padTop, filled=clamp((b.maxWaves-b.wavesLeft)/b.maxWaves,0,1);
+    ctx.save(); ctx.textAlign='center';
+    ctx.font='800 13px "Baloo 2",Nunito'; ctx.lineWidth=4; ctx.strokeStyle='#fff'; ctx.fillStyle='#6a4a80'; ctx.strokeText('😾 THE BIG GRUMP',W/2,by-8); ctx.fillText('😾 THE BIG GRUMP',W/2,by-8);
+    rr(bx,by,bw,12,6); ctx.fillStyle='rgba(58,38,64,.55)'; ctx.fill();
+    if(filled>0){ rr(bx,by,bw*filled,12,6); const gg=ctx.createLinearGradient(bx,0,bx+bw,0); gg.addColorStop(0,'#ffd85a'); gg.addColorStop(1,'#ff9ec2'); ctx.fillStyle=gg; ctx.fill(); }
+    rr(bx,by,bw,12,6); ctx.lineWidth=2; ctx.strokeStyle='rgba(255,255,255,.8)'; ctx.stroke();
+    ctx.font='700 10px Nunito'; ctx.fillStyle='#fff'; ctx.lineWidth=3; ctx.strokeStyle='rgba(90,60,90,.5)'; ctx.strokeText('thread the walls to calm it!',W/2,by+26); ctx.fillText('thread the walls to calm it!',W/2,by+26);
+    ctx.restore(); }
 
   // ---------- CLOUDS mode: bounce platforms ----------
   function updatePlatforms(){
@@ -1062,12 +1111,13 @@
     drawSky(); drawGround();
     for(const f of foods) drawFood(f);
     drawPlatforms();
-    drawHazards();
+    drawHazards(); drawBoss();
     drawCoins(); drawPowerups();
     drawTrail(); drawHero(); drawFx();
     ctx.restore();
     if(flash>0){ ctx.fillStyle='rgba('+flashCol+','+(flash/16)+')'; ctx.fillRect(0,0,W,H); }
     if(state===PLAY || state===OVER) drawHud();   // title/shop show their own screens
+    if(state===PLAY && !paused) drawBossHud();
     if(state===PLAY && zoneBannerT>0){ const b=zoneBannerT;
       const a=b>120?(150-b)/30 : (b<30? b/30 : 1);
       ctx.save(); ctx.globalAlpha=clamp(a,0,1);
