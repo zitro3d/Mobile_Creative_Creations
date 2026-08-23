@@ -1959,7 +1959,10 @@
   }
 
   /* route card */
-  .dxh-route { background: #241a10; border: 4px solid #000; box-shadow: 0 0 0 2px #4a3115; padding: clamp(8px,1.6vh,12px) 13px; }
+  .dxh-route { background: #241a10; border: 4px solid #000; box-shadow: 0 0 0 2px #4a3115; padding: clamp(8px,1.6vh,12px) 13px; cursor: pointer; }
+  .dxh-route:active { filter: brightness(1.18); }
+  .dxh-route-switch { font-family: 'Press Start 2P', monospace; font-size: 7px; color: #6CB7E8; margin-top: 9px; letter-spacing: 0.5px; line-height: 1.4; }
+  .dxh-route-switch.locked { color: #F4C20D; }
   .dxh-route-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
   .dxh-route-lbl  { font-family: 'Press Start 2P', monospace; font-size: 7px; color: #8a7355; }
   .dxh-route-seed { font-family: 'Press Start 2P', monospace; font-size: 7px; color: #DC3A1E; }
@@ -2374,12 +2377,12 @@
           </div>
 
           <!-- route card -->
-          <div class="dxh-route">
+          <div class="dxh-route" id="dxhRouteCard">
             <div class="dxh-route-head">
               <span class="dxh-route-lbl">ROUTE</span>
               <span class="dxh-route-seed" id="dxhSeed">SEED ---</span>
             </div>
-            <div class="dxh-route-name">SUNSET<br>WASTES</div>
+            <div class="dxh-route-name" id="dxhRouteName">SUNSET<br>WASTES</div>
             <div class="dxh-route-stats">
               <div class="dxh-stat">
                 <div class="dxh-stat-l">INTACT</div>
@@ -2390,6 +2393,7 @@
                 <div class="dxh-stat-v" id="dxhReset">--:--:--</div>
               </div>
             </div>
+            <div class="dxh-route-switch" id="dxhRouteSwitch"></div>
           </div>
 
           <!-- rig selector (real ship buttons) -->
@@ -2935,7 +2939,7 @@ if ('serviceWorker' in navigator) {
 }
 // Build stamp shown in the corner of the start screen so we can verify
 // the latest version is running inside the installed PWA.
-const DLX_BUILD = 'DXP-DAILY-v71';
+const DLX_BUILD = 'DXP-DAILY-v74';
 
 (function() {
   // ---------- Device detection ----------
@@ -4354,6 +4358,43 @@ const DLX_BUILD = 'DXP-DAILY-v71';
   // fall back to hauler so the player isn't equipping a phantom rig.
   if (!ownsRig(selectedShip)) selectedShip = 'hauler';
 
+  // ---------- Delivery routes (daily level selection) ----------
+  // The daily runs one "route" (a delivery level from DELIVERY_LEVELS).
+  // SUNSET WASTES is the free default; extra routes unlock with SCRAP and
+  // become selectable from the dispatch console's ROUTE card. selectedRoute
+  // persists and drives startDailyChallenge + the splash backdrop.
+  // `name` is pre-split into two lines to match the route-card layout.
+  const ROUTES = [
+    { key: 'sunsetWastesPixel', name: 'SUNSET<br>WASTES',    cost: 0    },
+    { key: 'cutthroatCanyon',   name: 'CUTTHROAT<br>CANYON', cost: 2500 },
+    { key: 'leviathan',         name: 'THE<br>LEVIATHAN',    cost: 4000 },
+  ];
+  function routeCost(key) {
+    const r = ROUTES.find(function(x) { return x.key === key; });
+    return r ? (r.cost || 0) : 0;
+  }
+  function routeOwned(key) {
+    if (routeCost(key) === 0) return true;   // free routes are always owned
+    try { return localStorage.getItem('dlx_route_owned_' + key) === '1'; }
+    catch (e) { return false; }
+  }
+  function setRouteOwned(key) {
+    try { localStorage.setItem('dlx_route_owned_' + key, '1'); } catch (e) {}
+  }
+  let selectedRoute = 'sunsetWastesPixel';
+  try {
+    const savedRoute = localStorage.getItem('dlx_route_v1');
+    if (savedRoute && ROUTES.some(function(x) { return x.key === savedRoute; })) selectedRoute = savedRoute;
+  } catch (e) {}
+  // Guard against a saved-but-unowned route (e.g. progress reset).
+  if (!routeOwned(selectedRoute)) selectedRoute = 'sunsetWastesPixel';
+  function setSelectedRoute(key) {
+    if (!ROUTES.some(function(x) { return x.key === key; }) || !routeOwned(key)) return false;
+    selectedRoute = key;
+    try { localStorage.setItem('dlx_route_v1', key); } catch (e) {}
+    return true;
+  }
+
   // ---------- Ship skins / liveries ----------
   // Unlockable palette overlays. Each skin replaces a subset of the
   // ship color keys used by drawHaulerFront / drawHaulerBack.
@@ -4896,11 +4937,6 @@ const DLX_BUILD = 'DXP-DAILY-v71';
   let kickbackFrames = 0;
   let tiltDisplay = 0;
   let lomaxRigTilt = 0;   // rendered rig tilt, exported by drawBird for chain pinning
-  // Pro-tier hazard interaction (v330):
-  //   tentacleFlashCooldown: gate the score-triggered bioluminescent
-  //     flash so it can't fire every frame in the distance-based daily.
-  //     Decrements per frame; flash only fires when this hits 0.
-  let tentacleFlashCooldown = 0;
   // SCRAP — meta-currency earned during play, banked at run end.
   // runTokens accumulates this run; tokensTotal is the persistent balance.
   let runTokens = 0;
@@ -5222,9 +5258,9 @@ const DLX_BUILD = 'DXP-DAILY-v71';
     // Daily Challenge runs as a single procedural delivery course
     // rather than the 8-level campaign. Delivery success ONLY fires
     // when the rig reaches the truck stop landmark (handled by the
-    // dailyScrollX >= 9040 docking trigger). No score-based shortcut
-    // — gold cogs etc. could push the player past DELIVERY_TARGET
-    // long before they actually reach the dock.
+    // distance-based docking trigger, dailyScrollX >= 16800). Progress
+    // is purely distance now — no score-based shortcut can end the run
+    // before the rig actually reaches the dock.
     if (isDaily) return;
     // HIGHWALL is a dev-only theme not yet wired to the campaign
     // ladder. If the player picked it from the dev theme picker,
@@ -8302,7 +8338,6 @@ const DLX_BUILD = 'DXP-DAILY-v71';
     if (thrusterFrames > 0) thrusterFrames--;
     if (burstFrames > 0) burstFrames--;
     if (scorePulse > 0) scorePulse = Math.max(0, scorePulse - 0.1);
-    if (tentacleFlashCooldown > 0) tentacleFlashCooldown--;
     // Tentacle flash frames decrement per-tentacle so the cyan glow
     // fades cleanly back to the original colour after ~200ms.
     if (dailyTentacles && dailyTentacles.length) {
@@ -9696,16 +9731,9 @@ const DLX_BUILD = 'DXP-DAILY-v71';
         // for the truck stop dock to be visible on screen. World scroll
         // halts and the rig glides into the pad — actual delivery
         // success fires when the docking animation completes.
-        // Trigger 3x earlier so the truck stop + alien waver are visible
-        // for the full approach. The 270-frame docking duration gives
-        // the player ~4.5s of dock-visible time (was 1.5s).
-        // Trigger pushed from 9040 → 9200 so the truck stop's full
-        // 480 px platform + diner fits on screen at landing —
-        // previously the diner extended past the right edge and got
-        // clipped during the victory sequence.
-        // v446m — finish line moved 9200 → 10800 (truck stop is now
-        // at 11000 instead of 9400). 200 px of approach before the
-        // dock animation triggers.
+        // Docking fires at dailyScrollX >= 16800; the truck stop sits at
+        // worldX 17000, so the rig glides the last ~200 px onto the pad.
+        // The 270-frame docking duration gives ~4.5s of dock-visible time.
         if (!dailyDeliveredAtFinish && dailyScrollX >= 16800) {
           dailyDeliveredAtFinish = true;
           const truckStopWX = 17000;
@@ -10097,7 +10125,13 @@ const DLX_BUILD = 'DXP-DAILY-v71';
             && dailyDlxBandits.length < 2) {
           // Spawn from off-screen LEFT (chasing rig from behind) or
           // RIGHT (heading toward rig from ahead). Random.
-          const fromBehind = Math.random() < 0.5;
+          // Approach side is per-level: 'front' = raiders come head-on
+          // from ahead (visible + dodgeable), 'behind' = they chase from
+          // off-screen behind, default 'both' = random (BLACK ROUTE).
+          const _appr = currentDeliveryLevel.banditApproach || 'both';
+          const fromBehind = _appr === 'front'  ? false
+                           : _appr === 'behind' ? true
+                           : (Math.random() < 0.5);
           const spawnX = fromBehind ? -50 : (W + 50);
           const spawnY = 70 + Math.random() * (PLAY_H - 200);
           const speed = fromBehind ? (2.6 + Math.random() * 0.6)
@@ -14764,10 +14798,15 @@ const DLX_BUILD = 'DXP-DAILY-v71';
     const b1 = (h * 0.30) | 0;
     const b2 = (h * 0.55) | 0;
     const b3 = (h * 0.78) | 0;
-    pxFill(0, b0, W, b1 - b0, PX.sky0);
-    pxFill(0, b1, W, b2 - b1, PX.sky1);
-    pxFill(0, b2, W, b3 - b2, PX.sky2);
-    pxFill(0, b3, W, h - b3, PX.sky3);
+    // Sky band colors — a level may supply its own 4-stop pixel sky
+    // (top→bottom) via `pixelSky`, so pixel levels are no longer locked
+    // to the Sunset palette. The cache key already includes the level
+    // label, so each level's sky caches separately.
+    const SKY = currentDeliveryLevel.pixelSky || [PX.sky0, PX.sky1, PX.sky2, PX.sky3];
+    pxFill(0, b0, W, b1 - b0, SKY[0]);
+    pxFill(0, b1, W, b2 - b1, SKY[1]);
+    pxFill(0, b2, W, b3 - b2, SKY[2]);
+    pxFill(0, b3, W, h - b3, SKY[3]);
     // 9-row dither bands at each seam (density ramps 1/8 → 7/8)
     const ditherBand = (yCenter, top, bot) => {
       const rows = 9, half = rows >> 1;
@@ -14783,9 +14822,9 @@ const DLX_BUILD = 'DXP-DAILY-v71';
         }
       }
     };
-    ditherBand(b1, PX.sky0, PX.sky1);
-    ditherBand(b2, PX.sky1, PX.sky2);
-    ditherBand(b3, PX.sky2, PX.sky3);
+    ditherBand(b1, SKY[0], SKY[1]);
+    ditherBand(b2, SKY[1], SKY[2]);
+    ditherBand(b3, SKY[2], SKY[3]);
 
     // Bottom-of-screen ground band (mirrors smooth-art branch)
     pxFill(0, PLAY_H, W, H - PLAY_H, currentDeliveryLevel.groundBand);
@@ -15297,6 +15336,242 @@ const DLX_BUILD = 'DXP-DAILY-v71';
 
   // ── PIXEL HORIZON dispatch (sky-attached layers below the moons)
   // Far dunes → citadel ruins → mid dunes → outpost dust drifts.
+  // ═════════════════════════════════════════════════════════════════
+  // SKY-PIRATE CANYON horizon — crimson rock walls in parallax layers
+  // with drifting pirate airships. Its own backdrop for the canyon route.
+  // All pixel-art (pxFill), placed deterministically via srand so it
+  // doesn't shimmer as the world scrolls. Tuned crimson palette + a
+  // variety of rock forms (mesas, stepped buttes, hoodoos, spires,
+  // boulders) so the ridgeline never reads as a row of same-y rectangles.
+  const CANYON = {
+    // Teal/petrol rock with WARM ORANGE sun-lit faces — the complementary
+    // desert-dusk scheme (cool shadow, hot light). Far rock reads as a dark
+    // teal silhouette; foreground is deeper navy-teal.
+    farRim:  '#173a42',
+    midCore: '#2f6468', midLit: '#e08a3a', midShad: '#1c454c', midCrack: '#143840',
+    nearCore:'#123840', nearLit: '#b5652c', nearShad: '#0e2a33',
+    cap: '#0c2228', out: '#04080a',
+  };
+  function drawCanyonMesa(cx, gy, h, w, core, lit, shad, crack, stepped) {
+    // Broad flat-topped mesa/butte (Monument-Valley style): only a SLIGHT
+    // inward batter, a wide flat cap with a thin caprock lip, horizontal
+    // strata bands, one subtle ledge step-back, teal shadow + orange sun
+    // faces and a 1px outline. Variance in h/w gives tall buttes vs wide
+    // plateaus; it stays a mesa, never a T or a wedge.
+    const topW = Math.max(9, Math.round(w * (stepped ? 0.88 : 0.80)));
+    const ledge = Math.round(h * 0.54);
+    for (let i = 0; i < h; i++) {
+      const yy = (gy - 1 - i) | 0;
+      const t = i / ((h - 1) || 1);
+      let ww = Math.round(w - (w - topW) * t);   // gentle batter
+      if (i >= ledge) ww -= 2;                    // one ledge step-back
+      ww = Math.max(6, ww);
+      const x = (cx - (ww >> 1)) | 0;
+      pxFill(x, yy, ww, 1, core);
+      pxFill(x, yy, 1, 1, CANYON.out);            // left outline
+      pxFill(x + 1, yy, 2, 1, shad);              // shadow face
+      pxFill(x + ww - 1, yy, 1, 1, CANYON.out);   // right outline
+      pxFill(x + ww - 3, yy, 2, 1, lit);          // sun face
+      if (i % 9 === 3) pxFill(x + 3, yy, Math.max(1, ww - 6), 1, crack);   // strata band
+      if (i === ledge - 1) pxFill(x + 2, yy, Math.max(1, ww - 4), 1, CANYON.out); // ledge shadow
+    }
+    const sy = (gy - h) | 0, sw = topW, sx = (cx - (sw >> 1)) | 0;
+    pxFill(sx - 1, sy, sw + 2, 1, CANYON.cap);    // thin caprock rim (slight lip)
+    pxFill(sx + 1, sy + 1, Math.max(1, sw - 2), 1, lit);   // sunlit cap top
+  }
+  function drawCanyonHoodoo(cx, gy, h, w, core, lit, shad) {
+    const top = (gy - h) | 0;
+    const colW = Math.max(3, (w * 0.45) | 0), colX = (cx - (colW >> 1)) | 0;
+    pxFill(colX, top + 6, colW, h - 6, core);           // stem
+    pxFill(colX, top + 6, 2, h - 6, shad);
+    pxFill(colX + colW - 2, top + 6, 2, h - 6, lit);
+    const capX = (cx - (w >> 1)) | 0;                   // mushroom cap
+    pxFill(capX, top, w, 6, core);
+    pxFill(capX, top, w, 2, CANYON.cap);
+    pxFill(capX, top + 2, 3, 4, shad);
+    pxFill(capX + w - 3, top + 2, 3, 4, lit);
+    pxFill(colX - 1, top + 6, 1, h - 6, CANYON.out);
+    pxFill(colX + colW, top + 6, 1, h - 6, CANYON.out);
+    pxFill(capX - 1, top, 1, 6, CANYON.out);
+    pxFill(capX + w, top, 1, 6, CANYON.out);
+  }
+  function drawCanyonSpire(cx, gy, h, w, core, lit, shad) {
+    // Organic pinnacle: concave taper (narrows faster near the top) to a
+    // rounded tip, with faint strata + teal-shadow / orange-sun edges.
+    for (let i = 0; i < h; i++) {
+      const yy = (gy - 1 - i) | 0;
+      const t = i / ((h - 1) || 1);
+      let ww = Math.max(2, Math.round(w * (1 - t * t * 0.88)));   // concave taper
+      if (i > h - 4) ww = Math.max(2, ww - 1);                    // round the tip
+      const x = (cx - (ww >> 1)) | 0;
+      pxFill(x, yy, ww, 1, core);
+      pxFill(x, yy, 1, 1, shad);
+      if (ww > 3) pxFill(x + ww - 1, yy, 1, 1, lit);
+      if (i % 9 === 4) pxFill(x, yy, ww, 1, CANYON.midShad);      // faint strata
+    }
+    pxFill((cx - 1) | 0, (gy - h) | 0, 1, 3, CANYON.out);         // tip outline
+  }
+  function drawCanyonBoulder(cx, gy, r, core, lit, shad) {
+    const top = gy - r * 2;
+    for (let yy = 0; yy < r * 2; yy++) {
+      const dy = yy - r;
+      const half = Math.sqrt(Math.max(0, r * r - dy * dy)) | 0;
+      if (half < 1) continue;
+      pxFill(cx - half, top + yy, half * 2, 1, core);
+      pxFill(cx - half, top + yy, 2, 1, shad);
+      pxFill(cx + half - 2, top + yy, 2, 1, lit);
+    }
+  }
+  function drawCanyonAirship(seedX, yFrac, size) {
+    const span = W + 180;
+    const drift = dailyScrollX * 0.02 + frame * 0.22 + seedX * span;
+    const x = ((W + 90) - (drift % span)) | 0;
+    const y = (PLAY_H * yFrac + Math.sin(frame * 0.012 + seedX * 6) * 3) | 0;
+    const bw = size * 3, bh = size, hull = '#1a0810', hull2 = '#2a0e16';
+    pxFill(x - (bw >> 1), y, bw, bh, hull);              // balloon body
+    pxFill(x - (bw >> 1) + 2, y - 2, bw - 4, 2, hull);   // top curve
+    pxFill(x - (bw >> 1) + 2, y + bh, bw - 4, 2, hull);  // bottom curve
+    pxFill(x - (bw >> 1) - 2, y + 2, 2, bh - 4, hull2);  // nose
+    pxFill(x + (bw >> 1), y + 2, 5, bh - 4, hull2);      // tail fin
+    pxFill(x - (bw >> 2), y + 1, bw >> 1, 1, '#3a1420');  // hull ridge stripe
+    pxFill(x - 5, y + bh + 2, 12, 4, '#0e060a');         // gondola
+    pxFill(x - 3, y + bh + 6, 1, 3, '#0e060a');          // rigging
+    pxFill(x + 4, y + bh + 6, 1, 3, '#0e060a');
+    pxFill(x + (bw >> 1) - 1, y + bh + 2, 2, 2, '#ff6a3c'); // red lantern
+  }
+  // ── CUTTHROAT CANYON environment (grounded-vista port) ───────────
+  // Volumetric two-tone rock (warm upper-left sun / teal shadow), talus
+  // mounds, rubble aprons, cast + contact shadows, hazy distance — built
+  // once into three offscreen parallax strips, blitted by drawPixelCanyonHorizon.
+  let __canyonLayers = null, __canyonKey = '';
+  function buildCanyonLayers() {
+    const key = W + 'x' + PLAY_H; if (__canyonLayers && __canyonKey === key) return __canyonLayers; __canyonKey = key;
+    const TILE = W * 2;
+    const PLANE = ['#ffce86','#eb9a4a','#c56e30','#8f4620','#2b565c','#173d44','#0c2228'];
+    const HAZE = '#e7b57e', CAST = '#8a4a20', CASTD = '#6d3717', AO = '#37190d';
+    function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+    function hash(n){ return ((Math.sin(n*127.1)*43758.5453)%1+1)%1; }
+    function lerpHex(a,b,t){ const pa=[parseInt(a.slice(1,3),16),parseInt(a.slice(3,5),16),parseInt(a.slice(5,7),16)];
+      const pb=[parseInt(b.slice(1,3),16),parseInt(b.slice(3,5),16),parseInt(b.slice(5,7),16)];
+      const q=k=>('0'+Math.round(pa[k]+(pb[k]-pa[k])*t).toString(16)).slice(-2); return '#'+q(0)+q(1)+q(2); }
+    function vnoise(ix,iy,sd){ const x0=Math.floor(ix),y0=Math.floor(iy),fx=ix-x0,fy=iy-y0;
+      const n=(a,b)=>hash(a*57.1+b*131.7+sd*13.3), sx=fx*fx*(3-2*fx),sy=fy*fy*(3-2*fy);
+      const a=n(x0,y0)+(n(x0+1,y0)-n(x0,y0))*sx, b=n(x0,y0+1)+(n(x0+1,y0+1)-n(x0,y0+1))*sx; return a+(b-a)*sy; }
+    function envelope(u,kind){ const a=Math.abs(u);
+      if(kind==='spire')return Math.pow(Math.max(0,1-a),0.72);
+      if(kind==='mesa')return a<0.60?1:Math.max(0,1-(a-0.60)/0.40);
+      return a<0.34?1:Math.max(0,Math.pow(1-(a-0.34)/0.66,0.8)); }
+    function P(g,x,y,c){ g.fillStyle=c; g.fillRect(x|0,y|0,1,1); }
+    function Rr(g,x,y,w,h,c){ g.fillStyle=c; g.fillRect(x|0,y|0,w|0,h|0); }
+    function castShadowV(g,cx,baseY,w,hgt,col){ const hw=w/2, len=Math.round(hw+hgt*0.42);
+      for(let dx=-hw*0.8; dx<len; dx++){ const x=Math.round(cx+dx); if(x<0||x>=TILE)continue;
+        const t=clamp((dx+hw*0.8)/(len+hw*0.8),0,1), th=Math.max(2,Math.round((w*0.16+6)*(1-t)*(1-t)));
+        for(let dd=0;dd<th;dd++){ const y=baseY+dd; if(y>=PLAY_H)break;
+          if(t<0.30||(pxHash7(x*3+dd*7)/8)>t) P(g,x,y,col((dd<3&&t<0.45)?CASTD:CAST)); } } }
+    function talusMoundV(g,cx,baseY,w,seed,col){ const mw=Math.round(w*0.80), mh=Math.max(9,Math.round(w*0.20));
+      for(let dx=-mw;dx<=mw;dx++){ const x=Math.round(cx+dx); if(x<0||x>=TILE)continue; const t=Math.abs(dx)/mw;
+        let hh=Math.round(mh*(1-t)*(0.62+0.38*Math.sin(dx*0.5+seed*2))); hh=Math.round(hh/2)*2; if(hh<=0)continue; const u=dx/mw;
+        for(let dd=0;dd<hh;dd++){ const y=baseY-1-dd; if(y<0)continue;
+          let b=0.50+(-u)*0.26-(dd<2?0:0.10)-clamp(dd/hh*0.2,0,0.2); if(u>0.2)b-=0.14;
+          P(g,x,y,col(PLANE[clamp(Math.round((1-clamp(b,0,1))*6),0,6)])); } } }
+    function rubbleV(g,cx,baseY,w,seed,layer,col){ const hw=w/2, n=layer===2?46:26, floorRoom=Math.min(26,PLAY_H-baseY);
+      for(let k=0;k<n;k++){ const side=hash(seed+k*1.3)<0.5?-1:1, dist=Math.pow(hash(seed+k*2.9),0.7);
+        const gx=Math.round(cx+side*(hw*0.30+dist*hw*1.15)), gy=Math.round(baseY+dist*floorRoom+hash(seed+k*4.1)*3);
+        if(gy>=PLAY_H||gx<0||gx>=TILE)continue; const sz=Math.max(2,Math.round((1-dist)*(layer===2?9:6))+(hash(seed+k)*2|0));
+        for(let dd=0;dd<sz;dd++) P(g,gx+2+dd,gy+1,col(CASTD));
+        for(let yy=0;yy<sz;yy++){ const ww=Math.max(1,sz-Math.abs(yy-(sz>>1))-((yy>sz*0.5)?1:0)), rx=gx-(ww>>1), ry=gy-sz+yy;
+          Rr(g,rx,ry,ww,1,col(PLANE[yy<sz*0.35?1:(yy<sz*0.7?2:3)])); P(g,rx,ry,col(PLANE[0])); P(g,rx+ww-1,ry,col(PLANE[yy<sz*0.5?2:4])); }
+        P(g,gx-(sz>>1),gy,col(AO)); } }
+    function formationV(g,cx,baseY,h,w,kind,seed,layer){
+      const haze=layer===0?0.60:layer===1?0.24:0.0, col=haze?c=>lerpHex(c,HAZE,haze):c=>c;
+      const hw=w/2, x0=Math.ceil(cx-hw), x1=Math.floor(cx+hw), step=3, topY={};
+      for(let x=x0;x<=x1;x++){ const u=(x-cx)/hw, a=Math.abs(u);
+        let e=envelope(u,kind); e*=1+0.09*Math.sin(x*0.05+seed*3)+0.05*Math.sin(x*0.15+seed*7);
+        const foot=a>0.5?(a-0.5)*0.5*(0.6+0.4*Math.sin(x*0.3+seed)):0;
+        let hh=h*clamp(e,0,1.12)+h*foot*0.14; hh=Math.round(hh/step)*step+(srand(seed+x*0.11)<0.18?step:0);
+        topY[x]=baseY-Math.max(2,hh); }
+      const inside=(x,y)=>(topY[x]!=null&&y>=topY[x]&&y<baseY);
+      if(layer>0) castShadowV(g,cx,baseY,w,h,col);
+      talusMoundV(g,cx,baseY,w,seed,col);
+      const strataStep=layer===2?11:14;
+      for(let x=x0;x<=x1;x++){ const ty=topY[x], colH=baseY-ty; if(colH<=0)continue;
+        const slopeL=topY[x-1]!=null?ty-topY[x-1]:0, slopeR=topY[x+1]!=null?topY[x+1]-ty:0;
+        const flat=Math.abs(slopeL)<=1&&Math.abs(slopeR)<=1, u=(x-cx)/hw;
+        for(let y=ty;y<baseY;y++){ const dTop=y-ty; let b=0.54+(-u)*0.32;
+          if(dTop<3)b+=flat?0.26:(slopeR>1?0.05:0.14);
+          if(u>0.12)b-=0.10; if(u>0.42)b-=0.12; if(slopeL>2&&dTop<slopeL)b-=0.30;
+          b+=Math.sin((x*0.9+y*0.42)*0.05+seed*3)*0.05; b-=clamp((y-(baseY-9))/9,0,1)*0.30;
+          b=clamp(b,0,1); let idx=Math.round((1-b)*6);
+          if(idx<=3&&(y%strataStep)===0&&hash((x>>3)*1.7+y*0.3+seed)<0.5&&hash(x*1.3+y)<0.7)idx=Math.min(6,idx+1);
+          P(g,x,y,col(PLANE[idx])); }
+        if(u<-0.12||flat){ P(g,x,ty,col(PLANE[0])); if(inside(x,ty+1))P(g,x,ty+1,col(PLANE[flat?1:0])); }
+        for(let dd=1;dd<=3;dd++){ const yy=baseY-dd; if(inside(x,yy)) P(g,x,yy,col(AO)); } }
+      const nCr=1+((srand(seed*1.7)*2)|0);
+      for(let k=0;k<nCr;k++){ let x=Math.round(cx+(srand(seed+k*2.1)-0.5)*w*0.5), y=(topY[x]||baseY)+5;
+        const steps=(baseY-y)*(0.6+srand(seed+k*3.3)*0.4); let bias=(srand(seed+k*5)-0.5)*0.5;
+        for(let s=0;s<steps;s++){ if(!inside(x,y))break; P(g,x,y,col(PLANE[6])); if(hash(seed+k+s)<0.4)P(g,x+1,y,col(PLANE[1]));
+          y+=1; x+=Math.round(bias); if(hash(seed*2+s)<0.14)bias=clamp(bias+(hash(s)-0.5),-1,1); } }
+      if(layer>0) rubbleV(g,cx,baseY,w,seed,layer,col);
+    }
+    function cactusV(g,cx,gy){ const c='#1f5a3c',c2='#123f28',hl='#2f7a50';
+      Rr(g,cx-1,gy-14,3,14,c); Rr(g,cx-1,gy-14,1,14,hl); Rr(g,cx+1,gy-14,1,14,c2);
+      Rr(g,cx-5,gy-9,4,2,c); Rr(g,cx-5,gy-13,2,5,c); Rr(g,cx+2,gy-11,4,2,c); Rr(g,cx+5,gy-15,2,6,c); Rr(g,cx+5,gy-15,1,6,hl); }
+    function farMtnsV(g,baseY){ for(let x=0;x<TILE;x++){ const r=Math.abs(Math.sin(x*0.05))*14+Math.abs(Math.sin(x*0.017+1))*20+Math.sin(x*0.11)*4;
+      const ry=(baseY-r)|0; for(let y=ry;y<baseY+3;y++) P(g,x,y,lerpHex(PLANE[4],HAZE,0.5)); if(pxHash7(x)<3)P(g,x,ry,lerpHex(PLANE[2],HAZE,0.45)); } }
+    function strip(){ const c=document.createElement('canvas'); c.width=TILE; c.height=H; const g=c.getContext('2d'); g.imageSmoothingEnabled=false; return {c,g}; }
+    const far=strip(); farMtnsV(far.g,(PLAY_H*0.47)|0);
+    for(let i=0;i<TILE/128+1;i++){ const cx=Math.round(60+i*128+(srand(i*1.7)*40-20)); if(cx>TILE-40)break;
+      formationV(far.g,cx,(PLAY_H*0.53+(srand(i*2.3)*10))|0, 40+((srand(i*3.1)*28)|0), 62+((srand(i*4.4)*44)|0), srand(i*5)<0.5?'mesa':'spire', 2+i*1.7, 0); }
+    const mid=strip();
+    for(let i=0;i<TILE/150+1;i++){ const cx=Math.round(80+i*150+(srand(i*2.9+9)*50-25)); if(cx>TILE-50)break;
+      formationV(mid.g,cx,(PLAY_H*0.72+(srand(i*1.3+3)*10))|0, 90+((srand(i*3.7)*46)|0), 92+((srand(i*2.2)*58)|0), srand(i*4.1)<0.4?'spire':(srand(i*4.1)<0.72?'butte':'mesa'), 6+i*2.3, 1); }
+    const near=strip();
+    for(let i=0;i<TILE/196+1;i++){ const cx=Math.round(70+i*196+(srand(i*3.3+7)*40-20)); if(cx>TILE-70)break;
+      formationV(near.g,cx,(PLAY_H*0.965)|0, 130+((srand(i*2.7)*74)|0), 150+((srand(i*3.9)*54)|0), srand(i*5.5)<0.35?'spire':(srand(i*5.5)<0.7?'butte':'mesa'), 21+i*2.9, 2);
+      if(srand(i*6.6)<0.6) cactusV(near.g, cx+(srand(i*7)*90-45|0), PLAY_H-1); }
+    for(let k=0;k<80;k++){ const t=Math.pow(srand(k*4.4+2),1.6), y=(PLAY_H*0.80+(PLAY_H*0.2-4)*t)|0, x=(srand(k*2.7+1)*TILE)|0, sz=1+((t*2.4)|0);
+      P(near.g,x+1,y+sz,'rgba(40,20,10,0.5)'); Rr(near.g,x,y,sz+1,sz,PLANE[2]); Rr(near.g,x,y,sz,1,PLANE[1]); P(near.g,x+sz,y,PLANE[4]); }
+    __canyonLayers = { far:far.c, mid:mid.c, near:near.c, TILE };
+    return __canyonLayers;
+  }
+  function drawPixelCanyonHorizon() {
+    ctx.imageSmoothingEnabled = false;
+    ctx.save();
+    // Big pale moon low in the dusk sky (drawn first so the rock overlaps
+    // it, like the reference). Blocky disc + shaded limb + a few craters.
+    const moonX = (W * 0.63) | 0, moonY = (PLAY_H * 0.17) | 0, moonR = 40;
+    for (let dy = -moonR; dy <= moonR; dy++) {
+      const half = Math.sqrt(Math.max(0, moonR * moonR - dy * dy)) | 0;
+      if (half < 1) continue;
+      pxFill(moonX - half, moonY + dy, half * 2, 1, '#f0e0c6');
+      if (half >= 3) pxFill(moonX + half - 3, moonY + dy, 3, 1, '#e4cca4'); // shaded right limb
+    }
+    pxFill(moonX - 15, moonY - 11, 7, 5, '#dcc39c');     // craters
+    pxFill(moonX + 6,  moonY + 9,  9, 6, '#dcc39c');
+    pxFill(moonX - 3,  moonY - 1,  5, 4, '#dcc39c');
+    // Horizontal dusk scanlines across the open sky (pixel-art convention).
+    ctx.fillStyle = 'rgba(255, 226, 178, 0.06)';
+    for (let sy = 4; sy < PLAY_H * 0.46; sy += 5) ctx.fillRect(0, sy | 0, W, 1);
+    // NEW grounded-canyon environment — volumetric two-tone rock in three
+    // parallax layers (far hazy mesas, mid buttes, near cliffs with talus,
+    // rubble, cast + contact shadows, cactus + debris). Built once into
+    // offscreen strips and blitted with parallax (see buildCanyonLayers).
+    const L = buildCanyonLayers();
+    const blit = (img, rate) => {
+      let off = -Math.floor((dailyScrollX * rate) % L.TILE); if (off > 0) off -= L.TILE;
+      ctx.drawImage(img, off, 0);
+      ctx.drawImage(img, off + L.TILE, 0);
+      if (off + 2 * L.TILE < W + 1) ctx.drawImage(img, off + 2 * L.TILE, 0);
+    };
+    blit(L.far, 0.06);
+    // Drifting pirate airships between the far mesas and the mid rock.
+    drawCanyonAirship(0.28, 0.16, 20);
+    drawCanyonAirship(0.72, 0.24, 15);
+    ctx.fillStyle = 'rgba(240, 150, 80, 0.12)'; ctx.fillRect(0, 0, W, (PLAY_H * 0.52) | 0);
+    blit(L.mid, 0.13);
+    blit(L.near, 0.22);
+    ctx.restore();
+  }
   function drawPixelDailyHorizon() {
     ctx.imageSmoothingEnabled = false;
     ctx.save();
@@ -18408,6 +18683,10 @@ const DLX_BUILD = 'DXP-DAILY-v71';
     // ctx.save/restore inside the function.
     if (currentDeliveryLevel.horizonStyle === 'pixelCitadel') {
       drawPixelDailyHorizon();
+      return;
+    }
+    if (currentDeliveryLevel.horizonStyle === 'pixelCanyon') {
+      drawPixelCanyonHorizon();
       return;
     }
     ctx.save();
@@ -36568,9 +36847,9 @@ const DLX_BUILD = 'DXP-DAILY-v71';
     cargoWasLost = false; speedLines.length = 0;
   }
   function dailySpeedFactor() {
-    // 0 at cruise (2.1), 1 at the daily cap (3.6).
+    // 0 at cruise (2.1), 1 at the daily cap (3.5 — see currentPipeSpeed).
     const cur = currentPipeSpeed();
-    return Math.max(0, Math.min(1, (cur - 2.1) / (3.6 - 2.1)));
+    return Math.max(0, Math.min(1, (cur - 2.1) / (3.5 - 2.1)));
   }
   function updateDailyIntensity() {
     if (!isDaily || state !== STATE_PLAY) return;
@@ -38756,14 +39035,20 @@ const DLX_BUILD = 'DXP-DAILY-v71';
     // repaints (createLinearGradient locks the colors it was built with).
     // Must come BEFORE initDailyDust(): the dust ember palette is sourced
     // from currentDeliveryLevel.
+    // ?level=<id> is a dev/preview override; otherwise the daily runs the
+    // player's selected route (SUNSET WASTES by default, or an unlocked
+    // route like THE LEVIATHAN picked from the dispatch console).
     const lvlParam = (/[?&]level=([a-zA-Z]+)/.exec(window.location.search) || [])[1];
-    currentDeliveryLevel = (lvlParam && DELIVERY_LEVELS[lvlParam]) || DELIVERY_LEVELS.sunsetWastesPixel || DELIVERY_LEVELS.sunsetWastes;
+    currentDeliveryLevel = (lvlParam && DELIVERY_LEVELS[lvlParam])
+      || DELIVERY_LEVELS[selectedRoute]
+      || DELIVERY_LEVELS.sunsetWastesPixel || DELIVERY_LEVELS.sunsetWastes;
     bgCache.dailySkyGrad = null;
     bgCache.dailyEarthGrad = null;
     initDailyDust();           // fresh atmospheric dust each daily run
-    // Daily delivery course is always the wasteland highway — sunset palette
-    // regardless of which day of the week it is, so the backdrop matches
-    // the GDD road-trip fiction (DLX Dist. Center → Good Buddy Truck Stop).
+    // selectedTheme stays 'sunset' for every route — it only drives the SFX
+    // palette + campaign theming. Each delivery route's own visuals (sky,
+    // horizon, obstacle reskins, dock) come from currentDeliveryLevel above,
+    // so a route like THE LEVIATHAN renders correctly while SFX stay stable.
     selectedTheme = 'sunset';
     levelIndex = 0;
     levelScoreStart = 0;
@@ -38915,6 +39200,64 @@ const DLX_BUILD = 'DXP-DAILY-v71';
     playBtnLg.addEventListener('touchend', onPlayTap, { passive: false });
     playBtnLg.addEventListener('click', onPlayTap);
   }
+
+  // ---------- Dispatch-console route selector ----------
+  // The ROUTE card doubles as a route switcher. Tapping it targets the
+  // "next" route: an owned route switches instantly, a locked one opens the
+  // Confirm Purchase modal to unlock it with SCRAP, then selects it. The
+  // card shows the active route name + a switch/unlock affordance beneath.
+  // Click-only (not touchend) so a single tap never double-fires the toggle.
+  function routePlainName(r) { return (r && r.name) ? r.name.replace('<br>', ' ') : ''; }
+  function nextRoute() {
+    const cur = ROUTES.find(function(r) { return r.key === selectedRoute; }) || ROUTES[0];
+    const nxt = ROUTES[(ROUTES.indexOf(cur) + 1) % ROUTES.length];
+    return (nxt && nxt !== cur) ? nxt : null;
+  }
+  function refreshRouteCard() {
+    const nameEl = document.getElementById('dxhRouteName');
+    const swEl   = document.getElementById('dxhRouteSwitch');
+    const cur = ROUTES.find(function(r) { return r.key === selectedRoute; }) || ROUTES[0];
+    if (nameEl) nameEl.innerHTML = cur.name;
+    if (!swEl) return;
+    const nxt = nextRoute();
+    if (!nxt) { swEl.style.display = 'none'; return; }
+    swEl.style.display = '';
+    if (routeOwned(nxt.key)) {
+      swEl.classList.remove('locked');
+      swEl.textContent = '⇄ ' + routePlainName(nxt);
+    } else {
+      swEl.classList.add('locked');
+      swEl.textContent = '⇄ ' + routePlainName(nxt) + ' 🔒 ' + nxt.cost;
+    }
+  }
+  function onRouteCardTap(e) {
+    if (e) { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }
+    const nxt = nextRoute();
+    if (!nxt) return;
+    if (routeOwned(nxt.key)) {
+      setSelectedRoute(nxt.key);
+      refreshRouteCard();
+      try { playSound('powerup'); } catch (err) {}
+    } else {
+      showBuyConfirm({
+        label: routePlainName(nxt),
+        cost: nxt.cost,
+        onConfirm: function() {
+          if (tokensTotal < nxt.cost) return;
+          tokensTotal -= nxt.cost;
+          saveTokensTotal();
+          setRouteOwned(nxt.key);
+          setSelectedRoute(nxt.key);
+          refreshRouteCard();
+          refreshGarageBtn();
+          try { playSound('levelup'); } catch (err) {}
+        },
+      });
+    }
+  }
+  const routeCardEl = document.getElementById('dxhRouteCard');
+  if (routeCardEl) routeCardEl.addEventListener('click', onRouteCardTap);
+  refreshRouteCard();
 
   // Theme picker — only changes the world palette; does not launch the game.
   const themeBtns = Array.from(document.querySelectorAll('.themeBtn'));
@@ -39247,6 +39590,61 @@ const DLX_BUILD = 'DXP-DAILY-v71';
       },
       obstacleTheme: 'desert',
     },
+    cutthroatCanyon: {
+      label: 'CUTTHROAT CANYON',
+      // Sky-pirate canyon: a deep crimson rock chasm. Raider airships drift
+      // the sky slot while DLX bandits on jet-skiffs swoop from the walls to
+      // hook your cargo — you survive by DODGING (altitude beats the hook)
+      // and outrunning them to the dock. Built on the proven dlxBandits +
+      // thieves theft systems; the new part is the canyon THEME: its own
+      // pixel sky palette + the pixelCanyon horizon renderer (mesas, spires,
+      // drifting airships).
+      pixelSky: ['#f6d3a4', '#f0a458', '#e57e3a', '#d2652c'],
+      skyPalette: [   // smooth-path fallback, kept in sync with pixelSky
+        { stop: 0,   color: '#f6d3a4' },
+        { stop: 0.4, color: '#f0a458' },
+        { stop: 0.7, color: '#e57e3a' },
+        { stop: 1,   color: '#d2652c' },
+      ],
+      skyStyle: 'pixel',
+      skyMoons: 'none',
+      hazeStripeColor: 'rgba(240, 150, 90, 0.10)',
+      dustMoteColor: 'rgba(245, 190, 130, 0.4)',
+      dustEmberStart: [245, 200, 140],
+      dustEmberEnd:   [220, 130, 60],
+      groundBand: '#33180e',
+      horizonStyle: 'pixelCanyon',
+      banditApproach: 'front',   // raiders come head-on so you can see + dodge them
+      horizonDuneFarColor: 'rgba(30, 70, 78, 0.85)',
+      horizonDuneMidColor: 'rgba(20, 55, 62, 0.96)',
+      horizonDuneHighlight: 'rgba(240, 160, 90, 0.4)',
+      earthPalette: [
+        { stop: 0,    color: '#d9772e' },
+        { stop: 0.35, color: '#a85224' },
+        { stop: 0.72, color: '#6e3418' },
+        { stop: 1,    color: '#33180e' },
+      ],
+      ambientField: null,
+      pulseTintColor: null,
+      pulseTintAmp: 0,
+      pulsePeriodFrames: 0,
+      dispatchLabel: 'FREEPORT DOCKS',
+      dockLabel: 'THE BLACK MARKET',
+      cargoFlavor: [
+        'Contraband spice · 6 crates marked FRAGILE (they\'re not) · a chest that ticks',
+        '80 stolen fuel cells · 1 crown (hot) · Dumplord\'s "totally legal" ledger',
+        'Bootleg parts · a caged parrot-drone · 12 bottles of something flammable',
+        'Smuggled relics · 40ft of grapple cable (theirs) · one very nervous informant',
+        'Black-market cargo · 9 sealed lockboxes · a map with an X and no key',
+      ],
+      obstacleSet: {
+        drones: false, thieves: true, groundOps: false,
+        lavaBalls: false, scrapTowers: true, airWrecks: true,
+        tunnels: false, tentacles: false,
+        dlxBandits: true,
+      },
+      obstacleTheme: 'desert',
+    },
     leviathan: {
       label: 'THE LEVIATHAN',
       // Fleshy interior of a colossal creature: hot fluorescent magentas
@@ -39498,6 +39896,9 @@ const DLX_BUILD = 'DXP-DAILY-v71';
       const k = new URLSearchParams(location.search).get('level');
       if (k && DELIVERY_LEVELS[k]) return DELIVERY_LEVELS[k];
     } catch (e) {}
+    // Match the splash backdrop to the player's selected route so the
+    // dispatch console previews the level they'll actually roll out into.
+    if (typeof selectedRoute === 'string' && DELIVERY_LEVELS[selectedRoute]) return DELIVERY_LEVELS[selectedRoute];
     return DELIVERY_LEVELS.sunsetWastesPixel || DELIVERY_LEVELS.sunsetWastes;
   })();
   // Flip the daily-mode render gates ON at boot so the start screen
@@ -39519,7 +39920,7 @@ const DLX_BUILD = 'DXP-DAILY-v71';
   let dailyTokenPayout = 0;        // tokens earned from the most recent daily (base + streak bonus)
   let dailyTokenPayoutBase = 0;    // delivery / arrival base (300 or 50) — split out so the
   let dailyTokenPayoutBonus = 0;   // result screens can show the streak bonus separately
-  let dailyDelivered = false;      // true once the run reaches DELIVERY_TARGET (delivery success)
+  let dailyDelivered = false;      // true once the rig docks at the truck stop (delivery success)
   // Daily delivery course (Phase A1) — replaces the campaign's pipe layout
   // when isDaily is true. The rig auto-scrolls a wasteland highway with
   // varying ground terrain and ground hazards (cacti, rocks). Player carries
@@ -39618,14 +40019,14 @@ const DLX_BUILD = 'DXP-DAILY-v71';
   let dailyNextThiefAt = 0;        // frame index when next flying thief enters
   let dailyDrones = [];            // [{ x, y, vx, state, stateFrames, beam }] — anti-magnet drones (Phase A3)
   let dailyNextDroneAt = 0;        // frame index when next drone enters
-  let dailyCurrentStage = 0;       // 0..3, advances on score thresholds (DAILY_STAGES)
+  let dailyCurrentStage = 0;       // 0..3, advances on distance thresholds (DAILY_STAGES)
   let cargoZapFrames = 0;          // counts down while the magnet bond is suppressed by a drone zap
   // Landmarks placed at fixed worldX positions — From Burger sphinx,
   // McDonald's-style arches, drive-in theater, etc. Drawn between the
   // dune scenery and hazards so they sit on the ground line.
-  // World-X positions span the run; DELIVERY_TARGET (400 score) * 24 px
-  // per score = 9600 px total, so the truck stop sits at ~9400 to act
-  // as a visible finish line.
+  // World-X positions span the full run (truck stop at worldX 17000),
+  // so landmarks are spaced across the ~17000 px course as visible
+  // progress markers toward the finish.
   const DAILY_LANDMARKS = [
     { kind: 'origin',          worldX: 110  },
     { kind: 'fromBurger',      worldX: 1500 },
@@ -39694,11 +40095,7 @@ const DLX_BUILD = 'DXP-DAILY-v71';
   // magnet field that auto-pulls nearby cogs for ~4 seconds. Counts
   // down each frame.
   let dailyMagnetFieldFrames = 0;
-  // Score the daily run needs to reach to count as "delivery made".
-  // Below this and a crash counts as a failed delivery; at or above
-  // it the run ends in DELIVERY MADE. Course is broken into 4 stages.
-  const DELIVERY_TARGET = 400;
-  // Truck stop sits at worldX 9400, docking trigger at scrollX 9200.
+  // Truck stop sits at worldX 17000; docking trigger at scrollX 16800.
   // Stop spawning hazards / obstacles / lava / drones / thieves once
   // the rig is past this worldX so the final landing approach is clean.
   // 600 px gap = ~2.5-3.3 sec at typical scroll speed — enough time for
@@ -40101,23 +40498,27 @@ const DLX_BUILD = 'DXP-DAILY-v71';
     bumpStreakForToday(today);
     recordDailyDay(today);
     bumpStat('dailies', 1);
-    // Daily token payout —
-    //   300  base if you arrive at GOOD BUDDY with the cargo intact (delivery)
-    //    50  base if you arrived but cargo was lost (no delivery bonus)
-    //   0    if you crashed and never arrived (game-over path skips finalize)
-    // Plus the streak bonus. Cargo-lost dropped 100 → 50 in v262 so
-    // losing the crate genuinely stings (was 33% of full delivery,
-    // now 17%). Streak curve made escalating instead of flat: peak
-    // 30-day reward is now +400 — a real headline milestone, not a
-    // polite tip. Days-between-tiers grow with the reward to match.
+    // Daily token payout — a three-tier delivery reward:
+    //   300  arrive at GOOD BUDDY with the cargo intact (full delivery)
+    //    50  arrive but cargo lost en route (you finished the route, no crate)
+    //     0  crash out before arriving (no delivery, no bonus)
+    // The streak COUNT is preserved on a crash (bumpStreakForToday ran above),
+    // so a crash forfeits today's payout without breaking your streak — and
+    // any SCRAP earned mid-run is still banked separately by bankRunTokens.
+    // Cargo-lost dropped 100 → 50 in v262 so losing the crate genuinely stings.
+    // Streak curve escalates: peak 30-day reward is +400 — a real headline
+    // milestone. The streak bonus only pays when you actually reach the dock;
+    // no arrival, no bonus.
     const streak = currentStreakCount();
     const cargoArrived = !!(cargo && !cargo.lost && cargo.attached);
-    const dailyPayoutBase = (dailyDelivered && cargoArrived) ? 300 : 50;
+    const dailyPayoutBase = dailyDelivered ? (cargoArrived ? 300 : 50) : 0;
     let dailyPayoutBonus = 0;
-    if (streak >= 30)      dailyPayoutBonus = 400;
-    else if (streak >= 14) dailyPayoutBonus = 200;
-    else if (streak >= 7)  dailyPayoutBonus = 100;
-    else if (streak >= 3)  dailyPayoutBonus = 50;
+    if (dailyDelivered) {
+      if (streak >= 30)      dailyPayoutBonus = 400;
+      else if (streak >= 14) dailyPayoutBonus = 200;
+      else if (streak >= 7)  dailyPayoutBonus = 100;
+      else if (streak >= 3)  dailyPayoutBonus = 50;
+    }
     const dailyPayout = dailyPayoutBase + dailyPayoutBonus;
     tokensTotal += dailyPayout;
     saveTokensTotal();
@@ -40203,7 +40604,7 @@ const DLX_BUILD = 'DXP-DAILY-v71';
           : 'Dispatch needs a real driver. 👇'));
     lines.push((typeof location !== 'undefined' && location.href)
       ? location.href.split('?')[0]
-      : 'zitro3d.github.io/Mobile_Creative_Creations/dlx-garbage-hauler-v2.html');
+      : 'zitro3d.github.io/dlx/dumplord-daily.html');
     return lines.join('\n');
   }
   // Share the last daily run. Prefers the native share sheet (iOS
@@ -41684,7 +42085,9 @@ const DLX_BUILD = 'DXP-DAILY-v71';
           breakdown = '+' + dailyTokenPayoutBase + ' BASE';
           if (dailyTokenPayoutBonus > 0) breakdown += ' · +' + dailyTokenPayoutBonus + ' STREAK';
         } else {
-          breakdown = streak + '-DAY STREAK';
+          // Crashed out — no delivery, no payout. Streak count is still
+          // intact, so surface it: the run cost you today's SCRAP, not your streak.
+          breakdown = 'NO DELIVERY' + (streak > 0 ? (' · ' + streak + '-DAY STREAK') : '');
         }
         const newBest = dailyWasNewBest ? '★ NEW BEST · ' : '';
         gameOverDaily.innerHTML =
