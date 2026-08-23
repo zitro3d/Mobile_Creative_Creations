@@ -1006,27 +1006,43 @@
     for(let i=0;i<32;i++){ const sx=(i*137)%W, sy=((i*53 + t*(2.4+(i%3)*0.8)) % (H+40))-20;
       ctx.save(); ctx.translate(sx,sy); ctx.rotate(t*0.08+i); ctx.globalAlpha=0.85; ctx.fillStyle=cols[i%cols.length]; ctx.fillRect(-3,-5,6,10); ctx.restore(); }
     ctx.restore(); }
+  function bigStar(cx,cy,r,earned,sc){ ctx.save(); ctx.translate(cx,cy); ctx.scale(sc,sc);
+    if(earned){ const g=ctx.createRadialGradient(0,0,0,0,0,r*1.9); g.addColorStop(0,'rgba(255,224,120,.55)'); g.addColorStop(1,'rgba(255,224,120,0)'); ctx.fillStyle=g; circle(0,0,r*1.9); ctx.fill(); }
+    star(0,0,r, earned?'#ffe14d':'rgba(255,255,255,.26)');
+    ctx.lineWidth=(earned?2.4:1.6)/sc; ctx.lineJoin='round'; ctx.strokeStyle=earned?'#e0a41e':'rgba(255,255,255,.4)'; ctx.stroke();
+    if(earned){ ctx.fillStyle='rgba(255,255,255,.75)'; circle(-r*0.28,-r*0.34,r*0.2); ctx.fill(); }   // gloss
+    ctx.restore(); }
+  function resultsCard(top,bot){ const bw=W*0.84, bx=(W-bw)/2, bh=bot-top;
+    ctx.save(); ctx.shadowColor='rgba(30,14,40,.4)'; ctx.shadowBlur=26; ctx.shadowOffsetY=12;
+    rr(bx,top,bw,bh,26); const g=ctx.createLinearGradient(0,top,0,bot);
+    g.addColorStop(0,'#4a3560'); g.addColorStop(.55,'#33566a'); g.addColorStop(1,'#213a48'); ctx.fillStyle=g; ctx.fill(); ctx.restore();
+    ctx.save(); rr(bx,top,bw,bh,26); ctx.clip();                                          // soft inner top highlight
+    const hg=ctx.createLinearGradient(0,top,0,top+bh*0.4); hg.addColorStop(0,'rgba(255,255,255,.14)'); hg.addColorStop(1,'rgba(255,255,255,0)'); ctx.fillStyle=hg; ctx.fillRect(bx,top,bw,bh*0.4); ctx.restore();
+    ctx.save(); rr(bx,top,bw,bh,26); ctx.lineWidth=2.4; ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.stroke(); ctx.restore(); }
+  function scoreGlow(y){ ctx.save(); const g=ctx.createRadialGradient(W/2,y,4,W/2,y,W*0.34);
+    g.addColorStop(0,'rgba(255,225,80,.32)'); g.addColorStop(1,'rgba(255,225,80,0)'); ctx.fillStyle=g; ctx.fillRect(0,y-40,W,80); ctx.restore(); }
   function drawOver(){ ctx.save(); const ov=Math.min(1,(frame-overFrame)/22); ctx.globalAlpha=ov;   // gentle fade-in, less abrupt
-    ctx.fillStyle='rgba(122,90,99,.4)'; ctx.fillRect(0,0,W,H);
+    const sc=ctx.createRadialGradient(W/2,H*0.42,H*0.2,W/2,H*0.42,H*0.7);                 // cozy vignette scrim
+    sc.addColorStop(0,'rgba(60,40,66,.42)'); sc.addColorStop(1,'rgba(34,20,42,.66)'); ctx.fillStyle=sc; ctx.fillRect(0,0,W,H);
     const t=frame-overFrame;
+    const cardTop=H*0.205, cardBot=H*0.695; resultsCard(cardTop,cardBot);
     if(levelMode){ const st=starsFor(levelZone,score);
       if(st>0) drawConfetti(t);
-      centerText(st>0?'LEVEL CLEAR!':'TRY AGAIN', H*0.28, 34, st>0?'#fff':'#ffd0a0');
+      centerText(st>0?'LEVEL CLEAR!':'TRY AGAIN', H*0.275, 33, st>0?'#fff':'#ffd0a0');
       const vis=Math.max(0,Math.floor((t-16)/20));           // reveal earned stars one-by-one
       if(Math.min(st,vis)>overStarSnd){ overStarSnd=Math.min(st,vis); tone(SCH([0,4,7][Math.min(2,overStarSnd-1)]+12),.32,.06,'triangle'); }
-      for(let s=0;s<3;s++){ const earned=s<st, shown=s<vis; let sc=1;
-        if(earned){ if(!shown) continue; const p=clamp((t-16-s*20)/9,0,1); sc=1+(1-p)*0.9; }   // pop-in bounce
-        ctx.save(); ctx.translate(W/2+(s-1)*40, H*0.355); ctx.scale(sc,sc);
-        star(0,0,18, earned?'#ffd85a':'rgba(255,255,255,.32)'); if(earned){ ctx.lineWidth=1.5/sc; ctx.strokeStyle='#e0a41e'; ctx.stroke(); } ctx.restore(); }
-      centerText(ZONES[levelZone].name, H*0.41, 18, '#ffe08a', 3);
-    } else { centerText('ALL FULL!',H*0.36,42,'#fff'); if(newBest){ drawConfetti(t); ctx.globalAlpha=ov*(.7+.3*Math.sin(frame*.2)); centerText('★ NEW BEST! ★',H*0.30,22,'#ffd85a',5); ctx.globalAlpha=ov; } }
-    centerText('SCORE '+score,H*0.45,30,'#ffe14d');
-    centerText('🍩 '+munch+' munched',H*0.51,20,'#fff',4);
-    centerText('🪙 +'+runCoins+' coins  (total '+coins+')',H*0.56,17,'#ffe14d',4);
-    centerText(levelMode?('goal '+levelGoal(levelZone)):'BEST '+best,H*0.60,17,'#fff',4);
-    if(frame-overFrame>16){ ctx.globalAlpha=.6+.4*Math.sin(frame*.1); centerText(levelMode?'TAP TO PLAY AGAIN':'TAP TO RETRY',H*0.66,20,'#fff'); ctx.globalAlpha=1; }
-    if(missionsJustDone.length){ centerText('🎯 GOAL'+(missionsJustDone.length>1?'S':'')+' COMPLETE!', H*0.72, 16, '#8fe0b0', 3);
-      let yy=H*0.755; for(const m of missionsJustDone){ centerText('✓ '+m.text+'  +'+m.reward+'🪙', yy, 13, '#d6f4e0', 2); yy+=H*0.032; } }
+      for(let s=0;s<3;s++){ const earned=s<st, shown=s<vis; let ss=1;
+        if(earned){ if(!shown) continue; const p=clamp((t-16-s*20)/9,0,1); ss=1+(1-p)*0.9; }   // pop-in bounce
+        bigStar(W/2+(s-1)*46, H*0.355, 20, earned, ss); }
+      centerText(ZONES[levelZone].name, H*0.415, 18, '#ffe08a', 3);
+    } else { centerText('ALL FULL!',H*0.35,40,'#fff'); if(newBest){ drawConfetti(t); ctx.globalAlpha=ov*(.7+.3*Math.sin(frame*.2)); centerText('★ NEW BEST! ★',H*0.285,22,'#ffd85a',5); ctx.globalAlpha=ov; } }
+    scoreGlow(H*0.475); centerText('SCORE '+score,H*0.475,32,'#ffe14d');
+    centerText('🍩 '+munch+' munched',H*0.535,19,'#fff',4);
+    centerText('🪙 +'+runCoins+' coins  (total '+coins+')',H*0.58,16,'#ffe14d',4);
+    centerText(levelMode?('goal '+levelGoal(levelZone)):'BEST '+best,H*0.62,16,'rgba(255,255,255,.85)',4);
+    if(frame-overFrame>16){ ctx.globalAlpha=ov*(.6+.4*Math.sin(frame*.1)); centerText(levelMode?'TAP TO PLAY AGAIN':'TAP TO RETRY',H*0.665,19,'#fff'); ctx.globalAlpha=ov; }
+    if(missionsJustDone.length){ centerText('🎯 GOAL'+(missionsJustDone.length>1?'S':'')+' COMPLETE!', H*0.745, 16, '#8fe0b0', 3);
+      let yy=H*0.78; for(const m of missionsJustDone){ centerText('✓ '+m.text+'  +'+m.reward+'🪙', yy, 13, '#d6f4e0', 2); yy+=H*0.032; } }
     ctx.restore(); drawSoundBtn(); if(levelMode) drawBackBtn(); }
 
   // ---------- render ----------
@@ -1071,12 +1087,20 @@
   }
   function drawPauseBtn(){ ctx.save(); ctx.translate(W-28,30+padTop); ctx.fillStyle='rgba(255,255,255,.55)'; circle(0,0,15); ctx.fill(); ctx.lineWidth=1.8; ctx.strokeStyle='rgba(122,90,138,.4)'; ctx.stroke();
     ctx.fillStyle='#7a5a8a'; rr(-5,-6,3.4,12,1.4); ctx.fill(); rr(1.6,-6,3.4,12,1.4); ctx.fill(); ctx.restore(); }
-  function drawPauseMenu(){ ctx.save(); ctx.fillStyle='rgba(58,38,64,.62)'; ctx.fillRect(0,0,W,H);
-    centerText('PAUSED', H*0.30, 40, '#fff', 6);
-    const labels=['RESUME','RESTART', levelMode?'WORLD MAP':'MAIN MENU'], ys=[0.44,0.54,0.64], cols=['#ff7a9c','#ffb454','#8fb0e0'];
-    for(let i=0;i<3;i++){ const cy=H*ys[i], bw=W*0.56, bx=(W-bw)/2, bh=46;
-      ctx.fillStyle='rgba(255,255,255,.94)'; rr(bx,cy-bh/2,bw,bh,14); ctx.fill(); ctx.lineWidth=3; ctx.strokeStyle=cols[i]; ctx.stroke();
-      ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle=cols[i]; ctx.font='800 19px Nunito,"Trebuchet MS"'; ctx.fillText(labels[i], W/2, cy+1); }
+  function drawPauseMenu(){ ctx.save();
+    const sc=ctx.createRadialGradient(W/2,H*0.42,H*0.2,W/2,H*0.42,H*0.7);
+    sc.addColorStop(0,'rgba(60,40,66,.5)'); sc.addColorStop(1,'rgba(34,20,42,.72)'); ctx.fillStyle=sc; ctx.fillRect(0,0,W,H);
+    resultsCard(H*0.235, H*0.72);
+    centerText('❊ PAUSED ❊', H*0.315, 34, '#fff', 6);
+    const labels=['RESUME','RESTART', levelMode?'WORLD MAP':'MAIN MENU'], ys=[0.44,0.545,0.65],
+          cols=['#ff7a9c','#ffb454','#8fb0e0'], shd=['#d45c7e','#dd9530','#6a8fcf'];
+    for(let i=0;i<3;i++){ const cy=H*ys[i], bw=W*0.6, bx=(W-bw)/2, bh=50;
+      rr(bx,cy-bh/2+3,bw,bh,16); ctx.fillStyle=shd[i]; ctx.fill();                     // drop shelf
+      rr(bx,cy-bh/2,bw,bh,16); const g=ctx.createLinearGradient(0,cy-bh/2,0,cy+bh/2);
+      g.addColorStop(0,'#ffffff'); g.addColorStop(1,'#fdeef4'); ctx.fillStyle=g; ctx.fill();
+      ctx.lineWidth=3; ctx.strokeStyle=cols[i]; ctx.stroke();
+      ctx.save(); rr(bx+5,cy-bh/2+4,bw-10,bh*0.4,10); ctx.fillStyle='rgba(255,255,255,.7)'; ctx.fill(); ctx.restore();  // pill gloss
+      ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle=cols[i]; ctx.font='800 20px "Baloo 2",Nunito,"Trebuchet MS"'; ctx.fillText(labels[i], W/2, cy+1); }
     ctx.textBaseline='alphabetic'; ctx.restore(); }
 
   // ---------- fixed-timestep loop ----------
