@@ -9763,10 +9763,9 @@ const DLX_BUILD = 'DXP-DAILY-v74';
           // Variant pick. Organic biome keeps the 2 original hulls (the
           // upward-firing harpooner doesn't fit the slime aesthetic);
           // sunset rolls between all 3 evenly.
-          const isCanyonSkin = currentDeliveryLevel && currentDeliveryLevel.raiderSkin === 'canyon';
-          const tfVariant = (isOrgTf || isCanyonSkin)
-            ? (Math.random() < 0.5 ? 0 : 1)   // canyon: drop-claw drone only (no up-harpooner)
-            : (Math.random() < 0.34 ? 2 : (Math.random() < 0.5 ? 0 : 1));
+          const tfVariant = isOrgTf
+            ? (Math.random() < 0.5 ? 0 : 1)
+            : (Math.random() < 0.34 ? 2 : (Math.random() < 0.5 ? 0 : 1));   // canyon rolls all 3 raider designs like SUNSET
           // Spawn altitude. Variants 0/1 = upper half (drop the claw
           // DOWN onto the rig). Variant 2 (HARPOONER) = lower half
           // (fire the harpoon UP at the rig's cargo from below).
@@ -15667,6 +15666,9 @@ const DLX_BUILD = 'DXP-DAILY-v74';
     pxFill(sL + 14, sT + 8, 12, 9, P.O); pxFill(sL + 15, sT + 9, 10, 7, blink ? P.glow : P.glow2); pxFill(sL + 19, sT + 9, 2, 7, P.woodD); pxFill(sL + 15, sT + 12, 10, 1, P.woodD);
     pxFill(sL + 40, floorY - 22, 12, 22, P.O); pxFill(sL + 41, floorY - 21, 10, 21, '#1a0c08'); pxFill(sL + 49, floorY - 12, 1, 1, P.rustLite);
     canyonLantern(sL + 58, sT + 6, !blink);
+    pxFill(sR - 16, sT - 22, 5, 12, P.O); pxFill(sR - 15, sT - 21, 3, 10, P.rockShad); pxFill(sR - 15, sT - 21, 3, 1, P.rockLite);   // stone chimney
+    for (let i = 0; i < 3; i++) { const ph = (frame * 0.4 + i * 10) % 30; pxFill(sR - 15 + i + Math.round(Math.sin(frame * 0.05 + i) * 2), sT - 24 - ph, 2 + (ph > 15 ? 1 : 0), 2, ph < 12 ? '#6a6672' : '#8a8690'); }
+    pxFill(sL + 30, floorY - 9, 6, 9, P.O); pxFill(sL + 31, floorY - 8, 4, 7, '#2e2036'); pxFill(sL + 31, floorY - 8, 4, 1, '#3e2c46'); pxFill(sL + 32, floorY - 6, 2, 1, blink ? P.red : '#7a1a10');   // raider on watch by the door
     canyonSignBoard((sL + sR) >> 1, sT - 26, 'FREEPORT');
     pxFill(((sL + sR) >> 1) - 1, sT - 16, 2, 4, P.woodD);
     // pier deck
@@ -15889,6 +15891,491 @@ const DLX_BUILD = 'DXP-DAILY-v74';
     }
   }
 
+  // ═══════ CUTTHROAT CANYON — gameplay-parity kit (SUNSET WASTES benchmark) ═══════
+  // SUNSET runs drones, ground ops, fireballs, tentacles, tunnels, three thief
+  // designs, roadside landmarks and a dense ground-prop scatter. The canyon
+  // now runs every one of those systems with its own art:
+  //   drones     → spotter balloon / bat-kite raider (EMP jar beam)
+  //   fireballs  → iron cannonballs + chain-shot with smoke trails
+  //   tentacles  → anchor chains bursting out of the sand
+  //   ground ops → raider dune buggy with a ballista mast
+  //   tunnels    → timbered smugglers' mine shafts with rails + lanterns
+  //   thieves    → rotor drone (v0), bat-kite glider (v1), ballista skimmer (v2)
+  //   landmarks  → gallows, rope bridge, airship wreck, cannon battery, skull totem
+  //   scenery    → barrels, crates, bones, campfires, tents, cacti, boulders,
+  //                signposts, wreck ribs, cannons
+  _CANYON_GLYPHS.U = [5, 5, 5, 5, 7]; _CANYON_GLYPHS.N = [6, 5, 5, 5, 5]; _CANYON_GLYPHS.I = [7, 2, 2, 2, 7];
+
+  // ── DRONE — same contract as the pixel drone: origin (dr.x-24, dr.y-16),
+  //    beam from local (24,22). variant 0 = powder-keg spotter balloon,
+  //    variant 1 = bat-wing kite raider.
+  function drawCanyonDrone(dr) {
+    const P = CPX, t = frame;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate((Math.round(dr.x) - 24) | 0, (Math.round(dr.y) - 16) | 0);
+    const oy = Math.round(Math.sin(t * 0.15));
+    const blk = (c, x, y, w, h) => { ctx.fillStyle = c; ctx.fillRect(x | 0, (y + oy) | 0, w | 0, h | 0); };
+    const hot = dr.state === 'fire' || dr.state === 'lock' || ((t >> 3) & 1);
+    if (dr.variant === 1) {
+      const fl = (t >> 3) & 1;
+      blk(P.O, 2, 2 + fl, 44, 7); blk(P.flag, 3, 3 + fl, 42, 5); blk(P.gunLite, 3, 3 + fl, 42, 1);
+      for (let i = 0; i < 5; i++) blk(P.O, 4 + i * 9, 7 + fl, 3, 2);
+      blk(P.O, 6, 0 + fl, 3, 3); blk(P.O, 39, 0 + fl, 3, 3);
+      blk(P.woodCore, 23, 1, 2, 9); blk(P.woodLite, 23, 1, 1, 9);
+      blk(P.bone, 21, 3 + fl, 5, 3); blk(P.O, 22, 4 + fl, 1, 1); blk(P.O, 24, 4 + fl, 1, 1);
+      blk(P.rope, 12, 8, 1, 4); blk(P.rope, 35, 8, 1, 4);
+      blk(P.O, 18, 10, 12, 11); blk('#2e2036', 19, 11, 10, 9); blk('#3e2c46', 19, 11, 10, 2);
+      blk('#08060a', 20, 12, 5, 3); blk(hot ? P.red : '#7a1a10', 21, 13, 3, 1);
+      blk(P.O, 21, 20, 7, 3); blk(P.gun, 22, 21, 5, 1); blk(P.gunLite, 22, 20, 5, 1); blk(P.cyan, 24, 22, 1, 1);
+    } else {
+      blk(P.O, 7, -4, 34, 16); blk(P.tealCore, 8, -3, 32, 14); blk(P.tealLite, 8, -3, 32, 2); blk(P.tealSpec, 10, -3, 28, 1);
+      blk(P.teal, 8, 8, 32, 3); blk(P.O, 5, 0, 3, 8); blk(P.O, 40, 0, 3, 8); blk(P.tealMid, 6, 1, 1, 6); blk(P.tealMid, 41, 1, 1, 6);
+      for (let rx = 12; rx < 38; rx += 5) blk('#173038', rx, -2, 1, 12);
+      blk(P.rustCore, 8, 3, 32, 1); blk(P.bone, 21, 1, 5, 4); blk(P.O, 22, 2, 1, 1); blk(P.O, 24, 2, 1, 1);
+      blk(P.O, 22, 11, 4, 2); blk(P.gun, 23, 11, 2, 2); blk(hot ? P.glow : P.glow2, 23, 10, 2, 1);
+      blk(P.rope, 15, 11, 1, 5); blk(P.rope, 32, 11, 1, 5);
+      blk(P.O, 14, 15, 20, 7); blk(P.woodCore, 15, 16, 18, 5); blk(P.woodLite, 15, 16, 18, 1);
+      for (let px = 18; px < 33; px += 4) blk(P.woodD, px, 17, 1, 3);
+      blk(P.O, 20, 10, 8, 7); blk('#2e2036', 21, 11, 6, 5); blk('#08060a', 22, 12, 4, 2); blk(hot ? P.red : '#7a1a10', 23, 13, 2, 1);
+      blk(P.O, 22, 22, 5, 3); blk(P.gun, 23, 22, 3, 2); blk(P.cyan, 24, 23, 1, 1);
+    }
+    const beamX = 24, beamTop = 22;
+    if (dr.state === 'fire' && dr.beamLen > 0) {
+      const len = dr.beamLen | 0;
+      for (let y = 0; y < len; y += 2) {
+        const j = ((((y + t) * 2654435761) >>> 0) & 3) - 1;
+        blk(P.cyan, beamX + j - 1, beamTop + y, 3, 2); blk('#ffffff', beamX + j, beamTop + y, 1, 2);
+      }
+      const bb = beamTop + len;
+      blk(P.cyan, beamX - 4, bb - 3, 9, 1); blk('#ffffff', beamX - 2, bb - 2, 5, 2);
+      blk(P.cyan, beamX - 6, bb - 5, 1, 1); blk(P.cyan, beamX + 6, bb - 5, 1, 1);
+    } else if (dr.state === 'lock') {
+      blk(P.cyan, 22, beamTop, 5, 1); blk('#ffffff', 24, beamTop, 1, 1);
+      const dashEnd = (PLAY_H - 30) - Math.round(dr.y);
+      for (let dy = 4; dy < dashEnd - beamTop; dy += 6) blk(P.red, beamX, beamTop + dy, 1, 2);
+    }
+    ctx.restore();
+  }
+
+  // ── FIREBALL → iron cannonball (odd seeds: chain-shot). Smoke trail
+  //    behind, fuse spark on the head.
+  function drawCanyonCannonball(lb) {
+    const P = CPX, cx = Math.round(lb.x), cy = Math.round(lb.y), r = Math.max(3, Math.round(lb.r * 0.72));
+    const chain = ((lb.seed | 0) & 1) === 1;
+    const speed = Math.hypot(lb.vx, lb.vy) || 1, fdx = lb.vx / speed, fdy = lb.vy / speed;
+    for (let i = 1; i <= 5; i++) {
+      const px = Math.round(cx - fdx * i * (r + 2)), py = Math.round(cy - fdy * i * (r + 2) + Math.sin(lb.life * 0.3 + i) * 1.5);
+      const s = 2 + i;
+      pxFill(px - (s >> 1), py - (s >> 1), s, s, i < 2 ? '#8a8690' : i < 4 ? '#6a6672' : '#4a4650');
+    }
+    const ball = (bx, by, rr) => {
+      for (let dy = -rr; dy <= rr; dy++) { const half = Math.sqrt(Math.max(0, rr * rr - dy * dy)) | 0; pxFill(bx - half, by + dy, half * 2 + 1, 1, P.O); }
+      for (let dy = -rr + 1; dy <= rr - 1; dy++) { const half = Math.sqrt(Math.max(0, (rr - 1) * (rr - 1) - dy * dy)) | 0; pxFill(bx - half, by + dy, half * 2 + 1, 1, '#1a1c22'); }
+      pxFill(bx - (rr >> 1), by - (rr >> 1), 2, 1, P.gunLite); pxFill(bx - (rr >> 1) - 1, by - (rr >> 1) + 1, 1, 1, P.gunCore);
+      pxFill(bx + 1, by + (rr >> 1), 2, 1, '#2a2e36');
+    };
+    if (chain) {
+      const off = Math.round(r * 1.6);
+      ball(cx - off, cy, r - 1); ball(cx + off, cy, r - 1);
+      for (let x = cx - off + r; x < cx + off - r; x += 2) pxFill(x, cy + ((x >> 1) & 1), 1, 1, P.gunLite);
+    } else {
+      ball(cx, cy, r);
+      const fy = cy - r - 1;
+      pxFill(cx, fy, 1, 1, ((lb.life >> 1) & 1) ? P.glow : P.hot); pxFill(cx - 1, fy - 1, 1, 1, P.glow2);
+    }
+  }
+
+  // ── TENTACLE → anchor chain. Bursts out of the sand to the same 150 px
+  //    reach the tentacle hit-test uses (|dx| < 22, tipY..gy).
+  function drawCanyonAnchorChain(sx, gy, tObj) {
+    const P = CPX, life = tObj.life || 0, maxLife = tObj.maxLife || 240;
+    let reach;
+    if (life < 60) reach = life / 60; else if (life < maxLife - 60) reach = 1; else reach = Math.max(0, (maxLife - life) / 60);
+    if (reach < 0.04) return;
+    const twin = tObj.variant === 1;
+    pxFill(sx - 16, gy - 4, 32, 6, P.O); pxFill(sx - 15, gy - 3, 30, 4, '#b5652c'); pxFill(sx - 13, gy - 4, 26, 1, '#d98a48'); pxFill(sx - 10, gy - 1, 20, 1, P.rust);
+    if (life < 70) for (let i = 0; i < 6; i++) { const h = (life * 13 + i * 97) & 15; pxFill(sx - 14 + i * 5 + (h & 3), gy - 6 - h, 1, 1, '#d98a48'); }
+    const chain = (rootX, len, phase, thick, hook) => {
+      const segs = Math.max(6, Math.round(len / 6)), pts = [];
+      for (let i = 0; i <= segs; i++) { const tr = i / segs; pts.push({ x: Math.round(rootX + Math.sin(phase + tr * 2.6) * 9 * tr), y: Math.round(gy - 3 - len * tr) }); }
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i], n = Math.max(1, Math.abs(b.y - a.y));
+        for (let k = 0; k < n; k++) {
+          const px = Math.round(a.x + (b.x - a.x) * k / n), py = a.y - k, link = (py >> 2) & 1;
+          pxFill(px - thick, py, thick * 2 + 1, 1, P.O);
+          pxFill(px - thick + 1, py, Math.max(1, thick * 2 - 1), 1, link ? P.rustCore : P.gunCore);
+          if (thick >= 2 && link) pxFill(px - thick + 1, py, 1, 1, P.rustLite);
+        }
+      }
+      const tip = pts[pts.length - 1];
+      if (hook) {
+        pxFill(tip.x - 1, tip.y - 8, 3, 8, P.O); pxFill(tip.x, tip.y - 7, 1, 7, P.gunLite);
+        pxFill(tip.x - 6, tip.y - 6, 5, 2, P.O); pxFill(tip.x + 2, tip.y - 6, 5, 2, P.O); pxFill(tip.x - 7, tip.y - 9, 2, 4, P.O); pxFill(tip.x + 6, tip.y - 9, 2, 4, P.O);
+        pxFill(tip.x - 6, tip.y - 6, 4, 1, P.gunLite); pxFill(tip.x + 3, tip.y - 6, 4, 1, P.gunLite);
+        pxFill(tip.x - 1, tip.y - 11, 3, 3, P.O); pxFill(tip.x, tip.y - 10, 1, 1, ((frame >> 2) & 1) ? P.red : '#7a1a10');
+      } else { pxFill(tip.x - 2, tip.y - 4, 5, 4, P.O); pxFill(tip.x - 1, tip.y - 3, 3, 2, P.gunLite); }
+      return tip;
+    };
+    const ph = frame * 0.05 + (tObj.phase || 0);
+    if (twin) {
+      const a = chain(sx - 7, 130 * reach, ph, 1, false), b = chain(sx + 7, 130 * reach, ph + 1.2, 1, false);
+      const y = Math.min(a.y, b.y) - 4, x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+      pxFill(x0 - 2, y, x1 - x0 + 5, 3, P.O); pxFill(x0 - 1, y + 1, x1 - x0 + 3, 1, P.rustCore);
+      for (let x = x0; x <= x1; x += 3) pxFill(x, y - 3, 1, 3, P.O);
+    } else chain(sx, 150 * reach, ph, 2, true);
+  }
+
+  // ── GROUND OP → raider dune buggy. 36×24 footprint at (sx, gy), faces
+  //    LEFT; ballista mast rises from bed-centre (x+26, y+12) with op.hookY
+  //    exactly where the pickup's hook mast did, so the hook logic is shared.
+  function drawCanyonGroundOp(sx, gy, op) {
+    const P = CPX; sx |= 0; gy |= 0;
+    const x = sx - 18, y = gy - 22, t = frame;
+    const wheel = (wx, wy) => {
+      pxFill(wx - 1, wy - 1, 9, 9, P.O); pxFill(wx, wy, 7, 7, '#1a1c22'); pxFill(wx + 1, wy + 1, 5, 5, P.gunCore); pxFill(wx + 3, wy + 3, 1, 1, P.rustLite);
+      if ((t >> 2) & 1) { pxFill(wx + 3, wy + 1, 1, 5, P.gun); pxFill(wx + 1, wy + 3, 5, 1, P.gun); }
+      else for (let i = 0; i < 5; i++) { pxFill(wx + 1 + i, wy + 1 + i, 1, 1, P.gun); pxFill(wx + 5 - i, wy + 1 + i, 1, 1, P.gun); }
+    };
+    pxFill(x + 2, y + 10, 34, 9, P.O); pxFill(x + 3, y + 11, 32, 7, P.woodCore); pxFill(x + 3, y + 11, 32, 1, P.woodLite);
+    for (let px = x + 7; px < x + 34; px += 6) pxFill(px, y + 12, 1, 6, P.woodD);
+    pxFill(x + 3, y + 17, 32, 1, P.gun);
+    pxFill(x + 14, y + 11, 22, 2, P.rustCore); pxFill(x + 14, y + 11, 22, 1, P.rustLite);
+    pxFill(x, y + 4, 14, 8, P.O); pxFill(x + 1, y + 5, 12, 6, P.gunCore); pxFill(x + 1, y + 5, 12, 1, P.gunLite); pxFill(x, y + 4, 2, 2, P.O);
+    pxFill(x + 2, y + 7, 4, 2, P.cyan);
+    pxFill(x + 5, y, 8, 8, P.O); pxFill(x + 6, y + 1, 6, 6, '#2e2036'); pxFill(x + 6, y + 1, 6, 1, '#3e2c46'); pxFill(x + 6, y + 3, 3, 2, '#08060a'); pxFill(x + 6, y + 3, 2, 1, ((t >> 3) & 1) ? P.red : '#7a1a10');
+    pxFill(x + 13, y + 5, 2, 6, P.O); pxFill(x + 14, y + 6, 1, 4, P.gun);
+    if ((t >> 2) & 1) { pxFill(x + 13, y + 3, 2, 2, '#6a6672'); pxFill(x + 15, y + 1, 2, 2, '#8a8690'); }
+    wheel(x + 4, y + 15); wheel(x + 26, y + 15);
+    pxFill(x + 17, y + 6, 5, 6, P.O); pxFill(x + 18, y + 7, 3, 4, P.woodCore); pxFill(x + 18, y + 8, 3, 1, P.rustCore);
+    if (op.hookY && op.hookY > 0) {
+      const bx = x + 26, by = y + 12, top = by - (op.hookY | 0);
+      pxFill(bx, top, 1, by - top, P.O); pxFill(bx + 1, top, 1, by - top, P.woodCore); pxFill(bx + 2, top, 1, by - top, P.O);
+      for (let py = top + 3; py < by; py += 6) pxFill(bx - 1, py, 5, 1, P.rope);
+      const mx = bx - 3, my = top - 5;
+      pxFill(mx - 2, my + 2, 11, 2, P.O); pxFill(mx - 1, my + 2, 9, 1, P.woodLite);
+      pxFill(mx, my, 7, 4, P.O); pxFill(mx + 1, my + 1, 5, 2, P.gunCore); pxFill(mx + 1, my + 1, 2, 2, P.rustCore);
+      const hot = (t >> 3) & 1;
+      pxFill(mx + 2, my + 4, 3, 1, hot ? P.cyan : P.tealMid); if (hot) pxFill(mx + 3, my + 5, 1, 1, '#ffffff');
+      pxFill(mx + 3, my - 3, 1, 3, P.gunLite); pxFill(mx + 2, my - 4, 3, 1, P.O);
+    }
+  }
+
+  // ── TUNNEL → timbered smugglers' mine shaft. Same column contract as
+  //    drawPixelTunnelCarveout (dirt cap + cavern per column + mouth frames).
+  function drawCanyonTunnelCarveout(o, tPts) {
+    if (tPts.length < 2) return;
+    const P = CPX, MOUND_MAX = 8;
+    const capCol = (sx, segW, yTop, h, wx) => {
+      if (h <= 0) return;
+      pxFill(sx, yTop, segW, h, '#b5652c'); pxFill(sx, yTop, segW, 1, '#f4b57a');
+      if (h > 2) pxFill(sx, yTop + 1, segW, Math.min(3, h - 1), '#d98a48');
+      if (h > 6) pxFill(sx, yTop + h - 3, segW, 3, '#8a4420');
+      const hh = ((wx * 374761393) ^ (yTop * 668265263)) >>> 0;
+      if ((hh & 15) === 0) pxFill(sx, yTop + 2 + (hh >> 4) % Math.max(1, h - 3), 1, 1, '#5a2a14');
+    };
+    const cavCol = (sx, segW, yTop, yBot, wx) => {
+      const h = yBot - yTop; if (h <= 0) return;
+      pxFill(sx, yTop, segW, h, '#0e0704'); pxFill(sx, yTop, segW, 1, '#3f1c10'); if (h >= 2) pxFill(sx, yTop + 1, segW, 1, '#6e3418');
+      pxFill(sx, yBot - 1, segW, 1, '#3f1c10'); if (h >= 3) pxFill(sx, yBot - 2, segW, 1, '#6e3418');
+      const ph = ((wx % 28) + 28) % 28;
+      if (ph < 3 && h >= 8) pxFill(sx, yTop + 1, segW, h - 2, ph === 1 ? P.woodCore : P.woodD);
+      if (h >= 4) { pxFill(sx, yTop + 2, segW, 2, P.woodCore); pxFill(sx, yTop + 2, segW, 1, P.woodLite); }
+      const lph = ((wx % 56) + 56) % 56;
+      if (lph < 2 && h >= 10) { pxFill(sx, yTop + 4, 1, 3, P.rope); pxFill(sx - 1, yTop + 7, 3, 4, P.O); pxFill(sx, yTop + 8, 1, 2, ((frame >> 3) & 1) ? P.glow : P.glow2); }
+      if (h >= 6) { pxFill(sx, yBot - 4, segW, 1, P.gunLite); pxFill(sx, yBot - 3, segW, 1, P.gun); if ((((wx % 6) + 6) % 6) === 0) pxFill(sx, yBot - 6, 1, 3, P.woodD); }
+    };
+    for (let i = 0; i < tPts.length - 1; i++) {
+      const p = tPts[i], segW = Math.max(1, tPts[i + 1].sx - p.sx), wx = (p.sx + dailyScrollX) | 0, mg = p.mainGround;
+      const mound = Math.min(MOUND_MAX, Math.max(0, Math.round((mg - p.snoutTop) * 0.15)));
+      if (mound > 0) capCol(p.sx, segW, mg - mound, mound, wx);
+      if (p.ceiling > mg) capCol(p.sx, segW, mg, p.ceiling - mg, wx);
+      const cavTop = Math.max(p.ceiling, mg);
+      if (p.floor > cavTop) cavCol(p.sx, segW, cavTop, p.floor, wx);
+    }
+    let firstVis = null, lastVis = null;
+    for (const p of tPts) if (p.floor > p.mainGround) { if (!firstVis) firstVis = p; lastVis = p; }
+    const portal = (sx, cy, fy, dir) => {
+      const h = fy - cy; if (h < 6) return;
+      const x0 = dir > 0 ? sx : sx - 5;
+      pxFill(x0, cy - 2, 5, h + 2, P.O); pxFill(x0 + 1, cy - 1, 3, h, P.woodCore); pxFill(x0 + 1, cy - 1, 1, h, P.woodLite);
+      pxFill(dir > 0 ? sx - 2 : sx - 14, cy - 4, 16, 4, P.O); pxFill(dir > 0 ? sx - 1 : sx - 13, cy - 3, 14, 2, P.woodCore);
+      const kx = sx + (dir > 0 ? 6 : -10);
+      pxFill(kx, cy - 9, 5, 4, P.bone); pxFill(kx + 1, cy - 8, 1, 1, P.O); pxFill(kx + 3, cy - 8, 1, 1, P.O); pxFill(kx + 1, cy - 5, 3, 1, P.bone);
+    };
+    if (firstVis) portal(firstVis.sx, Math.max(firstVis.ceiling, firstVis.mainGround), firstVis.floor, 1);
+    if (lastVis && lastVis !== firstVis) portal(lastVis.sx, Math.max(lastVis.ceiling, lastVis.mainGround), lastVis.floor, -1);
+  }
+  // Pass-2 tunnel decoration: pulsing bone chevrons guiding you into the shaft.
+  function drawCanyonTunnelDeco(t, sx) {
+    const P = CPX, xMouth = t.worldX + TUNNEL_ENTRANCE_RAMP;
+    const yA = Math.round(terrainHeightAt(xMouth) - TUNNEL_MOUTH_CORRIDOR - 18);
+    const on = (frame >> 3) % 3;
+    for (let k = 0; k < 3; k++) {
+      const cx = Math.round(xMouth - dailyScrollX) - 34 + k * 10;
+      if (cx < -10 || cx > W + 10) continue;
+      const c = k === on ? P.bone : P.boneShad;
+      pxFill(cx, yA - 3, 1, 1, c); pxFill(cx + 1, yA - 2, 1, 1, c); pxFill(cx + 2, yA - 1, 1, 1, c); pxFill(cx + 3, yA, 1, 1, c);
+      pxFill(cx + 2, yA + 1, 1, 1, c); pxFill(cx + 1, yA + 2, 1, 1, c); pxFill(cx, yA + 3, 1, 1, c);
+    }
+  }
+
+  // ── THIEF claw on a rusted chain (shared by the rotor drone + kite glider).
+  function canyonClawCable(tf, blk, t, O, SCALE) {
+    const P = CPX, cableLen = ((tf.cableLen || 0) / SCALE) | 0, cableTopY = 30, cableBottomY = cableTopY + cableLen;
+    if (cableLen <= 0) return;
+    for (let cy = cableTopY; cy <= cableBottomY - 4; cy += 2) { blk(P.rustCore, 25, cy, 1, 1); blk(P.gunLite, 25, cy + 1, 1, 1); }
+    const clawX = 22, clawY = cableBottomY - 4, closed = tf.state === 'retract', hot = (t & 3) < 2;
+    blk(O, clawX, clawY, 7, 4); blk(P.gunCore, clawX + 1, clawY + 1, 5, 2); blk(P.gunLite, clawX + 1, clawY + 1, 5, 1);
+    blk(hot ? '#ffffff' : P.cyan, clawX + 3, clawY + 2, 1, 1);
+    if (closed) { blk(O, clawX + 1, clawY + 4, 1, 3); blk(O, clawX + 3, clawY + 4, 1, 3); blk(O, clawX + 5, clawY + 4, 1, 3); blk(P.rustLite, clawX + 3, clawY + 5, 1, 1); }
+    else { blk(O, clawX - 1, clawY + 4, 1, 3); blk(O, clawX + 3, clawY + 4, 1, 3); blk(O, clawX + 7, clawY + 4, 1, 3); blk(O, clawX - 2, clawY + 6, 1, 1); blk(O, clawX + 8, clawY + 6, 1, 1); }
+  }
+  // ── THIEF v1 → bat-kite glider raider with a belly winch (drop-claw).
+  function drawCanyonThiefGlider(tf) {
+    ctx.save(); ctx.imageSmoothingEnabled = false;
+    const SCALE = 2;
+    ctx.translate(Math.round(tf.x) | 0, Math.round(tf.y) | 0); ctx.scale(SCALE, SCALE);
+    if (tf.state === 'retreat') ctx.rotate(-0.14);
+    ctx.translate(-26, -23);
+    const t = frame, oy = Math.round(Math.sin(t * 0.10)), inLockOn = (tf.state === 'lower' && tf.stateFrames < 12), O = '#04060a', P = CPX;
+    const blk = (c, x, y, w, h) => { ctx.fillStyle = c; ctx.fillRect(x | 0, (y + oy) | 0, w | 0, h | 0); };
+    const hot = inLockOn || ((t >> 3) & 1), fl = (t >> 3) & 1;
+    blk(O, 2, 6 + fl, 48, 7); blk(P.flag, 3, 7 + fl, 46, 5); blk(P.gunLite, 3, 7 + fl, 46, 1);
+    for (let i = 0; i < 6; i++) blk(O, 4 + i * 8, 11 + fl, 3, 2);
+    blk(O, 8, 4 + fl, 4, 3); blk(O, 40, 4 + fl, 4, 3);
+    blk(P.woodCore, 25, 3, 2, 12); blk(P.woodLite, 25, 3, 1, 12);
+    blk(P.bone, 23, 7 + fl, 6, 4); blk(O, 24, 8 + fl, 1, 1); blk(O, 27, 8 + fl, 1, 1); blk(P.bone, 22, 12 + fl, 8, 1);
+    blk(P.rope, 14, 13, 1, 5); blk(P.rope, 37, 13, 1, 5);
+    blk(O, 18, 14, 16, 14); blk('#2e2036', 19, 15, 14, 12); blk('#3e2c46', 19, 15, 14, 2); blk('#1a1220', 19, 25, 14, 2);
+    blk(O, 21, 12, 10, 6); blk('#2e2036', 22, 13, 8, 5); blk('#08060a', 22, 15, 5, 3); blk(hot ? P.red : '#7a1a10', 23, 16, 3, 1);
+    blk(O, 22, 24, 8, 5); blk(P.gunCore, 23, 25, 6, 3); blk(P.rustCore, 24, 26, 4, 1); blk(P.cyan, 25, 26, 1, 1);
+    blk(O, 10, 18, 8, 3); blk(P.gun, 11, 19, 6, 1); blk(P.glow2, 9, 19, 2, 1);
+    canyonClawCable(tf, blk, t, O, SCALE);
+    ctx.restore();
+  }
+  // ── THIEF v2 → ballista skimmer (fires the magnet harpoon UP from local
+  //    (28,14) like the SUNSET harpooner so the magnet hit-test lines up).
+  function drawCanyonThiefHarpooner(tf) {
+    ctx.save(); ctx.imageSmoothingEnabled = false;
+    const SCALE = 2;
+    ctx.translate(Math.round(tf.x) | 0, Math.round(tf.y) | 0); ctx.scale(SCALE, SCALE);
+    if (tf.state === 'retreat') ctx.rotate(-0.14);
+    ctx.translate(-28, -35);
+    const t = frame, oy = Math.round(Math.sin(t * 0.12)), O = '#04060a', P = CPX;
+    const blk = (c, x, y, w, h) => { ctx.fillStyle = c; ctx.fillRect(x | 0, (y + oy) | 0, w | 0, h | 0); };
+    const charging = (tf.state === 'lower' && tf.stateFrames < 12), flying = (tf.state === 'lower' && tf.stateFrames >= 12) || tf.state === 'retract';
+    const hot = charging || ((t >> 3) & 1);
+    blk(O, 5, 21, 46, 12); blk(P.gunCore, 6, 22, 44, 10); blk(P.gunLite, 6, 22, 44, 2); blk(P.gun, 6, 29, 44, 3);
+    blk(P.rustCore, 8, 24, 40, 2); blk(P.rustLite, 8, 24, 40, 1);
+    for (let rx = 10; rx < 46; rx += 5) blk(P.gunLite, rx, 27, 1, 1);
+    blk(P.tealLite, 4, 24, 3, 6);
+    blk(O, 50, 24, 5, 6); blk(P.gun, 51, 25, 3, 4);
+    const fl = [3, 5, 4, 6][(t >> 1) & 3];
+    for (let i = 0; i < fl; i++) blk(i < 1 ? P.hot : i < 3 ? P.glow : P.glow2, 55 + i, 26 + (i & 1), 1, 2);
+    blk(P.bone, 14, 25, 5, 4); blk(O, 15, 26, 1, 1); blk(O, 17, 26, 1, 1); blk(hot ? P.red : '#7a1a10', 8, 27, 1, 1);
+    blk(O, 36, 12, 10, 11); blk('#2e2036', 37, 13, 8, 9); blk('#3e2c46', 37, 13, 8, 2); blk('#08060a', 37, 15, 4, 3); blk(hot ? P.red : '#7a1a10', 38, 16, 2, 1);
+    blk(O, 24, 14, 9, 8); blk(P.woodCore, 25, 15, 7, 6); blk(P.woodLite, 25, 15, 7, 1); blk(P.rustCore, 26, 17, 5, 1);
+    blk(O, 17, 16, 8, 2); blk(O, 32, 16, 8, 2); blk(P.gunLite, 18, 16, 6, 1); blk(P.gunLite, 33, 16, 6, 1);
+    blk(P.rope, 18, 18, 21, 1);
+    if (charging) { const c = Math.min(3, Math.floor(tf.stateFrames / 3)); blk(P.cyan, 27 - c, 13 - c, 3 + c * 2, 1); blk('#ffffff', 28, 12 - c, 1, 1); }
+    if (flying) {
+      const cableLenPx = ((tf.cableLen || 0) / SCALE) | 0;
+      for (let cy = 14; cy > 14 - cableLenPx; cy -= 2) { blk(P.rustCore, 28, cy, 1, 1); if (cy - 1 > 14 - cableLenPx) blk(P.gunLite, 28, cy - 1, 1, 1); }
+      const tipBase = 14 - cableLenPx, shaftTop = tipBase - 3, ft = shaftTop - 5;
+      blk(O, 26, shaftTop, 5, 4); blk(P.gunLite, 27, shaftTop, 3, 3); blk(P.cyan, 28, shaftTop + 1, 1, 1);
+      blk(O, 27, ft, 3, 1); blk(O, 26, ft + 1, 5, 1); blk(O, 27, ft + 2, 3, 3); blk(P.gunLite, 28, ft + 1, 1, 4);
+      blk(O, 24, ft + 4, 2, 2); blk(O, 31, ft + 4, 2, 2);
+    } else { blk(O, 27, 8, 3, 6); blk(P.gunLite, 28, 9, 1, 5); blk(O, 26, 7, 5, 1); }
+    ctx.restore();
+  }
+
+  // ── GROUND PROPS (canyon scatter, same 70-unit slot cadence as SUNSET).
+  function canyonPropBarrels(sx, gy, seed) { canyonBarrel(sx - 4, gy - 12); if (srand(seed + 0.5) > 0.5) canyonBarrel(sx + 5, gy - 12); pxFill(sx - 6, gy - 1, 18, 1, CPX.rockDeep); }
+  function canyonPropCrate(sx, gy, seed) {
+    const P = CPX;
+    pxFill(sx - 7, gy - 9, 14, 9, P.O); pxFill(sx - 6, gy - 8, 12, 7, P.woodCore); pxFill(sx - 6, gy - 8, 12, 1, P.woodLite);
+    pxFill(sx - 4, gy - 8, 2, 7, P.tealCore); pxFill(sx + 2, gy - 8, 2, 7, P.tealCore);
+    pxFill(sx + 2, gy - 12, 6, 4, P.O); pxFill(sx + 3, gy - 11, 4, 2, P.woodCore);
+    pxFill(sx + 8, gy - 2, 2, 1, P.glow); pxFill(sx + 11, gy - 1, 1, 1, P.glow2); pxFill(sx - 9, gy - 1, 2, 1, P.glow);
+  }
+  function canyonPropBones(sx, gy, seed) {
+    const P = CPX;
+    pxFill(sx - 8, gy - 5, 6, 5, P.bone); pxFill(sx - 7, gy - 4, 1, 1, P.O); pxFill(sx - 5, gy - 4, 1, 1, P.O); pxFill(sx - 7, gy - 1, 4, 1, P.boneShad);
+    for (let i = 0; i < 4; i++) pxFill(sx - 1 + i * 3, gy - 4 + (i & 1), 2, 4, P.bone);
+    pxFill(sx - 1, gy - 1, 12, 1, P.boneShad);
+    pxFill(sx + 12, gy - 12, 1, 12, P.gunLite); pxFill(sx + 10, gy - 9, 5, 1, P.rustCore); pxFill(sx + 11, gy - 13, 3, 1, P.O);
+  }
+  function canyonPropCampfire(sx, gy, seed) {
+    const P = CPX, f = (frame >> 2) & 3;
+    pxFill(sx - 7, gy - 3, 14, 3, P.woodD); pxFill(sx - 6, gy - 3, 12, 1, P.woodCore); pxFill(sx - 8, gy - 1, 3, 1, P.woodCore); pxFill(sx + 5, gy - 2, 3, 1, P.woodCore);
+    pxFill(sx - 3, gy - 7 - (f & 1), 6, 5, P.glow2); pxFill(sx - 2, gy - 9 - (f >> 1), 4, 5, P.glow); pxFill(sx - 1, gy - 8, 2, 3, P.hot);
+    if (f === 1) pxFill(sx - 4, gy - 10, 1, 1, P.glow2); if (f === 3) pxFill(sx + 3, gy - 11, 1, 1, P.glow2);
+    for (let i = 0; i < 3; i++) { const ph = (frame * 0.4 + i * 9 + seed) % 26; pxFill(sx + Math.round(Math.sin(frame * 0.05 + i) * 2), gy - 12 - ph, 2, 2, ph < 9 ? '#6a6672' : '#8a8690'); }
+  }
+  function canyonPropTent(sx, gy, seed) {
+    const P = CPX;
+    for (let r = 0; r < 12; r++) pxFill(sx - r - 1, gy - 12 + r, r * 2 + 3, 1, P.O);
+    for (let r = 1; r < 11; r++) pxFill(sx - r, gy - 12 + r, r * 2 + 1, 1, (r & 3) < 2 ? P.bone : P.rustCore);
+    for (let r = 4; r < 11; r++) pxFill(sx - 2, gy - 12 + r, 4, 1, '#1a0c08');
+    pxFill(sx, gy - 15, 1, 3, P.woodCore); pxFill(sx + 1, gy - 15, 4, 2, P.flag);
+  }
+  function canyonPropCactus(sx, gy, seed) {
+    const P = CPX, h = 12 + Math.floor(srand(seed + 0.9) * 10);
+    pxFill(sx - 3, gy - h - 1, 6, h + 1, P.O); pxFill(sx - 2, gy - h, 4, h, '#3f7a5a'); pxFill(sx - 2, gy - h, 1, h, '#6fb08a'); pxFill(sx + 1, gy - h, 1, h, '#245040');
+    for (let y = gy - h + 2; y < gy; y += 3) pxFill(sx - 3, y, 1, 1, P.bone);
+    if (h > 15) { pxFill(sx - 8, gy - h + 5, 6, 4, P.O); pxFill(sx - 7, gy - h + 6, 4, 2, '#3f7a5a'); pxFill(sx - 8, gy - h + 1, 4, 6, P.O); pxFill(sx - 7, gy - h + 2, 2, 5, '#3f7a5a'); pxFill(sx - 7, gy - h + 2, 1, 5, '#6fb08a'); }
+    if (srand(seed + 1.7) > 0.5) { pxFill(sx + 2, gy - h + 7, 6, 4, P.O); pxFill(sx + 3, gy - h + 8, 4, 2, '#3f7a5a'); pxFill(sx + 5, gy - h + 3, 4, 6, P.O); pxFill(sx + 6, gy - h + 4, 2, 5, '#3f7a5a'); }
+    pxFill(sx - 1, gy - h - 2, 2, 1, P.red);
+    pxFill(sx + 3, gy - 1, 6, 1, P.rockDeep);
+  }
+  function canyonPropBoulder(sx, gy, seed) {
+    const P = CPX, n = 1 + Math.floor(srand(seed + 0.3) * 3);
+    for (let k = 0; k < n; k++) {
+      const w = 6 + Math.floor(srand(seed + k * 1.1) * 8), h = 4 + Math.floor(srand(seed + k * 1.9) * 5), bx = sx - 8 + k * 9, by = gy - h;
+      pxFill(bx - 1, by - 1, w + 2, h + 1, P.O); pxFill(bx, by, w, h, P.rockCore); pxFill(bx, by, Math.max(2, w >> 2), h, P.rockLite); pxFill(bx + w - 2, by + 1, 2, h - 1, P.rockShad);
+      pxFill(bx + 1, by, w - 2, 1, P.rockTop); pxFill(bx + w, gy - 1, 3, 1, P.rockDeep);
+    }
+  }
+  function canyonPropSignpost(sx, gy, seed) {
+    const P = CPX;
+    pxFill(sx, gy - 22, 2, 22, P.woodCore); pxFill(sx, gy - 22, 1, 22, P.woodLite);
+    pxFill(sx - 8, gy - 19, 12, 4, P.O); pxFill(sx - 7, gy - 18, 10, 2, P.woodCore); pxFill(sx - 9, gy - 18, 2, 2, P.O);
+    pxFill(sx + 1, gy - 13, 11, 4, P.O); pxFill(sx + 2, gy - 12, 9, 2, P.woodCore); pxFill(sx + 11, gy - 12, 2, 2, P.O);
+    pxFill(sx - 5, gy - 18, 3, 1, P.bone); pxFill(sx + 4, gy - 12, 3, 1, P.bone);
+    pxFill(sx - 1, gy - 26, 5, 4, P.bone); pxFill(sx, gy - 25, 1, 1, P.O); pxFill(sx + 2, gy - 25, 1, 1, P.O);
+  }
+  function canyonPropWreckRibs(sx, gy, seed) {
+    const P = CPX;
+    pxFill(sx - 12, gy - 5, 24, 5, P.O); pxFill(sx - 11, gy - 4, 22, 3, P.gunCore); pxFill(sx - 11, gy - 4, 22, 1, P.gunLite); pxFill(sx - 9, gy - 3, 18, 1, P.rustCore);
+    for (let i = 0; i < 4; i++) { const h = 6 + ((i * 5) % 7); pxFill(sx - 9 + i * 6, gy - 4 - h, 2, h, P.O); pxFill(sx - 9 + i * 6, gy - 4 - h, 1, h, P.gunLite); }
+    pxFill(sx + 10, gy - 12, 1, 8, P.woodCore); pxFill(sx + 11, gy - 12, 5, 3, P.flag);
+    pxFill(sx - 14, gy - 1, 5, 1, P.rockDeep);
+  }
+  function canyonPropCannon(sx, gy, seed) {
+    const P = CPX, fire = ((frame + ((seed * 997) | 0)) % 240) < 6;
+    pxFill(sx - 5, gy - 7, 8, 7, P.O); pxFill(sx - 4, gy - 6, 6, 5, '#1a1c22'); pxFill(sx - 4, gy - 6, 6, 1, P.gunLite); pxFill(sx - 2, gy - 4, 1, 1, P.rustLite);
+    pxFill(sx - 9, gy - 8, 6, 5, P.O); pxFill(sx - 8, gy - 7, 4, 3, P.woodCore);
+    pxFill(sx + 2, gy - 8, 12, 4, P.O); pxFill(sx + 3, gy - 7, 10, 2, '#1a1c22'); pxFill(sx + 3, gy - 7, 10, 1, P.gunLite); pxFill(sx + 12, gy - 8, 2, 4, P.O);
+    if (fire) { pxFill(sx + 14, gy - 8, 5, 4, P.glow); pxFill(sx + 15, gy - 7, 3, 2, P.hot); pxFill(sx + 19, gy - 9, 2, 1, P.glow2); pxFill(sx + 19, gy - 5, 2, 1, P.glow2); }
+    else if (((frame + ((seed * 997) | 0)) % 240) < 40) { const k = ((frame + ((seed * 997) | 0)) % 240) - 6; pxFill(sx + 14 + (k >> 2), gy - 10 - (k >> 3), 3, 3, '#8a8690'); }
+  }
+  function drawCanyonScenery() {
+    const slot = 70, startX = Math.floor(dailyScrollX / slot) - 1, endX = Math.floor((dailyScrollX + W) / slot) + 1;
+    for (let i = startX; i <= endX; i++) {
+      const seed = i * 0.7331 + 11.17;
+      if (srand(seed) < 0.40) continue;
+      const worldX = i * slot + Math.floor(srand(seed + 1.3) * 30);
+      if (isOverDailyTunnel(worldX)) continue;
+      const sx = Math.round(worldX - dailyScrollX);
+      if (sx < -30 || sx > W + 30) continue;
+      const gy = Math.round(terrainHeightAt(sx + dailyScrollX));
+      const pick = srand(seed + 2.7);
+      if      (pick < 0.10) canyonPropBarrels(sx, gy, seed);
+      else if (pick < 0.20) canyonPropCrate(sx, gy, seed);
+      else if (pick < 0.32) canyonPropBones(sx, gy, seed);
+      else if (pick < 0.40) canyonPropCampfire(sx, gy, seed);
+      else if (pick < 0.47) canyonPropTent(sx, gy, seed);
+      else if (pick < 0.62) canyonPropCactus(sx, gy, seed);
+      else if (pick < 0.78) canyonPropBoulder(sx, gy, seed);
+      else if (pick < 0.85) canyonPropSignpost(sx, gy, seed);
+      else if (pick < 0.93) canyonPropWreckRibs(sx, gy, seed);
+      else                  canyonPropCannon(sx, gy, seed);
+    }
+  }
+
+  // ── MID-ROUTE LANDMARKS (the canyon's answer to the roadside Americana).
+  function drawLandmarkGallows(x, y) {
+    const P = CPX, sw = Math.round(Math.sin(frame * 0.03) * 3);
+    pxFill(x - 30, y - 6, 60, 6, P.rockShad); pxFill(x - 28, y - 7, 56, 1, P.rockTop);
+    pxFill(x - 22, y - 70, 4, 70, P.woodCore); pxFill(x - 22, y - 70, 1, 70, P.woodLite); pxFill(x - 24, y - 72, 48, 4, P.woodCore); pxFill(x - 24, y - 72, 48, 1, P.woodLite);
+    pxFill(x - 18, y - 68, 12, 2, P.woodD); for (let i = 0; i < 8; i++) pxFill(x - 18 + i, y - 68 + i, 1, 1, P.woodD);
+    pxFill(x - 30, y - 30, 20, 30, P.woodD); for (let i = 0; i < 6; i++) pxFill(x - 30, y - 30 + i * 5, 20, 1, P.woodCore);
+    for (let i = 0; i < 20; i++) pxFill(x + 14 + Math.round(sw * i / 20), y - 70 + i, 1, 1, P.rope);
+    const hx = x + 14 + sw, hy = y - 50;
+    pxFill(hx - 3, hy, 7, 6, P.bone); pxFill(hx - 2, hy + 2, 1, 1, P.O); pxFill(hx + 1, hy + 2, 1, 1, P.O); pxFill(hx - 2, hy + 5, 5, 1, P.boneShad);
+    pxFill(hx - 1, hy + 6, 3, 10, P.bone); for (let i = 0; i < 4; i++) pxFill(hx - 4, hy + 7 + i * 2, 9, 1, P.bone);
+    pxFill(hx - 5, hy + 8, 2, 8, P.bone); pxFill(hx + 4, hy + 9, 2, 8, P.bone); pxFill(hx - 2, hy + 16, 2, 9, P.bone); pxFill(hx + 1, hy + 17, 2, 8, P.bone);
+    canyonSkullFlag(x + 22, y - 84, 12, 8, (frame >> 3) & 1); pxFill(x + 21, y - 86, 1, 14, P.woodD);
+    if (((frame >> 4) & 7) === 0) pxFill(x - 6, y - 78, 3, 2, P.O);
+  }
+  function drawLandmarkRopeBridge(x, y) {
+    const P = CPX;
+    canyonRockColumn(x - 70, x - 46, y - 74, y + 4, 21.7, 0.08, true, false);
+    canyonRockColumn(x + 46, x + 70, y - 66, y + 4, 22.9, 0.08, true, false);
+    const l = x - 50, r = x + 50, ly = y - 72, ry = y - 64;
+    for (let px = l; px <= r; px++) {
+      const u = (px - l) / (r - l), sag = Math.round(Math.sin(u * Math.PI) * 14);
+      const by = Math.round(ly + (ry - ly) * u) + sag;
+      if (((px - l) & 3) === 0) { pxFill(px, by, 3, 1, P.woodCore); pxFill(px, by, 1, 1, P.woodLite); }
+      pxFill(px, by - 8, 1, 1, P.rope); pxFill(px, by - 1, 1, 1, P.rope);
+      if (((px - l) % 14) === 0) pxFill(px, by - 8, 1, 8, P.rope);
+    }
+    canyonLantern(l + 30, ly + 4, (frame >> 3) & 1); canyonLantern(r - 30, ry + 2, !((frame >> 3) & 1));
+    pxFill(l - 2, ly - 10, 2, 12, P.woodCore); pxFill(r, ry - 10, 2, 12, P.woodCore);
+    canyonSkullFlag(r + 2, ry - 12, 10, 6, (frame >> 3) & 1);
+  }
+  function drawLandmarkAirshipWreck(x, y) {
+    const P = CPX;
+    canyonRockColumn(x - 40, x + 30, y - 18, y + 4, 31.3, 0.1, true, false);
+    for (let i = 0; i < 4; i++) { const h = 10 + i * 4; pxFill(x - 58 + i * 8, y - h - 4, 3, h, P.O); pxFill(x - 58 + i * 8, y - h - 4, 1, h, '#173038'); }
+    ctx.save(); ctx.translate(x - 10, y - 50);
+    pxFill(-40, 0, 80, 22, P.O); pxFill(-39, 1, 78, 20, P.tealCore); pxFill(-39, 1, 78, 3, P.tealLite); pxFill(-39, 16, 78, 5, P.teal);
+    for (let rx = -34; rx < 38; rx += 6) pxFill(rx, 2, 1, 18, '#173038');
+    for (let i = 0; i < 5; i++) pxFill(-30 + i * 14, 8 + (i & 1) * 6, 6 + (i & 1) * 4, 4, '#0e0704');
+    pxFill(-44, 5, 4, 12, P.teal); pxFill(40, 4, 6, 14, P.teal); pxFill(38, -4, 4, 6, P.tealCore); pxFill(38, 20, 4, 6, P.tealCore);
+    pxFill(-8, 6, 9, 7, P.bone); pxFill(-6, 8, 2, 2, P.O); pxFill(-2, 8, 2, 2, P.O); pxFill(-10, 14, 13, 1, P.bone);
+    pxFill(-20, 24, 26, 8, P.woodD); pxFill(-19, 25, 24, 6, P.woodCore); for (let i = 0; i < 3; i++) pxFill(-15 + i * 8, 26, 2, 3, ((frame >> 3) & 1) === (i & 1) ? P.glow : P.woodD);
+    pxFill(-24, 0, 2, 26, P.rope); pxFill(6, 0, 2, 26, P.rope);
+    ctx.restore();
+    pxFill(x + 20, y - 92, 2, 42, P.woodCore); canyonSkullFlag(x + 22, y - 90, 16, 10, (frame >> 3) & 1);
+    canyonBarrel(x + 36, y - 13); canyonCrate(x - 60, y - 10, 10, 10);
+    for (let i = 0; i < 3; i++) { const ph = (frame * 0.4 + i * 10) % 30; pxFill(x - 20 + i * 5 + Math.round(Math.sin(frame * 0.05 + i) * 2), y - 60 - ph, 2 + (ph > 15 ? 1 : 0), 2, ph < 12 ? '#4a4650' : '#8a8690'); }
+  }
+  function drawLandmarkCannonBattery(x, y) {
+    const P = CPX;
+    canyonRockColumn(x - 50, x + 50, y - 30, y + 4, 41.1, 0.06, false, false);
+    for (let i = 0; i < 9; i++) { pxFill(x - 48 + i * 11, y - 40, 10, 10, P.O); pxFill(x - 47 + i * 11, y - 39, 8, 8, i & 1 ? '#c9a86a' : '#b8946a'); pxFill(x - 47 + i * 11, y - 39, 8, 1, P.bone); }
+    const cannon = (cx, seedK) => {
+      const ph = (frame + seedK) % 300, fire = ph < 6;
+      pxFill(cx - 8, y - 50, 8, 10, P.O); pxFill(cx - 7, y - 49, 6, 8, '#1a1c22'); pxFill(cx - 7, y - 49, 6, 1, P.gunLite); pxFill(cx - 5, y - 46, 2, 2, P.rustLite);
+      pxFill(cx - 12, y - 52, 6, 8, P.O); pxFill(cx - 11, y - 51, 4, 6, P.woodCore);
+      pxFill(cx - 2, y - 54, 18, 6, P.O); pxFill(cx - 1, y - 53, 16, 4, '#1a1c22'); pxFill(cx - 1, y - 53, 16, 1, P.gunLite); pxFill(cx + 14, y - 55, 3, 8, P.O);
+      if (fire) { pxFill(cx + 17, y - 56, 8, 8, P.glow); pxFill(cx + 19, y - 54, 4, 4, P.hot); pxFill(cx + 25, y - 58, 2, 2, P.glow2); pxFill(cx + 25, y - 50, 2, 2, P.glow2); }
+      else if (ph < 60) { const k = ph - 6; pxFill(cx + 18 + (k >> 2), y - 60 - (k >> 3), 4, 4, k < 20 ? '#6a6672' : '#8a8690'); }
+    };
+    cannon(x - 34, 0); cannon(x + 12, 150);
+    canyonBarrel(x - 44, y - 44); canyonBarrel(x + 40, y - 44); pxFill(x + 32, y - 46, 5, 5, P.O); pxFill(x + 33, y - 45, 3, 3, '#1a1c22');
+    pxFill(x + 22, y - 62, 8, 14, P.O); pxFill(x + 23, y - 61, 6, 12, '#2e2036'); pxFill(x + 23, y - 61, 6, 2, '#3e2c46'); pxFill(x + 24, y - 59, 3, 2, '#08060a'); pxFill(x + 24, y - 59, 2, 1, P.red);
+    pxFill(x - 2, y - 84, 2, 44, P.woodCore); canyonSkullFlag(x, y - 82, 18, 10, (frame >> 3) & 1);
+  }
+  function drawLandmarkSkullTotem(x, y) {
+    const P = CPX;
+    pxFill(x - 22, y - 6, 44, 6, P.rockShad); pxFill(x - 20, y - 7, 40, 1, P.rockTop);
+    pxFill(x - 2, y - 74, 4, 70, P.woodCore); pxFill(x - 2, y - 74, 1, 70, P.woodLite);
+    for (let i = 0; i < 5; i++) { const sy = y - 20 - i * 12, sw = 9 - (i & 1) * 2; pxFill(x - (sw >> 1) - 1, sy - 1, sw + 2, 9, P.O); pxFill(x - (sw >> 1), sy, sw, 7, P.bone); pxFill(x - (sw >> 1) + 1, sy + 2, 2, 2, P.O); pxFill(x + (sw >> 1) - 3, sy + 2, 2, 2, P.O); pxFill(x - 1, sy + 5, 3, 1, P.boneShad); pxFill(x - (sw >> 1), sy + 6, sw, 1, P.boneShad); }
+    pxFill(x - 14, y - 82, 28, 3, P.woodCore); pxFill(x - 14, y - 82, 28, 1, P.woodLite);
+    pxFill(x - 16, y - 90, 6, 8, P.O); pxFill(x + 10, y - 90, 6, 8, P.O); pxFill(x - 15, y - 89, 4, 6, P.bone); pxFill(x + 11, y - 89, 4, 6, P.bone);
+    canyonSignBoard(x, y - 104, 'TURN BACK');
+    canyonLantern(x - 12, y - 46, (frame >> 3) & 1); canyonLantern(x + 12, y - 46, !((frame >> 3) & 1));
+    pxFill(x - 13, y - 50, 1, 4, P.rope); pxFill(x + 13, y - 50, 1, 4, P.rope);
+    for (let i = 0; i < 4; i++) pxFill(x - 18 + i * 10, y - 3, 5, 3, i & 1 ? P.rockDeep : P.rockShad);
+  }
+
+  // ── CONDORS circling the canyon (SUNSET's vultures).
+  function drawCanyonCondors() {
+    const P = CPX;
+    for (let i = 0; i < 3; i++) {
+      const t1 = frame * 0.0085 + i * 2.1;
+      const cx = Math.round(W * (0.25 + i * 0.25) + Math.cos(t1) * (30 + i * 8) - dailyScrollX * 0.02 % W);
+      const cy = Math.round(PLAY_H * (0.12 + i * 0.05) + Math.sin(t1 * 0.6) * 5);
+      const flap = ((frame + i * 7) >> 4) & 1;
+      pxFill(cx - 1, cy, 3, 2, P.O); pxFill(cx, cy - 1, 1, 1, P.O);
+      for (let w = 1; w <= 5; w++) { pxFill(cx - 1 - w, cy + (flap ? -(w >> 1) : (w >> 1)), 1, 1, P.O); pxFill(cx + 1 + w, cy + (flap ? -(w >> 1) : (w >> 1)), 1, 1, P.O); }
+      pxFill(cx - 6, cy + (flap ? -2 : 2), 1, 1, P.bone); pxFill(cx + 6, cy + (flap ? -2 : 2), 1, 1, P.bone);
+    }
+  }
+
   function drawCanyonAirship(seedX, yFrac, size) {
     const span = W + 180;
     const drift = dailyScrollX * 0.02 + frame * 0.22 + seedX * span;
@@ -16062,6 +16549,7 @@ const DLX_BUILD = 'DXP-DAILY-v74';
       if (off + 2 * L.TILE < W + 1) ctx.drawImage(img, off + 2 * L.TILE, 0);
     };
     blit(L.far, 0.06);
+    drawCanyonCondors();
     // Drifting pirate airships between the far mesas and the mid rock.
     drawCanyonAirship(0.28, 0.16, 20);
     drawCanyonAirship(0.72, 0.24, 15);
@@ -20033,6 +20521,10 @@ const DLX_BUILD = 'DXP-DAILY-v74';
         drawPixelTunnelCarveout(o, tPts);
         continue;
       }
+      if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+        drawCanyonTunnelCarveout(o, tPts);   // timbered smugglers' mine shaft
+        continue;
+      }
 
       // CAVERN INTERIOR — dark fill from ceiling polyline down to
       // floor polyline. Drawn before the dirt cap so the cap covers
@@ -20332,8 +20824,9 @@ const DLX_BUILD = 'DXP-DAILY-v74';
     // their renderers dispatch on horizonStyle so cavern levels get a
     // mouth-entry + organ-dock instead of the DLX hangar + GOOD BUDDY.
     const isCitadel = currentDeliveryLevel.horizonStyle === 'citadel';
+    const isCanyon = currentDeliveryLevel.obstacleTheme === 'canyon';
     for (const lm of DAILY_LANDMARKS) {
-      if (!isCitadel && lm.kind !== 'origin' && lm.kind !== 'truckStop') continue;
+      if (!isCitadel && !isCanyon && lm.kind !== 'origin' && lm.kind !== 'truckStop') continue;
       // Hide cluttery roadside landmarks (signs, arches, etc.) when a
       // tunnel happens to spawn over them, but ALWAYS draw the
       // dispatch base (origin) and the Good Buddy truck stop —
@@ -20343,6 +20836,15 @@ const DLX_BUILD = 'DXP-DAILY-v74';
       const sx = Math.round(lm.worldX - dailyScrollX);
       if (sx < -180 || sx > W + 180) continue;
       const gy = Math.round(terrainHeightAt(sx + dailyScrollX));
+      if (isCanyon && !isAnchor) {
+        // CUTTHROAT CANYON roadside landmarks (same slots as the Americana)
+        if      (lm.kind === 'fromBurger')      drawLandmarkGallows(sx, gy);
+        else if (lm.kind === 'arches')          drawLandmarkRopeBridge(sx, gy);
+        else if (lm.kind === 'driveIn')         drawLandmarkAirshipWreck(sx, gy);
+        else if (lm.kind === 'sphinx')          drawLandmarkCannonBattery(sx, gy);
+        else if (lm.kind === 'collapsedOffice') drawLandmarkSkullTotem(sx, gy);
+        continue;
+      }
       if      (lm.kind === 'fromBurger')      drawLandmarkFromBurger(sx, gy);
       else if (lm.kind === 'arches')          drawLandmarkArches(sx, gy);
       else if (lm.kind === 'driveIn')         drawLandmarkDriveIn(sx, gy);
@@ -25525,6 +26027,12 @@ const DLX_BUILD = 'DXP-DAILY-v74';
       drawScrapyardDebris();
       return;
     }
+    if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+      ctx.save();
+      drawCanyonScenery();   // barrels / crates / bones / campfires / tents / cacti / boulders / signposts / wreck ribs / cannons
+      ctx.restore();
+      return;
+    }
     // Cacti / skulls / trash / rocks / brush are wasteland flavor — render
     // for both the smooth citadel level and the pixel-art variant. Skip
     // other themes (they ship their own ground props).
@@ -26322,6 +26830,14 @@ const DLX_BUILD = 'DXP-DAILY-v74';
   // the terrain so they ride the dune surface.
   function drawDailyGroundOps() {
     if (!isDaily || !dailyGroundOps.length) return;
+    if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+      for (const op of dailyGroundOps) {
+        const sx = Math.round(op.worldX - dailyScrollX);
+        if (sx < -50 || sx > W + 50) continue;
+        drawCanyonGroundOp(sx, Math.round(terrainHeightAt(sx + dailyScrollX)), op);   // raider dune buggy
+      }
+      return;
+    }
     // Pixel-art branch — rusted pickup with telescoping hook mast
     if (isPixelHorizonLevel()) {
       for (const op of dailyGroundOps) {
@@ -26481,6 +26997,14 @@ const DLX_BUILD = 'DXP-DAILY-v74';
     if (!isDaily || !dailyTentacles.length) return;
     if (currentDeliveryLevel.obstacleTheme === 'organic') {
       drawDailyMaws();
+      return;
+    }
+    if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+      for (const t of dailyTentacles) {
+        const sx = Math.round(t.worldX - dailyScrollX);
+        if (sx < -40 || sx > W + 40) continue;
+        drawCanyonAnchorChain(sx, Math.round(terrainHeightAt(t.worldX)), t);   // anchor chains out of the sand
+      }
       return;
     }
     // Pixel-art branch — green burrowing tentacles with maws + slime
@@ -27082,6 +27606,10 @@ const DLX_BUILD = 'DXP-DAILY-v74';
   // stripes on the inner edges and cyan running lights along the
   // channel centerline so the entry / exit telegraph cleanly.
   function drawTunnel(t, sx) {
+    if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+      drawCanyonTunnelDeco(t, sx);   // bone chevrons at the shaft mouth
+      return;
+    }
     // The dual-layer tunnel silhouette (entrance gap, ceiling-floor
     // body, exit ramp) is already painted by drawDailyTerrain via
     // tunnelLayoutAt. Here we only add interior DECORATIONS inside
@@ -29215,6 +29743,10 @@ const DLX_BUILD = 'DXP-DAILY-v74';
       drawDailyBileGlobs();
       return;
     }
+    if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+      for (const lb of dailyLavaBalls) drawCanyonCannonball(lb);   // cannonballs + chain-shot
+      return;
+    }
     // Pixel-art branch — animated fireball orb with trail + sparks
     if (isPixelHorizonLevel()) {
       for (const lb of dailyLavaBalls) {
@@ -30070,6 +30602,9 @@ const DLX_BUILD = 'DXP-DAILY-v74';
     // tf.cableLen is in game-pixels; canvas is at 2× scale, so we
     // divide by SCALE to get the mockup-pixel length the visual code
     // expects. End result: cable on-screen length matches game state.
+    if (currentDeliveryLevel && currentDeliveryLevel.raiderSkin === 'canyon') {
+      canyonClawCable(tf, blk, t, O, SCALE);   // rusted chain + iron grapple
+    } else {
     const cableLen = ((tf.cableLen || 0) / SCALE) | 0;
     const cableTopY = 30;
     const cableBottomY = cableTopY + cableLen;
@@ -30141,6 +30676,7 @@ const DLX_BUILD = 'DXP-DAILY-v74';
       }
     }
 
+    }
     ctx.restore();
   }
 
@@ -30745,6 +31281,10 @@ const DLX_BUILD = 'DXP-DAILY-v74';
 
   function drawDailyDrones() {
     if (!isDaily || !dailyDrones.length) return;
+    if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+      for (const dr of dailyDrones) drawCanyonDrone(dr);   // spotter balloon / bat-kite raider
+      return;
+    }
     if (isPixelHorizonLevel()) {
       for (const dr of dailyDrones) {
         if (dr.variant === 1) drawPixelDailyDroneAlt(dr);
@@ -30874,7 +31414,9 @@ const DLX_BUILD = 'DXP-DAILY-v74';
     if (isPixelHorizonLevel()) {
       const canyonSkin = currentDeliveryLevel && currentDeliveryLevel.raiderSkin === 'canyon';
       for (const tf of dailyThieves) {
-        if (canyonSkin)            drawPixelDailyThief(tf);   // all canyon thieves = new rotor drone
+        if (canyonSkin && tf.variant === 2)      drawCanyonThiefHarpooner(tf);   // ballista skimmer (fires up)
+        else if (canyonSkin && tf.variant === 1) drawCanyonThiefGlider(tf);      // bat-kite glider (drop claw)
+        else if (canyonSkin)                     drawPixelDailyThief(tf);        // rotor claw-drone
         else if (tf.variant === 2) drawPixelDailyThiefHarpooner(tf);
         else if (tf.variant === 1) drawPixelDailyThiefAlt(tf);
         else                       drawPixelDailyThief(tf);
@@ -40284,9 +40826,13 @@ const DLX_BUILD = 'DXP-DAILY-v74';
         'Black-market cargo · 9 sealed lockboxes · a map with an X and no key',
       ],
       obstacleSet: {
-        drones: false, thieves: true, groundOps: false,
-        lavaBalls: false, scrapTowers: true, airWrecks: true,
-        tunnels: false, tentacles: false,
+        // Full SUNSET WASTES gameplay mix, every system reskinned for the
+        // canyon: spotter balloons (drones), dune buggies (groundOps),
+        // cannonballs (lavaBalls), anchor chains (tentacles), mine shafts
+        // (tunnels) — plus the canyon-only hooded raider skiffs.
+        drones: true, thieves: true, groundOps: true,
+        lavaBalls: true, scrapTowers: true, airWrecks: true,
+        tunnels: true, tentacles: true,
         dlxBandits: true,
       },
       // 'canyon' = level-exclusive art kit (rock-spire pillars, derelict
