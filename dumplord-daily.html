@@ -15423,6 +15423,472 @@ const DLX_BUILD = 'DXP-DAILY-v74';
       pxFill(cx + half - 2, top + yy, 2, 1, lit);
     }
   }
+  // ═══════════════ CUTTHROAT CANYON — level-exclusive art kit ═══════════════
+  // Everything in this block renders ONLY for obstacleTheme === 'canyon'.
+  // Nothing here is shared with SUNSET WASTES: the canyon has its own gap
+  // pillars (rock spires), air wrecks (derelict raider skiff), launch dock
+  // (FREEPORT DOCKS), delivery dock (THE BLACK MARKET), cargo (iron-banded
+  // smuggler's chest) and ground strata. The only shared pieces by design are
+  // the LOMAX rig, the score-system pickups / power-ups and the generic
+  // banded-sky renderer (fed the canyon palette).
+  const CPX = {
+    O: '#04080a',
+    rockTop: '#f4b57a', rockLite: '#e8955a', rockLite2: '#f0a060', rockLite3: '#df8c50', rockCore: '#c2652f', rockCore2: '#b65c2a',
+    rockMid: '#9a4a22', rockShad: '#6e3418', rockDeep: '#3f1c10', rockAO: '#2a1109',
+    teal: '#1c3038', tealCore: '#2f5560', tealMid: '#47707a', tealLite: '#7fa6ac', tealSpec: '#dcefe6',
+    rust: '#5a3418', rustCore: '#b5652c', rustLite: '#f0b050',
+    gun: '#242a40', gunCore: '#455566', gunLite: '#8fa6b0',
+    wood: '#3a2c16', woodCore: '#6b4a22', woodLite: '#9a6c34', woodD: '#1a1208',
+    bone: '#f0e4cc', boneShad: '#b8a88a', rope: '#c9a86a',
+    glow: '#ffd23c', glow2: '#ff8a2c', ember: '#e0521e', hot: '#fff3c8',
+    cyan: '#8fe6e0', red: '#ff3a3a', green: '#7fe07a', flag: '#0e0a14',
+  };
+  // 3×5 pixel capitals for the canyon signboards (bone letters on wood).
+  const _CANYON_GLYPHS = {
+    A: [2, 5, 7, 5, 5], B: [6, 5, 6, 5, 6], C: [7, 4, 4, 4, 7], D: [6, 5, 5, 5, 6],
+    E: [7, 4, 6, 4, 7], F: [7, 4, 6, 4, 4], H: [5, 5, 7, 5, 5], K: [5, 6, 4, 6, 5],
+    L: [4, 4, 4, 4, 7], M: [5, 7, 7, 5, 5], O: [7, 5, 5, 5, 7], P: [7, 5, 7, 4, 4],
+    R: [7, 5, 6, 5, 5], S: [7, 4, 7, 1, 7], T: [7, 2, 2, 2, 2],
+  };
+  function canyonText(text, x, y, color, shadow) {
+    for (let ci = 0; ci < text.length; ci++) {
+      const bits = _CANYON_GLYPHS[text[ci]];
+      if (!bits) { x += 4; continue; }
+      for (let dy = 0; dy < 5; dy++) for (let dx = 0; dx < 3; dx++) {
+        if ((bits[dy] >> (2 - dx)) & 1) {
+          if (shadow) pxFill(x + dx + 1, y + dy + 1, 1, 1, shadow);
+          pxFill(x + dx, y + dy, 1, 1, color);
+        }
+      }
+      x += 4;
+    }
+  }
+  function canyonTextW(text) { return text.length * 4 - 1; }
+
+  // Continuous-profile rock column between x0..x1, y0..y1. The silhouette
+  // steps in/out in tall irregular segments (10-26 rows); each row is one
+  // lit LEFT band, core, shadow RIGHT band + deep edge (single upper-left
+  // sun). A sun-catching ledge line is drawn only where a segment is wider
+  // than the one above it (exposed top), and an AO line only under an
+  // overhang - so the rock reads as planar facets, not stacked plates.
+  // `flare` widens each row toward the bottom (mesa talus); `taperTop` /
+  // `taperBottom` narrow the 14 rows nearest that end (spire tips).
+  function canyonRockColumn(x0, x1, y0, y1, seed, flare, taperTop, taperBottom) {
+    const P = CPX;
+    if (y1 - y0 <= 0) return;
+    const ja = 2 + Math.round((x1 - x0) * 0.05);          // stagger grows with the column width
+    let y = y0, k = 0, prevL = null, prevR = null, lastL = null, lastR = null;
+    while (y < y1) {
+      const sh = Math.min(y1 - y, 10 + Math.floor(srand(seed + k * 0.37) * 16));
+      const jl = Math.floor(srand(seed + k * 0.91) * (ja * 2 + 1)) - ja;
+      const jr = Math.floor(srand(seed + k * 1.13) * (ja * 2 + 1)) - ja;
+      const growSeg = flare ? Math.round((y - y0) * flare) : 0;   // per-segment → terraces, not a cone
+      const core = (k & 1) ? P.rockCore : P.rockCore2, lite = (k & 1) ? P.rockLite : P.rockLite3;
+      const crackX = x0 + 4 + Math.floor(srand(seed + k * 1.7) * Math.max(1, (x1 - x0) - 8));
+      const dcx = x0 + 2 + Math.floor(srand(seed + k * 2.9) * Math.max(1, (x1 - x0) - 10)), dcy = y + 3 + Math.floor(srand(seed + k * 3.7) * Math.max(1, sh - 9));
+      for (let yy = y; yy < y + sh; yy++) {
+        const d = yy - y0, du = y1 - 1 - yy;
+        const tip = (taperTop && d < 14) ? Math.round((14 - d) * 0.5)
+                  : (taperBottom && du < 14) ? Math.round((14 - du) * 0.5) : 0;
+        const lx = x0 + jl - growSeg + tip, rx = x1 + jr + growSeg - tip, bw = rx - lx;
+        if (bw < 3) continue;
+        pxFill(lx - 1, yy, bw + 2, 1, P.O);
+        pxFill(lx, yy, bw, 1, core);
+        pxFill(lx, yy, Math.max(2, Math.min(bw >> 1, 3 + ((bw * 0.24) | 0))), 1, lite);
+        const shw = Math.max(2, Math.min(bw >> 1, 2 + ((bw * 0.22) | 0)));
+        pxFill(rx - shw, yy, shw, 1, P.rockShad);
+        pxFill(rx - Math.min(3, shw), yy, Math.min(3, shw), 1, P.rockDeep);
+        if (yy === y && prevL != null) {
+          if (lx < prevL) pxFill(lx, yy, Math.min(bw, prevL - lx + 1), 1, P.rockTop);      // exposed ledge (left)
+          if (rx > prevR) pxFill(prevR - 1, yy, Math.min(bw, rx - prevR + 1), 1, P.rockTop); // exposed ledge (right)
+          if (lx > prevL) pxFill(lx, yy, Math.min(bw, 5), 1, P.rockAO);                    // shadow under overhang
+          if (rx < prevR) pxFill(rx - Math.min(bw, 5), yy, Math.min(bw, 5), 1, P.rockAO);
+          // eroded strata seam along the rest of the joint (broken line)
+          for (let px = lx + 2; px < rx - 2; px++) if ((((px * 2654435761) >>> 0) & 7) < 5) pxFill(px, yy, 1, 1, P.rockMid);
+        }
+        if (yy === y0 && !taperTop) pxFill(lx, yy, bw, 1, P.rockTop);
+        if (yy >= y + 2 && yy < y + sh - 2 && crackX > lx + 1 && crackX < rx - 1) pxFill(crackX, yy, 1, 1, P.rockMid);
+        if (yy >= dcy && yy < dcy + 5 && dcx + (yy - dcy) > lx && dcx + (yy - dcy) < rx - 1) pxFill(dcx + (yy - dcy), yy, 1, 1, P.rockShad);   // diagonal crack
+        const h = ((yy * 374761393) ^ ((lx + k * 7) * 668265263)) >>> 0;
+        if ((h & 31) === 0) pxFill(lx + 2 + (h >> 8) % Math.max(1, bw - 4), yy, 1, 1, P.rockLite2);
+        else if ((h & 31) === 1) pxFill(lx + 2 + (h >> 8) % Math.max(1, bw - 4), yy, 1, 1, P.rockMid);
+        lastL = lx; lastR = rx;
+      }
+      prevL = lastL; prevR = lastR;
+      y += sh; k++;
+    }
+  }
+
+  // ── GAP PILLAR — twin rock spires (replaces the scrap tower). Collision
+  //    in collide() is the 36-px column sx..sx+36 outside top..top+gap, so
+  //    the spires stay inside that footprint (±2 px stagger).
+  function drawCanyonRockPillar(sx, top, gap, seed) {
+    const P = CPX, tw = 36;
+    canyonRockColumn(sx, sx + tw, -4, top, seed, 0, false, true);
+    canyonRockColumn(sx, sx + tw, top + gap, PLAY_H + 4, seed + 1.3, 0, true, false);
+    // Hanging lantern under the upper spire, swinging on its rope.
+    const sw = Math.round(Math.sin(frame * 0.05 + seed) * 2);
+    const lx = sx + 18 + sw, ly = top + 7;
+    for (let i = 0; i < 7; i++) pxFill(sx + 18 + Math.round(sw * i / 7), top + i, 1, 1, P.rope);
+    pxFill(lx - 2, ly, 5, 1, P.gun);
+    pxFill(lx - 2, ly + 1, 5, 6, P.O);
+    pxFill(lx - 1, ly + 2, 3, 4, ((frame >> 3) & 1) ? P.glow : P.glow2);
+    pxFill(lx, ly + 3, 1, 2, P.hot);
+    // Skull on a pike + rope-wrapped iron cleat + rubble on the lower ledge.
+    const py = top + gap, px = sx + 8;
+    pxFill(px, py - 12, 1, 12, P.woodCore);
+    pxFill(px - 2, py - 16, 5, 4, P.bone);
+    pxFill(px - 1, py - 15, 1, 1, P.O); pxFill(px + 1, py - 15, 1, 1, P.O);
+    pxFill(px - 1, py - 12, 3, 1, P.bone);
+    pxFill(sx + 22, py - 3, 8, 3, P.rustCore); pxFill(sx + 23, py - 2, 6, 1, P.rust);
+    pxFill(sx + 21, py - 4, 10, 1, P.rope);
+    for (let i = 0; i < 6; i++) pxFill(sx - 2 + i * 7, py - 1 - (i & 1), 2, 1, P.rockDeep);
+  }
+
+  // ── AIR WRECK — derelict raider skiff, 120×48 footprint (collide() boxes
+  //    the centre at sx+60, alt+22). Deck snapped in two, dead thruster,
+  //    torn skull sail on a broken mast, embers, smoke, dangling grapple.
+  function drawCanyonAirWreck(sx, alt, seed) {
+    const P = CPX, t = frame;
+    ctx.save();
+    ctx.translate(sx | 0, (alt + Math.round(Math.sin(t * 0.03 + seed) * 2)) | 0);
+    const frag = (fx, fy, fw, fh, ph) => {
+      const dy = Math.round(Math.sin(t * 0.04 + ph) * 3);
+      pxFill(fx - 1, fy + dy - 1, fw + 2, fh + 2, P.O);
+      pxFill(fx, fy + dy, fw, fh, P.gunCore);
+      pxFill(fx, fy + dy, fw, 1, P.gunLite);
+      pxFill(fx, fy + dy + fh - 1, fw, 1, P.gun);
+    };
+    frag(4, 8, 9, 5, seed); frag(104, 3, 7, 4, seed + 2); frag(100, 38, 10, 5, seed + 4); frag(14, 40, 6, 3, seed + 6);
+    // bow half of the deck
+    pxFill(15, 15, 60, 14, P.O);
+    pxFill(16, 16, 58, 12, P.gunCore);
+    pxFill(16, 16, 58, 2, P.gunLite);
+    pxFill(16, 25, 58, 3, P.gun);
+    pxFill(18, 18, 54, 2, P.rustCore); pxFill(18, 18, 54, 1, P.rustLite);
+    for (let rx = 20; rx < 68; rx += 5) pxFill(rx, 22, 1, 1, P.gunLite);
+    pxFill(14, 18, 3, 6, P.tealLite);
+    // charred break (stair-stepped jagged edge)
+    pxFill(66, 16, 8, 12, '#141018'); pxFill(64, 17, 3, 10, '#2a2830');
+    for (let i = 0; i < 6; i++) pxFill(70 + i, 16 + i * 2, 6 - i, 2, i < 3 ? '#141018' : P.O);
+    const eb = (t >> 2) & 1;
+    pxFill(69, 19 + eb, 1, 1, P.glow2); pxFill(72, 24 - eb, 1, 1, P.ember); pxFill(67, 26, 1, 1, eb ? P.glow : P.glow2);
+    // stern half, dropped + tilted, thruster dead
+    pxFill(83, 21, 31, 13, P.O);
+    for (let i = 0; i < 3; i++) pxFill(84 + i * 10, 22 + i, 10, 10 - i, P.gunCore);
+    pxFill(84, 22, 28, 1, P.gunLite); pxFill(86, 24, 24, 1, P.rustCore);
+    pxFill(108, 25, 6, 5, P.O); pxFill(109, 26, 4, 3, P.gun);
+    // snapped mast + torn skull sail
+    pxFill(40, 2, 2, 14, P.woodCore); pxFill(40, 2, 1, 14, P.woodLite);
+    pxFill(38, -4, 2, 7, P.woodCore); pxFill(37, -5, 3, 2, P.woodD);
+    const wv = (t >> 3) & 1;
+    pxFill(42, 3 + wv, 14, 9, P.flag); pxFill(52, 6 + wv, 6, 3, P.flag); pxFill(56, 4 + wv, 3, 1, P.flag);
+    for (let i = 0; i < 4; i++) pxFill(43 + i * 3, 12 + wv - (i & 1), 2, 1, P.flag);
+    pxFill(45, 5 + wv, 5, 4, P.bone); pxFill(46, 6 + wv, 1, 1, P.O); pxFill(48, 6 + wv, 1, 1, P.O); pxFill(44, 10 + wv, 7, 1, P.bone);
+    // dangling grapple cable + hook
+    for (let cy = 29; cy < 44; cy += 2) pxFill(30 + ((cy >> 2) & 1), cy, 1, 1, '#9a9aa0');
+    pxFill(28, 44, 5, 2, P.gun); pxFill(27, 46, 2, 2, P.gun); pxFill(32, 46, 2, 2, P.gun); pxFill(30, 43, 1, 1, P.cyan);
+    // smoke from the break
+    for (let i = 0; i < 3; i++) {
+      const ph = (t * 0.5 + i * 11 + seed * 7) % 30;
+      const sy = (14 - ph * 0.6) | 0, sxp = 70 + i * 4 + Math.round(Math.sin(t * 0.05 + i) * 2);
+      const sz = 2 + (i & 1) + (ph > 15 ? 1 : 0);
+      pxFill(sxp, sy, sz, sz, ph < 10 ? '#4a4650' : ph < 20 ? '#6a6672' : '#8a8690');
+    }
+    ctx.restore();
+  }
+
+  // Small dock props shared by both canyon landmarks.
+  function canyonCrate(x, y, w, h) {
+    const P = CPX;
+    pxFill(x - 1, y - 1, w + 2, h + 2, P.O); pxFill(x, y, w, h, P.woodCore); pxFill(x, y, w, 1, P.woodLite);
+    pxFill(x + 2, y, 2, h, P.tealCore); pxFill(x + w - 4, y, 2, h, P.tealCore); pxFill(x + 2, y, 1, h, P.tealLite);
+  }
+  function canyonBarrel(x, y) {
+    const P = CPX;
+    pxFill(x - 1, y - 1, 9, 14, P.O); pxFill(x, y, 7, 12, P.woodCore); pxFill(x, y, 2, 12, P.woodLite);
+    pxFill(x, y + 2, 7, 1, P.rustCore); pxFill(x, y + 8, 7, 1, P.rustCore); pxFill(x + 5, y, 2, 12, P.wood);
+  }
+  function canyonLantern(x, y, hot) {
+    const P = CPX;
+    pxFill(x - 2, y, 5, 1, P.gun); pxFill(x - 2, y + 1, 5, 6, P.O);
+    pxFill(x - 1, y + 2, 3, 4, hot ? P.glow : P.glow2); pxFill(x, y + 3, 1, 2, P.hot);
+  }
+  function canyonSkullFlag(x, y, w, h, wave) {
+    const P = CPX;
+    pxFill(x, y + wave, w, h, P.flag);
+    for (let i = 0; i < (w >> 2); i++) pxFill(x + w - 2 - i * 4, y + h + wave - (i & 1), 2, 1, P.flag);
+    const sx = x + (w >> 1) - 2, sy = y + 1 + wave;
+    pxFill(sx, sy, 5, 4, P.bone); pxFill(sx + 1, sy + 1, 1, 1, P.O); pxFill(sx + 3, sy + 1, 1, 1, P.O); pxFill(sx - 1, sy + 5, 7, 1, P.bone);
+  }
+  function canyonSignBoard(cx, y, text) {
+    const P = CPX, tw = canyonTextW(text), bw = tw + 8, bx = cx - (bw >> 1);
+    pxFill(bx - 1, y - 1, bw + 2, 11, P.O); pxFill(bx, y, bw, 9, P.woodCore); pxFill(bx, y, bw, 1, P.woodLite);
+    pxFill(bx, y + 8, bw, 1, P.woodD); pxFill(bx + 1, y + 1, 1, 1, P.tealLite); pxFill(bx + bw - 2, y + 1, 1, 1, P.tealLite);
+    canyonText(text, bx + 4, y + 2, P.bone, P.woodD);
+  }
+
+  // ── LAUNCH DOCK — FREEPORT DOCKS. Same bounds as the DLX hangar
+  //    (x-110 .. x+105, floor at PLAY_H/2+28) so the launch state machine
+  //    and rig parking are untouched. A smugglers' pier bolted to a cliff,
+  //    cave warehouse, tavern shack, signal mast (red/amber/green lamp
+  //    replaces the hangar traffic light), boom crane that lowers the chest
+  //    during LOAD, and a harbour chain that drops when you're cleared.
+  function drawLandmarkFreeportDocks(x, y) {
+    const P = CPX;
+    const floorY = (PLAY_H / 2 + 28) | 0, ceilingY = (PLAY_H / 2 - 70) | 0;
+    const L = (x - 110) | 0, R = (x + 105) | 0;
+    const phaseLoad = dailyAwaitingLaunch;
+    const phaseArm = !dailyAwaitingLaunch && dailyIntroFrames > 55;
+    const phaseLaunch = !dailyAwaitingLaunch && dailyIntroFrames <= 55;
+    const blink = ((frame / 4) | 0) & 1, wave = (frame >> 3) & 1;
+    const open = phaseLoad ? 0 : phaseArm ? Math.max(0, Math.min(1, (75 - dailyIntroFrames) / 20)) : 1;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    // mesa the pier is built on (flares out toward the ground)
+    canyonRockColumn(L + 64, R - 72, floorY + 6, PLAY_H + 4, 3.1, 0.10, false, false);
+    // cliff wall behind the pier with the warehouse cave carved in
+    canyonRockColumn(L - 40, L + 48, ceilingY - 30, floorY + 6, 7.7, 0, true, false);
+    pxFill(L + 2, ceilingY + 16, 44, floorY - ceilingY - 16, P.O);
+    pxFill(L + 4, ceilingY + 20, 40, floorY - ceilingY - 20, '#1a0c08');
+    pxFill(L + 4, floorY - 16, 40, 16, '#2e1409');
+    canyonCrate(L + 8, floorY - 12, 12, 12); canyonCrate(L + 22, floorY - 12, 12, 12); canyonCrate(L + 14, floorY - 24, 12, 12);
+    canyonBarrel(L + 36, floorY - 13);
+    canyonLantern(L + 40, ceilingY + 26, blink);
+    pxFill(L + 6, ceilingY + 22, 36, 3, P.rockShad);                 // cave lintel shadow
+    // tavern shack over the cave (plank walls, tiled lean-to roof, lit window)
+    const sL = L + 48, sR = L + 118, sT = ceilingY + 28;
+    pxFill(sL - 1, sT - 1, sR - sL + 2, floorY - sT + 1, P.O);
+    pxFill(sL, sT, sR - sL, floorY - sT, P.woodCore);
+    for (let py = sT + 4; py < floorY; py += 6) pxFill(sL, py, sR - sL, 1, P.woodD);
+    pxFill(sL, sT, 6, floorY - sT, P.woodLite);
+    for (let i = 0; i < 5; i++) pxFill(sL - 4 - i, sT - 12 + i * 3, sR - sL + 8 + i * 2, 3, i & 1 ? P.rust : P.rustCore);
+    pxFill(sL - 4, sT - 12, sR - sL + 8, 1, P.rustLite);
+    pxFill(sL + 14, sT + 8, 12, 9, P.O); pxFill(sL + 15, sT + 9, 10, 7, blink ? P.glow : P.glow2); pxFill(sL + 19, sT + 9, 2, 7, P.woodD); pxFill(sL + 15, sT + 12, 10, 1, P.woodD);
+    pxFill(sL + 40, floorY - 22, 12, 22, P.O); pxFill(sL + 41, floorY - 21, 10, 21, '#1a0c08'); pxFill(sL + 49, floorY - 12, 1, 1, P.rustLite);
+    canyonLantern(sL + 58, sT + 6, !blink);
+    canyonSignBoard((sL + sR) >> 1, sT - 26, 'FREEPORT');
+    pxFill(((sL + sR) >> 1) - 1, sT - 16, 2, 4, P.woodD);
+    // pier deck
+    pxFill(L, floorY - 1, R - L, 8, P.O);
+    pxFill(L + 1, floorY, R - L - 2, 6, P.woodCore);
+    pxFill(L + 1, floorY, R - L - 2, 1, P.woodLite);
+    for (let px = L + 1; px < R - 1; px += 9) pxFill(px, floorY, 1, 6, P.woodD);
+    pxFill(L + 1, floorY + 5, R - L - 2, 1, P.woodD);
+    for (let px = L + 66; px < R - 74; px += 26) { pxFill(px, floorY + 6, 3, 14, P.woodD); pxFill(px, floorY + 6, 1, 14, P.woodCore); }
+    pxFill(L + 2, floorY + 6, 3, 10, P.woodD); pxFill(L + 24, floorY + 6, 3, 10, P.woodD);   // braces into the cliff
+    // signal mast: skull flag + red / amber / green harbour lamp
+    const mx = sL + 84;
+    pxFill(mx, ceilingY - 18, 2, floorY - ceilingY + 18, P.woodCore); pxFill(mx, ceilingY - 18, 1, floorY - ceilingY + 18, P.woodLite);
+    canyonSkullFlag(mx + 2, ceilingY - 16, 16, 9, wave);
+    pxFill(mx - 3, ceilingY + 2, 8, 18, P.O); pxFill(mx - 2, ceilingY + 3, 6, 16, P.gun);
+    pxFill(mx - 1, ceilingY + 4, 4, 4, phaseLoad ? P.red : '#4a1010');
+    pxFill(mx - 1, ceilingY + 9, 4, 4, (phaseArm && blink) ? P.glow : '#4a3810');
+    pxFill(mx - 1, ceilingY + 14, 4, 4, phaseLaunch ? P.green : '#104a20');
+    // boom crane — lowers the chest onto the deck during LOAD, retracts after
+    const cx = sL + 108;
+    pxFill(cx, ceilingY + 8, 2, floorY - ceilingY - 8, P.woodD); pxFill(cx + 1, ceilingY + 8, 1, floorY - ceilingY - 8, P.woodCore);
+    pxFill(cx - 20, ceilingY + 8, 42, 2, P.woodCore); pxFill(cx - 20, ceilingY + 8, 42, 1, P.woodLite);
+    for (let i = 0; i < 6; i++) pxFill(cx + 2 + i * 3, ceilingY + 10 + i * 2, 2, 1, P.woodD);
+    const hookY = (ceilingY + 22 + (1 - open) * (floorY - ceilingY - 58)) | 0;
+    for (let cy = ceilingY + 10; cy < hookY; cy += 2) pxFill(cx - 16, cy, 1, 1, P.rope);
+    pxFill(cx - 18, hookY, 5, 2, P.gun); pxFill(cx - 19, hookY + 2, 2, 2, P.gun); pxFill(cx - 14, hookY + 2, 2, 2, P.gun);
+    if (phaseLoad) pxCanyonCargoChest(ctx, cx - 30, hookY + 4);
+    // harbour chain across the exit — sags to the deck as you're cleared
+    pxFill(R - 16, floorY - 18, 3, 18, P.gun); pxFill(R - 16, floorY - 18, 1, 18, P.gunLite);
+    pxFill(R - 4, floorY - 18, 3, 18, P.gun); pxFill(R - 4, floorY - 18, 1, 18, P.gunLite);
+    const chainY = (floorY - 14 + open * 12) | 0;
+    for (let px = R - 13; px < R - 4; px += 2) pxFill(px, chainY + ((px >> 1) & 1), 2, 1, '#9a9aa0');
+    // deck props: barrels, rope coil, a stack of crates by the exit
+    canyonBarrel(L + 54, floorY - 13); canyonBarrel(L + 62, floorY - 13);
+    pxFill(R - 40, floorY - 3, 10, 3, P.rope); pxFill(R - 38, floorY - 2, 6, 1, P.woodD);
+    canyonCrate(R - 30, floorY - 10, 10, 10);
+    ctx.restore();
+  }
+
+  // ── DELIVERY DOCK — THE BLACK MARKET. Same 260-wide pad at PLAY_H/2+28
+  //    as the truck stop so docking is unchanged. Cliff-side bazaar on a
+  //    mesa: stone stalls with striped awnings, lit cave doorway, lantern
+  //    line over the runway, skull banner, loading crane, BLACK MARKET sign.
+  function drawLandmarkBlackMarket(x, y) {
+    const P = CPX;
+    const padY = (PLAY_H / 2 + 28) | 0, ox = (x - 130) | 0, oxR = ox + 256;
+    const blink = ((frame / 4) | 0) & 1, wave = (frame >> 3) & 1;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    // mesa under the pad
+    canyonRockColumn(ox + 72, oxR - 72, padY + 6, PLAY_H + 4, 5.3, 0.10, false, false);
+    // bazaar buildings (right) — stacked stone blocks with awnings
+    const bL = ox + 150, bT = padY - 74;
+    canyonRockColumn(bL + 20, oxR + 20, bT - 40, padY + 6, 9.1, 0, true, false);         // back rock face
+    pxFill(bL - 1, bT - 1, oxR - bL + 2, padY - bT + 1, P.O);
+    pxFill(bL, bT, oxR - bL, padY - bT, P.rockShad);
+    for (let py = bT; py < padY; py += 7) for (let px = bL + ((py / 7) & 1) * 5; px < oxR; px += 10) {
+      pxFill(px, py, 9, 6, P.rockMid); pxFill(px, py, 9, 1, P.rockCore); pxFill(px, py, 1, 6, P.rockCore);
+    }
+    // lit doorway into the market
+    pxFill(bL + 30, padY - 30, 22, 30, P.O); pxFill(bL + 32, padY - 28, 18, 28, P.glow2); pxFill(bL + 34, padY - 26, 14, 26, P.glow);
+    pxFill(bL + 36, padY - 12, 4, 12, '#a0401a'); pxFill(bL + 42, padY - 16, 5, 16, '#a0401a');   // silhouettes inside
+    // striped awnings over two stalls
+    const awning = (ax, ay, aw) => {
+      pxFill(ax - 1, ay - 1, aw + 2, 6, P.O);
+      for (let i = 0; i < aw; i += 4) pxFill(ax + i, ay, Math.min(4, aw - i), 4, ((i >> 2) & 1) ? P.bone : P.rustCore);
+      pxFill(ax, ay + 4, aw, 1, P.rust);
+      for (let i = 2; i < aw; i += 8) pxFill(ax + i, ay + 5, 2, 1, P.rust);
+      pxFill(ax, ay + 5, 1, 16, P.woodD); pxFill(ax + aw - 1, ay + 5, 1, 16, P.woodD);
+    };
+    awning(bL + 4, padY - 26, 24); awning(bL + 60, padY - 30, 36);
+    canyonCrate(bL + 8, padY - 10, 8, 10); canyonBarrel(bL + 18, padY - 13);
+    canyonCrate(bL + 64, padY - 12, 12, 12); canyonCrate(bL + 80, padY - 8, 8, 8); canyonBarrel(bL + 92, padY - 13);
+    // upper floor windows + skull banner
+    for (let i = 0; i < 4; i++) { pxFill(bL + 10 + i * 24, bT + 12, 6, 8, P.O); pxFill(bL + 11 + i * 24, bT + 13, 4, 6, (blink ^ (i & 1)) ? P.glow : P.glow2); }
+    pxFill(bL + 52, bT - 30, 2, 30, P.woodCore); canyonSkullFlag(bL + 54, bT - 28, 18, 10, wave);
+    // sign over the doorway
+    canyonSignBoard(bL + 41, bT + 30, 'BLACK'); canyonSignBoard(bL + 41, bT + 42, 'MARKET');
+    // loading crane at the far right with a cargo net
+    const cx = oxR - 12;
+    pxFill(cx, bT - 20, 3, padY - bT + 20, P.gun); pxFill(cx, bT - 20, 1, padY - bT + 20, P.gunLite);
+    pxFill(cx - 34, bT - 20, 37, 3, P.gun); pxFill(cx - 34, bT - 20, 37, 1, P.gunLite);
+    for (let cy = bT - 17; cy < bT + 8; cy += 2) pxFill(cx - 30, cy, 1, 1, P.rope);
+    pxFill(cx - 36, bT + 8, 13, 10, P.rope); pxFill(cx - 35, bT + 9, 11, 8, P.wood); pxFill(cx - 33, bT + 11, 3, 3, P.tealCore); pxFill(cx - 28, bT + 12, 3, 3, P.tealCore);
+    // watch tower (left) with lantern + parrot-drone cage
+    const tX = ox + 6;
+    pxFill(tX, padY - 60, 3, 60, P.woodCore); pxFill(tX + 13, padY - 60, 3, 60, P.woodCore);
+    pxFill(tX - 3, padY - 70, 22, 12, P.O); pxFill(tX - 2, padY - 69, 20, 10, P.woodCore); pxFill(tX - 2, padY - 69, 20, 1, P.woodLite);
+    pxFill(tX - 4, padY - 76, 24, 6, P.rustCore); pxFill(tX - 4, padY - 76, 24, 1, P.rustLite);
+    canyonLantern(tX + 8, padY - 66, blink);
+    pxFill(tX + 3, padY - 40, 10, 8, P.O); pxFill(tX + 4, padY - 39, 8, 6, P.gun); pxFill(tX + 6, padY - 37, 3, 2, P.green); pxFill(tX + 7, padY - 38, 1, 1, P.red);
+    // lantern line strung from the tower to the bazaar over the runway
+    const lineY = padY - 62;
+    for (let px = tX + 16; px < bL + 52; px += 2) pxFill(px, lineY + ((px * 7) % 5 === 0 ? 1 : 0) + Math.round(Math.sin((px - tX) / 60 * Math.PI) * 6), 1, 1, P.rope);
+    for (let i = 0; i < 6; i++) {
+      const px = tX + 30 + i * 20, py = lineY + 2 + Math.round(Math.sin((px - tX) / 60 * Math.PI) * 6);
+      canyonLantern(px, py, (blink + i) & 1);
+    }
+    // pier pad
+    pxFill(ox, padY - 1, 256, 8, P.O);
+    pxFill(ox + 1, padY, 254, 6, P.woodCore); pxFill(ox + 1, padY, 254, 1, P.woodLite);
+    for (let px = ox + 1; px < oxR - 1; px += 9) pxFill(px, padY, 1, 6, P.woodD);
+    pxFill(ox + 1, padY + 5, 254, 1, P.woodD);
+    for (let px = ox + 76; px < oxR - 76; px += 26) { pxFill(px, padY + 6, 3, 14, P.woodD); pxFill(px, padY + 6, 1, 14, P.woodCore); }
+    for (let px = ox + 8; px < ox + 70; px += 30) { pxFill(px, padY + 6, 2, 8, P.woodD); pxFill(px + 2, padY + 6, 14, 1, P.woodD); }   // diagonal braces (cantilever)
+    // landing markers — bone-white chevrons on the planks where the rig sets down
+    for (let i = 0; i < 4; i++) { pxFill(ox + 60 + i * 20, padY + 2, 6, 1, P.bone); pxFill(ox + 66 + i * 20, padY + 1, 2, 3, P.bone); }
+    pxFill(ox + 30, padY - 3, 10, 3, P.rope); canyonBarrel(ox + 44, padY - 13);
+    ctx.restore();
+  }
+
+  // ── CARGO — iron-banded smuggler's chest, 28×28 (same footprint as the
+  //    wood crate so the tether bead + bonus trim line up). Light leaks from
+  //    under the lid and ticks — whatever's inside isn't happy.
+  function pxCanyonCargoChest(g, ox, oy) {
+    const P = CPX, x = ox | 0, y = oy | 0;
+    const f = (xx, yy, w, h, c) => { g.fillStyle = c; g.fillRect(xx, yy, w, h); };
+    f(x - 1, y - 1, 28, 28, P.O);
+    f(x, y, 26, 26, P.woodCore);
+    f(x, y, 26, 9, P.woodLite);
+    f(x, y + 9, 26, 1, P.woodD);
+    for (let px = x + 3; px < x + 26; px += 6) f(px, y + 10, 1, 16, P.woodD);
+    f(x, y + 23, 26, 3, P.wood);
+    f(x + 4, y, 3, 26, P.tealCore); f(x + 4, y, 1, 26, P.tealLite);
+    f(x + 19, y, 3, 26, P.tealCore); f(x + 19, y, 1, 26, P.tealLite);
+    f(x, y, 3, 3, P.tealMid); f(x + 23, y, 3, 3, P.tealMid); f(x, y + 23, 3, 3, P.teal); f(x + 23, y + 23, 3, 3, P.teal);
+    f(x + 5, y + 3, 1, 1, P.tealSpec); f(x + 20, y + 3, 1, 1, P.tealSpec); f(x + 5, y + 21, 1, 1, P.tealSpec); f(x + 20, y + 21, 1, 1, P.tealSpec);
+    const tick = (frame >> 4) & 1;
+    f(x + 8, y + 9, 2, 1, tick ? P.glow : P.glow2); f(x + 16, y + 9, 2, 1, tick ? P.glow2 : P.glow);
+    f(x + 11, y + 6, 4, 1, P.tealLite); f(x + 10, y + 7, 6, 7, P.O); f(x + 11, y + 8, 4, 4, P.bone);
+    f(x + 12, y + 9, 1, 1, P.O); f(x + 14, y + 9, 1, 1, P.O); f(x + 12, y + 12, 2, 1, P.bone);
+    f(x + 8, y + 17, 10, 4, P.rust); f(x + 9, y + 18, 8, 2, P.rustCore); f(x + 10, y + 18, 2, 2, P.rustLite);
+  }
+
+  // ── GROUND — canyon floor strata. Sun-baked ochre crust with surface
+  //    rubble, then rust and iron-dark seams, buried smugglers' loot (coin
+  //    glints, cannonballs, chest fragments) instead of wasteland bones.
+  function drawCanyonTerrainBands(floorPts) {
+    const P = CPX;
+    const g0 = '#d98a48', g1 = '#b5652c', g2 = '#8a4420', g3 = '#5a2a14', g4 = '#33180e', g5 = '#1e0d07';
+    const crest = '#f4b57a', seamD = '#3a1a0c', vein = '#c2652f', iron = '#1c3038';
+    const hash = (wx, yy) => (((wx * 374761393) ^ (yy * 668265263)) >>> 0);
+    const dither = (sx, segW, wx, yStart, rows, a, b) => {
+      for (let r = 0; r < rows; r++) {
+        const yy = yStart + r; if (yy >= H + 4) break;
+        const density = r + 1, h = hash(wx, yy) % rows, flip = ((wx + yy) & 1);
+        pxFill(sx, yy, segW, 1, (flip ? h >= (rows - density) : h < density) ? b : a);
+      }
+    };
+    for (let i = 0; i < floorPts.length - 1; i++) {
+      const p = floorPts[i], next = floorPts[i + 1];
+      const segW = Math.max(1, next.sx - p.sx), wx = (p.sx + dailyScrollX) | 0;
+      pxFill(p.sx, p.y, segW, 1, crest);
+      pxFill(p.sx, p.y + 1, segW, 4, g0);
+      dither(p.sx, segW, wx, p.y + 5, 4, g0, g1);
+      pxFill(p.sx, p.y + 9, segW, 6, g1);
+      dither(p.sx, segW, wx, p.y + 15, 4, g1, g2);
+      pxFill(p.sx, p.y + 19, segW, 10, g2);
+      dither(p.sx, segW, wx, p.y + 29, 4, g2, g3);
+      if (p.y + 33 < H + 4) pxFill(p.sx, p.y + 33, segW, Math.min(28, H + 4 - (p.y + 33)), g3);
+      dither(p.sx, segW, wx, p.y + 61, 6, g3, g4);
+      if (p.y + 67 < H + 4) pxFill(p.sx, p.y + 67, segW, Math.min(44, H + 4 - (p.y + 67)), g4);
+      dither(p.sx, segW, wx, p.y + 111, 6, g4, g5);
+      if (p.y + 117 < H + 4) pxFill(p.sx, p.y + 117, segW, H + 4 - (p.y + 117), g5);
+      // surface rubble: lit chips on the crust, dark chips in their shadow
+      const rh = hash(wx, 3) & 15;
+      if (rh === 0) { pxFill(p.sx, p.y - 1, 2, 1, P.rockLite2); pxFill(p.sx + 1, p.y, 2, 1, P.rockDeep); }
+      else if (rh === 1) pxFill(p.sx, p.y + 1 + (hash(wx, 5) & 1), 1, 1, P.rockDeep);
+      else if (rh === 2 && (wx & 1)) pxFill(p.sx, p.y - 1, 1, 1, P.rockDeep);
+      for (let d = 6; d < H + 4 - p.y; d += 3) {
+        const yy = p.y + d; if (yy >= H + 4) break;
+        const h = hash(wx + d * 13, yy) & 63;
+        if (h === 0) pxFill(p.sx, yy, 1, 1, seamD);
+        else if (h === 1 && d > 18) pxFill(p.sx, yy, 1, 1, vein);
+        else if (h === 2 && d > 60) pxFill(p.sx, yy, 1, 1, g3);
+      }
+    }
+    // undulating strata — rust veins + iron-dark seams
+    const strata = [
+      { depth: 11, amp: 3, freq: 0.013, phase: 0.2, slope: 0.03, color: seamD },
+      { depth: 22, amp: 5, freq: 0.009, phase: 1.1, slope: -0.04, color: vein },
+      { depth: 31, amp: 4, freq: 0.015, phase: 2.5, slope: 0.05, color: iron },
+      { depth: 44, amp: 6, freq: 0.010, phase: 0.7, slope: -0.03, color: seamD },
+      { depth: 58, amp: 5, freq: 0.008, phase: 1.9, slope: 0.04, color: vein },
+      { depth: 74, amp: 7, freq: 0.011, phase: 3.2, slope: -0.05, color: iron },
+      { depth: 92, amp: 6, freq: 0.009, phase: 0.9, slope: 0.03, color: seamD },
+      { depth: 112, amp: 8, freq: 0.007, phase: 2.2, slope: -0.04, color: vein },
+      { depth: 134, amp: 6, freq: 0.012, phase: 1.4, slope: 0.05, color: iron },
+      { depth: 158, amp: 7, freq: 0.009, phase: 2.9, slope: -0.03, color: seamD },
+    ];
+    for (const s of strata) for (let i = 0; i < floorPts.length - 1; i++) {
+      const p = floorPts[i], next = floorPts[i + 1];
+      const segW = Math.max(1, next.sx - p.sx), wx = (p.sx + dailyScrollX) | 0;
+      const yy = p.y + s.depth + Math.round(Math.sin(wx * s.freq + s.phase) * s.amp) + Math.round(wx * s.slope);
+      if (yy < p.y + 5 || yy >= H + 4) continue;
+      if ((hash(wx, s.depth) & 7) < 2) continue;
+      pxFill(p.sx, yy, segW, 1, s.color);
+    }
+    // buried loot
+    const slotW = 100, startSlot = Math.floor(dailyScrollX / slotW) - 1, endSlot = Math.floor((dailyScrollX + W) / slotW) + 1;
+    for (let slot = startSlot; slot <= endSlot; slot++) {
+      const sh = hash(slot * 31, 17);
+      if ((sh & 3) === 0) continue;
+      const wx = slot * slotW + ((sh >> 4) % 70), sx = (wx - dailyScrollX) | 0;
+      if (sx < -16 || sx > W + 16) continue;
+      const fy = floorPts[Math.max(0, Math.min(floorPts.length - 1, sx - floorPts[0].sx))].y;
+      const dp = (sh >> 8) & 7;
+      const ay = fy + (dp === 0 ? 12 : dp === 1 ? 24 : dp === 2 ? 40 : dp === 3 ? 58 : dp === 4 ? 78 : dp === 5 ? 100 : dp === 6 ? 124 : 150) + ((sh >> 13) % 8);
+      if (ay > H - 6) continue;
+      const kind = (sh >> 16) & 3;
+      if (kind === 0) {           // coin glints
+        pxFill(sx, ay, 2, 1, P.glow); pxFill(sx + 3, ay + 2, 2, 1, P.glow2); pxFill(sx - 2, ay + 3, 1, 1, P.glow);
+      } else if (kind === 1) {    // cannonball cluster
+        for (let k = 0; k < 3; k++) { const bx = sx + (k === 2 ? 2 : k * 4), by = ay + (k === 2 ? -3 : 0); pxFill(bx, by, 3, 3, P.O); pxFill(bx, by, 1, 1, P.gunLite); }
+      } else if (kind === 2) {    // iron chest fragment
+        pxFill(sx - 1, ay - 1, 8, 6, P.O); pxFill(sx, ay, 6, 4, P.tealCore); pxFill(sx, ay, 6, 1, P.tealLite); pxFill(sx + 2, ay + 1, 2, 2, P.bone);
+      } else {                    // buried anchor
+        pxFill(sx + 2, ay - 4, 1, 8, P.gun); pxFill(sx, ay + 3, 5, 1, P.gun); pxFill(sx, ay + 2, 1, 1, P.gun); pxFill(sx + 4, ay + 2, 1, 1, P.gun); pxFill(sx + 1, ay - 4, 3, 1, P.gunLite);
+      }
+    }
+  }
+
   function drawCanyonAirship(seedX, yFrac, size) {
     const span = W + 180;
     const drift = dailyScrollX * 0.02 + frame * 0.22 + seedX * span;
@@ -19508,6 +19974,8 @@ const DLX_BUILD = 'DXP-DAILY-v74';
     // runs unchanged.
     if (isPixelHorizonLevel()) {
       drawPixelTerrainBands(floorPts);
+    } else if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+      drawCanyonTerrainBands(floorPts);           // canyon floor strata + buried loot
     } else {
       // ---- EARTH FILL — one continuous polygon under the floor
       ctx.fillStyle = earthGrad;
@@ -20271,6 +20739,10 @@ const DLX_BUILD = 'DXP-DAILY-v74';
     }
     if (currentDeliveryLevel.obstacleTheme === 'scrapyard') {
       drawLandmarkScrapyardSmeltWorks(x, y);
+      return;
+    }
+    if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+      drawLandmarkBlackMarket(x, y);              // CUTTHROAT CANYON delivery dock
       return;
     }
     // ── SUNSET BIOME — pixel-art "GOOD BUDDY DINER" pad. v451S/T port
@@ -21582,6 +22054,10 @@ const DLX_BUILD = 'DXP-DAILY-v74';
     }
     if (currentDeliveryLevel.obstacleTheme === 'scrapyard') {
       drawLandmarkScrapyardSalvagePit(x, y);
+      return;
+    }
+    if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+      drawLandmarkFreeportDocks(x, y);            // CUTTHROAT CANYON launch dock
       return;
     }
     ctx.save();
@@ -27306,6 +27782,10 @@ const DLX_BUILD = 'DXP-DAILY-v74';
       drawBoneSpur(sx, top, gap, seed);
       return;
     }
+    if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+      drawCanyonRockPillar(sx, top, gap, seed);   // CUTTHROAT CANYON: twin rock spires
+      return;
+    }
     if (isPixelHorizonLevel()) {
       drawPixelScrapTower(sx, top, gap, seed);
       return;
@@ -27750,6 +28230,10 @@ const DLX_BUILD = 'DXP-DAILY-v74';
   // mid-air. 3 smaller debris pieces orbit the main hulk so the cluster
   // reads as "this used to be a whole rival rig".
   function drawAirWreck(sx, alt, seed) {
+    if (currentDeliveryLevel.obstacleTheme === 'canyon') {
+      drawCanyonAirWreck(sx, alt, seed);          // CUTTHROAT CANYON: derelict raider skiff
+      return;
+    }
     if (isPixelHorizonLevel()) {
       // Fleet variety: seed % 2 picks between two wreck silhouettes
       // so the player doesn't see identical hulks in a single run.
@@ -31801,7 +32285,8 @@ const DLX_BUILD = 'DXP-DAILY-v74';
     }
     // v429-pixel: ROAD KILL pixel-art wood crate (28×28) from the
     // mockup-roadkill mockup, centered on cargo origin.
-    pxRoadkillCargo(ctx, -14, -14);
+    if (currentDeliveryLevel.obstacleTheme === 'canyon') pxCanyonCargoChest(ctx, -14, -14);   // smuggler's chest
+    else pxRoadkillCargo(ctx, -14, -14);
     const w = 28, h = 28;
     // Magnetic-receiver bead on the front of the crate (rig-facing side)
     // — cyan stepped halo + chunky pixel bead in white/cyan.
@@ -37719,61 +38204,178 @@ const DLX_BUILD = 'DXP-DAILY-v74';
       }
       ctx.rotate(leanRot);
 
-      // ==== HERO SKIFF — hooded sky-pirate raider on a gunmetal hover-sled.
-      //      Drawn facing RIGHT in local coords (thruster at the back = -x);
-      //      the ctx.scale(-fc,1) above mirrors it for the approach direction.
-      // ---- HOVER-SLED DECK (gunmetal hull, rust stripe, rivets)
-      ctx.fillStyle = '#141018'; ctx.fillRect(-16, -1, 32, 10);        // outline slab
-      ctx.fillStyle = '#4a4650'; ctx.fillRect(-15, 0, 30, 8);          // deck core
-      ctx.fillStyle = '#6a6672'; ctx.fillRect(-15, 0, 30, 1.5);        // lit top edge
-      ctx.fillStyle = '#2a2830'; ctx.fillRect(-15, 6, 30, 2);          // shadow band
-      ctx.fillStyle = '#b5652c'; ctx.fillRect(-13, 1, 26, 1.5);        // rust deck stripe
-      ctx.fillStyle = '#e08a3a'; ctx.fillRect(-13, 1, 26, 0.6);        // rust highlight
-      ctx.fillStyle = '#8a8690';                                       // rivet row
-      for (let rx = -12; rx <= 12; rx += 4) ctx.fillRect(rx, 4, 1, 1);
-      ctx.fillStyle = '#8fa6ac'; ctx.fillRect(14, 1, 2, 3);            // lit prow tip (front)
-      ctx.fillStyle = '#1a1620';                                       // underside hover-skid
-      ctx.beginPath(); ctx.moveTo(-5, 8); ctx.lineTo(6, 8); ctx.lineTo(0, 11); ctx.closePath(); ctx.fill();
+      if (currentDeliveryLevel && currentDeliveryLevel.raiderSkin === 'canyon') {
+        // ==== HERO SKIFF — hooded sky-pirate raider on a gunmetal hover-sled.
+        //      Drawn facing RIGHT in local coords (thruster at the back = -x);
+        //      the ctx.scale(-fc,1) above mirrors it for the approach direction.
+        // ---- HOVER-SLED DECK (gunmetal hull, rust stripe, rivets)
+        ctx.fillStyle = '#141018'; ctx.fillRect(-16, -1, 32, 10);        // outline slab
+        ctx.fillStyle = '#4a4650'; ctx.fillRect(-15, 0, 30, 8);          // deck core
+        ctx.fillStyle = '#6a6672'; ctx.fillRect(-15, 0, 30, 1.5);        // lit top edge
+        ctx.fillStyle = '#2a2830'; ctx.fillRect(-15, 6, 30, 2);          // shadow band
+        ctx.fillStyle = '#b5652c'; ctx.fillRect(-13, 1, 26, 1.5);        // rust deck stripe
+        ctx.fillStyle = '#e08a3a'; ctx.fillRect(-13, 1, 26, 0.6);        // rust highlight
+        ctx.fillStyle = '#8a8690';                                       // rivet row
+        for (let rx = -12; rx <= 12; rx += 4) ctx.fillRect(rx, 4, 1, 1);
+        ctx.fillStyle = '#8fa6ac'; ctx.fillRect(14, 1, 2, 3);            // lit prow tip (front)
+        ctx.fillStyle = '#1a1620';                                       // underside hover-skid
+        ctx.beginPath(); ctx.moveTo(-5, 8); ctx.lineTo(6, 8); ctx.lineTo(0, 11); ctx.closePath(); ctx.fill();
 
-      // ---- THRUSTER at the back (-x) — animated warm flame
-      const flame = (Math.sin(bd.flapPhase * 2.0) + 1) * 0.5;
-      ctx.fillStyle = '#141018'; ctx.fillRect(-18, 2, 4, 4);          // nozzle
-      ctx.fillStyle = '#e0521e';
-      ctx.beginPath(); ctx.moveTo(-18, 2); ctx.lineTo(-26 - flame * 5, 4); ctx.lineTo(-18, 6); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#ff8a2c';
-      ctx.beginPath(); ctx.moveTo(-18, 3); ctx.lineTo(-23 - flame * 4, 4); ctx.lineTo(-18, 5); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#ffd23c'; ctx.beginPath(); ctx.arc(-19, 4, 1.5 + flame * 0.5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#fff3c8'; ctx.fillRect(-20, 3.5, 1, 1);
+        // ---- THRUSTER at the back (-x) — animated warm flame
+        const flame = (Math.sin(bd.flapPhase * 2.0) + 1) * 0.5;
+        ctx.fillStyle = '#141018'; ctx.fillRect(-18, 2, 4, 4);          // nozzle
+        ctx.fillStyle = '#e0521e';
+        ctx.beginPath(); ctx.moveTo(-18, 2); ctx.lineTo(-26 - flame * 5, 4); ctx.lineTo(-18, 6); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#ff8a2c';
+        ctx.beginPath(); ctx.moveTo(-18, 3); ctx.lineTo(-23 - flame * 4, 4); ctx.lineTo(-18, 5); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#ffd23c'; ctx.beginPath(); ctx.arc(-19, 4, 1.5 + flame * 0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff3c8'; ctx.fillRect(-20, 3.5, 1, 1);
 
-      // ---- HOODED RAIDER — dark cloak + glowing red visor
-      ctx.fillStyle = '#0e0a14'; ctx.fillRect(-5, -11, 12, 12);       // cloak outline
-      ctx.fillStyle = '#2e2036'; ctx.fillRect(-4, -10, 10, 11);       // cloak core
-      ctx.fillStyle = '#3e2c46'; ctx.fillRect(-4, -10, 10, 2);        // lit shoulders
-      ctx.fillStyle = '#1a1220'; ctx.fillRect(-4, -1, 10, 2);         // cloak base shadow
-      ctx.fillStyle = '#0e0a14'; ctx.fillRect(-5, -19, 10, 9);        // hood outline
-      ctx.fillStyle = '#2e2036'; ctx.fillRect(-4, -18, 8, 8);         // hood mass
-      ctx.fillStyle = '#3e2c46'; ctx.fillRect(-4, -18, 8, 1.5);       // hood crown light
-      ctx.fillStyle = '#08060a'; ctx.fillRect(-1, -16, 5, 5);         // face recess (opens forward)
-      ctx.fillStyle = '#ff3a3a'; ctx.fillRect(0, -15, 4, 1.7);        // RED VISOR slit
-      ctx.fillStyle = '#ffb090'; ctx.fillRect(2.4, -15, 1.6, 0.8);    // hot visor end
+        // ---- HOODED RAIDER — dark cloak + glowing red visor
+        ctx.fillStyle = '#0e0a14'; ctx.fillRect(-5, -11, 12, 12);       // cloak outline
+        ctx.fillStyle = '#2e2036'; ctx.fillRect(-4, -10, 10, 11);       // cloak core
+        ctx.fillStyle = '#3e2c46'; ctx.fillRect(-4, -10, 10, 2);        // lit shoulders
+        ctx.fillStyle = '#1a1220'; ctx.fillRect(-4, -1, 10, 2);         // cloak base shadow
+        ctx.fillStyle = '#0e0a14'; ctx.fillRect(-5, -19, 10, 9);        // hood outline
+        ctx.fillStyle = '#2e2036'; ctx.fillRect(-4, -18, 8, 8);         // hood mass
+        ctx.fillStyle = '#3e2c46'; ctx.fillRect(-4, -18, 8, 1.5);       // hood crown light
+        ctx.fillStyle = '#08060a'; ctx.fillRect(-1, -16, 5, 5);         // face recess (opens forward)
+        ctx.fillStyle = '#ff3a3a'; ctx.fillRect(0, -15, 4, 1.7);        // RED VISOR slit
+        ctx.fillStyle = '#ffb090'; ctx.fillRect(2.4, -15, 1.6, 0.8);    // hot visor end
 
-      // ---- ARM + GRAPPLE GUN (forward, +x) — reaches when firing
-      ctx.strokeStyle = '#2e2036';
-      ctx.lineWidth = 2.4;
-      ctx.lineCap = 'round';
-      const armReachX = (bd.state === 'fire' || bd.state === 'reel'
-                         || bd.state === 'retract') ? 10 : 7;
-      const armReachY = (bd.state === 'fire' || bd.state === 'reel'
-                         || bd.state === 'retract') ? -7 : -5;
-      ctx.beginPath();
-      ctx.moveTo(1, -7);
-      ctx.lineTo(armReachX, armReachY);
-      ctx.stroke();
-      ctx.lineCap = 'butt';
-      ctx.fillStyle = '#5a5a64'; ctx.fillRect(armReachX - 1, armReachY - 1, 6, 3);      // grapple gun body
-      ctx.fillStyle = '#9a9aa4'; ctx.fillRect(armReachX - 1, armReachY - 1, 6, 0.8);    // lit top edge
-      ctx.fillStyle = '#8fe6e0'; ctx.fillRect(armReachX + 4, armReachY - 0.4, 1.6, 2);  // cyan muzzle
+        // ---- ARM + GRAPPLE GUN (forward, +x) — reaches when firing
+        ctx.strokeStyle = '#2e2036';
+        ctx.lineWidth = 2.4;
+        ctx.lineCap = 'round';
+        const armReachX = (bd.state === 'fire' || bd.state === 'reel'
+                           || bd.state === 'retract') ? 10 : 7;
+        const armReachY = (bd.state === 'fire' || bd.state === 'reel'
+                           || bd.state === 'retract') ? -7 : -5;
+        ctx.beginPath();
+        ctx.moveTo(1, -7);
+        ctx.lineTo(armReachX, armReachY);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+        ctx.fillStyle = '#5a5a64'; ctx.fillRect(armReachX - 1, armReachY - 1, 6, 3);      // grapple gun body
+        ctx.fillStyle = '#9a9aa4'; ctx.fillRect(armReachX - 1, armReachY - 1, 6, 0.8);    // lit top edge
+        ctx.fillStyle = '#8fe6e0'; ctx.fillRect(armReachX + 4, armReachY - 0.4, 1.6, 2);  // cyan muzzle
 
+      } else {
+        // ---- ORIGINAL DLX BANDIT (BLACK ROUTE + every non-canyon level) ----
+        // ---- SLED PLATFORM — chunky horizontal slab
+        ctx.fillStyle = '#3a3a40';
+        ctx.fillRect(-15, 0, 30, 7);
+        // Lit top edge
+        ctx.fillStyle = 'rgba(180, 200, 220, 0.55)';
+        ctx.fillRect(-15, 0, 30, 1.5);
+        // Hazard-stripe band around the bottom of the sled
+        ctx.fillStyle = '#1a0e05';
+        ctx.fillRect(-15, 5, 30, 2);
+        ctx.fillStyle = '#ffd040';
+        for (let off = 0; off < 30; off += 6) {
+          ctx.beginPath();
+          ctx.moveTo(-15 + off,     5);
+          ctx.lineTo(-15 + off + 3, 5);
+          ctx.lineTo(-15 + off + 5, 7);
+          ctx.lineTo(-15 + off + 2, 7);
+          ctx.closePath();
+          ctx.fill();
+        }
+        // Underside fin (small triangle hanging down — hover-skid)
+        ctx.fillStyle = '#1a2030';
+        ctx.beginPath();
+        ctx.moveTo(-6, 7);
+        ctx.lineTo(6, 7);
+        ctx.lineTo(0, 11);
+        ctx.closePath();
+        ctx.fill();
+
+        // ---- TWIN THRUSTERS at the back (left side, since facing
+        //      right in local coords). Animated flame.
+        const flame = (Math.sin(bd.flapPhase * 2.0) + 1) * 0.5;
+        // Thruster nozzles
+        ctx.fillStyle = '#1a0e05';
+        ctx.fillRect(-19, 1, 5, 2);
+        ctx.fillRect(-19, 4, 5, 2);
+        // Outer flame
+        ctx.fillStyle = '#ff6020';
+        ctx.beginPath();
+        ctx.moveTo(-19, 1);
+        ctx.lineTo(-25 - flame * 4, 2);
+        ctx.lineTo(-19, 3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-19, 4);
+        ctx.lineTo(-25 - flame * 4, 5);
+        ctx.lineTo(-19, 6);
+        ctx.closePath();
+        ctx.fill();
+        // Inner bright flame
+        ctx.fillStyle = '#ffd040';
+        ctx.beginPath();
+        ctx.arc(-21, 2, 1.4 + flame * 0.4, 0, Math.PI * 2);
+        ctx.arc(-21, 5, 1.4 + flame * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // ---- HEADLAMP at the front of the sled (visible front lamp)
+        ctx.fillStyle = '#3a4453';
+        ctx.fillRect(13, 0, 4, 5);
+        ctx.fillStyle = '#ffd040';
+        ctx.beginPath();
+        ctx.arc(16, 2.5, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // ---- BANDIT BODY — humanoid in DLX-knockoff hauler outfit
+        // Torso (red vest with hazard band)
+        ctx.fillStyle = '#a52a2a';
+        ctx.fillRect(-3, -10, 6, 9);
+        ctx.fillStyle = '#ffd040';
+        ctx.fillRect(-3, -8, 6, 1);
+        // Belt
+        ctx.fillStyle = '#1a0e05';
+        ctx.fillRect(-3, -2, 6, 1);
+        // Shoulders
+        ctx.fillStyle = '#7a1a1a';
+        ctx.fillRect(-4, -10, 8, 1.5);
+        // Head — skin
+        ctx.fillStyle = '#d4a577';
+        ctx.beginPath();
+        ctx.arc(0, -14, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+        // Bandit MASK across the eyes (thin black band)
+        ctx.fillStyle = '#1a0e05';
+        ctx.fillRect(-3, -15, 6, 1.6);
+        // White eye-holes in the mask
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(-2, -14.6, 1, 0.8);
+        ctx.fillRect( 1, -14.6, 1, 0.8);
+        // Trucker CAP — flat-topped with a forward bill, DLX accent
+        ctx.fillStyle = '#1a0e05';
+        ctx.fillRect(-3.4, -18, 6.8, 1.8);
+        ctx.fillRect(0, -16.8, 5, 1);   // forward brim
+        ctx.fillStyle = '#ffd040';
+        ctx.fillRect(-3.4, -17.6, 6.8, 0.5);
+        // ARM — forward, holding the grappling-hook gun
+        ctx.strokeStyle = '#a52a2a';
+        ctx.lineWidth = 2.2;
+        ctx.lineCap = 'round';
+        const armReachX = (bd.state === 'fire' || bd.state === 'reel'
+                           || bd.state === 'retract') ? 9 : 6;
+        const armReachY = (bd.state === 'fire' || bd.state === 'reel'
+                           || bd.state === 'retract') ? -8 : -6;
+        ctx.beginPath();
+        ctx.moveTo(0, -8);
+        ctx.lineTo(armReachX, armReachY);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+        // Grappling-hook GUN in hand (always drawn — it's their tool)
+        ctx.fillStyle = '#3a3a40';
+        ctx.fillRect(armReachX - 1, armReachY - 1, 5, 3);
+        ctx.fillStyle = 'rgba(180, 200, 220, 0.55)';
+        ctx.fillRect(armReachX - 1, armReachY - 1, 5, 0.7);
+
+      }
       ctx.restore();
 
       // ---- GRAPPLING HOOK CABLE + TIP (drawn outside the scaled
@@ -37837,6 +38439,7 @@ const DLX_BUILD = 'DXP-DAILY-v74';
 
   function drawDailyBanditHalos() {
     if (!isDaily || !dailyDlxBandits.length) return;
+    if (currentDeliveryLevel && currentDeliveryLevel.raiderSkin === 'canyon') return;   // skiff has its own thruster glow
     const halos = _getBanditHalos();
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -39686,7 +40289,10 @@ const DLX_BUILD = 'DXP-DAILY-v74';
         tunnels: false, tentacles: false,
         dlxBandits: true,
       },
-      obstacleTheme: 'desert',
+      // 'canyon' = level-exclusive art kit (rock-spire pillars, derelict
+      // skiff wrecks, FREEPORT DOCKS / BLACK MARKET landmarks, smuggler's
+      // chest cargo, canyon floor strata). Nothing shared with SUNSET.
+      obstacleTheme: 'canyon',
     },
     leviathan: {
       label: 'THE LEVIATHAN',
